@@ -22,6 +22,13 @@ import warnings
 
 import pytest
 
+try:
+    import fluid_provider_sdk  # noqa: F401
+
+    HAS_SDK = True
+except ImportError:
+    HAS_SDK = False
+
 
 @pytest.fixture(autouse=True)
 def _clean_registry():
@@ -281,6 +288,7 @@ class TestBuildProviderNormalization:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(not HAS_SDK, reason="fluid-provider-sdk not installed")
 class TestSDKIntegration:
     """Verify that the standalone SDK package is wired into the CLI."""
 
@@ -318,6 +326,7 @@ class TestSDKIntegration:
         assert set(c.keys()) >= {"planning", "apply", "render", "graph", "auth"}
 
 
+@pytest.mark.skipif(not HAS_SDK, reason="fluid-provider-sdk not installed")
 class TestProviderInfo:
     """Verify get_provider_info() on built-in providers."""
 

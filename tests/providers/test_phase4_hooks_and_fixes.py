@@ -44,16 +44,23 @@ import pytest
 # ---------------------------------------------------------------------------
 # SDK imports
 # ---------------------------------------------------------------------------
-from fluid_provider_sdk import (
-    ApplyResult,
-    BaseProvider,
-    ConsumeSpec,
-    CostEstimate,
-    ProviderCapabilities,
-    ProviderHookSpec,
-    has_hook,
-    invoke_hook,
-)
+try:
+    from fluid_provider_sdk import (
+        ApplyResult,
+        BaseProvider,
+        ConsumeSpec,
+        CostEstimate,
+        ProviderCapabilities,
+        ProviderHookSpec,
+        has_hook,
+        invoke_hook,
+    )
+
+    HAS_SDK = True
+except ImportError:
+    HAS_SDK = False
+
+pytestmark = pytest.mark.skipif(not HAS_SDK, reason="fluid-provider-sdk not installed")
 
 # ===================================================================
 # SECTION 1: CostEstimate

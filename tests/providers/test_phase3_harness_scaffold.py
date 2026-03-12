@@ -23,6 +23,15 @@ from pathlib import Path
 
 import pytest
 
+try:
+    import fluid_provider_sdk  # noqa: F401
+
+    HAS_SDK = True
+except ImportError:
+    HAS_SDK = False
+
+pytestmark = pytest.mark.skipif(not HAS_SDK, reason="fluid-provider-sdk not installed")
+
 # ---------------------------------------------------------------------------
 # Test Harness (SDK testing subpackage)
 # ---------------------------------------------------------------------------

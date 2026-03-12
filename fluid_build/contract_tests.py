@@ -204,7 +204,7 @@ def _write_output(rel, outputs: Dict[str, Any], dry_run: bool) -> Tuple[int, Opt
     if dry_run:
         # Estimate count without writing
         try:
-            cnt = rel.count()
+            cnt = rel.count("*").fetchone()[0]
         except Exception as e:
             LOGGER.warning(f"Failed to count rows in dry run: {e}")
             cnt = -1
@@ -270,7 +270,7 @@ def _write_output(rel, outputs: Dict[str, Any], dry_run: bool) -> Tuple[int, Opt
 
         # Count rows
         try:
-            cnt = rel.count()
+            cnt = rel.count("*").fetchone()[0]
         except Exception as e:
             LOGGER.warning(f"Failed to count output rows: {e}")
             cnt = -1

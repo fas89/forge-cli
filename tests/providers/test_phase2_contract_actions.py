@@ -17,6 +17,17 @@
 
 from __future__ import annotations
 
+import pytest
+
+try:
+    import fluid_provider_sdk  # noqa: F401
+
+    HAS_SDK = True
+except ImportError:
+    HAS_SDK = False
+
+pytestmark = pytest.mark.skipif(not HAS_SDK, reason="fluid-provider-sdk not installed")
+
 # ── Sample contracts ──────────────────────────────────────────────────
 
 SAMPLE_071 = {
