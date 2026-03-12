@@ -1,0 +1,172 @@
+fluidVersion: "0.7.1"
+kind: "DataProduct"
+id: "incremental.transaction_processing_v1"
+name: "Incremental Transaction Processing"
+description: "Demonstrates incremental processing with watermark tracking for efficient updates"
+domain: "Transaction Processing"
+tags:
+  - "incremental"
+  - "watermark"
+  - "efficient"
+  - "advanced"
+
+metadata:
+  owner:
+    team: "data-platform"
+    email: "data-platform@company.com"
+  pattern: "incremental-merge"
+
+consumes:
+  - consumeId: "raw_transactions"
+    title: "Raw Transaction Stream"
+    version: "1.0.0"
+    kind: "file"
+    purpose: "Continuous transaction stream with updates"
+    
+    binding:
+      platform: "local"
+      format: "csv"
+      location:
+        path: "data/transactions.csv"
+    
+    contract:
+      schema:
+        - name: "transaction_id"
+          type: "INTEGER"
+          required: true
+        - name: "customer_id"
+          type: "INTEGER"
+        - name: "transaction_date"
+          type: "DATE"
+        - name: "amount"
+          type: "DECIMAL"
+        - name: "status"
+          type: "VARCHAR"
+        - name: "updated_at"
+          type: "TIMESTAMP"
+          description: "Watermark field for incremental processing"
+
+exposes:
+  - exposeId: "transactions_processed"
+    title: "Processed Transactions"
+    version: "1.0.0"
+    kind: "table"
+    description: "Incrementally processed transactions with deduplication"
+    
+    binding:
+      platform: "local"
+      format: "parquet"
+      location:
+        path: "output/transactions_processed.parquet"
+    
+    contract:
+      schema:
+        - name: "transaction_id"
+          type: "INTEGER"
+          required: true
+        - name: "customer_id"
+          type: "INTEGER"
+        - name: "transaction_date"
+          type: "DATE"
+        - name: "amount"
+          type: "DECIMAL"
+        - name: "status"
+          type: "VARCHAR"
+        - name: "updated_at"
+          type: "TIMESTAMP"
+        - name: "processed_at"
+          type: "TIMESTAMP"
+      
+      dq:
+        rules:
+          - id: "no_duplicates"
+            type: "uniqueness"
+            selector: "transaction_id"
+            severity: "error"
+            description: "Transaction IDs must be unique"
+            threshold: 1.0
+            operator: ">="
+  
+  - exposeId: "daily_summary"
+    title: "Daily Transaction Summary"
+    version: "1.0.0"
+    kind: "table"
+    description: "Daily aggregated metrics with incremental updates"
+    
+    binding:
+      platform: "local"
+      format: "parquet"
+      location:
+        path: "output/daily_summary.parquet"
+    
+    contract:
+      schema:
+        - name: "summary_date"
+          type: "DATE"
+          required: true
+        - name: "total_transactions"
+          type: "INTEGER"
+        - name: "total_amount"
+          type: "DECIMAL"
+        - name: "completed_count"
+          type: "INTEGER"
+        - name: "pending_count"
+          type: "INTEGER"
+        - name: "last_updated"
+          type: "TIMESTAMP"
+
+builds:
+  - id: "incremental_transaction_pipeline"
+    description: "Incremental processing with watermark tracking"
+    pattern: "multi-stage"
+    engine: "sql"
+    
+    properties:
+      incrementalStrategy: "merge"
+      watermarkColumn: "updated_at"
+      uniqueKey: "transaction_id"
+      
+      stages:
+        - id: "process_transactions"
+          description: "Process new and updated transactions"
+          logic: |
+            SELECT 
+              transaction_id,
+              customer_id,
+              transaction_date,
+              amount,
+              status,
+              updated_at,
+              CURRENT_TIMESTAMP as processed_at
+            FROM read_csv_auto('data/transactions.csv', header=true)
+            WHERE status IN ('completed', 'pending')
+          outputs:
+            - "transactions_processed"
+        
+        - id: "aggregate_daily"
+          description: "Aggregate daily transaction metrics"
+          dependsOn:
+            - "process_transactions"
+          logic: |
+            SELECT 
+              transaction_date as summary_date,
+              COUNT(*) as total_transactions,
+              SUM(amount) as total_amount,
+              SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_count,
+              SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_count,
+              MAX(processed_at) as last_updated
+            FROM transactions_processed
+            GROUP BY transaction_date
+            ORDER BY summary_date DESC
+          outputs:
+            - "daily_summary"
+    
+    execution:
+      trigger:
+        type: "scheduled"
+        schedule: "*/15 * * * *"
+      runtime:
+        platform: "local"
+        resources:
+          cpu: "2"
+          memory: "4GB"

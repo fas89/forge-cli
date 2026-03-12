@@ -1,0 +1,60 @@
+version: 2
+
+sources:
+  - name: raw
+    description: Raw data from source systems
+    tables:
+      - name: customers
+        description: Raw customer data from CRM
+        columns:
+          - name: customer_id
+            description: Unique customer identifier
+            tests:
+              - unique
+              - not_null
+          - name: email
+            description: Customer email address
+            tests:
+              - unique
+              - not_null
+          - name: first_name
+            description: Customer first name
+          - name: last_name  
+            description: Customer last name
+          - name: registration_date
+            description: Customer registration date
+            tests:
+              - not_null
+          - name: created_at
+            description: Record creation timestamp
+          - name: updated_at
+            description: Record update timestamp
+
+      - name: orders
+        description: Raw order data from e-commerce platform
+        columns:
+          - name: order_id
+            description: Unique order identifier
+            tests:
+              - unique
+              - not_null
+          - name: customer_id
+            description: Customer who placed the order
+            tests:
+              - not_null
+          - name: order_date
+            description: Date order was placed
+            tests:
+              - not_null
+          - name: total_amount
+            description: Order total amount
+            tests:
+              - not_null
+          - name: product_category
+            description: Primary product category
+          - name: channel
+            description: Sales channel (online, store, mobile)
+          - name: payment_method
+            description: Payment method used
+          - name: discount_amount
+            description: Discount amount applied

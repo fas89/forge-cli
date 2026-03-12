@@ -1,0 +1,172 @@
+# Blueprint Metadata
+name: customer-360-gcp
+title: Customer 360 Analytics Platform (GCP Enterprise)
+description: |
+  Enterprise-grade Customer 360 analytics platform built for Google Cloud Platform.
+  Features advanced analytics with BigQuery ML, real-time streaming with Pub/Sub,
+  automated infrastructure with Terraform, and production-ready monitoring.
+  
+  This blueprint demonstrates FLUID's full capabilities with:
+  - Advanced customer segmentation using RFM analysis
+  - Predictive churn modeling with BigQuery ML
+  - Real-time event processing with Dataflow
+  - Automated OPDS export for data product catalog
+  - Comprehensive observability and alerting
+  - Cost optimization and performance tuning
+
+version: "2.0.0"
+category: analytics
+complexity: advanced
+
+# Quick Deployment
+deployment:
+  quickstart_command: "./deploy.sh PROJECT_ID [REGION] [ENVIRONMENT]"
+  total_time: "20-30 minutes"
+  
+  steps:
+    - name: "prerequisites"
+      description: "Check tools and enable GCP APIs"
+      duration: "2-3 minutes"
+    
+    - name: "infrastructure"
+      description: "Deploy cloud infrastructure with Terraform"
+      command: "cd terraform && terraform apply"
+      duration: "8-12 minutes"
+    
+    - name: "analytics"
+      description: "Run analytics models with dbt"
+      command: "cd dbt_project && dbt run && dbt test"
+      duration: "5-8 minutes"
+    
+    - name: "streaming"
+      description: "Deploy real-time Dataflow pipeline"
+      command: "cd dataflow && ./deploy.sh"
+      duration: "3-5 minutes"
+    
+    - name: "opds_export"
+      description: "Export FLUID contract to Open Data Product Specification"
+      command: "fluid export-opds contract.fluid.yaml --output exports/"
+      duration: "1 minute"
+    
+    - name: "validation"
+      description: "Load sample data and run end-to-end tests"
+      command: "Run complete pipeline validation"
+      duration: "2-3 minutes"
+
+# Technical Details
+providers:
+  - gcp
+  - bigquery
+  - cloud-storage
+  - pub-sub
+  - dataflow
+
+runtimes:
+  - dbt
+  - terraform
+  - cloud-functions
+  - dataflow
+  - cloud-composer
+
+dependencies:
+  - name: dbt-bigquery
+    version: ">=1.6.0"
+    required: true
+  - name: terraform
+    version: ">=1.5.0"
+    required: true
+  - name: google-cloud-bigquery
+    version: ">=3.10.0"
+    required: true
+  - name: google-cloud-storage
+    version: ">=2.10.0"
+    required: true
+  - name: google-cloud-pubsub
+    version: ">=2.18.0"
+    required: true
+  - name: fluid-forge
+    version: ">=0.4.0"
+    required: true
+
+# Documentation
+tags:
+  - customer-analytics
+  - bigquery-ml
+  - real-time-streaming
+  - gcp-enterprise
+  - predictive-analytics
+  - terraform
+  - data-mesh
+  - opds-export
+
+use_cases:
+  - Enterprise customer segmentation with advanced RFM analysis
+  - Real-time customer behavior tracking and personalization
+  - Predictive churn modeling with BigQuery ML
+  - Customer lifetime value optimization
+  - Marketing attribution and campaign effectiveness
+  - Data product catalog with OPDS export
+  - Regulatory compliance and data governance
+  - Multi-tenant customer analytics platform
+
+best_practices:
+  - Implements data mesh principles with domain-oriented ownership
+  - Uses BigQuery partitioning and clustering for optimal performance
+  - Includes comprehensive data lineage with dbt documentation
+  - Implements real-time streaming architecture with Pub/Sub
+  - Features automated data quality monitoring and alerting
+  - Includes cost optimization with BigQuery slot reservations
+  - Follows Google Cloud security best practices with IAM
+  - Implements disaster recovery with cross-region replication
+  - Exports to Open Data Product Specification for cataloging
+
+setup_time: "20-30 minutes"
+
+# Advanced Features
+advanced_features:
+  bigquery_ml: true
+  real_time_streaming: true
+  terraform_automation: true
+  cost_optimization: true
+  multi_tenant: true
+  data_governance: true
+  monitoring_alerting: true
+  opds_export: true
+
+# Blueprint Features
+has_sample_data: true
+has_tests: true
+has_docs: true
+has_cicd: true
+has_one_command_deploy: true
+
+# Authoring
+author: "FLUID Team"
+created_at: "2025-10-15"
+updated_at: "2025-10-15"
+
+# GCP-Specific Configuration
+gcp_config:
+  recommended_project_structure:
+    - dev_project: "company-analytics-dev"
+    - staging_project: "company-analytics-staging"  
+    - prod_project: "company-analytics-prod"
+  
+  required_apis:
+    - bigquery.googleapis.com
+    - storage-component.googleapis.com
+    - pubsub.googleapis.com
+    - dataflow.googleapis.com
+    - cloudfunctions.googleapis.com
+    - composer.googleapis.com
+    - monitoring.googleapis.com
+    - logging.googleapis.com
+  
+  recommended_regions:
+    primary: "us-central1"
+    secondary: "us-east1"
+  
+  estimated_costs:
+    development: "$50-100/month"
+    production: "$500-2000/month"
+    enterprise: "$2000-10000/month"

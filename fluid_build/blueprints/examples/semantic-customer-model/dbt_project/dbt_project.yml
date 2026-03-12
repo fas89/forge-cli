@@ -1,0 +1,65 @@
+# dbt_project.yml
+name: 'semantic_customer_model'
+version: '2.0.0'
+config-version: 2
+
+profile: 'snowflake'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  semantic_customer_model:
+    +materialized: table
+    
+    # Staging layer
+    staging:
+      +schema: staging
+      +materialized: view
+    
+    # Dimensions (SCD Type 2)
+    dimensions:
+      +schema: dimensions
+      +materialized: table
+      +tags: ["dimensions", "scd2"]
+    
+    # Facts
+    facts:
+      +schema: facts
+      +materialized: incremental
+      +tags: ["facts"]
+      +on_schema_change: "append_new_columns"
+    
+    # v2 Enhanced outputs
+    v2:
+      +schema: customer_intelligence
+      +materialized: table
+      +tags: ["v2", "current"]
+    
+    # Semantic layer
+    semantic:
+      +schema: semantic
+      +materialized: view
+      +tags: ["semantic", "business_layer"]
+
+vars:
+  # Default time windows
+  ltv_window_days: 365
+  churn_threshold_days: 90
+  rfm_recency_days: 365
+  
+  # Environment-specific
+  environment: "dev"
+  
+seeds:
+  +schema: seed_data
+  +quote_columns: false

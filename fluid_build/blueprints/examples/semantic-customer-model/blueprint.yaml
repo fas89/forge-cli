@@ -1,0 +1,159 @@
+# Blueprint Metadata
+name: semantic-customer-model
+title: Semantic Customer Data Model with Multi-Version Builds
+description: |
+  Advanced blueprint demonstrating semantic modeling and multi-version builds:
+  
+  **Semantic Modeling Features:**
+  - Business-friendly semantic layer with entities, metrics, and dimensions
+  - Conformed dimensions across multiple fact tables
+  - Star schema with slowly changing dimensions (SCD Type 2)
+  - Pre-aggregated metric tables for performance
+  - Business logic encapsulation in the semantic layer
+  
+  **Multi-Version Build Strategy:**
+  - v1: Legacy format for backward compatibility
+  - v2: Enhanced schema with additional metrics
+  - v3: Real-time streaming variant
+  - Semantic layer: Universal business view
+  
+  This pattern enables:
+  - Gradual consumer migration (v1 → v2 → v3)
+  - A/B testing of new features
+  - Zero-downtime schema evolution
+  - Consumer-specific SLAs and formats
+  - Business-aligned data contracts
+
+version: "2.0.0"
+category: analytics
+complexity: advanced
+
+# Technical Details
+providers:
+  - snowflake
+  - bigquery
+  - databricks
+
+runtimes:
+  - dbt
+  - spark
+
+dependencies:
+  - name: dbt-core
+    version: ">=1.6.0"
+    required: true
+  - name: dbt-semantic-interfaces
+    version: ">=0.4.0"
+    required: true
+  - name: dbt-metrics
+    version: ">=1.6.0"
+    required: false
+
+# Documentation
+tags:
+  - semantic-modeling
+  - multi-version
+  - star-schema
+  - slowly-changing-dimensions
+  - conformed-dimensions
+  - metrics-layer
+  - backward-compatibility
+  - schema-evolution
+
+use_cases:
+  - Semantic data modeling with business-friendly abstractions
+  - Multi-version API management for gradual consumer migration
+  - Star schema implementation with fact and dimension tables
+  - Slowly changing dimension (SCD) tracking
+  - Metric definition and calculation standardization
+  - Cross-functional analytics with shared semantic layer
+  - A/B testing of schema changes
+  - Zero-downtime schema evolution
+
+best_practices:
+  - Separates physical storage from logical business views
+  - Implements conformed dimensions for consistency
+  - Uses SCD Type 2 for historical tracking
+  - Pre-calculates metrics for performance
+  - Versions outputs for backward compatibility
+  - Encapsulates business logic in semantic layer
+  - Maintains lineage across versions
+  - Documents metric definitions and calculations
+  - Implements gradual deprecation strategy
+  - Uses build dependencies to ensure correct ordering
+
+setup_time: "90 minutes"
+
+# Production Features
+features:
+  - Multi-version builds (v1, v2, v3, semantic)
+  - Star schema with fact and dimension tables
+  - Slowly changing dimensions (SCD Type 2)
+  - Conformed dimensions across facts
+  - Pre-aggregated metric tables
+  - Semantic layer with entities and metrics
+  - Backward compatibility layer
+  - Schema evolution with deprecation
+  - Consumer-specific SLAs
+  - Build dependency management
+  - Incremental processing strategies
+  - Historical tracking and audit
+
+# Blueprint Features
+has_sample_data: true
+has_tests: true
+has_docs: true
+has_cicd: true
+has_monitoring: true
+has_security: true
+
+# Build Strategy
+builds:
+  dimensions:
+    description: "Conformed dimensions (SCD Type 2)"
+    pattern: "embedded-logic"
+    dependencies: []
+    
+  facts:
+    description: "Core fact tables"
+    pattern: "hybrid-reference"
+    dependencies: ["dimensions"]
+    
+  v1_legacy:
+    description: "Legacy v1 format (deprecated 2026-06-01)"
+    pattern: "embedded-logic"
+    dependencies: ["facts"]
+    
+  v2_enhanced:
+    description: "Enhanced v2 with new metrics"
+    pattern: "embedded-logic"
+    dependencies: ["facts"]
+    
+  v3_streaming:
+    description: "Real-time streaming variant"
+    pattern: "embedded-logic"
+    dependencies: ["facts"]
+    
+  semantic_layer:
+    description: "Business semantic layer"
+    pattern: "hybrid-reference"
+    dependencies: ["facts", "dimensions"]
+
+# Authoring
+author:
+  name: "FLUID Team"
+  email: "fluid@company.com"
+  organization: "FLUID Community"
+
+license: "MIT"
+
+# Learning Resources
+learning_resources:
+  - title: "Semantic Modeling Guide"
+    url: "https://docs.getdbt.com/docs/build/semantic-models"
+  - title: "Multi-Version API Design"
+    url: "https://www.thoughtworks.com/insights/blog/rest-api-design-resource-modeling"
+  - title: "Slowly Changing Dimensions"
+    url: "https://en.wikipedia.org/wiki/Slowly_changing_dimension"
+  - title: "Star Schema Design"
+    url: "https://www.kimballgroup.com/data-warehouse-business-intelligence-resources/"

@@ -1,0 +1,104 @@
+fluidVersion: "0.5.7"
+kind: "DataProduct"
+id: "gold.local.customer_360_v1"
+name: "Customer 360 (Local Test)"
+description: "Customer 360 Analytics - Local execution for testing before GCP deployment"
+domain: "customer-analytics"
+
+metadata:
+  layer: Gold
+  owner:
+    team: "Data Platform Team"
+    email: "data-platform-team@example.com"
+  businessContext:
+    domain: "Customer Analytics"
+    subdomain: "Predictive Segmentation"
+
+builds:
+  - id: "customer_360_analysis"
+    description: "Customer 360 with segmentation and churn prediction"
+    pattern: "embedded-logic"
+    engine: "sql"
+    properties:
+      sql: |
+        WITH customers_cte AS (
+          SELECT * FROM customers
+        ),
+        transactions_cte AS (
+          SELECT * FROM transactions
+        )
+        SELECT
+          c.customer_id,
+          c.first_name || ' ' || c.last_name as customer_name,
+          c.email,
+          c.customer_since as signup_date,
+          c.city,
+          c.state,
+          c.customer_status,
+          COUNT(t.transaction_id) as total_transactions,
+          CAST(COALESCE(SUM(t.amount), 0) AS DOUBLE) as total_spend,
+          CAST(COALESCE(AVG(t.amount), 0) AS DOUBLE) as avg_transaction_value,
+          MAX(t.transaction_date) as last_transaction_date,
+          CASE 
+            WHEN MAX(t.transaction_date) IS NULL THEN 0.9
+            WHEN MAX(t.transaction_date) < DATE('2024-09-01') THEN 0.8
+            WHEN MAX(t.transaction_date) < DATE('2024-10-01') THEN 0.5
+            WHEN CAST(COALESCE(SUM(t.amount), 0) AS DOUBLE) < 100 THEN 0.3
+            ELSE 0.1
+          END as churn_probability,
+          CASE
+            WHEN CAST(COALESCE(SUM(t.amount), 0) AS DOUBLE) > 10000 THEN 'VIP'
+            WHEN CAST(COALESCE(SUM(t.amount), 0) AS DOUBLE) > 1000 THEN 'Premium'
+            ELSE 'Standard'
+          END as customer_segment
+        FROM customers_cte c
+        LEFT JOIN transactions_cte t 
+          ON c.customer_id = t.customer_id
+        GROUP BY c.customer_id, c.first_name, c.last_name, c.email, c.customer_since, 
+                 c.city, c.state, c.customer_status;
+      parameters:
+        inputs:
+          - name: "customers"
+            path: "fluid_build/blueprints/examples/customer-360-gcp/sample_data/customers.csv"
+          - name: "transactions"
+            path: "fluid_build/blueprints/examples/customer-360-gcp/sample_data/transactions.csv"
+    execution:
+      trigger:
+        type: "manual"
+      runtime:
+        platform: "local"
+
+exposes:
+  - exposeId: "customer_profiles_local"
+    kind: "table"
+    binding:
+      platform: "local"
+      format: "csv"
+      location:
+        path: "runtime/out/customer_360_profiles.csv"
+    contract:
+      schema:
+        - name: "customer_id"
+          type: "string"
+          required: true
+        - name: "customer_name"
+          type: "string"
+          required: true
+        - name: "email"
+          type: "string"
+        - name: "signup_date"
+          type: "string"
+        - name: "total_transactions"
+          type: "bigint"
+        - name: "total_spend"
+          type: "double"
+        - name: "avg_transaction_value"
+          type: "double"
+        - name: "last_transaction_date"
+          type: "string"
+        - name: "churn_probability"
+          type: "double"
+          required: true
+        - name: "customer_segment"
+          type: "string"
+          required: true

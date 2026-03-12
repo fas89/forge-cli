@@ -1,0 +1,89 @@
+version: 2
+
+models:
+  - name: customer_profiles
+    description: |
+      Unified customer profiles combining demographics, behavioral metrics, 
+      and segmentation data. This is the primary customer analytics table.
+    columns:
+      - name: customer_id
+        description: Unique customer identifier
+        tests:
+          - unique
+          - not_null
+      - name: email
+        description: Customer email address
+        tests:
+          - unique
+          - not_null
+      - name: customer_segment
+        description: Customer segment classification
+        tests:
+          - accepted_values:
+              values: ['high_value', 'regular', 'at_risk', 'dormant']
+      - name: lifetime_value
+        description: Calculated customer lifetime value
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+      - name: total_orders
+        description: Total number of orders placed
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+      - name: engagement_score
+        description: Customer engagement score (0-100)
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 100
+
+  - name: customer_transactions
+    description: |
+      Complete transaction history with enriched customer context.
+      Includes behavioral flags and purchase patterns.
+    columns:
+      - name: transaction_id
+        description: Unique transaction identifier
+        tests:
+          - unique
+          - not_null
+      - name: customer_id
+        description: Customer who made the transaction
+        tests:
+          - not_null
+          - relationships:
+              to: ref('customer_profiles')
+              field: customer_id
+      - name: order_amount
+        description: Transaction amount
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+
+  - name: customer_segments
+    description: |
+      Segment-level analytics providing insights into customer groups.
+      Used for marketing strategy and business intelligence.
+    columns:
+      - name: segment_name
+        description: Customer segment name
+        tests:
+          - unique
+          - not_null
+      - name: customer_count
+        description: Number of customers in segment
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+      - name: avg_lifetime_value
+        description: Average LTV for the segment
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0

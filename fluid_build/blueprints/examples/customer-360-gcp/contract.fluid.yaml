@@ -1,0 +1,134 @@
+﻿fluidVersion: "0.5.7"
+kind: "DataProduct"
+id: "gold.gcp.customer_360_enterprise_v2"
+name: "Customer 360 Enterprise (GCP)"
+description: "Enterprise Customer 360 Analytics Platform for Google Cloud Platform"
+domain: "customer-analytics"
+
+metadata:
+  layer: Gold
+  owner:
+    team: "Data Platform Team"
+    email: "data-platform-team@example.com"
+  businessContext:
+    domain: "Customer Analytics"
+    subdomain: "Predictive Segmentation"
+
+consumes:
+  - productId: "silver.gcp.customer_data_v1"
+    exposeId: "customer_master"
+    purpose: "Customer demographic information"
+
+builds:
+  - id: "load_source_data"
+    description: "Load sample CSV data into staging tables"
+    pattern: "embedded-logic"
+    engine: "sql"
+    properties:
+      sql: |
+        -- Load customers data
+        CREATE OR REPLACE TABLE customer360_staging.customers AS
+        SELECT * FROM EXTERNAL_QUERY(
+          'sample_data/customers.csv',
+          '''SELECT * FROM customers'''
+        );
+        
+        -- Load transactions data
+        CREATE OR REPLACE TABLE customer360_staging.transactions AS
+        SELECT * FROM EXTERNAL_QUERY(
+          'sample_data/transactions.csv',
+          '''SELECT * FROM transactions'''
+        );
+    execution:
+      trigger:
+        type: "manual"
+      runtime:
+        platform: "gcp"
+        
+  - id: "customer_360_enterprise"
+    description: "Customer 360 with advanced segmentation and churn prediction"
+    pattern: "embedded-logic"
+    engine: "sql"
+    properties:
+      sql: |
+        SELECT
+          c.customer_id,
+          c.customer_name,
+          c.email,
+          c.signup_date,
+          COUNT(t.transaction_id) as total_transactions,
+          SUM(t.amount) as total_spend,
+          AVG(t.amount) as avg_transaction_value,
+          MAX(t.transaction_date) as last_transaction_date,
+          DATE_DIFF(CURRENT_DATE(), MAX(t.transaction_date), DAY) as days_since_last_transaction,
+          CASE 
+            WHEN DATE_DIFF(CURRENT_DATE(), MAX(t.transaction_date), DAY) > 90 THEN 0.8
+            WHEN DATE_DIFF(CURRENT_DATE(), MAX(t.transaction_date), DAY) > 60 THEN 0.5
+            WHEN SUM(t.amount) < 100 THEN 0.3
+            ELSE 0.1
+          END as churn_probability,
+          CASE
+            WHEN SUM(t.amount) > 10000 THEN 'VIP'
+            WHEN SUM(t.amount) > 1000 THEN 'Premium'
+            ELSE 'Standard'
+          END as customer_segment
+        FROM customer360_staging.customers c
+        LEFT JOIN customer360_staging.transactions t 
+          ON c.customer_id = t.customer_id
+        GROUP BY c.customer_id, c.customer_name, c.email, c.signup_date;
+    execution:
+      trigger:
+        type: "schedule"
+        cron: "0 * * * *"
+      runtime:
+        platform: "gcp"
+
+exposes:
+  - exposeId: "customer_profiles_enterprise"
+    kind: "table"
+    binding:
+      platform: "gcp"
+      format: "bigquery_table"
+      location:
+        project: "my-project"
+        dataset: "customer360_marts"
+        table: "customer_profiles_v2"
+    contract:
+      schema:
+        - name: "customer_id"
+          type: "STRING"
+          required: true
+        - name: "customer_name"
+          type: "STRING"
+          required: true
+        - name: "email"
+          type: "STRING"
+        - name: "signup_date"
+          type: "DATE"
+        - name: "total_transactions"
+          type: "INT64"
+        - name: "total_spend"
+          type: "FLOAT64"
+        - name: "avg_transaction_value"
+          type: "FLOAT64"
+        - name: "last_transaction_date"
+          type: "DATE"
+        - name: "days_since_last_transaction"
+          type: "INT64"
+        - name: "churn_probability"
+          type: "FLOAT64"
+          required: true
+        - name: "customer_segment"
+          type: "STRING"
+          required: true
+      dq:
+        rules:
+          - id: "customer_id_not_null"
+            type: "completeness"
+            selector: "customer_id"
+            threshold: 1.0
+            operator: ">="
+            severity: "error"
+    qos:
+      availability: "99.9%"
+      freshnessSLO: "PT1H"

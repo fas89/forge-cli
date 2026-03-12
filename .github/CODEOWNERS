@@ -1,0 +1,29 @@
+# CODEOWNERS — FLUID Forge CLI
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owners for everything
+*                               @agentics-rising/fluid-core
+
+# CLI commands
+fluid_build/cli/                @agentics-rising/fluid-core
+
+# Provider implementations
+fluid_build/providers/aws/      @agentics-rising/fluid-providers
+fluid_build/providers/gcp/      @agentics-rising/fluid-providers
+fluid_build/providers/snowflake/ @agentics-rising/fluid-providers
+fluid_build/providers/local/    @agentics-rising/fluid-core
+
+# Security-sensitive areas
+fluid_build/credentials/        @agentics-rising/fluid-security
+fluid_build/secrets.py          @agentics-rising/fluid-security
+fluid_build/auth.py             @agentics-rising/fluid-security
+.secrets.baseline               @agentics-rising/fluid-security
+
+# CI/CD and release
+.github/                        @agentics-rising/fluid-core
+Jenkinsfile                     @agentics-rising/fluid-core
+pyproject.toml                  @agentics-rising/fluid-core
+
+# Documentation
+docs/                           @agentics-rising/fluid-docs
+README.md                       @agentics-rising/fluid-core

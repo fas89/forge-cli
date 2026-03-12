@@ -1,0 +1,65 @@
+name: 'customer_360'
+version: '1.0.0'
+config-version: 2
+
+# This setting configures which "profile" dbt uses for this project.
+profile: 'customer_360'
+
+# These configurations specify where dbt should look for different types of files.
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+# Configuring models
+models:
+  customer_360:
+    # Config indicated by + and applies to all files under models/example/
+    staging:
+      +materialized: view
+      +docs:
+        node_color: "lightblue"
+    marts:
+      +materialized: table
+      +docs:
+        node_color: "lightgreen"
+    intermediate:
+      +materialized: view
+      +docs:
+        node_color: "orange"
+
+# Configure seeds
+seeds:
+  customer_360:
+    +docs:
+      node_color: "tan"
+
+# Configure snapshots
+snapshots:
+  customer_360:
+    +target_schema: snapshots
+    +strategy: timestamp
+    +updated_at: updated_at
+
+# Configure tests
+tests:
+  +store_failures: true
+  +severity: warn
+
+# Variables
+vars:
+  # Customer segmentation thresholds
+  high_value_ltv_threshold: 5000
+  regular_value_ltv_threshold: 1000
+  churn_risk_days_threshold: 90
+  
+  # Date ranges for analysis
+  analysis_start_date: '2023-01-01'
+  lookback_days: 365

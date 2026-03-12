@@ -1,0 +1,182 @@
+# pyproject.toml
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fluid-forge"
+version = "0.7.1"
+description = "FLUID Build System: plan/apply/visualize data products across providers (GCP, Snowflake, Local) with policy & contract tests."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Agentics Transformation Pty Ltd" }]
+keywords = ["data products", "FLUID", "opds", "gitops", "gcp", "snowflake", "duckdb", "composer", "dbt", "dataform"]
+
+# Optional but useful for PyPI/pipx users and internal catalogs
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Information Technology",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Build Tools",
+  "Topic :: System :: Systems Administration",
+]
+
+# Core runtime deps (keep lean; providers add heavy SDKs via extras)
+dependencies = [
+  "click>=8.1",
+  "pyyaml>=6.0",
+  "jsonschema>=4.22",
+  "rich>=13.7",
+  "pydantic>=2.7",
+  "typing-extensions>=4.8",
+  "jinja2>=3.1",
+  "httpx>=0.27",  # For FluidCommandCenter catalog provider
+  "fluid-provider-sdk>=0.1.0",  # Zero-dep provider SDK
+  # Optional UX nicety on Windows; no-op elsewhere
+  "colorama>=0.4.6; platform_system == 'Windows'",
+]
+
+[project.optional-dependencies]
+# Local provider (DuckDB)
+local = [
+  "duckdb>=1.0",
+  "pandas>=2.2",
+]
+
+# GCP provider (install only when needed)
+gcp = [
+  "google-auth>=2.29",
+  "google-auth-oauthlib>=1.2",
+  "google-cloud-bigquery>=3.20",
+  "google-cloud-storage>=2.16",
+  # optional; gated for 3.10+ environments where wheel support exists
+  "google-cloud-iam>=2.15 ; python_version >= '3.10'",
+  # optional runtime helpers (dbt) — also 3.10+ where ecosystem is healthiest
+  "dbt-bigquery>=1.7 ; python_version >= '3.10'",
+]
+
+# Snowflake provider
+snowflake = [
+  "snowflake-connector-python>=3.10",
+  "snowflake-snowpark-python>=1.15 ; python_version >= '3.10'",
+  "dbt-snowflake>=1.7 ; python_version >= '3.10'",
+]
+
+# Visualizations (plan graph, HTML)
+viz = [
+  "graphviz>=0.20",
+]
+
+# OPDS export (spec conversion)
+opds = [
+  "ruamel.yaml>=0.18",
+]
+
+# Optional TUI wizard (future: `fluid wizard`)
+tui = [
+  "textual>=0.58",
+]
+
+# Docs toolchain (optional; if you’ll publish docs)
+docs = [
+  "mkdocs>=1.6",
+  "mkdocs-material>=9.5",
+]
+
+# Dev / QA
+dev = [
+  "pytest>=7.4",
+  "pytest-cov>=4.1",
+  "pytest-asyncio>=0.23",  # For async test support
+  "mypy>=1.10",
+  "ruff>=0.5",
+  "types-PyYAML>=6.0.12",
+  "black>=24.3",
+]
+
+# One-shot install for contributors
+all = [
+  "fluid-forge[local,gcp,snowflake,viz,opds,tui,docs,dev]"
+]
+
+[project.scripts]
+# Expose as a shell command (great with pipx)
+fluid = "fluid_build.cli:main"
+
+# Optional future plugin discovery (safe metadata; your code can adopt entrypoints later)
+[project.entry-points."fluid_build.providers"]
+local = "fluid_build.providers.local:LocalProvider"
+aws = "fluid_build.providers.aws:AwsProvider"
+gcp = "fluid_build.providers.gcp:GcpProvider"
+snowflake = "fluid_build.providers.snowflake:SnowflakeProvider"
+odps = "fluid_build.providers.odps:OdpsProvider"
+
+[project.urls]
+Homepage = "https://fluidhq.io"
+Repository = "https://github.com/agentics-rising/fluid-forge-cli"
+Issues = "https://github.com/agentics-rising/fluid-forge-cli/issues"
+Documentation = "https://fluidhq.io/docs"
+
+[tool.setuptools]
+package-dir = {"" = "."}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["fluid_build*"]
+
+# Ensure non-.py assets ship in wheels (schemas, templates, static HTML, etc.)
+[tool.setuptools.package-data]
+fluid_build = [
+  "schemas/**/*.json",
+  "schemas/**/*.yaml",
+  "templates/**/*.j2",
+  "templates/**/*.html",
+  "assets/**/*",
+  "static/**/*",
+  "providers/**/templates/**/*",
+  "providers/**/assets/**/*",
+]
+# Avoid shipping compiled junk
+[tool.setuptools.exclude-package-data]
+"*" = ["*.pyc", "*.pyo", "*~", "*.bak", "__pycache__/*"]
+
+# ---- Tooling configs consolidated here ----
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+select = ["E", "F", "I", "UP", "B"]  # basic errors, formatting import, pyupgrade, bugbear-lite
+ignore = ["E203"]  # keep Black-friendly
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_unused_ignores = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-q --maxfail=1 --disable-warnings"
+testpaths = ["tests"]
+
+# Optional: coverage knobs if you use pytest-cov
+[tool.coverage.run]
+branch = true
+source = ["fluid_build"]
+omit = ["fluid_build/**/__main__.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

@@ -1,0 +1,11 @@
+customer_id,email,first_name,last_name,registration_date,created_at,updated_at
+CUST001,john.smith@email.com,John,Smith,2023-01-15,2023-01-15 10:30:00,2023-01-15 10:30:00
+CUST002,sarah.jones@email.com,Sarah,Jones,2023-01-20,2023-01-20 14:15:00,2023-01-20 14:15:00
+CUST003,mike.wilson@email.com,Mike,Wilson,2023-02-01,2023-02-01 09:45:00,2023-02-01 09:45:00
+CUST004,lisa.brown@email.com,Lisa,Brown,2023-02-10,2023-02-10 16:20:00,2023-02-10 16:20:00
+CUST005,david.taylor@email.com,David,Taylor,2023-02-15,2023-02-15 11:30:00,2023-02-15 11:30:00
+CUST006,emma.davis@email.com,Emma,Davis,2023-03-01,2023-03-01 13:45:00,2023-03-01 13:45:00
+CUST007,alex.miller@email.com,Alex,Miller,2023-03-10,2023-03-10 08:15:00,2023-03-10 08:15:00
+CUST008,nicole.anderson@email.com,Nicole,Anderson,2023-03-20,2023-03-20 15:30:00,2023-03-20 15:30:00
+CUST009,ryan.thomas@email.com,Ryan,Thomas,2023-04-01,2023-04-01 12:00:00,2023-04-01 12:00:00
+CUST010,jessica.white@email.com,Jessica,White,2023-04-15,2023-04-15 10:45:00,2023-04-15 10:45:00

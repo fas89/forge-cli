@@ -1,0 +1,90 @@
+name: 'customer_360_gcp'
+version: '2.0.0'
+config-version: 2
+
+# This setting configures which "profile" dbt uses for this project.
+profile: 'customer_360_gcp'
+
+# These configurations specify where dbt should look for different types of files.
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+# Model configurations
+models:
+  customer_360_gcp:
+    # Staging models (raw data cleaning)
+    staging:
+      +materialized: view
+      +docs:
+        node_color: "#228B22"
+      
+    # Intermediate models (business logic) 
+    intermediate:
+      +materialized: view
+      +docs:
+        node_color: "#4682B4"
+    
+    # Marts (final data products)
+    marts:
+      +materialized: table
+      +docs:
+        node_color: "#8B4513"
+      customer_analytics:
+        +partition_by:
+          field: "last_updated"
+          data_type: "date"
+        +cluster_by: ["customer_segment", "churn_risk_tier"]
+      
+    # ML models and predictions
+    ml:
+      +materialized: table
+      +docs:
+        node_color: "#9932CC"
+
+# Snapshot configurations
+snapshots:
+  customer_360_gcp:
+    +target_schema: snapshots
+    +strategy: timestamp
+    +updated_at: updated_at
+
+# Test configurations
+tests:
+  +store_failures: true
+  +severity: 'warn'
+
+# Seed configurations  
+seeds:
+  customer_360_gcp:
+    +schema: seeds
+    +docs:
+      node_color: "#DAA520"
+
+# Documentation configurations
+docs:
+  generate: true
+
+# Variables
+vars:
+  # Date range for incremental models
+  start_date: '2020-01-01'
+  
+  # Lookback windows
+  rfm_analysis_months: 12
+  churn_prediction_days: 90
+  
+  # Segmentation thresholds
+  high_value_threshold: 1000
+  churn_probability_threshold: 0.7
+  
+  # ML model settings
+  ml_training_sample_size: 100000
+  ml_prediction_batch_size: 10000

@@ -1,0 +1,266 @@
+fluidVersion: "0.7.1"
+kind: "DataProduct"
+id: "tutorial.customer_revenue_analytics_v1"
+name: "Customer Revenue Analytics"
+description: "Join customers and orders to calculate revenue metrics"
+domain: "Tutorial"
+tags:
+  - "analytics"
+  - "revenue"
+  - "customers"
+  - "tutorial"
+
+metadata:
+  owner:
+    team: "analytics-team"
+    email: "analytics-team@company.com"
+
+consumes:
+  - consumeId: "raw_customers"
+    title: "Customer Master Data"
+    version: "1.0.0"
+    kind: "file"
+    purpose: "Customer master data"
+    
+    binding:
+      platform: "local"
+      format: "csv"
+      location:
+        path: "data/customers.csv"
+    
+    contract:
+      schema:
+        - name: "id"
+          type: "INTEGER"
+          required: true
+          description: "Unique customer ID"
+        - name: "name"
+          type: "VARCHAR"
+          description: "Customer name"
+        - name: "email"
+          type: "VARCHAR"
+          description: "Customer email"
+        - name: "signup_date"
+          type: "DATE"
+          description: "Date customer signed up"
+        - name: "status"
+          type: "VARCHAR"
+          description: "Customer status"
+  
+  - consumeId: "raw_orders"
+    title: "Order Transaction Data"
+    version: "1.0.0"
+    kind: "file"
+    purpose: "Order transaction data"
+    
+    binding:
+      platform: "local"
+      format: "csv"
+      location:
+        path: "data/orders.csv"
+    
+    contract:
+      schema:
+        - name: "order_id"
+          type: "INTEGER"
+          required: true
+          description: "Unique order ID"
+        - name: "customer_id"
+          type: "INTEGER"
+          required: true
+          description: "Customer who placed the order"
+        - name: "order_date"
+          type: "DATE"
+          description: "Date order was placed"
+        - name: "product_name"
+          type: "VARCHAR"
+          description: "Product purchased"
+        - name: "quantity"
+          type: "INTEGER"
+          description: "Quantity ordered"
+        - name: "unit_price"
+          type: "DECIMAL"
+          description: "Price per unit"
+        - name: "total_amount"
+          type: "DECIMAL"
+          description: "Total order amount"
+
+exposes:
+  - exposeId: "customer_revenue"
+    title: "Customer Revenue Metrics"
+    version: "1.0.0"
+    kind: "table"
+    description: "Customer-level revenue analytics with purchase metrics"
+    
+    binding:
+      platform: "local"
+      format: "parquet"
+      location:
+        path: "output/customer_revenue.parquet"
+    
+    contract:
+      schema:
+        - name: "customer_id"
+          type: "INTEGER"
+          required: true
+          description: "Unique customer identifier"
+        - name: "customer_name"
+          type: "VARCHAR"
+          description: "Customer full name"
+        - name: "email"
+          type: "VARCHAR"
+          description: "Customer email"
+        - name: "signup_date"
+          type: "DATE"
+          description: "Date customer signed up"
+        - name: "status"
+          type: "VARCHAR"
+          description: "Customer status"
+        - name: "total_orders"
+          type: "INTEGER"
+          description: "Total number of orders placed"
+        - name: "total_revenue"
+          type: "DECIMAL"
+          description: "Total revenue from customer"
+        - name: "avg_order_value"
+          type: "DECIMAL"
+          description: "Average value per order"
+        - name: "first_order_date"
+          type: "DATE"
+          description: "Date of first order"
+        - name: "last_order_date"
+          type: "DATE"
+          description: "Date of most recent order"
+        - name: "days_as_customer"
+          type: "INTEGER"
+          description: "Days since signup"
+        - name: "customer_tier"
+          type: "VARCHAR"
+          description: "Customer tier based on revenue"
+      
+      dq:
+        rules:
+          - id: "revenue_matches_orders"
+            type: "consistency"
+            description: "Ensure revenue calculations are consistent"
+            severity: "error"
+            logic: "SELECT COUNT(*) FROM customer_revenue WHERE total_orders > 0 AND total_revenue = 0"
+            threshold: 0
+            operator: "="
+          - id: "valid_customer_tiers"
+            type: "validity"
+            selector: "customer_tier"
+            description: "Ensure all customer tiers are valid"
+            severity: "error"
+            validValues: ["Platinum", "Gold", "Silver", "Bronze", "No Purchases"]
+          - id: "avg_order_value_check"
+            type: "accuracy"
+            description: "Ensure avg order value is calculated correctly"
+            severity: "warning"
+  
+  - exposeId: "vip_customers"
+    title: "VIP Customers"
+    version: "1.0.0"
+    kind: "view"
+    description: "High-value customers (Platinum and Gold tiers)"
+    
+    binding:
+      platform: "local"
+      format: "parquet"
+      location:
+        path: "output/vip_customers.parquet"
+    
+    contract:
+      schema:
+        - name: "customer_id"
+          type: "INTEGER"
+        - name: "customer_name"
+          type: "VARCHAR"
+        - name: "email"
+          type: "VARCHAR"
+        - name: "total_revenue"
+          type: "DECIMAL"
+        - name: "total_orders"
+          type: "INTEGER"
+        - name: "avg_order_value"
+          type: "DECIMAL"
+        - name: "customer_tier"
+          type: "VARCHAR"
+
+builds:
+  - id: "customer_revenue_pipeline"
+    description: "Calculate customer revenue metrics from orders and customers"
+    pattern: "multi-stage"
+    engine: "sql"
+    
+    properties:
+      stages:
+        - id: "calculate_customer_revenue"
+          description: "Calculate customer-level revenue metrics"
+          logic: |
+            WITH customer_orders AS (
+              SELECT
+                c.id AS customer_id,
+                c.name AS customer_name,
+                c.email,
+                c.signup_date,
+                c.status,
+                COUNT(o.order_id) AS total_orders,
+                COALESCE(SUM(o.total_amount), 0) AS total_revenue,
+                COALESCE(AVG(o.total_amount), 0) AS avg_order_value,
+                MIN(o.order_date) AS first_order_date,
+                MAX(o.order_date) AS last_order_date
+              FROM read_csv_auto('data/customers.csv', header=true) c
+              LEFT JOIN read_csv_auto('data/orders.csv', header=true) o
+                ON c.id = o.customer_id
+              GROUP BY
+                c.id, c.name, c.email, c.signup_date, c.status
+            )
+            SELECT
+              customer_id,
+              customer_name,
+              email,
+              signup_date,
+              status,
+              total_orders,
+              total_revenue,
+              avg_order_value,
+              first_order_date,
+              last_order_date,
+              CAST(julianday('now') - julianday(signup_date) AS INTEGER) AS days_as_customer,
+              CASE
+                WHEN total_revenue >= 2000 THEN 'Platinum'
+                WHEN total_revenue >= 1000 THEN 'Gold'
+                WHEN total_revenue >= 500 THEN 'Silver'
+                WHEN total_revenue > 0 THEN 'Bronze'
+                ELSE 'No Purchases'
+              END AS customer_tier
+            FROM customer_orders
+            ORDER BY total_revenue DESC
+          outputs:
+            - "customer_revenue"
+        
+        - id: "high_value_customers"
+          description: "Filter high-value customers"
+          dependsOn:
+            - "calculate_customer_revenue"
+          logic: |
+            SELECT
+              customer_id,
+              customer_name,
+              email,
+              total_revenue,
+              total_orders,
+              avg_order_value,
+              customer_tier
+            FROM customer_revenue
+            WHERE customer_tier IN ('Platinum', 'Gold')
+            ORDER BY total_revenue DESC
+          outputs:
+            - "vip_customers"
+    
+    execution:
+      trigger:
+        type: "manual"
+      runtime:
+        platform: "local"

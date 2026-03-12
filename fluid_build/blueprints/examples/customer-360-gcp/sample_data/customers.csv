@@ -1,0 +1,20 @@
+customer_id,email,first_name,last_name,phone,address_line_1,city,state,zip_code,country,date_of_birth,gender,customer_since,customer_status,marketing_opt_in,created_at,updated_at
+CUST001,john.doe@example.com,John,Doe,555-0101,123 Main St,San Francisco,CA,94102,US,1985-06-15,Male,2023-01-15,Active,true,2023-01-15 10:00:00,2023-01-15 10:00:00
+CUST002,jane.smith@example.com,Jane,Smith,555-0102,456 Oak Ave,Los Angeles,CA,90210,US,1990-03-22,Female,2023-02-01,Active,true,2023-02-01 11:30:00,2023-02-01 11:30:00
+CUST003,mike.johnson@example.com,Mike,Johnson,555-0103,789 Pine St,Seattle,WA,98101,US,1988-11-08,Male,2023-01-20,Active,false,2023-01-20 09:15:00,2023-01-20 09:15:00
+CUST004,sarah.wilson@example.com,Sarah,Wilson,555-0104,321 Elm Dr,Portland,OR,97201,US,1992-07-12,Female,2023-03-10,Active,true,2023-03-10 14:20:00,2023-03-10 14:20:00
+CUST005,david.brown@example.com,David,Brown,555-0105,654 Cedar Ln,Denver,CO,80202,US,1983-12-03,Male,2022-11-15,Active,true,2022-11-15 16:45:00,2022-11-15 16:45:00
+CUST006,lisa.davis@example.com,Lisa,Davis,555-0106,987 Birch Rd,Austin,TX,73301,US,1995-04-18,Female,2023-02-28,Active,false,2023-02-28 13:10:00,2023-02-28 13:10:00
+CUST007,robert.miller@example.com,Robert,Miller,555-0107,147 Maple St,Chicago,IL,60601,US,1980-09-25,Male,2022-08-20,Active,true,2022-08-20 12:00:00,2022-08-20 12:00:00
+CUST008,emily.garcia@example.com,Emily,Garcia,555-0108,258 Spruce Ave,Miami,FL,33101,US,1987-01-30,Female,2023-04-05,Active,true,2023-04-05 15:30:00,2023-04-05 15:30:00
+CUST009,james.martinez@example.com,James,Martinez,555-0109,369 Ash Blvd,Phoenix,AZ,85001,US,1991-08-14,Male,2023-01-08,Inactive,false,2023-01-08 08:45:00,2023-01-08 08:45:00
+CUST010,maria.rodriguez@example.com,Maria,Rodriguez,555-0110,741 Willow Way,Las Vegas,NV,89101,US,1989-05-27,Female,2022-12-12,Active,true,2022-12-12 17:20:00,2022-12-12 17:20:00
+CUST012,amanda.white@example.com,Amanda,White,555-0112,963 Hickory Ct,Atlanta,GA,30301,US,1993-02-16,Female,2023-02-14,Active,false,2023-02-14 10:30:00,2023-02-14 10:30:00
+CUST013,daniel.harris@example.com,Daniel,Harris,555-0113,159 Walnut St,Philadelphia,PA,19101,US,1984-12-21,Male,2022-10-30,Active,true,2022-10-30 14:00:00,2022-10-30 14:00:00
+CUST014,jennifer.clark@example.com,Jennifer,Clark,555-0114,357 Chestnut Ave,Detroit,MI,48201,US,1994-06-04,Female,2023-04-18,Active,true,2023-04-18 09:45:00,2023-04-18 09:45:00
+CUST015,matthew.lewis@example.com,Matthew,Lewis,555-0115,486 Sycamore Dr,Nashville,TN,37201,US,1982-03-11,Male,2022-09-08,Active,false,2022-09-08 16:30:00,2022-09-08 16:30:00
+CUST016,stephanie.walker@example.com,Stephanie,Walker,555-0116,624 Magnolia Ln,Charlotte,NC,28201,US,1990-11-28,Female,2023-01-25,Inactive,true,2023-01-25 13:20:00,2023-01-25 13:20:00
+CUST017,ryan.hall@example.com,Ryan,Hall,555-0117,735 Dogwood Rd,Columbus,OH,43201,US,1988-07-07,Male,2023-03-03,Active,true,2023-03-03 12:10:00,2023-03-03 12:10:00
+CUST018,nicole.allen@example.com,Nicole,Allen,555-0118,846 Redwood Blvd,Indianapolis,IN,46201,US,1991-09-19,Female,2022-11-22,Active,false,2022-11-22 15:40:00,2022-11-22 15:40:00
+CUST019,kevin.young@example.com,Kevin,Young,555-0119,957 Sequoia Way,San Diego,CA,92101,US,1985-04-02,Male,2023-02-07,Active,true,2023-02-07 11:50:00,2023-02-07 11:50:00
+CUST020,michelle.king@example.com,Michelle,King,555-0120,168 Cypress Ct,Tampa,FL,33601,US,1987-12-15,Female,2022-12-05,Active,true,2022-12-05 14:25:00,2022-12-05 14:25:00

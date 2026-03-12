@@ -1,0 +1,47 @@
+# examples/snowflake/smoke/contract.fluid.yaml
+fluidVersion: "0.4.0"
+kind: "DataProduct"
+id: "silver.ote.smoke_v1"
+name: "Smoke Test"
+description: "Creates a small table in Snowflake."
+domain: "Testing"
+
+metadata:
+  layer: Silver
+  owner: { team: "Data Platform", email: "platform@example.com" }
+  status: "Development"
+  tags: ["snowflake", "smoke"]
+
+build:
+  transformation:
+    pattern: "embedded-logic"
+    engine: "sql"
+    properties:
+      sql: |
+        CREATE DATABASE IF NOT EXISTS "OTE_ANALYTICS";
+        CREATE SCHEMA IF NOT EXISTS "OTE_ANALYTICS"."SILVER";
+        CREATE OR REPLACE TABLE "OTE_ANALYTICS"."SILVER"."SMOKE_TABLE" (
+          "ID" NUMBER,
+          "TXT" VARCHAR
+        );
+        INSERT INTO "OTE_ANALYTICS"."SILVER"."SMOKE_TABLE" SELECT 1, 'ok';
+  execution:
+    trigger: { type: "manual" }
+
+exposes:
+  - id: "silver.ote.smoke_table"
+    type: "table"
+    location:
+      format: "snowflake_table"
+      properties:
+        database: "OTE_ANALYTICS"
+        schema: "SILVER"
+        table: "SMOKE_TABLE"
+    schema:
+      - { name: "ID",  type: "INT64",    nullable: true }
+      - { name: "TXT", type: "STRING",   nullable: true }
+
+accessPolicy:
+  grants:
+    - principal: "group:platform-readers@example.com"
+      permissions: ["readData","readMetadata"]

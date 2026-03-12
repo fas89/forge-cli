@@ -1,0 +1,117 @@
+fluidVersion: "0.7.1"
+kind: "DataProduct"
+id: "config.multi_env_pipeline_v1"
+name: "Multi-Environment Pipeline"
+description: "Environment-aware pipeline demonstrating configuration management"
+domain: "Platform"
+tags:
+  - "environment-config"
+  - "multi-env"
+  - "deployment"
+
+metadata:
+  owner:
+    team: "platform-engineering"
+    email: "platform@company.com"
+  environment: "${FLUID_ENV:-development}"
+
+consumes:
+  - consumeId: "raw_users"
+    title: "Raw User Data"
+    version: "1.0.0"
+    kind: "file"
+    purpose: "User registration data"
+    
+    binding:
+      platform: "local"
+      format: "csv"
+      location:
+        path: "data/users.csv"
+    
+    contract:
+      schema:
+        - { name: "user_id", type: "INTEGER", required: true }
+        - { name: "username", type: "VARCHAR" }
+        - { name: "email", type: "VARCHAR" }
+        - { name: "signup_date", type: "DATE" }
+        - { name: "country", type: "VARCHAR" }
+
+exposes:
+  - exposeId: "users_cleaned"
+    title: "Cleaned Users with Environment Tag"
+    version: "1.0.0"
+    kind: "table"
+    
+    binding:
+      platform: "local"
+      format: "parquet"
+      location:
+        path: "output/users_cleaned.parquet"
+    
+    contract:
+      schema:
+        - { name: "user_id", type: "INTEGER", required: true }
+        - { name: "username", type: "VARCHAR" }
+        - { name: "email", type: "VARCHAR" }
+        - { name: "signup_date", type: "DATE" }
+        - { name: "country", type: "VARCHAR" }
+        - { name: "environment", type: "VARCHAR" }
+  
+  - exposeId: "user_summary"
+    title: "User Summary by Environment"
+    version: "1.0.0"
+    kind: "table"
+    
+    binding:
+      platform: "local"
+      format: "parquet"
+      location:
+        path: "output/user_summary.parquet"
+    
+    contract:
+      schema:
+        - { name: "total_users", type: "INTEGER" }
+        - { name: "countries", type: "INTEGER" }
+        - { name: "first_signup", type: "DATE" }
+        - { name: "last_signup", type: "DATE" }
+        - { name: "environment", type: "VARCHAR" }
+        - { name: "generated_at", type: "TIMESTAMP" }
+
+builds:
+  - id: "multi_env_pipeline"
+    description: "Environment-aware user processing"
+    pattern: "multi-stage"
+    engine: "sql"
+    
+    properties:
+      stages:
+        - id: "clean_users"
+          logic: |
+            SELECT 
+              user_id,
+              LOWER(username) as username,
+              LOWER(email) as email,
+              signup_date,
+              UPPER(country) as country,
+              'development' as environment
+            FROM read_csv_auto('data/users.csv', header=true)
+          outputs: ["users_cleaned"]
+        
+        - id: "summarize_users"
+          dependsOn: ["clean_users"]
+          logic: |
+            SELECT 
+              COUNT(*) as total_users,
+              COUNT(DISTINCT country) as countries,
+              MIN(signup_date) as first_signup,
+              MAX(signup_date) as last_signup,
+              'development' as environment,
+              CURRENT_TIMESTAMP as generated_at
+            FROM users_cleaned
+          outputs: ["user_summary"]
+    
+    execution:
+      trigger:
+        type: "manual"
+      runtime:
+        platform: "local"

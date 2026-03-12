@@ -1,0 +1,468 @@
+fluidVersion: "0.5.7"
+kind: "DataProduct"
+id: "gold.enterprise.customer_analytics_v1"
+name: "Enterprise Customer Analytics"
+description: |
+  Production-grade customer analytics data product on Snowflake with comprehensive
+  security, performance optimization, and multi-environment deployment support.
+  
+  Features:
+  - Role-based access control (RBAC) with granular permissions
+  - Dynamic data masking for PII compliance
+  - Row-level security for regional data isolation
+  - Clustered tables for query performance
+  - Incremental processing for efficiency
+  - Multi-environment deployment (dev/staging/prod)
+  - Cost optimization with warehouse management
+  - Comprehensive data quality validation
+
+domain: "Customer Analytics"
+
+metadata:
+  layer: "Gold"
+  owner:
+    team: "Customer Analytics Team"
+    email: "customer-analytics@company.com"
+    slack: "#customer-analytics"
+  businessContext:
+    domain: "Customer Analytics"
+    subdomain: "Customer Intelligence"
+    businessOwner: "VP of Analytics"
+  classification: "Confidential"
+  
+tags:
+  - "customer-analytics"
+  - "snowflake"
+  - "production"
+  - "pii"
+  - "gdpr-compliant"
+  - "enterprise"
+
+labels:
+  cost-center: "analytics"
+  compliance: "gdpr,sox"
+  criticality: "high"
+  sla-tier: "gold"
+
+# Data Dependencies
+consumes:
+  - productId: "bronze.crm.customer_raw_v1"
+    exposeId: "customer_records"
+    purpose: "Raw customer demographic and contact data"
+    versionConstraint: "^1.0.0"
+    qosExpectations:
+      freshnessMax: "PT6H"
+      minCompleteness: 0.98
+      
+  - productId: "bronze.transactions.purchase_events_v1"
+    exposeId: "transaction_stream"
+    purpose: "Customer purchase transaction history"
+    qosExpectations:
+      freshnessMax: "PT1H"
+      minCompleteness: 0.99
+      
+  - productId: "bronze.web.behavioral_events_v1"
+    exposeId: "web_events"
+    purpose: "Customer web interaction and behavioral data"
+
+# Build Configuration
+builds:
+  - id: "customer_analytics_main"
+    description: "Main customer analytics transformations"
+    pattern: "hybrid-reference"
+    engine: "dbt"
+    repository: "./dbt_project"
+    
+    properties:
+      model: "customer_analytics"
+      vars:
+        # Environment-specific variables
+        environment: "{{ env }}"
+        warehouse: "{{ warehouse }}"
+        database: "{{ database }}"
+        
+      materializations:
+        # Fact tables - incremental
+        customer_transactions: "incremental"
+        customer_events: "incremental"
+        
+        # Dimension tables - full refresh
+        customer_dim: "table"
+        
+        # Aggregated views - materialized
+        customer_360: "table"
+        customer_segments: "table"
+        customer_ltv: "table"
+    
+    execution:
+      trigger:
+        type: "schedule"
+        cron: "0 6 * * *"  # Daily at 6 AM
+      runtime:
+        platform: "snowflake"
+        timeout: "PT2H"
+        retries: 2
+        
+    # Build dependencies
+    dependencies:
+      - buildId: "data_quality_checks"
+        condition: "success"
+
+  - id: "data_quality_checks"
+    description: "Pre-build data quality validation"
+    pattern: "embedded-logic"
+    engine: "sql"
+    
+    properties:
+      language: "sql"
+      sql: |
+        -- Validate source data quality before processing
+        SELECT 
+          'customer_records' as source_table,
+          COUNT(*) as total_rows,
+          COUNT(DISTINCT customer_id) as unique_customers,
+          SUM(CASE WHEN email IS NULL THEN 1 ELSE 0 END) as missing_emails
+        FROM {{ source_database }}.{{ source_schema }}.customer_records
+        WHERE created_date >= DATEADD(day, -1, CURRENT_DATE());
+
+# Data Products Exposed
+exposes:
+  # 1. Customer 360 View - Primary Output
+  - exposeId: "customer_360_view"
+    title: "Customer 360 Unified View"
+    version: "1.0.0"
+    kind: "table"
+    
+    tags:
+      - "customer-360"
+      - "high-value"
+      - "ml-ready"
+      - "pii"
+    
+    labels:
+      data-classification: "confidential"
+      retention-period: "7-years"
+      primary-key: "customer_id"
+    
+    contract:
+      schema:
+        - name: "customer_id"
+          type: "STRING"
+          required: true
+          description: "Unique customer identifier"
+          semanticType: "identifier"
+          businessName: "Customer ID"
+          
+        - name: "email"
+          type: "STRING"
+          required: true
+          description: "Customer email address"
+          sensitivity: "pii"
+          semanticType: "email"
+          businessName: "Email Address"
+          
+        - name: "phone"
+          type: "STRING"
+          description: "Customer phone number"
+          sensitivity: "pii"
+          semanticType: "phone"
+          
+        - name: "first_name"
+          type: "STRING"
+          sensitivity: "pii"
+          description: "Customer first name"
+          
+        - name: "last_name"
+          type: "STRING"
+          sensitivity: "pii"
+          description: "Customer last name"
+          
+        - name: "customer_segment"
+          type: "STRING"
+          description: "Customer behavioral segment (VIP, Regular, At-Risk)"
+          businessDefinition: "ML-derived customer segment based on purchase behavior"
+          
+        - name: "lifetime_value"
+          type: "NUMERIC(18,2)"
+          required: true
+          description: "Total customer lifetime value in USD"
+          businessName: "Customer LTV"
+          
+        - name: "total_purchases"
+          type: "INTEGER"
+          description: "Total number of purchases"
+          
+        - name: "avg_order_value"
+          type: "NUMERIC(18,2)"
+          description: "Average order value"
+          
+        - name: "churn_risk_score"
+          type: "FLOAT"
+          description: "Churn risk probability (0-1)"
+          businessDefinition: "ML model prediction of churn probability"
+          
+        - name: "last_purchase_date"
+          type: "DATE"
+          description: "Date of most recent purchase"
+          
+        - name: "customer_since"
+          type: "DATE"
+          required: true
+          description: "Date customer first registered"
+          
+        - name: "region"
+          type: "STRING"
+          description: "Customer geographic region"
+          
+        - name: "updated_at"
+          type: "TIMESTAMP_NTZ"
+          required: true
+          description: "Last update timestamp"
+      
+      # Data Quality Rules
+      dq:
+        rules:
+          - id: "customer_id_unique"
+            type: "uniqueness"
+            selector: "customer_id"
+            threshold: 1.0
+            operator: ">="
+            severity: "error"
+            description: "Customer ID must be unique"
+            
+          - id: "email_not_null"
+            type: "completeness"
+            selector: "email"
+            threshold: 0.95
+            operator: ">="
+            severity: "error"
+            description: "Email should be present for 95%+ of customers"
+            
+          - id: "ltv_positive"
+            type: "valid_values"
+            selector: "lifetime_value"
+            threshold: 0.0
+            operator: ">="
+            severity: "warning"
+            description: "Lifetime value should be non-negative"
+            
+          - id: "data_freshness"
+            type: "freshness"
+            selector: "updated_at"
+            window: "P1D"
+            threshold: 0.9
+            operator: ">="
+            severity: "error"
+            description: "Data should be updated daily"
+    
+    # Quality of Service
+    qos:
+      availability: "99.9%"
+      freshnessSLO: "PT12H"
+      dataLossSLO: "0 rows"
+      latencyP95: "PT5S"
+      completenessTarget: 0.98
+      errorBudget: 0.001
+    
+    # Security Policies
+    policy:
+      classification: "Confidential"
+      
+      # Authentication
+      authn: "iam"
+      
+      # Authorization - Role-Based Access Control
+      authz:
+        readers:
+          - "role:CUSTOMER_ANALYTICS_READ"
+          - "role:MARKETING_ANALYST"
+          - "role:DATA_SCIENTIST"
+        
+        writers:
+          - "role:CUSTOMER_ANALYTICS_ADMIN"
+          - "role:DATA_ENGINEERING"
+        
+        # Column-level restrictions
+        columnRestrictions:
+          # Marketing analysts can't see PII
+          - principal: "role:MARKETING_ANALYST"
+            columns: ["email", "phone", "first_name", "last_name"]
+            access: "deny"
+            
+          # Data scientists get masked PII
+          - principal: "role:DATA_SCIENTIST"
+            columns: ["email", "phone"]
+            access: "allow"  # But with masking (see privacy section)
+      
+      # Privacy Controls - Data Masking
+      privacy:
+        masking:
+          # Email masking for most users
+          - column: "email"
+            strategy: "mask"
+            params:
+              mask_char: "*"
+              visible_prefix: 2
+              visible_suffix: 0
+            tags: ["pii-protection", "gdpr"]
+            
+          # Phone masking
+          - column: "phone"
+            strategy: "mask"
+            params:
+              mask_char: "X"
+              visible_prefix: 0
+              visible_suffix: 4
+            
+          # Name hashing for analysts
+          - column: "first_name"
+            strategy: "hash"
+            params:
+              algorithm: "sha256"
+            
+          - column: "last_name"
+            strategy: "hash"
+            params:
+              algorithm: "sha256"
+        
+        # Row-Level Security - Regional Data Access
+        rowLevelPolicy:
+          expression: "region = CURRENT_ROLE_REGION()"
+          description: "Users only see data for their assigned region"
+          tags: ["regional-isolation", "compliance"]
+    
+    # Snowflake-Specific Binding
+    binding:
+      platform: "snowflake"
+      format: "snowflake_table"
+      
+      location:
+        account: "{{ env.SNOWFLAKE_ACCOUNT }}"
+        database: "{{ database }}"
+        schema: "CUSTOMER_ANALYTICS"
+        table: "CUSTOMER_360_VIEW"
+        
+      properties:
+        # Performance optimization
+        cluster_by: ["region", "customer_segment"]
+        
+        # Table properties
+        table_type: "STANDARD"
+        
+        # Time Travel retention
+        data_retention_time_in_days: 90
+        
+        # Change tracking for CDC
+        change_tracking: true
+        
+        # Comments
+        comment: "Customer 360 unified view with comprehensive customer analytics"
+    
+    # Observability
+    observability:
+      metrics:
+        - name: "row_count"
+          source: "SELECT COUNT(*) FROM {{ database }}.CUSTOMER_ANALYTICS.CUSTOMER_360_VIEW"
+          sli: "Row count > 100000"
+          
+        - name: "data_freshness"
+          source: "SELECT MAX(updated_at) FROM {{ database }}.CUSTOMER_ANALYTICS.CUSTOMER_360_VIEW"
+          sli: "Max updated_at < 12 hours ago"
+          
+        - name: "null_email_rate"
+          source: |
+            SELECT 
+              SUM(CASE WHEN email IS NULL THEN 1 ELSE 0 END)::FLOAT / COUNT(*)
+            FROM {{ database }}.CUSTOMER_ANALYTICS.CUSTOMER_360_VIEW
+          sli: "Null rate < 5%"
+      
+      onBreach:
+        - type: "slack"
+          channel: "#customer-analytics-alerts"
+          severity: "warning"
+          
+        - type: "email"
+          target: "customer-analytics@company.com"
+          severity: "critical"
+          
+        - type: "pagerduty"
+          severity: "critical"
+
+  # 2. Customer Segments - Analytical View
+  - exposeId: "customer_segments"
+    title: "Customer Segmentation Analysis"
+    version: "1.0.0"
+    kind: "table"
+    
+    tags: ["segmentation", "marketing", "aggregated"]
+    
+    contract:
+      schema:
+        - name: "segment_name"
+          type: "STRING"
+          required: true
+        - name: "customer_count"
+          type: "INTEGER"
+          required: true
+        - name: "avg_lifetime_value"
+          type: "NUMERIC(18,2)"
+        - name: "avg_purchase_frequency"
+          type: "FLOAT"
+        - name: "segment_revenue"
+          type: "NUMERIC(18,2)"
+    
+    policy:
+      classification: "Internal"
+      authz:
+        readers:
+          - "role:MARKETING_ANALYST"
+          - "role:CUSTOMER_ANALYTICS_READ"
+    
+    binding:
+      platform: "snowflake"
+      format: "snowflake_table"
+      location:
+        account: "{{ env.SNOWFLAKE_ACCOUNT }}"
+        database: "{{ database }}"
+        schema: "CUSTOMER_ANALYTICS"
+        table: "CUSTOMER_SEGMENTS"
+      properties:
+        table_type: "MATERIALIZED_VIEW"
+        comment: "Aggregated customer segmentation metrics"
+
+# Lifecycle Management
+lifecycle:
+  state: "active"
+  retention: "P7Y"  # 7 years for compliance
+  
+  deprecationPolicy:
+    noticePeriod: "P90D"
+    contact: "customer-analytics@company.com"
+    replacement: "gold.enterprise.customer_analytics_v2"
+
+# Documentation
+docs:
+  homepage: "https://wiki.company.com/customer-analytics"
+  runbook: "https://wiki.company.com/customer-analytics/runbook"
+  dictionary: "https://wiki.company.com/customer-analytics/data-dictionary"
+  changeLog: "https://github.com/company/customer-analytics/CHANGELOG.md"
+
+# Environment-Specific Configurations
+environments:
+  dev:
+    database: "DEV_ANALYTICS"
+    warehouse: "DEV_WH"
+    schema: "CUSTOMER_ANALYTICS_DEV"
+    resource_monitor: null
+    
+  staging:
+    database: "STAGING_ANALYTICS"
+    warehouse: "STAGING_WH"
+    schema: "CUSTOMER_ANALYTICS"
+    resource_monitor: "STAGING_MONITOR"
+    
+  prod:
+    database: "PROD_ANALYTICS"
+    warehouse: "PROD_WH"
+    schema: "CUSTOMER_ANALYTICS"
+    resource_monitor: "PROD_ANALYTICS_MONITOR"

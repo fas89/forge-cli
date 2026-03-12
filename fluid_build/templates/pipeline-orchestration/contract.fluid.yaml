@@ -1,0 +1,179 @@
+fluidVersion: "0.7.1"
+kind: "DataProduct"
+id: "orchestration.complex_pipeline_v1"
+name: "Complex Pipeline Orchestration"
+description: "Advanced orchestration with parallel execution and dependencies"
+domain: "Orchestration"
+tags:
+  - "orchestration"
+  - "production"
+  - "multi-source"
+  - "advanced"
+
+metadata:
+  owner:
+    team: "data-ops"
+    email: "dataops@example.com"
+  orchestration:
+    enabled: true
+    schedule: "0 3 * * *"
+    startDate: "2024-01-01"
+    catchup: false
+    maxActiveRuns: 1
+    retries: 3
+    retryDelay: "PT10M"
+
+consumes:
+  - consumeId: "raw_sales"
+    title: "Raw Sales Data"
+    version: "1.0.0"
+    kind: "file"
+    purpose: "Sales transactions"
+    binding:
+      platform: "local"
+      format: "csv"
+      location:
+        path: "data/sales.csv"
+    contract:
+      schema:
+        - { name: "sale_id", type: "INTEGER", required: true }
+        - { name: "region", type: "VARCHAR" }
+        - { name: "sale_date", type: "DATE" }
+        - { name: "amount", type: "DECIMAL" }
+        - { name: "category", type: "VARCHAR" }
+  
+  - consumeId: "raw_inventory"
+    title: "Raw Inventory Data"
+    version: "1.0.0"
+    kind: "file"
+    purpose: "Product inventory"
+    binding:
+      platform: "local"
+      format: "csv"
+      location:
+        path: "data/inventory.csv"
+    contract:
+      schema:
+        - { name: "product_id", type: "INTEGER", required: true }
+        - { name: "product_name", type: "VARCHAR" }
+        - { name: "category", type: "VARCHAR" }
+        - { name: "quantity", type: "INTEGER" }
+
+exposes:
+  - exposeId: "sales_cleaned"
+    title: "Cleaned Sales"
+    version: "1.0.0"
+    kind: "table"
+    labels:
+      taskGroup: "extraction"
+    binding:
+      platform: "local"
+      format: "parquet"
+      location:
+        path: "output/sales_cleaned.parquet"
+    contract:
+      schema:
+        - { name: "sale_id", type: "INTEGER", required: true }
+        - { name: "region", type: "VARCHAR" }
+        - { name: "sale_date", type: "DATE" }
+        - { name: "amount", type: "DECIMAL" }
+        - { name: "category", type: "VARCHAR" }
+  
+  - exposeId: "inventory_cleaned"
+    title: "Cleaned Inventory"
+    version: "1.0.0"
+    kind: "table"
+    labels:
+      taskGroup: "extraction"
+    binding:
+      platform: "local"
+      format: "parquet"
+      location:
+        path: "output/inventory_cleaned.parquet"
+    contract:
+      schema:
+        - { name: "product_id", type: "INTEGER", required: true }
+        - { name: "product_name", type: "VARCHAR" }
+        - { name: "category", type: "VARCHAR" }
+        - { name: "quantity", type: "INTEGER" }
+  
+  - exposeId: "regional_summary"
+    title: "Regional Sales Summary"
+    version: "1.0.0"
+    kind: "table"
+    labels:
+      taskGroup: "aggregation"
+    binding:
+      platform: "local"
+      format: "parquet"
+      location:
+        path: "output/regional_summary.parquet"
+    contract:
+      schema:
+        - { name: "region", type: "VARCHAR", required: true }
+        - { name: "total_sales", type: "INTEGER" }
+        - { name: "total_revenue", type: "DECIMAL" }
+        - { name: "avg_sale_amount", type: "DECIMAL" }
+
+builds:
+  - id: "orchestrated_pipeline"
+    description: "Multi-stage pipeline with parallel execution"
+    pattern: "multi-stage"
+    engine: "sql"
+    
+    properties:
+      stages:
+        # PARALLEL: Extract phase
+        - id: "extract_sales"
+          description: "Clean sales data"
+          executionPhase: "extract"
+          parallel: true
+          logic: |
+            SELECT 
+              sale_id, UPPER(region) as region,
+              sale_date, amount,
+              category
+            FROM read_csv_auto('data/sales.csv', header=true)
+          outputs: ["sales_cleaned"]
+        
+        - id: "extract_inventory"
+          description: "Clean inventory data"
+          executionPhase: "extract"
+          parallel: true
+          logic: |
+            SELECT 
+              product_id, product_name,
+              UPPER(category) as category,
+              quantity
+            FROM read_csv_auto('data/inventory.csv', header=true)
+          outputs: ["inventory_cleaned"]
+        
+        # SEQUENTIAL: Aggregation phase
+        - id: "aggregate_by_region"
+          description: "Aggregate sales by region"
+          executionPhase: "aggregate"
+          dependsOn: ["extract_sales"]
+          logic: |
+            SELECT 
+              region,
+              COUNT(*) as total_sales,
+              SUM(amount) as total_revenue,
+              AVG(amount) as avg_sale_amount
+            FROM sales_cleaned
+            GROUP BY region
+            ORDER BY total_revenue DESC
+          outputs: ["regional_summary"]
+    
+    execution:
+      trigger:
+        type: "scheduled"
+        schedule: "0 3 * * *"
+      runtime:
+        platform: "local"
+        resources:
+          cpu: "4"
+          memory: "8GB"
+        timeout: "PT2H"
+      monitoring:
+        enabled: true
+        sla: "PT1H"

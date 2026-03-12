@@ -1,0 +1,62 @@
+﻿fluidVersion: "0.5.7"
+kind: "DataProduct"
+id: "gold.analytics.customer_360_v1"
+name: "Customer 360 Analytics Platform"
+description: "Unified customer view with segmentation and analytics"
+domain: "customer-analytics"
+
+metadata:
+  layer: Gold
+  owner:
+    team: "Data Platform Team"
+    email: "data-team@example.com"
+  businessContext:
+    domain: "Customer Analytics"
+    subdomain: "Customer Segmentation"
+
+consumes:
+  - productId: "silver.crm.customer_data_v1"
+    exposeId: "customer_master"
+    purpose: "Customer demographic and contact information"
+
+builds:
+  - id: "customer_360_analytics"
+    description: "Customer 360 unified view with segmentation"
+    pattern: "hybrid-reference"
+    engine: "dbt"
+    repository: "./dbt_project"
+    properties:
+      model: "customer_360"
+    execution:
+      trigger:
+        type: "schedule"
+        cron: "0 6 * * *"
+      runtime:
+        platform: "local"
+
+exposes:
+  - exposeId: "customer_profiles"
+    kind: "table"
+    binding:
+      platform: "local"
+      format: "parquet"
+      location:
+        path: "output/customer_profiles.parquet"
+    contract:
+      schema:
+        - name: "customer_id"
+          type: "STRING"
+          required: true
+        - name: "email"
+          type: "STRING"
+      dq:
+        rules:
+          - id: "customer_id_not_null"
+            type: "completeness"
+            selector: "customer_id"
+            threshold: 1.0
+            operator: ">="
+            severity: "error"
+    qos:
+      availability: "99.5%"
+      freshnessSLO: "PT24H"

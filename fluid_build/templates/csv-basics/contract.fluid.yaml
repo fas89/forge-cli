@@ -1,0 +1,163 @@
+fluidVersion: "0.7.1"
+kind: "DataProduct"
+id: "tutorial.customer_data_product_v1"
+name: "Customer Data Product"
+description: "Transform raw customer CSV data into a clean, validated data product"
+domain: "Tutorial"
+tags:
+  - "customers"
+  - "tutorial"
+  - "csv-ingestion"
+
+metadata:
+  owner:
+    team: "data-team"
+    email: "data-team@company.com"
+
+consumes:
+  - consumeId: "raw_customers"
+    title: "Raw Customer Data"
+    version: "1.0.0"
+    kind: "file"
+    purpose: "Raw customer data from CRM export"
+    
+    binding:
+      platform: "local"
+      format: "csv"
+      location:
+        path: "data/customers.csv"
+    
+    contract:
+      schema:
+        - name: "id"
+          type: "INTEGER"
+          required: true
+          description: "Unique customer identifier"
+        - name: "name"
+          type: "VARCHAR"
+          required: true
+          description: "Customer full name"
+        - name: "email"
+          type: "VARCHAR"
+          required: true
+          description: "Customer email address"
+        - name: "signup_date"
+          type: "DATE"
+          description: "Date customer signed up"
+        - name: "status"
+          type: "VARCHAR"
+          description: "Customer status: active, inactive, or churned"
+        - name: "total_purchases"
+          type: "INTEGER"
+          description: "Total number of purchases"
+        - name: "last_purchase_date"
+          type: "DATE"
+          description: "Date of most recent purchase"
+
+exposes:
+  - exposeId: "customers_clean"
+    title: "Clean Customer Data"
+    version: "1.0.0"
+    kind: "table"
+    description: "Clean, validated customer data with derived fields"
+    
+    binding:
+      platform: "local"
+      format: "parquet"
+      location:
+        path: "output/customers_clean.parquet"
+    
+    contract:
+      schema:
+        - name: "customer_id"
+          type: "INTEGER"
+          required: true
+          description: "Unique customer identifier"
+        - name: "full_name"
+          type: "VARCHAR"
+          required: true
+          description: "Customer full name"
+        - name: "email"
+          type: "VARCHAR"
+          required: true
+          description: "Standardized email address (lowercase)"
+        - name: "signup_date"
+          type: "DATE"
+          description: "Date customer signed up"
+        - name: "customer_status"
+          type: "VARCHAR"
+          description: "Current customer status"
+        - name: "total_purchases"
+          type: "INTEGER"
+          description: "Total number of purchases"
+        - name: "last_purchase_date"
+          type: "DATE"
+          description: "Date of most recent purchase"
+        - name: "days_since_last_purchase"
+          type: "INTEGER"
+          description: "Number of days since last purchase"
+        - name: "customer_segment"
+          type: "VARCHAR"
+          description: "Customer segment based on purchase frequency"
+        - name: "is_active"
+          type: "BOOLEAN"
+          description: "Whether customer is currently active"
+      
+      dq:
+        rules:
+          - id: "no_null_emails"
+            type: "completeness"
+            selector: "email"
+            severity: "error"
+            description: "Ensure all customers have email addresses"
+            threshold: 1.0
+            operator: ">="
+          - id: "valid_statuses"
+            type: "validity"
+            selector: "customer_status"
+            severity: "error"
+            description: "Ensure all customer statuses are valid"
+            validValues: ["active", "inactive", "churned"]
+          - id: "positive_purchases"
+            type: "accuracy"
+            selector: "total_purchases"
+            severity: "error"
+            description: "Ensure purchase counts are non-negative"
+            threshold: 0
+            operator: ">="
+
+builds:
+  - id: "clean_and_enrich_customers"
+    description: "Clean and enrich customer data with derived segments"
+    pattern: "single-stage"
+    engine: "sql"
+    
+    properties:
+      logic: |
+        SELECT
+          id AS customer_id,
+          name AS full_name,
+          LOWER(TRIM(email)) AS email,
+          signup_date,
+          status AS customer_status,
+          total_purchases,
+          last_purchase_date,
+          CAST(julianday('now') - julianday(last_purchase_date) AS INTEGER) AS days_since_last_purchase,
+          CASE
+            WHEN total_purchases >= 20 THEN 'VIP'
+            WHEN total_purchases >= 10 THEN 'Loyal'
+            WHEN total_purchases >= 5 THEN 'Regular'
+            ELSE 'New'
+          END AS customer_segment,
+          status = 'active' AS is_active
+        FROM read_csv_auto('data/customers.csv', header=true)
+        WHERE email IS NOT NULL
+        ORDER BY total_purchases DESC
+      outputs:
+        - "customers_clean"
+    
+    execution:
+      trigger:
+        type: "manual"
+      runtime:
+        platform: "local"

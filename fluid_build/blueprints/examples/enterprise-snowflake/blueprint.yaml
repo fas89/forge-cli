@@ -1,0 +1,119 @@
+# Blueprint Metadata
+name: enterprise-snowflake
+title: Enterprise Snowflake Data Product
+description: |
+  Production-ready Snowflake data product blueprint implementing enterprise-grade patterns:
+  - Multi-environment deployment (dev, staging, prod)
+  - Comprehensive security (RBAC, row-level security, data masking)
+  - Performance optimization (clustering, materialized views, query tags)
+  - Cost management (warehouse sizing, auto-suspend, resource monitors)
+  - Data quality validation and monitoring
+  - Disaster recovery and backup strategies
+  - Compliance and audit logging
+
+version: "1.0.0"
+category: batch
+complexity: advanced
+
+# Technical Details
+providers:
+  - snowflake
+
+runtimes:
+  - dbt
+  - airflow
+
+dependencies:
+  - name: dbt-snowflake
+    version: ">=1.6.0"
+    required: true
+  - name: snowflake-connector-python
+    version: ">=3.0.0"
+    required: true
+  - name: apache-airflow-providers-snowflake
+    version: ">=5.0.0"
+    required: false
+
+# Documentation
+tags:
+  - snowflake
+  - enterprise
+  - data-warehouse
+  - production-ready
+  - security
+  - compliance
+  - cost-optimization
+  - multi-environment
+
+use_cases:
+  - Enterprise data warehousing with strict governance
+  - Multi-environment deployment (dev/staging/prod)
+  - Sensitive data handling with PII protection
+  - Cost-optimized analytical workloads
+  - High-availability production systems
+  - Compliance (SOX, GDPR, HIPAA) requirements
+  - Cross-functional analytics with RBAC
+
+best_practices:
+  - Implements Snowflake virtual warehouses per environment
+  - Uses role-based access control (RBAC) with least privilege
+  - Applies column-level data masking for PII
+  - Implements row-level security policies
+  - Uses clustering keys for query performance
+  - Configures auto-suspend and auto-resume for cost optimization
+  - Includes comprehensive data quality checks
+  - Implements zero-copy cloning for testing
+  - Uses resource monitors to prevent runaway costs
+  - Follows Snowflake naming conventions and best practices
+
+setup_time: "60 minutes"
+
+# Production Features
+features:
+  - Multi-environment configuration (dev/staging/prod)
+  - Dynamic data masking for PII
+  - Row-level security policies
+  - Column-level grants by role
+  - Clustering for performance
+  - Query tagging for cost attribution
+  - Materialized views for aggregations
+  - Incremental models with merge strategy
+  - Time travel for data recovery
+  - Automated backup via Snowflake Time Travel
+  - Resource monitors and alerts
+  - Query history and audit logging
+
+# Blueprint Features
+has_sample_data: true
+has_tests: true
+has_docs: true
+has_cicd: true
+has_monitoring: true
+has_security: true
+
+# Environments
+environments:
+  dev:
+    warehouse: "DEV_WH"
+    database: "DEV_ANALYTICS"
+    size: "X-SMALL"
+    auto_suspend: 60
+    
+  staging:
+    warehouse: "STAGING_WH"
+    database: "STAGING_ANALYTICS"
+    size: "SMALL"
+    auto_suspend: 300
+    
+  prod:
+    warehouse: "PROD_WH"
+    database: "PROD_ANALYTICS"
+    size: "MEDIUM"
+    auto_suspend: 600
+    resource_monitor: "PROD_ANALYTICS_MONITOR"
+
+# Authoring
+author: "FLUID Team"
+created_at: "2025-12-06"
+updated_at: "2025-12-06"
+license: "MIT"

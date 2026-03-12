@@ -1,0 +1,806 @@
+fluidVersion: "0.5.7"
+kind: "DataProduct"
+id: "gold.semantic.customer_intelligence_v2"
+name: "Semantic Customer Intelligence Model"
+description: |
+  Advanced semantic customer data model demonstrating:
+  
+  1. **Multi-Version Builds**: Three concurrent output versions (v1, v2, v3)
+     - v1: Legacy format for backward compatibility (deprecated)
+     - v2: Enhanced current version with expanded metrics
+     - v3: Real-time streaming variant with lower latency
+  
+  2. **Semantic Layer**: Business-friendly abstraction over physical data
+     - Entities: Customer, Product, Transaction
+     - Metrics: LTV, Churn Risk, Purchase Frequency
+     - Dimensions: Time, Geography, Segment
+  
+  3. **Star Schema**: Optimized dimensional model
+     - Fact tables: transactions, interactions
+     - Dimension tables: customers (SCD Type 2), products, dates
+  
+  This enables gradual consumer migration, A/B testing, and zero-downtime evolution.
+
+domain: "Customer Intelligence"
+
+metadata:
+  layer: "Gold"
+  owner:
+    team: "Customer Intelligence Team"
+    email: "customer-intelligence@company.com"
+    slack: "#customer-intelligence"
+  businessContext:
+    domain: "Customer Analytics"
+    subdomain: "Customer Intelligence & Modeling"
+    businessOwner: "Chief Data Officer"
+  classification: "Internal"
+  
+tags:
+  - "semantic-model"
+  - "multi-version"
+  - "star-schema"
+  - "customer-360"
+  - "metrics"
+
+labels:
+  cost-center: "analytics"
+  data-model: "star-schema"
+  versioning: "multi-version"
+
+# Data Dependencies
+consumes:
+  - productId: "bronze.crm.customer_raw_v1"
+    exposeId: "customer_records"
+    purpose: "Customer master data"
+    versionConstraint: "^1.0.0"
+    
+  - productId: "bronze.transactions.orders_v1"
+    exposeId: "order_events"
+    purpose: "Transaction history"
+    
+  - productId: "bronze.products.catalog_v1"
+    exposeId: "product_master"
+    purpose: "Product catalog data"
+    
+  - productId: "bronze.web.clickstream_v1"
+    exposeId: "interaction_events"
+    purpose: "Customer interaction events"
+
+# Multiple Build Configurations
+builds:
+  # Build 1: Conformed Dimensions (SCD Type 2)
+  - id: "dimensions"
+    description: "Conformed dimensions with slowly changing dimension (SCD Type 2) tracking"
+    pattern: "embedded-logic"
+    engine: "sql"
+    
+    properties:
+      models:
+        - dim_customer_scd2
+        - dim_product
+        - dim_date
+        - dim_geography
+        - dim_customer_segment
+    
+    execution:
+      trigger:
+        type: "schedule"
+        cron: "0 2 * * *"  # 2 AM daily
+      timeout: "PT30M"
+      retries: 2
+      
+    embedded:
+      sql: |
+        -- dim_customer_scd2.sql
+        -- Slowly Changing Dimension Type 2 for customer history
+        CREATE OR REPLACE TABLE {{ database }}.{{ schema }}.dim_customer AS
+        WITH source AS (
+          SELECT 
+            customer_id,
+            email,
+            first_name,
+            last_name,
+            customer_segment,
+            region,
+            updated_at
+          FROM {{ consumes.customer_records }}
+        ),
+        
+        -- Detect changes
+        changes AS (
+          SELECT 
+            s.*,
+            COALESCE(d.valid_to, '1900-01-01'::TIMESTAMP) as prev_valid_to,
+            CASE 
+              WHEN d.customer_key IS NULL THEN 'INSERT'
+              WHEN s.email != d.email 
+                OR s.customer_segment != d.customer_segment 
+                OR s.region != d.region THEN 'UPDATE'
+              ELSE 'NO_CHANGE'
+            END as change_type
+          FROM source s
+          LEFT JOIN {{ database }}.{{ schema }}.dim_customer d
+            ON s.customer_id = d.customer_id
+            AND d.is_current = TRUE
+        )
+        
+        -- Apply SCD Type 2 logic
+        SELECT 
+          {{ generate_surrogate_key(['customer_id', 'updated_at']) }} as customer_key,
+          customer_id,
+          email,
+          first_name,
+          last_name,
+          customer_segment,
+          region,
+          updated_at as valid_from,
+          CASE 
+            WHEN change_type = 'UPDATE' THEN CURRENT_TIMESTAMP()
+            ELSE '9999-12-31'::TIMESTAMP
+          END as valid_to,
+          change_type != 'UPDATE' as is_current,
+          CURRENT_TIMESTAMP() as dw_created_at,
+          CURRENT_TIMESTAMP() as dw_updated_at
+        FROM changes
+        WHERE change_type != 'NO_CHANGE';
+
+  # Build 2: Fact Tables
+  - id: "facts"
+    description: "Core fact tables for transactions and interactions"
+    pattern: "hybrid-reference"
+    engine: "dbt"
+    repository: "./dbt_project/models/facts"
+    
+    properties:
+      models:
+        - fact_transactions
+        - fact_customer_interactions
+      
+      materializations:
+        fact_transactions: "incremental"
+        fact_customer_interactions: "incremental"
+    
+    execution:
+      trigger:
+        type: "schedule"
+        cron: "0 3 * * *"  # 3 AM daily after dimensions
+      timeout: "PT1H"
+      retries: 3
+      dependencies:
+        - buildId: "dimensions"
+          condition: "success"
+
+  # Build 3: v1 Legacy Format (Deprecated)
+  - id: "v1_legacy"
+    description: |
+      Legacy v1 customer profile format (DEPRECATED: 2026-06-01)
+      
+      **Deprecation Notice:**
+      - Deprecated: 2025-12-01
+      - End of Life: 2026-06-01
+      - Migration Path: Migrate to v2_enhanced or semantic_layer
+      
+      This version maintained for backward compatibility only.
+    pattern: "embedded-logic"
+    engine: "sql"
+    
+    properties:
+      deprecation:
+        deprecated_date: "2025-12-01"
+        sunset_date: "2026-06-01"
+        replacement: "v2_enhanced"
+    
+    execution:
+      trigger:
+        type: "schedule"
+        cron: "0 5 * * *"  # 5 AM daily after facts
+      timeout: "PT20M"
+      retries: 2
+      dependencies:
+        - buildId: "facts"
+          condition: "success"
+    
+    embedded:
+      sql: |
+        -- v1 Legacy Format: Simple customer profile
+        CREATE OR REPLACE VIEW {{ database }}.{{ schema }}.customer_profile_v1 AS
+        SELECT 
+          c.customer_id,
+          c.email,
+          c.first_name,
+          c.last_name,
+          c.customer_segment,
+          COUNT(DISTINCT t.transaction_id) as total_orders,
+          SUM(t.amount) as total_spent,
+          MAX(t.transaction_date) as last_order_date
+        FROM {{ database }}.{{ schema }}.dim_customer c
+        LEFT JOIN {{ database }}.{{ schema }}.fact_transactions t
+          ON c.customer_key = t.customer_key
+        WHERE c.is_current = TRUE
+        GROUP BY 1, 2, 3, 4, 5;
+
+  # Build 4: v2 Enhanced Format (Current)
+  - id: "v2_enhanced"
+    description: |
+      Enhanced v2 customer intelligence with expanded metrics
+      
+      **Improvements over v1:**
+      - Added LTV calculation
+      - Added churn risk score
+      - Added RFM segmentation
+      - Added product affinity
+      - Improved performance with materialization
+    pattern: "hybrid-reference"
+    engine: "dbt"
+    repository: "./dbt_project/models/v2"
+    
+    execution:
+      trigger:
+        type: "schedule"
+        cron: "0 5 * * *"  # 5 AM daily after facts
+      timeout: "PT30M"
+      retries: 3
+      dependencies:
+        - buildId: "facts"
+          condition: "success"
+
+  # Build 5: v3 Streaming Format (Real-time)
+  - id: "v3_streaming"
+    description: |
+      Real-time streaming variant with materialized views
+      
+      **Real-time Features:**
+      - Continuously updated materialized views
+      - Sub-minute latency
+      - Streaming aggregations
+      - Change data capture (CDC) enabled
+    pattern: "embedded-logic"
+    engine: "sql"
+    
+    execution:
+      trigger:
+        type: "stream"
+        stream_source: "kafka://customer-events"
+      timeout: "PT5M"
+      retries: 5
+      dependencies:
+        - buildId: "dimensions"
+          condition: "success"
+    
+    embedded:
+      sql: |
+        -- v3 Streaming: Real-time customer metrics
+        CREATE OR REPLACE MATERIALIZED VIEW {{ database }}.{{ schema }}.customer_metrics_v3_rt AS
+        SELECT 
+          c.customer_id,
+          c.email,
+          c.customer_segment,
+          -- Real-time metrics
+          COUNT_IF(t.transaction_date >= DATEADD(day, -30, CURRENT_DATE())) as orders_last_30d,
+          SUM_IF(t.amount, t.transaction_date >= DATEADD(day, -30, CURRENT_DATE())) as revenue_last_30d,
+          COUNT_IF(i.interaction_date >= DATEADD(day, -7, CURRENT_DATE())) as interactions_last_7d,
+          MAX(t.transaction_date) as last_transaction_date,
+          DATEDIFF(day, MAX(t.transaction_date), CURRENT_DATE()) as days_since_last_order,
+          -- Streaming metadata
+          CURRENT_TIMESTAMP() as calculated_at
+        FROM {{ database }}.{{ schema }}.dim_customer c
+        LEFT JOIN {{ database }}.{{ schema }}.fact_transactions t
+          ON c.customer_key = t.customer_key
+        LEFT JOIN {{ database }}.{{ schema }}.fact_customer_interactions i
+          ON c.customer_key = i.customer_key
+        WHERE c.is_current = TRUE
+        GROUP BY 1, 2, 3;
+
+  # Build 6: Semantic Layer
+  - id: "semantic_layer"
+    description: |
+      Business semantic layer with entities, metrics, and dimensions
+      
+      Provides business-friendly abstractions over physical data model:
+      - Entities: Customer, Product, Transaction
+      - Metrics: LTV, Churn Risk, Purchase Frequency, AOV
+      - Dimensions: Time, Geography, Segment, Product Category
+    pattern: "hybrid-reference"
+    engine: "dbt"
+    repository: "./dbt_project/models/semantic"
+    
+    properties:
+      semantic_models:
+        - customer_entity
+        - transaction_entity
+        - product_entity
+      
+      metrics:
+        - customer_lifetime_value
+        - churn_risk_score
+        - average_order_value
+        - purchase_frequency
+        - customer_acquisition_cost
+    
+    execution:
+      trigger:
+        type: "schedule"
+        cron: "0 6 * * *"  # 6 AM daily after all versions
+      timeout: "PT45M"
+      retries: 2
+      dependencies:
+        - buildId: "facts"
+          condition: "success"
+        - buildId: "dimensions"
+          condition: "success"
+
+# Exposes: Multiple Versioned Outputs
+exposes:
+  # Output 1: v1 Legacy (Deprecated)
+  - id: "customer_profile_v1"
+    name: "Customer Profile v1 (Legacy)"
+    description: |
+      **DEPRECATED - DO NOT USE FOR NEW INTEGRATIONS**
+      
+      Legacy customer profile format. Deprecated as of 2025-12-01.
+      Will be removed on 2026-06-01.
+      
+      **Migration Path:**
+      - For batch consumers: Migrate to `customer_intelligence_v2`
+      - For real-time consumers: Migrate to `customer_metrics_v3_streaming`
+      - For analytics: Use `semantic_customer_model`
+    
+    from:
+      buildId: "v1_legacy"
+      artifactId: "customer_profile_v1"
+    
+    schema:
+      type: "table"
+      columns:
+        - name: "customer_id"
+          type: "STRING"
+          required: true
+          description: "Unique customer identifier"
+        - name: "email"
+          type: "STRING"
+          required: true
+        - name: "first_name"
+          type: "STRING"
+        - name: "last_name"
+          type: "STRING"
+        - name: "customer_segment"
+          type: "STRING"
+        - name: "total_orders"
+          type: "INTEGER"
+        - name: "total_spent"
+          type: "DECIMAL"
+        - name: "last_order_date"
+          type: "DATE"
+    
+    qos:
+      availability: 0.95  # Lower SLA for deprecated version
+      freshnessMaxDuration: "P1D"
+      latencyP95: "PT10S"
+    
+    binding:
+      platform: "snowflake"
+      format: "snowflake_view"
+      location: "{{ database }}.{{ schema }}.CUSTOMER_PROFILE_V1"
+    
+    lifecycle:
+      state: "deprecated"
+      deprecatedDate: "2025-12-01"
+      sunsetDate: "2026-06-01"
+
+  # Output 2: v2 Enhanced (Current)
+  - id: "customer_intelligence_v2"
+    name: "Customer Intelligence v2 (Current)"
+    description: |
+      **CURRENT VERSION - RECOMMENDED**
+      
+      Enhanced customer intelligence with comprehensive metrics:
+      - Customer demographics and profile
+      - Lifetime value (LTV) calculation
+      - Churn risk score
+      - RFM segmentation (Recency, Frequency, Monetary)
+      - Product affinity scores
+      - Historical tracking via SCD Type 2
+    
+    from:
+      buildId: "v2_enhanced"
+      artifactId: "customer_intelligence_v2"
+    
+    schema:
+      type: "table"
+      columns:
+        # Identity
+        - name: "customer_key"
+          type: "STRING"
+          required: true
+          primaryKey: true
+          description: "Surrogate key for customer dimension (SCD Type 2)"
+        - name: "customer_id"
+          type: "STRING"
+          required: true
+          description: "Natural key - business customer ID"
+        
+        # Demographics
+        - name: "email"
+          type: "STRING"
+          required: true
+          pii: true
+          sensitivity: "high"
+        - name: "first_name"
+          type: "STRING"
+          pii: true
+        - name: "last_name"
+          type: "STRING"
+          pii: true
+        - name: "customer_segment"
+          type: "STRING"
+          description: "Customer segment: VIP, Premium, Standard, At-Risk"
+        - name: "region"
+          type: "STRING"
+        
+        # Calculated Metrics
+        - name: "lifetime_value"
+          type: "DECIMAL"
+          description: "Predicted customer lifetime value (LTV)"
+        - name: "churn_risk_score"
+          type: "DECIMAL"
+          description: "Churn probability (0.0 - 1.0)"
+        - name: "rfm_score"
+          type: "INTEGER"
+          description: "RFM score (111-555)"
+        - name: "recency_days"
+          type: "INTEGER"
+        - name: "frequency"
+          type: "INTEGER"
+        - name: "monetary_value"
+          type: "DECIMAL"
+        
+        # Aggregations
+        - name: "total_orders"
+          type: "INTEGER"
+        - name: "total_revenue"
+          type: "DECIMAL"
+        - name: "average_order_value"
+          type: "DECIMAL"
+        - name: "first_order_date"
+          type: "DATE"
+        - name: "last_order_date"
+          type: "DATE"
+        - name: "days_since_last_order"
+          type: "INTEGER"
+        
+        # Product Affinity
+        - name: "top_product_category"
+          type: "STRING"
+        - name: "product_affinity_scores"
+          type: "JSON"
+          description: "Map of product categories to affinity scores"
+        
+        # SCD Tracking
+        - name: "valid_from"
+          type: "TIMESTAMP"
+          description: "Start of validity period"
+        - name: "valid_to"
+          type: "TIMESTAMP"
+          description: "End of validity period (9999-12-31 for current)"
+        - name: "is_current"
+          type: "BOOLEAN"
+          description: "True for current record"
+        
+        # Audit
+        - name: "dw_created_at"
+          type: "TIMESTAMP"
+        - name: "dw_updated_at"
+          type: "TIMESTAMP"
+    
+    dataQuality:
+      rules:
+        - name: "customer_key_unique"
+          type: "uniqueness"
+          columns: ["customer_key"]
+          threshold: 1.0
+          severity: "error"
+        
+        - name: "customer_id_not_null"
+          type: "completeness"
+          columns: ["customer_id", "email"]
+          threshold: 0.99
+          severity: "error"
+        
+        - name: "ltv_positive"
+          type: "valid_values"
+          columns: ["lifetime_value"]
+          condition: ">= 0"
+          threshold: 0.95
+          severity: "warning"
+        
+        - name: "churn_score_range"
+          type: "valid_values"
+          columns: ["churn_risk_score"]
+          condition: "BETWEEN 0 AND 1"
+          threshold: 1.0
+          severity: "error"
+        
+        - name: "scd_integrity"
+          type: "custom"
+          sql: |
+            SELECT COUNT(*) = 0 as passed
+            FROM {{ table }}
+            WHERE is_current = TRUE
+            GROUP BY customer_id
+            HAVING COUNT(*) > 1
+          severity: "error"
+    
+    qos:
+      availability: 0.999
+      freshnessMaxDuration: "PT12H"
+      latencyP95: "PT5S"
+      minCompleteness: 0.98
+    
+    binding:
+      platform: "snowflake"
+      format: "snowflake_table"
+      location: "{{ database }}.{{ schema }}.CUSTOMER_INTELLIGENCE_V2"
+      properties:
+        cluster_by: ["customer_segment", "region"]
+        data_retention_time_in_days: 90
+    
+    policy:
+      classification: "Internal"
+      authentication: "iam"
+      
+      readers:
+        - principal: "role:CUSTOMER_ANALYTICS_READ"
+          permissions: ["readData", "readMetadata"]
+        - principal: "role:MARKETING_ANALYST"
+          permissions: ["readData"]
+        - principal: "role:DATA_SCIENTIST"
+          permissions: ["readData", "readMetadata"]
+      
+      writers:
+        - principal: "role:CUSTOMER_ANALYTICS_ADMIN"
+          permissions: ["readData", "writeData", "admin"]
+
+  # Output 3: v3 Streaming (Real-time)
+  - id: "customer_metrics_v3_streaming"
+    name: "Customer Metrics v3 (Streaming)"
+    description: |
+      **REAL-TIME STREAMING VERSION**
+      
+      Real-time customer metrics with sub-minute latency:
+      - Continuously updated materialized view
+      - Recent activity windows (7d, 30d)
+      - Streaming aggregations
+      - Suitable for real-time dashboards and alerting
+      
+      **Use Cases:**
+      - Real-time customer engagement dashboards
+      - Instant churn risk alerts
+      - Live campaign performance monitoring
+      - Operational analytics
+    
+    from:
+      buildId: "v3_streaming"
+      artifactId: "customer_metrics_v3_rt"
+    
+    schema:
+      type: "materialized_view"
+      columns:
+        - name: "customer_id"
+          type: "STRING"
+          required: true
+        - name: "email"
+          type: "STRING"
+          required: true
+          pii: true
+        - name: "customer_segment"
+          type: "STRING"
+        
+        # Real-time metrics
+        - name: "orders_last_30d"
+          type: "INTEGER"
+          description: "Orders in last 30 days"
+        - name: "revenue_last_30d"
+          type: "DECIMAL"
+          description: "Revenue in last 30 days"
+        - name: "interactions_last_7d"
+          type: "INTEGER"
+          description: "Website interactions in last 7 days"
+        - name: "last_transaction_date"
+          type: "DATE"
+        - name: "days_since_last_order"
+          type: "INTEGER"
+        - name: "calculated_at"
+          type: "TIMESTAMP"
+          description: "Timestamp of metric calculation"
+    
+    qos:
+      availability: 0.995
+      freshnessMaxDuration: "PT5M"  # 5 minute freshness
+      latencyP95: "PT1S"  # Sub-second query latency
+      minCompleteness: 0.95
+    
+    binding:
+      platform: "snowflake"
+      format: "snowflake_materialized_view"
+      location: "{{ database }}.{{ schema }}.CUSTOMER_METRICS_V3_RT"
+      properties:
+        refresh_mode: "AUTO"
+        refresh_interval: "PT1M"  # Refresh every minute
+    
+    observability:
+      metrics:
+        - name: "view_freshness"
+          type: "freshness"
+          query: "SELECT MAX(calculated_at) FROM {{ table }}"
+          threshold: "< 5 minutes ago"
+          
+        - name: "streaming_lag"
+          type: "gauge"
+          query: "SELECT DATEDIFF(second, MAX(calculated_at), CURRENT_TIMESTAMP()) FROM {{ table }}"
+          threshold: "< 300"  # Less than 5 minutes lag
+
+  # Output 4: Semantic Customer Model
+  - id: "semantic_customer_model"
+    name: "Semantic Customer Model (Business Layer)"
+    description: |
+      **SEMANTIC / BUSINESS LAYER**
+      
+      Business-friendly semantic abstraction providing:
+      
+      **Entities:**
+      - Customer: Profile, preferences, behavior
+      - Transaction: Purchase events and details
+      - Product: Catalog and attributes
+      
+      **Metrics (Pre-calculated):**
+      - customer_lifetime_value: Predicted LTV
+      - churn_risk_score: ML-based churn probability
+      - average_order_value: Mean transaction value
+      - purchase_frequency: Orders per time period
+      - customer_acquisition_cost: CAC by channel
+      
+      **Dimensions:**
+      - Time: Day, Week, Month, Quarter, Year
+      - Geography: Region, Country, State, City
+      - Segment: VIP, Premium, Standard, At-Risk
+      - Product Category: Hierarchy levels 1-3
+      
+      **Benefits:**
+      - Business-friendly names and definitions
+      - Consistent metric calculations
+      - Self-service analytics enablement
+      - Decoupled from physical storage
+    
+    from:
+      buildId: "semantic_layer"
+      artifactId: "semantic_customer_model"
+    
+    schema:
+      type: "semantic_model"
+      
+      entities:
+        - name: "customer"
+          primaryKey: "customer_key"
+          dimensions:
+            - "customer_id"
+            - "email"
+            - "name"
+            - "segment"
+            - "region"
+            - "valid_from"
+            - "valid_to"
+            - "is_current"
+        
+        - name: "transaction"
+          primaryKey: "transaction_key"
+          dimensions:
+            - "transaction_id"
+            - "transaction_date"
+            - "amount"
+            - "product_category"
+        
+        - name: "product"
+          primaryKey: "product_key"
+          dimensions:
+            - "product_id"
+            - "product_name"
+            - "category"
+            - "subcategory"
+      
+      metrics:
+        - name: "customer_lifetime_value"
+          type: "derived"
+          calculation: "SUM(transaction.amount) + (predicted_future_value * 0.8)"
+          aggregation: "sum"
+          dimensions: ["customer", "segment", "region"]
+          
+        - name: "churn_risk_score"
+          type: "ml_prediction"
+          model: "churn_prediction_v2"
+          dimensions: ["customer"]
+          
+        - name: "average_order_value"
+          type: "simple"
+          calculation: "AVG(transaction.amount)"
+          aggregation: "avg"
+          dimensions: ["customer", "time", "segment"]
+          
+        - name: "purchase_frequency"
+          type: "ratio"
+          numerator: "COUNT(DISTINCT transaction.transaction_id)"
+          denominator: "COUNT(DISTINCT customer.customer_id)"
+          dimensions: ["time", "segment"]
+      
+      dimensions:
+        - name: "time"
+          type: "time"
+          levels: ["day", "week", "month", "quarter", "year"]
+          
+        - name: "geography"
+          type: "hierarchy"
+          levels: ["region", "country", "state", "city"]
+          
+        - name: "customer_segment"
+          type: "categorical"
+          values: ["VIP", "Premium", "Standard", "At-Risk"]
+          
+        - name: "product_category"
+          type: "hierarchy"
+          levels: ["category_l1", "category_l2", "category_l3"]
+    
+    qos:
+      availability: 0.999
+      freshnessMaxDuration: "PT6H"
+      latencyP95: "PT3S"
+    
+    binding:
+      platform: "snowflake"
+      format: "dbt_semantic_layer"
+      location: "{{ database }}.{{ schema }}.SEMANTIC_CUSTOMER_MODEL"
+      properties:
+        metadata_driven: true
+        business_glossary: "customer_intelligence_glossary"
+    
+    policy:
+      classification: "Internal"
+      authentication: "iam"
+      
+      readers:
+        - principal: "role:BUSINESS_ANALYST"
+          permissions: ["readData", "readMetadata"]
+          description: "Self-service analytics access"
+        - principal: "role:EXECUTIVE"
+          permissions: ["readData"]
+          description: "Executive dashboard access"
+
+# Lifecycle Management
+lifecycle:
+  state: "active"
+  retentionPeriod: "P5Y"  # 5 years
+  
+  versioning:
+    strategy: "multi-version"
+    deprecation_policy: |
+      1. Announce deprecation 6 months before sunset
+      2. Maintain deprecated version for 6 months
+      3. Provide migration guide and support
+      4. Monitor consumer adoption of new version
+      5. Remove after 100% migration or sunset date
+
+# Environment Configuration
+environments:
+  dev:
+    database: "DEV_ANALYTICS"
+    schema: "CUSTOMER_INTELLIGENCE"
+    warehouse: "DEV_WH"
+    
+  staging:
+    database: "STAGING_ANALYTICS"
+    schema: "CUSTOMER_INTELLIGENCE"
+    warehouse: "STAGING_WH"
+    
+  prod:
+    database: "PROD_ANALYTICS"
+    schema: "CUSTOMER_INTELLIGENCE"
+    warehouse: "PROD_WH"
+    resource_monitor: "PROD_MONITOR"

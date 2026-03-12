@@ -1,0 +1,16 @@
+order_id,customer_id,order_date,total_amount,product_category,channel,payment_method,discount_amount,created_at,updated_at
+ORD001,CUST001,2023-01-16,125.50,electronics,online,credit_card,0,2023-01-16 11:30:00,2023-01-16 11:30:00
+ORD002,CUST001,2023-02-15,89.99,books,online,credit_card,10.00,2023-02-15 14:20:00,2023-02-15 14:20:00
+ORD003,CUST001,2023-03-20,250.00,electronics,store,cash,25.00,2023-03-20 16:45:00,2023-03-20 16:45:00
+ORD004,CUST002,2023-01-22,45.99,clothing,online,paypal,0,2023-01-22 09:15:00,2023-01-22 09:15:00
+ORD005,CUST002,2023-04-10,199.99,electronics,online,credit_card,20.00,2023-04-10 13:30:00,2023-04-10 13:30:00
+ORD006,CUST003,2023-02-05,75.50,books,online,credit_card,0,2023-02-05 10:20:00,2023-02-05 10:20:00
+ORD007,CUST003,2023-03-15,320.00,electronics,store,credit_card,0,2023-03-15 15:45:00,2023-03-15 15:45:00
+ORD008,CUST003,2023-05-01,450.00,electronics,online,credit_card,50.00,2023-05-01 12:00:00,2023-05-01 12:00:00
+ORD009,CUST004,2023-02-12,29.99,books,online,paypal,0,2023-02-12 11:30:00,2023-02-12 11:30:00
+ORD010,CUST005,2023-02-20,159.99,clothing,store,credit_card,15.00,2023-02-20 14:15:00,2023-02-20 14:15:00
+ORD011,CUST005,2023-04-05,89.99,books,online,credit_card,0,2023-04-05 16:30:00,2023-04-05 16:30:00
+ORD012,CUST006,2023-03-05,225.00,electronics,online,credit_card,0,2023-03-05 09:45:00,2023-03-05 09:45:00
+ORD013,CUST007,2023-03-12,99.99,clothing,online,paypal,10.00,2023-03-12 13:20:00,2023-03-12 13:20:00
+ORD014,CUST008,2023-03-25,179.99,electronics,store,credit_card,0,2023-03-25 11:15:00,2023-03-25 11:15:00
+ORD015,CUST009,2023-04-05,65.50,books,online,credit_card,5.00,2023-04-05 15:30:00,2023-04-05 15:30:00

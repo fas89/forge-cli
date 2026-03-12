@@ -1,0 +1,580 @@
+"""Branch-coverage tests for fluid_build.cli.init"""
+import argparse
+import logging
+import pytest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch, MagicMock
+
+from fluid_build.cli.init import (
+    COMMAND,
+    register,
+    detect_mode,
+    should_generate_dag,
+    create_basic_dag,
+    create_dags_readme,
+    copy_template,
+    init_local_db,
+    detect_project_type,
+    _mark_first_run_complete,
+    DbtDetector,
+    TerraformDetector,
+    SqlFileDetector,
+    generate_contracts_from_scan,
+    generate_jenkinsfile,
+    generate_github_actions,
+    generate_gitlab_ci,
+    generate_cloudbuild,
+    show_migration_summary,
+)
+
+
+@pytest.fixture
+def logger():
+    return logging.getLogger("test_init")
+
+
+# ── Constants ────────────────────────────────────────────────────────
+
+class TestConstants:
+    def test_command(self):
+        assert COMMAND == "init"
+
+
+# ── register ─────────────────────────────────────────────────────────
+
+class TestRegister:
+    def test_register_adds_parser(self):
+        parser = argparse.ArgumentParser()
+        subs = parser.add_subparsers()
+        register(subs)
+        args = parser.parse_args(["init", "my-project", "--quickstart"])
+        assert args.name == "my-project"
+        assert args.quickstart is True
+
+
+# ── _mark_first_run_complete ─────────────────────────────────────────
+
+class TestMarkFirstRunComplete:
+    def test_creates_directory(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        _mark_first_run_complete()
+        assert (tmp_path / ".fluid").is_dir()
+
+    def test_oserror_is_silent(self, monkeypatch):
+        monkeypatch.setattr(Path, "home", lambda: Path("/proc/nonexistent"))
+        _mark_first_run_complete()  # Should not raise
+
+
+# ── detect_mode ──────────────────────────────────────────────────────
+
+class TestDetectMode:
+    def test_explicit_quickstart(self, logger):
+        args = SimpleNamespace(quickstart=True, scan=False, wizard=False, blank=False, template=False, name=None)
+        assert detect_mode(args, logger) == "quickstart"
+
+    def test_explicit_scan(self, logger):
+        args = SimpleNamespace(quickstart=False, scan=True, wizard=False, blank=False, template=False, name=None)
+        assert detect_mode(args, logger) == "scan"
+
+    def test_explicit_wizard(self, logger):
+        args = SimpleNamespace(quickstart=False, scan=False, wizard=True, blank=False, template=False, name=None)
+        assert detect_mode(args, logger) == "wizard"
+
+    def test_explicit_blank(self, logger):
+        args = SimpleNamespace(quickstart=False, scan=False, wizard=False, blank=True, template=False, name=None)
+        assert detect_mode(args, logger) == "blank"
+
+    def test_explicit_template(self, logger):
+        args = SimpleNamespace(quickstart=False, scan=False, wizard=False, blank=False, template="x", name=None)
+        assert detect_mode(args, logger) == "template"
+
+    def test_existing_contract_returns_none(self, logger, tmp_path, monkeypatch):
+        (tmp_path / "contract.fluid.yaml").write_text("test")
+        monkeypatch.chdir(tmp_path)
+        args = SimpleNamespace(quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None)
+        assert detect_mode(args, logger) is None
+
+    def test_dbt_project_returns_scan(self, logger, tmp_path, monkeypatch):
+        (tmp_path / "dbt_project.yml").write_text("name: test")
+        monkeypatch.chdir(tmp_path)
+        args = SimpleNamespace(quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None)
+        assert detect_mode(args, logger) == "scan"
+
+    def test_terraform_returns_scan(self, logger, tmp_path, monkeypatch):
+        (tmp_path / "main.tf").write_text("resource {}")
+        monkeypatch.chdir(tmp_path)
+        args = SimpleNamespace(quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None)
+        assert detect_mode(args, logger) == "scan"
+
+    def test_sql_files_without_name_returns_scan(self, logger, tmp_path, monkeypatch):
+        (tmp_path / "query.sql").write_text("SELECT 1")
+        monkeypatch.chdir(tmp_path)
+        args = SimpleNamespace(quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None)
+        assert detect_mode(args, logger) == "scan"
+
+    def test_first_time_user_returns_quickstart(self, logger, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(Path, "home", lambda: tmp_path / "nohome")
+        args = SimpleNamespace(quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None)
+        assert detect_mode(args, logger) == "quickstart"
+
+    def test_default_returns_quickstart(self, logger, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".fluid").mkdir()
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        args = SimpleNamespace(quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None)
+        assert detect_mode(args, logger) == "quickstart"
+
+
+# ── should_generate_dag ─────────────────────────────────────────────
+
+class TestShouldGenerateDag:
+    def test_orchestration_present(self):
+        assert should_generate_dag({"orchestration": {"schedule": "@daily"}}) is True
+
+    def test_customer_360_template(self):
+        assert should_generate_dag({}, template="customer-360") is True
+
+    def test_sales_analytics_template(self):
+        assert should_generate_dag({}, template="sales-analytics") is True
+
+    def test_ml_features_template(self):
+        assert should_generate_dag({}, template="ml-features") is True
+
+    def test_data_quality_template(self):
+        assert should_generate_dag({}, template="data-quality") is True
+
+    def test_unknown_template(self):
+        assert should_generate_dag({}, template="custom") is False
+
+    def test_multiple_provider_actions(self):
+        contract = {"binding": {"providerActions": ["a", "b"]}}
+        assert should_generate_dag(contract) is True
+
+    def test_single_provider_action(self):
+        contract = {"binding": {"providerActions": ["a"]}}
+        assert should_generate_dag(contract) is False
+
+    def test_empty_contract(self):
+        assert should_generate_dag({}) is False
+
+    def test_no_template_no_orchestration(self):
+        assert should_generate_dag({"binding": {}}) is False
+
+
+# ── create_basic_dag ─────────────────────────────────────────────────
+
+class TestCreateBasicDag:
+    def test_creates_dag_file(self, tmp_path, logger):
+        contract = {"name": "my-product", "orchestration": {"schedule": "@hourly", "retries": 2, "retry_delay": "10m"}}
+        create_basic_dag(tmp_path, contract, logger)
+        dag_file = tmp_path / "dags" / "my_product_dag.py"
+        assert dag_file.exists()
+        content = dag_file.read_text()
+        assert "my_product" in content
+        assert "@hourly" in content
+
+    def test_defaults(self, tmp_path, logger):
+        contract = {}
+        create_basic_dag(tmp_path, contract, logger)
+        dag_file = tmp_path / "dags" / "my_product_dag.py"
+        assert dag_file.exists()
+        content = dag_file.read_text()
+        assert "@daily" in content
+
+
+# ── create_dags_readme ───────────────────────────────────────────────
+
+class TestCreateDagsReadme:
+    def test_creates_readme(self, tmp_path):
+        dag_dir = tmp_path / "dags"
+        dag_dir.mkdir()
+        create_dags_readme(dag_dir, "my_dag", "@daily", "my_dag_dag.py")
+        readme = dag_dir / "README.md"
+        assert readme.exists()
+        content = readme.read_text()
+        assert "my_dag" in content
+
+
+# ── copy_template ────────────────────────────────────────────────────
+
+class TestCopyTemplate:
+    def test_template_not_found(self, tmp_path, logger):
+        result = copy_template(tmp_path / "out", "nonexistent-xyz-9999", logger)
+        assert result is False
+
+
+# ── init_local_db ────────────────────────────────────────────────────
+
+class TestInitLocalDb:
+    def test_non_local_provider_skips(self, tmp_path, logger):
+        init_local_db(tmp_path, "gcp", logger)
+        # Should do nothing
+        assert not (tmp_path / ".fluid").exists()
+
+    @patch("fluid_build.cli.init.duckdb", create=True)
+    def test_local_provider_creates_db(self, mock_duckdb, tmp_path, logger):
+        # The import is inside the function, mock it at module level after import
+        import fluid_build.cli.init as init_mod
+        with patch.dict("sys.modules", {"duckdb": MagicMock()}):
+            # Re-call init_local_db directly, duckdb imported lazily
+            init_local_db(tmp_path, "local", logger)
+
+    def test_import_error_is_handled(self, tmp_path, logger):
+        with patch.dict("sys.modules", {"duckdb": None}):
+            # duckdb=None causes ImportError on import
+            init_local_db(tmp_path, "local", logger)
+            # Should not raise
+
+
+# ── detect_project_type ──────────────────────────────────────────────
+
+class TestDetectProjectType:
+    def test_dbt_project(self, tmp_path):
+        (tmp_path / "dbt_project.yml").write_text("name: test")
+        result = detect_project_type(tmp_path)
+        assert isinstance(result, DbtDetector)
+
+    def test_terraform_project(self, tmp_path):
+        (tmp_path / "main.tf").write_text("resource {}")
+        result = detect_project_type(tmp_path)
+        assert isinstance(result, TerraformDetector)
+
+    def test_sql_project(self, tmp_path):
+        (tmp_path / "query.sql").write_text("SELECT 1")
+        result = detect_project_type(tmp_path)
+        assert isinstance(result, SqlFileDetector)
+
+    def test_no_detection(self, tmp_path):
+        result = detect_project_type(tmp_path)
+        assert result is None
+
+    def test_dbt_takes_priority_over_sql(self, tmp_path):
+        (tmp_path / "dbt_project.yml").write_text("name: test")
+        (tmp_path / "query.sql").write_text("SELECT 1")
+        result = detect_project_type(tmp_path)
+        assert isinstance(result, DbtDetector)
+
+    def test_sql_not_detected_with_dbt(self, tmp_path):
+        """SqlFileDetector should not trigger when dbt_project.yml exists"""
+        (tmp_path / "dbt_project.yml").write_text("name: test")
+        (tmp_path / "query.sql").write_text("SELECT 1")
+        detector = SqlFileDetector()
+        assert detector.can_detect(tmp_path) is False
+
+
+# ── DbtDetector ──────────────────────────────────────────────────────
+
+class TestDbtDetector:
+    def test_can_detect_yes(self, tmp_path):
+        (tmp_path / "dbt_project.yml").write_text("name: test")
+        assert DbtDetector().can_detect(tmp_path) is True
+
+    def test_can_detect_no(self, tmp_path):
+        assert DbtDetector().can_detect(tmp_path) is False
+
+    def test_parse_model_basic(self, tmp_path, logger):
+        sql_file = tmp_path / "model.sql"
+        sql_file.write_text("SELECT id, name, email FROM customers")
+        result = DbtDetector()._parse_model(sql_file, logger)
+        assert result is not None
+        assert result["name"] == "model"
+        assert result["materialization"] == "view"
+
+    def test_parse_model_with_config_table(self, tmp_path, logger):
+        sql_file = tmp_path / "model.sql"
+        sql_file.write_text("{{ config(materialized='table') }}\nSELECT id FROM t")
+        result = DbtDetector()._parse_model(sql_file, logger)
+        assert result["materialization"] == "table"
+
+    def test_parse_model_with_config_incremental(self, tmp_path, logger):
+        sql_file = tmp_path / "model.sql"
+        sql_file.write_text("{{ config(materialized='incremental') }}\nSELECT id FROM t")
+        result = DbtDetector()._parse_model(sql_file, logger)
+        assert result["materialization"] == "incremental"
+
+    def test_parse_model_exception(self, tmp_path, logger):
+        sql_file = tmp_path / "nonexistent.sql"
+        result = DbtDetector()._parse_model(sql_file, logger)
+        assert result is None
+
+    def test_detect_pii_email(self):
+        models = [{"name": "users", "columns": [{"name": "email", "type": "str"}]}]
+        findings = DbtDetector()._detect_pii(models)
+        assert len(findings) >= 1
+        assert findings[0]["type"] == "EMAIL"
+
+    def test_detect_pii_ssn(self):
+        models = [{"name": "users", "columns": [{"name": "ssn", "type": "str"}]}]
+        findings = DbtDetector()._detect_pii(models)
+        assert any(f["type"] == "SSN" for f in findings)
+
+    def test_detect_pii_no_columns(self):
+        models = [{"name": "users", "columns": []}]
+        findings = DbtDetector()._detect_pii(models)
+        assert findings == []
+
+    def test_detect_pii_no_match(self):
+        models = [{"name": "metrics", "columns": [{"name": "count", "type": "int"}]}]
+        findings = DbtDetector()._detect_pii(models)
+        assert findings == []
+
+
+# ── TerraformDetector ────────────────────────────────────────────────
+
+class TestTerraformDetector:
+    def test_can_detect_yes(self, tmp_path):
+        (tmp_path / "main.tf").write_text("resource {}")
+        assert TerraformDetector().can_detect(tmp_path) is True
+
+    def test_can_detect_no(self, tmp_path):
+        assert TerraformDetector().can_detect(tmp_path) is False
+
+    @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
+    def test_scan_gcp(self, tmp_path, monkeypatch):
+        (tmp_path / "main.tf").write_text('resource "google_bigquery_dataset" "ds" {}')
+        monkeypatch.chdir(tmp_path)
+        results = TerraformDetector().scan(logging.getLogger("t"))
+        assert results["metadata"]["target_platform"] == "gcp"
+
+    @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
+    def test_scan_snowflake(self, tmp_path, monkeypatch):
+        (tmp_path / "main.tf").write_text('resource "snowflake_database" "db" {}')
+        monkeypatch.chdir(tmp_path)
+        results = TerraformDetector().scan(logging.getLogger("t"))
+        assert results["metadata"]["target_platform"] == "snowflake"
+
+    @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
+    def test_scan_unknown(self, tmp_path, monkeypatch):
+        (tmp_path / "main.tf").write_text("resource {}")
+        monkeypatch.chdir(tmp_path)
+        results = TerraformDetector().scan(logging.getLogger("t"))
+        assert "target_platform" not in results["metadata"]
+
+
+# ── SqlFileDetector ──────────────────────────────────────────────────
+
+class TestSqlFileDetector:
+    def test_can_detect_yes(self, tmp_path):
+        (tmp_path / "query.sql").write_text("SELECT 1")
+        assert SqlFileDetector().can_detect(tmp_path) is True
+
+    def test_can_detect_no(self, tmp_path):
+        assert SqlFileDetector().can_detect(tmp_path) is False
+
+    @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
+    def test_scan(self, tmp_path, monkeypatch):
+        (tmp_path / "q1.sql").write_text("SELECT 1")
+        (tmp_path / "q2.sql").write_text("SELECT 2")
+        monkeypatch.chdir(tmp_path)
+        results = SqlFileDetector().scan(logging.getLogger("t"))
+        assert results["project_type"] == "sql"
+        assert results["metadata"]["files_count"] == 2
+
+
+# ── run ──────────────────────────────────────────────────────────────
+
+class TestRun:
+    @patch("fluid_build.cli.init.detect_mode", return_value=None)
+    def test_none_mode_returns_1(self, mock_dm, logger):
+        args = SimpleNamespace()
+        from fluid_build.cli.init import run
+        assert run(args, logger) == 1
+
+    @patch("fluid_build.cli.init.quickstart_mode", return_value=0)
+    @patch("fluid_build.cli.init.detect_mode", return_value="quickstart")
+    def test_quickstart_dispatch(self, mock_dm, mock_qs, logger):
+        from fluid_build.cli.init import run
+        assert run(SimpleNamespace(), logger) == 0
+
+    @patch("fluid_build.cli.init.scan_mode", return_value=0)
+    @patch("fluid_build.cli.init.detect_mode", return_value="scan")
+    def test_scan_dispatch(self, mock_dm, mock_sc, logger):
+        from fluid_build.cli.init import run
+        assert run(SimpleNamespace(), logger) == 0
+
+    @patch("fluid_build.cli.init.wizard_mode", return_value=0)
+    @patch("fluid_build.cli.init.detect_mode", return_value="wizard")
+    def test_wizard_dispatch(self, mock_dm, mock_wiz, logger):
+        from fluid_build.cli.init import run
+        assert run(SimpleNamespace(), logger) == 0
+
+    @patch("fluid_build.cli.init.blank_mode", return_value=0)
+    @patch("fluid_build.cli.init.detect_mode", return_value="blank")
+    def test_blank_dispatch(self, mock_dm, mock_bl, logger):
+        from fluid_build.cli.init import run
+        assert run(SimpleNamespace(), logger) == 0
+
+    @patch("fluid_build.cli.init.template_mode", return_value=0)
+    @patch("fluid_build.cli.init.detect_mode", return_value="template")
+    def test_template_dispatch(self, mock_dm, mock_tm, logger):
+        from fluid_build.cli.init import run
+        assert run(SimpleNamespace(), logger) == 0
+
+    @patch("fluid_build.cli.init.detect_mode", return_value="unknown_xyz")
+    def test_unknown_mode_returns_1(self, mock_dm, logger):
+        from fluid_build.cli.init import run
+        assert run(SimpleNamespace(), logger) == 1
+
+    @patch("fluid_build.cli.init.detect_mode", side_effect=KeyboardInterrupt)
+    def test_keyboard_interrupt_returns_130(self, mock_dm, logger):
+        from fluid_build.cli.init import run
+        assert run(SimpleNamespace(), logger) == 130
+
+    @patch("fluid_build.cli.init.detect_mode", side_effect=RuntimeError("boom"))
+    def test_exception_returns_1(self, mock_dm, logger):
+        from fluid_build.cli.init import run
+        assert run(SimpleNamespace(), logger) == 1
+
+
+# ── generate_dag_for_project ─────────────────────────────────────────
+
+class TestGenerateDagForProject:
+    @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
+    @patch("fluid_build.cli.init.create_dags_readme")
+    @patch("fluid_build.cli.init.create_basic_dag")
+    def test_subprocess_failure_creates_basic(self, mock_basic, mock_readme, tmp_path, logger):
+        from fluid_build.cli.init import generate_dag_for_project
+        contract = {"name": "test-dag"}
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1)
+            result = generate_dag_for_project(tmp_path, contract, logger, None)
+        assert result is True
+        mock_basic.assert_called_once()
+
+    @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
+    @patch("fluid_build.cli.init.create_dags_readme")
+    def test_subprocess_success(self, mock_readme, tmp_path, logger):
+        from fluid_build.cli.init import generate_dag_for_project
+        contract = {"name": "ok-dag", "orchestration": {"schedule": "@hourly"}}
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            result = generate_dag_for_project(tmp_path, contract, logger, None)
+        assert result is True
+
+    @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
+    def test_exception_returns_false(self, tmp_path, logger):
+        from fluid_build.cli.init import generate_dag_for_project
+        with patch("subprocess.run", side_effect=OSError("no subprocess")):
+            result = generate_dag_for_project(tmp_path, {}, logger, None)
+        assert result is False
+
+
+# ── generate_contracts_from_scan ─────────────────────────────────────
+
+class TestGenerateContractsFromScan:
+    @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
+    def test_dbt_basic(self, logger):
+        results = {
+            "project_type": "dbt",
+            "models": [{"name": "users", "columns": [{"name": "id", "type": "int"}], "raw_sql": "SELECT id FROM users"}],
+            "metadata": {"project_name": "test-dbt"},
+        }
+        contracts = generate_contracts_from_scan(results, "local", logger)
+        assert len(contracts) == 1
+        assert contracts[0]["name"] == "test-dbt"
+        assert len(contracts[0]["produces"]) == 1
+        assert "schema" in contracts[0]["produces"][0]
+
+    @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
+    def test_dbt_no_columns(self, logger):
+        results = {
+            "project_type": "dbt",
+            "models": [{"name": "m1", "raw_sql": "SELECT *"}],
+            "metadata": {},
+        }
+        contracts = generate_contracts_from_scan(results, "local", logger)
+        assert len(contracts) == 1
+        assert "schema" not in contracts[0]["produces"][0]
+
+    @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
+    def test_dbt_gcp_platform(self, logger):
+        results = {
+            "project_type": "dbt",
+            "models": [],
+            "metadata": {"target_platform": "gcp", "target_database": "my-proj", "target_schema": "ds"},
+        }
+        contracts = generate_contracts_from_scan(results, "local", logger)
+        assert contracts[0]["binding"]["provider"] == "gcp"
+        assert "location" in contracts[0]["binding"]
+
+    @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
+    def test_dbt_snowflake_platform(self, logger):
+        results = {
+            "project_type": "dbt",
+            "models": [],
+            "metadata": {"target_platform": "snowflake"},
+        }
+        contracts = generate_contracts_from_scan(results, "local", logger)
+        assert contracts[0]["binding"]["provider"] == "snowflake"
+
+    @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
+    def test_dbt_unknown_platform_falls_to_local(self, logger):
+        results = {
+            "project_type": "dbt",
+            "models": [],
+            "metadata": {"target_platform": "oracle"},
+        }
+        contracts = generate_contracts_from_scan(results, "local", logger)
+        assert contracts[0]["binding"]["provider"] == "local"
+
+    @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
+    def test_terraform(self, logger):
+        results = {
+            "project_type": "terraform",
+            "metadata": {"target_platform": "gcp"},
+        }
+        contracts = generate_contracts_from_scan(results, "local", logger)
+        assert len(contracts) == 1
+        assert contracts[0]["name"] == "terraform-import"
+        assert contracts[0]["binding"]["provider"] == "gcp"
+
+    @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
+    def test_sql(self, logger):
+        results = {
+            "project_type": "sql",
+            "metadata": {},
+        }
+        contracts = generate_contracts_from_scan(results, "aws", logger)
+        assert len(contracts) == 1
+        assert contracts[0]["name"] == "sql-import"
+        assert contracts[0]["binding"]["provider"] == "aws"
+
+
+# ── CI/CD generators ────────────────────────────────────────────────
+
+class TestCICDGenerators:
+    def test_jenkinsfile(self, tmp_path, logger):
+        generate_jenkinsfile(tmp_path, logger)
+        jf = tmp_path / "Jenkinsfile"
+        assert jf.exists()
+        assert "pipeline" in jf.read_text()
+
+    def test_github_actions(self, tmp_path, logger):
+        generate_github_actions(tmp_path, logger)
+        gf = tmp_path / ".github" / "workflows" / "fluid.yml"
+        assert gf.exists()
+        assert "fluid" in gf.read_text().lower()
+
+    def test_gitlab_ci(self, tmp_path, logger):
+        generate_gitlab_ci(tmp_path, logger)
+        gl = tmp_path / ".gitlab-ci.yml"
+        assert gl.exists()
+        assert "fluid" in gl.read_text().lower()
+
+    def test_cloudbuild(self, tmp_path, logger):
+        generate_cloudbuild(tmp_path, logger)
+        cb = tmp_path / "cloudbuild.yaml"
+        assert cb.exists()
+        assert "fluid" in cb.read_text().lower()
+
+
+# ── show_migration_summary ───────────────────────────────────────────
+
+class TestShowMigrationSummary:
+    @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
+    def test_non_rich_output(self, logger):
+        contracts = [{"name": "test", "version": "0.7.1", "binding": {"provider": "local"}}]
+        results = {}
+        show_migration_summary(contracts, results, logger)  # Should not raise

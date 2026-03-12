@@ -1,0 +1,137 @@
+fluidVersion: "0.7.1"
+kind: "DataProduct"
+id: "docs.documented_products_v1"
+name: "Documented Product Analytics"
+description: |
+  Product analytics pipeline with comprehensive inline documentation.
+  
+  ## Purpose
+  Processes product catalog data and generates analytics.
+  
+  ## Owners
+  - Team: Data Engineering
+  - Contact: dataeng@example.com
+  
+  ## SLA
+  - Frequency: Daily
+  - Freshness: < 2 hours
+domain: "Product Analytics"
+tags:
+  - "products"
+  - "analytics"
+  - "documentation"
+
+metadata:
+  owner:
+    team: "data-engineering"
+    email: "dataeng@example.com"
+  sla:
+    frequency: "daily"
+    freshness: "PT2H"
+
+consumes:
+  - consumeId: "raw_products"
+    title: "Raw Product Catalog"
+    version: "1.0.0"
+    kind: "file"
+    purpose: "Raw product catalog from e-commerce platform"
+    
+    binding:
+      platform: "local"
+      format: "csv"
+      location:
+        path: "data/products.csv"
+    
+    contract:
+      schema:
+        - name: "product_id"
+          type: "INTEGER"
+          required: true
+          description: "Unique product identifier"
+        - name: "name"
+          type: "VARCHAR"
+          description: "Product display name"
+        - name: "category"
+          type: "VARCHAR"
+          description: "Product category (Electronics, Hardware, etc)"
+        - name: "price"
+          type: "DECIMAL"
+          description: "Current product price in USD"
+
+exposes:
+  - exposeId: "product_catalog"
+    title: "Product Catalog with Price Tiers"
+    version: "1.0.0"
+    kind: "table"
+    description: |
+      Cleaned and enriched product catalog
+      
+      ### Business Logic
+      - Standardizes category names
+      - Adds price tiers
+      - Normalizes product names
+      
+      ### Usage
+      - Marketing dashboard
+      - Pricing engine
+      - Daily at 2 AM UTC
+    
+    binding:
+      platform: "local"
+      format: "parquet"
+      location:
+        path: "output/product_catalog.parquet"
+    
+    contract:
+      schema:
+        - name: "product_id"
+          type: "INTEGER"
+          required: true
+          description: "Unique product identifier (primary key)"
+        - name: "product_name"
+          type: "VARCHAR"
+          description: "Standardized product name (lowercase, trimmed)"
+        - name: "category"
+          type: "VARCHAR"
+          description: "Standardized category name (uppercase)"
+        - name: "price"
+          type: "DECIMAL"
+          description: "Price in USD"
+        - name: "price_tier"
+          type: "VARCHAR"
+          description: "Price tier: Budget (<$25), Mid-Range ($25-$50), Premium (>$50)"
+
+builds:
+  - id: "product_enrichment"
+    description: "Enrich products with price tiers and standardization"
+    pattern: "single-stage"
+    engine: "sql"
+    
+    properties:
+      logic: |
+        -- Product catalog with price tiers and standardization
+        -- Standardizes names and categories for consistency
+        SELECT 
+          product_id,
+          LOWER(TRIM(name)) as product_name,
+          UPPER(category) as category,
+          price,
+          CASE 
+            WHEN price < 25 THEN 'Budget'
+            WHEN price <= 50 THEN 'Mid-Range'
+            ELSE 'Premium'
+          END as price_tier
+        FROM read_csv_auto('data/products.csv', header=true)
+        WHERE product_id IS NOT NULL
+      outputs:
+        - "product_catalog"
+    
+    execution:
+      trigger:
+        type: "manual"
+      runtime:
+        platform: "local"
+
+docs:
+  homepage: "https://docs.example.com/product-analytics"
+  runbook: "https://wiki.example.com/product-analytics-runbook"

@@ -1,0 +1,319 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""
+Data Mesh Manager CLI command.
+
+Publish FLUID contracts to Entropy Data / Data Mesh Manager.
+
+Usage:
+  fluid datamesh-manager publish contract.fluid.yaml
+  fluid datamesh-manager publish contract.fluid.yaml --dry-run
+  fluid datamesh-manager publish contract.fluid.yaml --with-contract
+  fluid datamesh-manager list
+  fluid datamesh-manager get <product-id>
+  fluid datamesh-manager delete <product-id>
+  fluid dmm publish contract.fluid.yaml          # short alias
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+from typing import Optional
+from fluid_build.cli.console import cprint, error as console_error, success
+
+try:
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+    RICH_AVAILABLE = True
+except ImportError:
+    RICH_AVAILABLE = False
+
+from fluid_build.cli.bootstrap import load_contract_with_overlay
+from fluid_build.providers.datamesh_manager import DataMeshManagerProvider
+from fluid_build.providers.base import ProviderError
+
+
+def add_parser(subparsers):
+    """Add datamesh-manager subcommand."""
+    parser = subparsers.add_parser(
+        "datamesh-manager",
+        aliases=["dmm"],
+        help="Publish to Entropy Data / Data Mesh Manager",
+    )
+
+    dmm_sub = parser.add_subparsers(dest="dmm_command")
+
+    # --- publish -----------------------------------------------------------
+    pub = dmm_sub.add_parser("publish", help="Publish data product to Entropy Data")
+    pub.add_argument("contract", help="Path to FLUID contract file")
+    pub.add_argument("-o", "--overlay", help="Path to overlay file")
+    pub.add_argument("--team-id", help="Team ID (default: from contract owner)")
+    pub.add_argument(
+        "--dry-run", action="store_true", help="Preview without publishing"
+    )
+    pub.add_argument(
+        "--with-contract",
+        action="store_true",
+        help="Also publish a companion data contract",
+    )
+    pub.add_argument(
+        "--no-create-team",
+        action="store_true",
+        help="Don't auto-create team if missing",
+    )
+    pub.add_argument(
+        "--api-key",
+        help="Entropy Data API key (or set DMM_API_KEY env var)",
+    )
+    pub.add_argument(
+        "--api-url",
+        help="API base URL (default: https://api.entropy-data.com)",
+    )
+    pub.set_defaults(func=_cmd_publish)
+
+    # --- list --------------------------------------------------------------
+    ls = dmm_sub.add_parser("list", help="List all data products")
+    ls.add_argument("--api-key", help="Entropy Data API key")
+    ls.add_argument("--api-url", help="API base URL")
+    ls.add_argument(
+        "--format", "-f", choices=["table", "json"], default="table",
+        help="Output format (default: table)",
+    )
+    ls.set_defaults(func=_cmd_list)
+
+    # --- get ---------------------------------------------------------------
+    gt = dmm_sub.add_parser("get", help="Get a data product by ID")
+    gt.add_argument("product_id", help="Data product ID")
+    gt.add_argument("--api-key", help="Entropy Data API key")
+    gt.add_argument("--api-url", help="API base URL")
+    gt.set_defaults(func=_cmd_get)
+
+    # --- delete ------------------------------------------------------------
+    dl = dmm_sub.add_parser("delete", help="Delete a data product")
+    dl.add_argument("product_id", help="Data product ID")
+    dl.add_argument("--api-key", help="Entropy Data API key")
+    dl.add_argument("--api-url", help="API base URL")
+    dl.add_argument("--yes", "-y", action="store_true", help="Skip confirmation")
+    dl.set_defaults(func=_cmd_delete)
+
+    # --- teams -------------------------------------------------------------
+    tm = dmm_sub.add_parser("teams", help="List all teams")
+    tm.add_argument("--api-key", help="Entropy Data API key")
+    tm.add_argument("--api-url", help="API base URL")
+    tm.add_argument(
+        "--format", "-f", choices=["table", "json"], default="table",
+        help="Output format (default: table)",
+    )
+    tm.set_defaults(func=_cmd_teams)
+
+    return parser
+
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+
+
+def _make_provider(args) -> DataMeshManagerProvider:
+    """Instantiate provider from CLI args / env vars."""
+    kwargs = {}
+    if getattr(args, "api_key", None):
+        kwargs["api_key"] = args.api_key
+    if getattr(args, "api_url", None):
+        kwargs["api_url"] = args.api_url
+    return DataMeshManagerProvider(**kwargs)
+
+
+def _cmd_publish(args):
+    """Execute publish command."""
+    try:
+        contract = load_contract_with_overlay(args.contract, getattr(args, "overlay", None))
+        provider = _make_provider(args)
+
+        result = provider.apply(
+            contract,
+            dry_run=args.dry_run,
+            team_id=getattr(args, "team_id", None),
+            create_team=not getattr(args, "no_create_team", False),
+            publish_contract=getattr(args, "with_contract", False),
+        )
+
+        if args.dry_run:
+            _print_dry_run(result)
+        else:
+            _print_publish_result(result)
+        return 0
+
+    except ProviderError as exc:
+        console_error(f"Error: {exc}")
+        return 1
+    except Exception as exc:
+        console_error(f"Error: {exc}")
+        return 1
+
+
+def _cmd_list(args):
+    """List all data products."""
+    try:
+        provider = _make_provider(args)
+        products = provider.list_products()
+        fmt = getattr(args, "format", "table")
+
+        if fmt == "json":
+            cprint(json.dumps(products, indent=2))
+            return 0
+
+        if RICH_AVAILABLE:
+            console = Console()
+            table = Table(title="Entropy Data — Data Products")
+            table.add_column("ID", style="cyan")
+            table.add_column("Name", style="bold")
+            table.add_column("Status")
+            table.add_column("Team")
+            for p in products:
+                info = p.get("info", {})
+                table.add_row(
+                    info.get("id", "?"),
+                    info.get("name", "?"),
+                    info.get("status", "?"),
+                    p.get("teamId", "?"),
+                )
+            console.print(table)
+        else:
+            for p in products:
+                info = p.get("info", {})
+                cprint(f"  {info.get('id', '?'):30s}  {info.get('name', '?')}")
+        return 0
+
+    except ProviderError as exc:
+        console_error(f"Error: {exc}")
+        return 1
+
+
+def _cmd_get(args):
+    """Get a single data product."""
+    try:
+        provider = _make_provider(args)
+        product = provider.verify(args.product_id)
+        cprint(json.dumps(product, indent=2))
+        return 0
+    except ProviderError as exc:
+        console_error(f"Error: {exc}")
+        return 1
+
+
+def _cmd_delete(args):
+    """Delete a data product."""
+    try:
+        if not getattr(args, "yes", False):
+            confirm = input(f"Delete data product '{args.product_id}'? [y/N] ")
+            if confirm.lower() not in ("y", "yes"):
+                cprint("Cancelled.")
+                return 0
+
+        provider = _make_provider(args)
+        ok = provider.delete(args.product_id)
+        if ok:
+            cprint(f"Deleted: {args.product_id}")
+        else:
+            console_error(f"Failed to delete: {args.product_id}")
+            return 1
+        return 0
+    except ProviderError as exc:
+        console_error(f"Error: {exc}")
+        return 1
+
+
+def _cmd_teams(args):
+    """List teams."""
+    try:
+        provider = _make_provider(args)
+        teams = provider.list_teams()
+        fmt = getattr(args, "format", "table")
+
+        if fmt == "json":
+            cprint(json.dumps(teams, indent=2))
+            return 0
+
+        if RICH_AVAILABLE:
+            console = Console()
+            table = Table(title="Entropy Data — Teams")
+            table.add_column("ID", style="cyan")
+            table.add_column("Name", style="bold")
+            for t in teams:
+                table.add_row(t.get("id", "?"), t.get("name", "?"))
+            console.print(table)
+        else:
+            for t in teams:
+                cprint(f"  {t.get('id', '?'):30s}  {t.get('name', '?')}")
+        return 0
+
+    except ProviderError as exc:
+        console_error(f"Error: {exc}")
+        return 1
+
+
+# ---------------------------------------------------------------------------
+# Pretty printing
+# ---------------------------------------------------------------------------
+
+
+def _print_dry_run(result):
+    """Print a dry-run preview."""
+    if RICH_AVAILABLE:
+        console = Console()
+        payload = result.get("payload", {})
+        console.print(Panel(
+            f"[bold]Method:[/bold] {result.get('method', 'PUT')}\n"
+            f"[bold]URL:[/bold]    {result.get('url', '?')}\n\n"
+            f"[bold]Payload:[/bold]\n{json.dumps(payload, indent=2)}",
+            title="[yellow]Dry Run Preview[/yellow]",
+            border_style="yellow",
+        ))
+    else:
+        cprint("=== Dry Run Preview ===")
+        cprint(f"Method: {result.get('method', 'PUT')}")
+        cprint(f"URL:    {result.get('url', '?')}")
+        cprint()
+        cprint(json.dumps(result.get("payload", {}), indent=2))
+
+
+def _print_publish_result(result):
+    """Print a successful publish result."""
+    product_id = result.get("product_id", "?")
+    url = result.get("url", "")
+    if RICH_AVAILABLE:
+        console = Console()
+        lines = [f"[green]✅ Published:[/green] [bold]{product_id}[/bold]"]
+        if url:
+            lines.append(f"[dim]View at:[/dim] {url}")
+        dc = result.get("data_contract")
+        if dc:
+            lines.append(f"[green]📄 Contract:[/green] {dc.get('contract_id', '?')}")
+            if dc.get("url"):
+                lines.append(f"[dim]View at:[/dim] {dc['url']}")
+        console.print(Panel("\n".join(lines), title="Data Mesh Manager", border_style="green"))
+    else:
+        success(f"Published data product: {product_id}")
+        if url:
+            cprint(f"   View at: {url}")
+        dc = result.get("data_contract")
+        if dc:
+            cprint(f"📄 Published data contract: {dc.get('contract_id', '?')}")
+            if dc.get("url"):
+                cprint(f"   View at: {dc['url']}")

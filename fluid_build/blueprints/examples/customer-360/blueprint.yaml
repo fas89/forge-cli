@@ -1,0 +1,65 @@
+# Blueprint Metadata
+name: customer-360
+title: Customer 360 Analytics Platform
+description: |
+  A comprehensive customer analytics platform that creates a unified view of customer data,
+  behavior patterns, and business metrics. Includes customer segmentation, lifetime value
+  calculation, and engagement analytics.
+
+version: "1.0.0"
+category: analytics
+complexity: intermediate
+
+# Technical Details
+providers:
+  - local
+  - snowflake
+  - bigquery
+  - databricks
+
+runtimes:
+  - dbt
+  - airflow
+
+dependencies:
+  - name: dbt-core
+    version: ">=1.6.0"
+    required: true
+  - name: apache-airflow
+    version: ">=2.5.0"
+    required: false
+
+# Documentation
+tags:
+  - customer-analytics
+  - segmentation
+  - lifetime-value
+  - engagement
+  - data-product
+
+use_cases:
+  - Customer segmentation and targeting
+  - Customer lifetime value analysis
+  - Churn prediction and retention
+  - Marketing campaign optimization
+  - Customer journey analysis
+
+best_practices:
+  - Implements dimensional modeling for customer data
+  - Uses incremental models for performance
+  - Includes comprehensive data quality tests
+  - Follows GDPR and privacy best practices
+  - Provides clear data lineage and documentation
+
+setup_time: "45 minutes"
+
+# Blueprint Features
+has_sample_data: true
+has_tests: true
+has_docs: true
+has_cicd: true
+
+# Authoring
+author: "FLUID Team"
+created_at: "2025-10-15"
+updated_at: "2025-10-15"

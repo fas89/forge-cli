@@ -1,0 +1,218 @@
+# dbt Semantic Layer Configuration
+# models/semantic/semantic_models.yml
+
+semantic_models:
+  - name: customer_entity
+    description: "Customer entity with profile, behavior, and calculated metrics"
+    model: ref('customer_intelligence_v2')
+    
+    # Primary entity
+    entities:
+      - name: customer
+        type: primary
+        expr: customer_id
+        role: customer
+        
+    # Dimensions for slicing and filtering
+    dimensions:
+      - name: customer_segment
+        type: categorical
+        label: "Customer Segment"
+        description: "Customer tier: VIP, Premium, Standard, At-Risk"
+        
+      - name: region
+        type: categorical
+        label: "Region"
+        description: "Customer geographic region"
+        
+      - name: country
+        type: categorical
+        label: "Country"
+        
+      - name: state
+        type: categorical
+        label: "State"
+        
+      - name: city
+        type: categorical
+        label: "City"
+        
+      - name: top_product_category
+        type: categorical
+        label: "Favorite Category"
+        description: "Customer's most purchased product category"
+        
+      - name: valid_from
+        type: time
+        label: "Record Valid From"
+        type_params:
+          time_granularity: day
+        description: "Start date of customer profile validity (SCD Type 2)"
+        
+      - name: first_order_date
+        type: time
+        label: "First Purchase Date"
+        type_params:
+          time_granularity: day
+          
+      - name: last_order_date
+        type: time
+        label: "Last Purchase Date"
+        type_params:
+          time_granularity: day
+    
+    # Measures for aggregation
+    measures:
+      # Count measures
+      - name: customer_count
+        agg: count_distinct
+        expr: customer_id
+        label: "Number of Customers"
+        description: "Total count of unique customers"
+        
+      # Value measures
+      - name: total_lifetime_value
+        agg: sum
+        expr: lifetime_value
+        label: "Total LTV"
+        description: "Sum of customer lifetime values"
+        
+      - name: avg_lifetime_value
+        agg: avg
+        expr: lifetime_value
+        label: "Average LTV"
+        description: "Average customer lifetime value"
+        
+      - name: total_revenue
+        agg: sum
+        expr: total_revenue
+        label: "Total Revenue"
+        description: "Sum of all customer revenue"
+        
+      - name: avg_order_value
+        agg: avg
+        expr: average_order_value
+        label: "Average Order Value"
+        description: "Average transaction amount per customer"
+        
+      # Frequency measures
+      - name: total_orders
+        agg: sum
+        expr: total_orders
+        label: "Total Orders"
+        description: "Sum of all orders across customers"
+        
+      - name: avg_orders_per_customer
+        agg: avg
+        expr: total_orders
+        label: "Orders per Customer"
+        description: "Average number of orders per customer"
+        
+      # Risk measures
+      - name: avg_churn_risk
+        agg: avg
+        expr: churn_risk_score
+        label: "Average Churn Risk"
+        description: "Average churn probability across customers"
+        
+      - name: high_churn_risk_count
+        agg: sum
+        expr: "CASE WHEN churn_risk_score > 0.7 THEN 1 ELSE 0 END"
+        label: "High Churn Risk Customers"
+        description: "Count of customers with >70% churn risk"
+        
+      # Engagement measures
+      - name: total_interactions
+        agg: sum
+        expr: total_interactions
+        label: "Total Interactions"
+        description: "Sum of all customer website interactions"
+        
+      - name: avg_interactions
+        agg: avg
+        expr: total_interactions
+        label: "Interactions per Customer"
+
+# Metric Definitions
+metrics:
+  # Simple metrics
+  - name: customer_lifetime_value
+    type: simple
+    label: "Customer Lifetime Value"
+    description: "Total predicted lifetime value across all customers"
+    type_params:
+      measure: total_lifetime_value
+    
+  - name: customer_count
+    type: simple
+    label: "Total Customers"
+    description: "Count of unique customers"
+    type_params:
+      measure: customer_count
+  
+  - name: average_customer_ltv
+    type: simple
+    label: "Average Customer LTV"
+    description: "Mean lifetime value per customer"
+    type_params:
+      measure: avg_lifetime_value
+  
+  - name: total_revenue
+    type: simple
+    label: "Total Revenue"
+    description: "Sum of revenue from all customers"
+    type_params:
+      measure: total_revenue
+  
+  - name: average_order_value
+    type: simple
+    label: "Average Order Value (AOV)"
+    description: "Mean order value across all customers"
+    type_params:
+      measure: avg_order_value
+  
+  # Ratio metrics
+  - name: ltv_to_revenue_ratio
+    type: ratio
+    label: "LTV to Revenue Ratio"
+    description: "Ratio of predicted LTV to historical revenue"
+    type_params:
+      numerator: total_lifetime_value
+      denominator: total_revenue
+  
+  - name: churn_risk_rate
+    type: ratio
+    label: "Churn Risk Rate"
+    description: "Percentage of customers at high churn risk"
+    type_params:
+      numerator: high_churn_risk_count
+      denominator: customer_count
+  
+  # Derived metrics
+  - name: purchase_frequency
+    type: derived
+    label: "Purchase Frequency"
+    description: "Average orders per customer"
+    type_params:
+      expr: "total_orders / customer_count"
+      metrics:
+        - total_orders
+        - customer_count
+
+# Example Queries:
+# 
+# 1. Total LTV by segment:
+#    SELECT customer_segment, customer_lifetime_value
+#    FROM semantic.customer_entity
+#    GROUP BY customer_segment
+#
+# 2. Churn risk by region:
+#    SELECT region, avg_churn_risk, high_churn_risk_count
+#    FROM semantic.customer_entity
+#    GROUP BY region
+#
+# 3. Customer acquisition over time:
+#    SELECT first_order_date__month, customer_count, average_customer_ltv
+#    FROM semantic.customer_entity
+#    GROUP BY first_order_date__month
+#    ORDER BY first_order_date__month
