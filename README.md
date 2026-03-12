@@ -11,9 +11,9 @@
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://python.org)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/fluid-forge.svg)](https://pypi.org/project/fluid-forge/)
-[![CI](https://github.com/agentics-rising/fluid-forge-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/agentics-rising/fluid-forge-cli/actions/workflows/ci.yml)
+[![CI](https://github.com/Agentics-Rising/forge-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/Agentics-Rising/forge-cli/actions/workflows/ci.yml)
 
-[Documentation](https://fluidhq.io/docs) · [Quickstart](#-60-seconds-to-magic) · [Community](https://github.com/agentics-rising/fluid-forge-cli/discussions) · [Enterprise](https://fluidhq.io)
+[Documentation](https://agentics-rising.github.io/forge_docs/) · [Getting Started](https://agentics-rising.github.io/forge_docs/getting-started/) · [The Book](https://a.co/d/04zTi7aQ) · [Community](https://github.com/Agentics-Rising/forge-cli/discussions)
 
 </div>
 
@@ -22,7 +22,7 @@
 
 ## 🌊 What is FLUID?
 
-**FLUID** (Framework for Logical Unified Infrastructure Delivery) is an open-source declarative framework for building, validating, and deploying data products across any cloud. You write a single YAML contract describing *what* your data product is — its schema, quality rules, access policies, and scheduling — and FLUID Forge compiles that into provider-specific infrastructure (BigQuery, Snowflake, AWS Glue, Athena, or local DuckDB) with full governance baked in.
+**FLUID** (Federated Layered Universal Instructional Declaration) is an open-source declarative framework for building, validating, and deploying data products across any cloud. You write a single YAML contract describing *what* your data product is — its schema, quality rules, access policies, and scheduling — and FLUID Forge compiles that into provider-specific infrastructure (BigQuery, Snowflake, AWS Glue, Athena, or local DuckDB) with full governance baked in.
 
 Think of it as **Terraform for data products**: one contract, many clouds, zero boilerplate.
 
@@ -115,8 +115,8 @@ python3 --version   # Should print Python 3.9+
 #### 3. Clone and install
 
 ```bash
-git clone https://github.com/agentics-rising/fluid-forge-cli.git
-cd fluid-forge-cli
+git clone https://github.com/Agentics-Rising/forge-cli.git
+cd forge-cli
 
 # Create a virtual environment (recommended)
 python3 -m venv .venv
@@ -160,8 +160,8 @@ python3 --version   # Should print Python 3.9+
 #### 3. Clone and install
 
 ```bash
-git clone https://github.com/agentics-rising/fluid-forge-cli.git
-cd fluid-forge-cli
+git clone https://github.com/Agentics-Rising/forge-cli.git
+cd forge-cli
 
 # Create a virtual environment (recommended)
 python3 -m venv .venv
@@ -218,8 +218,8 @@ git --version
 
 **PowerShell:**
 ```powershell
-git clone https://github.com/agentics-rising/fluid-forge-cli.git
-cd fluid-forge-cli
+git clone https://github.com/Agentics-Rising/forge-cli.git
+cd forge-cli
 
 # Create a virtual environment (recommended)
 python -m venv .venv
@@ -232,8 +232,8 @@ pip install -e ".[local]"
 
 **Command Prompt (cmd):**
 ```cmd
-git clone https://github.com/agentics-rising/fluid-forge-cli.git
-cd fluid-forge-cli
+git clone https://github.com/Agentics-Rising/forge-cli.git
+cd forge-cli
 
 python -m venv .venv
 .venv\Scripts\activate.bat
@@ -437,7 +437,7 @@ To report security vulnerabilities, see [SECURITY.md](SECURITY.md).
 
 **Built for the future of data. Built for the Agentic Era.**
 
-[fluidhq.io](https://fluidhq.io) · [Documentation](https://fluidhq.io/docs) · [PyPI](https://pypi.org/project/fluid-forge/) · [Issues](https://github.com/agentics-rising/fluid-forge-cli/issues)
+[Documentation](https://agentics-rising.github.io/forge_docs/) · [The Book](https://a.co/d/04zTi7aQ) · [PyPI](https://pypi.org/project/fluid-forge/) · [Issues](https://github.com/Agentics-Rising/forge-cli/issues)
 
 ---
 
