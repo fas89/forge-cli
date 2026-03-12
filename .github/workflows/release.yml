@@ -152,6 +152,8 @@ jobs:
     needs: [quality-gate, build]
     if: needs.quality-gate.outputs.is_prerelease == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
     environment:
       name: testpypi
       url: https://test.pypi.org/p/fluid-forge
@@ -175,6 +177,8 @@ jobs:
     needs: [quality-gate, build]
     if: needs.quality-gate.outputs.is_prerelease == 'false'
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
     environment:
       name: pypi
       url: https://pypi.org/p/fluid-forge
