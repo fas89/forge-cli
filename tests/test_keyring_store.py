@@ -1,9 +1,26 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for fluid_build.credentials.keyring_store — OS keyring integration."""
+
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 from fluid_build.credentials.keyring_store import (
-    KeyringCredentialStore, KEYRING_AVAILABLE,
+    KEYRING_AVAILABLE,
+    KeyringCredentialStore,
 )
 
 
@@ -36,6 +53,7 @@ class TestKeyringCredentialStore:
     def test_get_credential_keyring_error(self):
         with patch("fluid_build.credentials.keyring_store.keyring") as mock_kr:
             from keyring.errors import KeyringError
+
             mock_kr.get_password.side_effect = KeyringError("fail")
             result = KeyringCredentialStore.get_credential("key")
             assert result is None

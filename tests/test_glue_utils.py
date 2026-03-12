@@ -1,9 +1,25 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for providers/aws/actions/glue.py — pure helpers and validation paths."""
 
 import sys
-import pytest
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
+
+import pytest
+
 
 # ── boto3 mock helper ────────────────────────────────────────────────
 @contextmanager
@@ -12,31 +28,38 @@ def _patch_boto():
     mock_boto3 = MagicMock()
     mock_botocore = MagicMock()
     mock_exceptions = MagicMock()
-    with patch.dict(sys.modules, {
-        "boto3": mock_boto3,
-        "botocore": mock_botocore,
-        "botocore.exceptions": mock_exceptions,
-    }):
+    with patch.dict(
+        sys.modules,
+        {
+            "boto3": mock_boto3,
+            "botocore": mock_botocore,
+            "botocore.exceptions": mock_exceptions,
+        },
+    ):
         yield mock_boto3, mock_exceptions
 
+
 from fluid_build.providers.aws.actions.glue import (
+    _columns_equal,
+    _get_iceberg_table_parameters,
     _get_input_format,
     _get_output_format,
     _get_serde_lib,
-    _columns_equal,
-    _get_iceberg_table_parameters,
 )
 
 
 # ── _get_input_format ────────────────────────────────────────────────
 class TestGetInputFormat:
-    @pytest.mark.parametrize("fmt,expected_contains", [
-        ("parquet", "ParquetInputFormat"),
-        ("orc", "OrcInputFormat"),
-        ("avro", "AvroContainerInputFormat"),
-        ("csv", "TextInputFormat"),
-        ("json", "TextInputFormat"),
-    ])
+    @pytest.mark.parametrize(
+        "fmt,expected_contains",
+        [
+            ("parquet", "ParquetInputFormat"),
+            ("orc", "OrcInputFormat"),
+            ("avro", "AvroContainerInputFormat"),
+            ("csv", "TextInputFormat"),
+            ("json", "TextInputFormat"),
+        ],
+    )
     def test_known_formats(self, fmt, expected_contains):
         assert expected_contains in _get_input_format(fmt)
 
@@ -49,13 +72,16 @@ class TestGetInputFormat:
 
 # ── _get_output_format ───────────────────────────────────────────────
 class TestGetOutputFormat:
-    @pytest.mark.parametrize("fmt,expected_contains", [
-        ("parquet", "ParquetOutputFormat"),
-        ("orc", "OrcOutputFormat"),
-        ("avro", "AvroContainerOutputFormat"),
-        ("csv", "HiveIgnoreKeyTextOutputFormat"),
-        ("json", "HiveIgnoreKeyTextOutputFormat"),
-    ])
+    @pytest.mark.parametrize(
+        "fmt,expected_contains",
+        [
+            ("parquet", "ParquetOutputFormat"),
+            ("orc", "OrcOutputFormat"),
+            ("avro", "AvroContainerOutputFormat"),
+            ("csv", "HiveIgnoreKeyTextOutputFormat"),
+            ("json", "HiveIgnoreKeyTextOutputFormat"),
+        ],
+    )
     def test_known_formats(self, fmt, expected_contains):
         assert expected_contains in _get_output_format(fmt)
 
@@ -65,13 +91,16 @@ class TestGetOutputFormat:
 
 # ── _get_serde_lib ───────────────────────────────────────────────────
 class TestGetSerdeLib:
-    @pytest.mark.parametrize("fmt,expected_contains", [
-        ("parquet", "ParquetHiveSerDe"),
-        ("orc", "OrcSerde"),
-        ("avro", "AvroSerDe"),
-        ("csv", "LazySimpleSerDe"),
-        ("json", "JsonSerDe"),
-    ])
+    @pytest.mark.parametrize(
+        "fmt,expected_contains",
+        [
+            ("parquet", "ParquetHiveSerDe"),
+            ("orc", "OrcSerde"),
+            ("avro", "AvroSerDe"),
+            ("csv", "LazySimpleSerDe"),
+            ("json", "JsonSerDe"),
+        ],
+    )
     def test_known_formats(self, fmt, expected_contains):
         assert expected_contains in _get_serde_lib(fmt)
 
@@ -130,9 +159,9 @@ class TestGetIcebergTableParameters:
         assert params["write.format.default"] == "orc"
 
     def test_custom_properties(self):
-        params = _get_iceberg_table_parameters({
-            "properties": {"write.metadata.compression-codec": "gzip", "count": 5}
-        })
+        params = _get_iceberg_table_parameters(
+            {"properties": {"write.metadata.compression-codec": "gzip", "count": 5}}
+        )
         assert params["write.metadata.compression-codec"] == "gzip"
         assert params["count"] == "5"
 
@@ -146,6 +175,7 @@ class TestEnsureDatabaseValidation:
     def test_missing_database(self):
         with _patch_boto():
             from fluid_build.providers.aws.actions.glue import ensure_database
+
             result = ensure_database({})
             assert result["status"] == "error"
             assert "database" in result["error"].lower() or "required" in result["error"].lower()
@@ -156,6 +186,7 @@ class TestEnsureTableValidation:
     def test_missing_database_and_table(self):
         with _patch_boto():
             from fluid_build.providers.aws.actions.glue import ensure_table
+
             result = ensure_table({})
             assert result["status"] == "error"
             assert "required" in result["error"].lower()
@@ -163,6 +194,7 @@ class TestEnsureTableValidation:
     def test_missing_table_only(self):
         with _patch_boto():
             from fluid_build.providers.aws.actions.glue import ensure_table
+
             result = ensure_table({"database": "db"})
             assert result["status"] == "error"
 
@@ -171,6 +203,7 @@ class TestEnsureCrawlerValidation:
     def test_missing_fields(self):
         with _patch_boto():
             from fluid_build.providers.aws.actions.glue import ensure_crawler
+
             result = ensure_crawler({"name": "c1"})
             assert result["status"] == "error"
             assert "required" in result["error"].lower()
@@ -180,6 +213,7 @@ class TestRunCrawlerValidation:
     def test_missing_name(self):
         with _patch_boto():
             from fluid_build.providers.aws.actions.glue import run_crawler
+
             result = run_crawler({})
             assert result["status"] == "error"
 
@@ -188,6 +222,7 @@ class TestEnsureIcebergTableValidation:
     def test_missing_database_and_table(self):
         with _patch_boto():
             from fluid_build.providers.aws.actions.glue import ensure_iceberg_table
+
             result = ensure_iceberg_table({})
             assert result["status"] == "error"
             assert "required" in result["error"].lower()

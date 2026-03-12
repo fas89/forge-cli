@@ -12,8 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging, json, sys, traceback, uuid, time
+import json
+import logging
+import sys
+import traceback
 from datetime import datetime
+
 
 class JsonFormatter(logging.Formatter):
     def format(self, record):
@@ -28,6 +32,7 @@ class JsonFormatter(logging.Formatter):
         if record.exc_info:
             base["exception"] = "".join(traceback.format_exception(*record.exc_info)).strip()
         return json.dumps(base)
+
 
 def setup_logger(level="INFO"):
     logger = logging.getLogger()
@@ -44,9 +49,10 @@ def setup_logger(level="INFO"):
     logger.debug(json.dumps({"message": "logger_initialized"}))
     return logger
 
+
 def log_json(name, level, message, **kwargs):
     logging.getLogger(name).log(
         getattr(logging, level.upper(), logging.INFO),
         message,
-        extra={"extra": kwargs} if kwargs else None
+        extra={"extra": kwargs} if kwargs else None,
     )

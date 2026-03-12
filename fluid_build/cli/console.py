@@ -48,6 +48,7 @@ else:
 # Convenience helpers – intentionally thin wrappers so call-sites stay short.
 # ---------------------------------------------------------------------------
 
+
 def cprint(*args: Any, **kwargs: Any) -> None:
     """Console-aware ``print``.  Uses Rich when available, else plain print."""
     if console is not None:
@@ -57,6 +58,7 @@ def cprint(*args: Any, **kwargs: Any) -> None:
         text = " ".join(str(a) for a in args)
         # Crude tag removal – good enough for [...] markup.
         import re
+
         text = re.sub(r"\[/?[a-z_ ]+\]", "", text)
         print(text, **{k: v for k, v in kwargs.items() if k in ("end", "file", "flush")})
 

@@ -20,96 +20,97 @@ data freshness and quality for customer segmentation and analytics.
 """
 
 from datetime import datetime, timedelta
+
 from airflow import DAG
 from airflow.operators.bash_operator import BashOperator
 from airflow.operators.dummy_operator import DummyOperator
 
 # Default arguments
 default_args = {
-    'owner': 'data-team',
-    'depends_on_past': False,
-    'start_date': datetime(2025, 1, 1),
-    'email_on_failure': True,
-    'email_on_retry': False,
-    'retries': 2,
-    'retry_delay': timedelta(minutes=5),
+    "owner": "data-team",
+    "depends_on_past": False,
+    "start_date": datetime(2025, 1, 1),
+    "email_on_failure": True,
+    "email_on_retry": False,
+    "retries": 2,
+    "retry_delay": timedelta(minutes=5),
 }
 
 # DAG definition
 dag = DAG(
-    'customer_360_pipeline',
+    "customer_360_pipeline",
     default_args=default_args,
-    description='Customer 360 Analytics Pipeline',
-    schedule_interval='@daily',
+    description="Customer 360 Analytics Pipeline",
+    schedule_interval="@daily",
     catchup=False,
-    tags=['customer-analytics', 'dbt', 'customer-360'],
+    tags=["customer-analytics", "dbt", "customer-360"],
 )
 
 # Start task
 start = DummyOperator(
-    task_id='start',
+    task_id="start",
     dag=dag,
 )
 
 # Data quality checks
 data_quality_check = BashOperator(
-    task_id='data_quality_check',
-    bash_command='dbt test --select source:*',
+    task_id="data_quality_check",
+    bash_command="dbt test --select source:*",
     dag=dag,
 )
 
 # Staging layer
 run_staging = BashOperator(
-    task_id='run_staging',
-    bash_command='dbt run --select staging',
+    task_id="run_staging",
+    bash_command="dbt run --select staging",
     dag=dag,
 )
 
 # Test staging
 test_staging = BashOperator(
-    task_id='test_staging',
-    bash_command='dbt test --select staging',
+    task_id="test_staging",
+    bash_command="dbt test --select staging",
     dag=dag,
 )
 
 # Intermediate layer
 run_intermediate = BashOperator(
-    task_id='run_intermediate',
-    bash_command='dbt run --select intermediate',
+    task_id="run_intermediate",
+    bash_command="dbt run --select intermediate",
     dag=dag,
 )
 
 # Test intermediate
 test_intermediate = BashOperator(
-    task_id='test_intermediate',
-    bash_command='dbt test --select intermediate',
+    task_id="test_intermediate",
+    bash_command="dbt test --select intermediate",
     dag=dag,
 )
 
 # Marts layer
 run_marts = BashOperator(
-    task_id='run_marts',
-    bash_command='dbt run --select marts',
+    task_id="run_marts",
+    bash_command="dbt run --select marts",
     dag=dag,
 )
 
 # Test marts
 test_marts = BashOperator(
-    task_id='test_marts',
-    bash_command='dbt test --select marts',
+    task_id="test_marts",
+    bash_command="dbt test --select marts",
     dag=dag,
 )
 
 # Generate documentation
 generate_docs = BashOperator(
-    task_id='generate_docs',
-    bash_command='dbt docs generate',
+    task_id="generate_docs",
+    bash_command="dbt docs generate",
     dag=dag,
 )
 
 # End task
 end = DummyOperator(
-    task_id='end',
+    task_id="end",
     dag=dag,
 )
 

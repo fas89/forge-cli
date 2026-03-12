@@ -1,10 +1,28 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for orchestration.py dataclasses and enums."""
-import pytest
-from datetime import datetime
+
 from fluid_build.cli.orchestration import (
-    ExecutionPhase, ActionStatus, RollbackStrategy,
-    ExecutionAction, PhaseExecution, ExecutionPlan,
-    ExecutionMetrics, ExecutionContext,
+    ActionStatus,
+    ExecutionAction,
+    ExecutionContext,
+    ExecutionMetrics,
+    ExecutionPhase,
+    ExecutionPlan,
+    PhaseExecution,
+    RollbackStrategy,
 )
 
 
@@ -27,8 +45,13 @@ class TestOrchestrationEnums:
 
 class TestExecutionAction:
     def test_defaults(self):
-        a = ExecutionAction(id="a1", phase=ExecutionPhase.VALIDATION,
-                            provider="gcp", operation="validate", description="Test")
+        a = ExecutionAction(
+            id="a1",
+            phase=ExecutionPhase.VALIDATION,
+            provider="gcp",
+            operation="validate",
+            description="Test",
+        )
         assert a.status == ActionStatus.PENDING
         assert a.timeout_seconds == 300
         assert a.retry_count == 3
@@ -37,11 +60,17 @@ class TestExecutionAction:
         assert a.error is None
 
     def test_custom_values(self):
-        a = ExecutionAction(id="a2", phase=ExecutionPhase.DATA_INGESTION,
-                            provider="aws", operation="ingest", description="Load data",
-                            timeout_seconds=600, retry_count=5,
-                            rollback_operation="delete_table",
-                            metadata={"table": "orders"})
+        a = ExecutionAction(
+            id="a2",
+            phase=ExecutionPhase.DATA_INGESTION,
+            provider="aws",
+            operation="ingest",
+            description="Load data",
+            timeout_seconds=600,
+            retry_count=5,
+            rollback_operation="delete_table",
+            metadata={"table": "orders"},
+        )
         assert a.timeout_seconds == 600
         assert a.rollback_operation == "delete_table"
         assert a.metadata["table"] == "orders"
@@ -57,13 +86,24 @@ class TestPhaseExecution:
 
     def test_with_actions(self):
         actions = [
-            ExecutionAction(id="a1", phase=ExecutionPhase.TRANSFORMATION,
-                            provider="local", operation="transform", description="T1"),
-            ExecutionAction(id="a2", phase=ExecutionPhase.TRANSFORMATION,
-                            provider="local", operation="transform", description="T2"),
+            ExecutionAction(
+                id="a1",
+                phase=ExecutionPhase.TRANSFORMATION,
+                provider="local",
+                operation="transform",
+                description="T1",
+            ),
+            ExecutionAction(
+                id="a2",
+                phase=ExecutionPhase.TRANSFORMATION,
+                provider="local",
+                operation="transform",
+                description="T2",
+            ),
         ]
-        pe = PhaseExecution(phase=ExecutionPhase.TRANSFORMATION, actions=actions,
-                            parallel_execution=True)
+        pe = PhaseExecution(
+            phase=ExecutionPhase.TRANSFORMATION, actions=actions, parallel_execution=True
+        )
         assert len(pe.actions) == 2
         assert pe.parallel_execution is True
 
@@ -78,8 +118,7 @@ class TestExecutionPlan:
 
     def test_with_phases(self):
         pe = PhaseExecution(phase=ExecutionPhase.VALIDATION, actions=[])
-        plan = ExecutionPlan(contract_path="/c.yaml", environment="prod",
-                             phases=[pe], dry_run=True)
+        plan = ExecutionPlan(contract_path="/c.yaml", environment="prod", phases=[pe], dry_run=True)
         assert len(plan.phases) == 1
         assert plan.dry_run is True
 
@@ -93,8 +132,9 @@ class TestExecutionMetrics:
         assert m.phase_durations == {}
 
     def test_update(self):
-        m = ExecutionMetrics(total_actions=10, successful_actions=8, failed_actions=2,
-                             total_duration_seconds=45.5)
+        m = ExecutionMetrics(
+            total_actions=10, successful_actions=8, failed_actions=2, total_duration_seconds=45.5
+        )
         assert m.total_actions == 10
         assert m.failed_actions == 2
 
@@ -110,9 +150,14 @@ class TestExecutionContext:
 
     def test_custom_dirs(self):
         from pathlib import Path
+
         plan = ExecutionPlan(contract_path="/c.yaml", environment="prod", phases=[])
-        ctx = ExecutionContext(execution_id="e2", contract={}, plan=plan,
-                              workspace_dir=Path("/my/ws"),
-                              artifacts_dir=Path("/my/artifacts"))
+        ctx = ExecutionContext(
+            execution_id="e2",
+            contract={},
+            plan=plan,
+            workspace_dir=Path("/my/ws"),
+            artifacts_dir=Path("/my/artifacts"),
+        )
         assert ctx.workspace_dir == Path("/my/ws")
         assert ctx.artifacts_dir == Path("/my/artifacts")

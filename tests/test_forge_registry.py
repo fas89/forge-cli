@@ -1,30 +1,63 @@
-"""Tests for fluid_build.forge.core.registry — component registration & discovery."""
-import pytest
-from unittest.mock import patch, MagicMock
-from fluid_build.forge.core.registry import (
-    ComponentInfo, ComponentRegistry, TemplateRegistry,
-    ProviderRegistry, ExtensionRegistry, GeneratorRegistry,
-)
-from fluid_build.forge.core.interfaces import (
-    ProjectTemplate, InfrastructureProvider, Extension, Generator,
-    TemplateMetadata, ComplexityLevel, GenerationContext,
-)
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
+"""Tests for fluid_build.forge.core.registry — component registration & discovery."""
+
+import pytest
+
+from fluid_build.forge.core.interfaces import (
+    ComplexityLevel,
+    Generator,
+    ProjectTemplate,
+    TemplateMetadata,
+)
+from fluid_build.forge.core.registry import (
+    ComponentInfo,
+    GeneratorRegistry,
+    TemplateRegistry,
+)
 
 # --- Minimal concrete implementations for testing ---
+
 
 class _StubTemplate(ProjectTemplate):
     def get_metadata(self):
         return TemplateMetadata(
-            name="stub", description="d", complexity=ComplexityLevel.BEGINNER,
-            provider_support=["local"], use_cases=["test"],
-            technologies=["python"], estimated_time="1 min", tags=["demo"],
+            name="stub",
+            description="d",
+            complexity=ComplexityLevel.BEGINNER,
+            provider_support=["local"],
+            use_cases=["test"],
+            technologies=["python"],
+            estimated_time="1 min",
+            tags=["demo"],
         )
-    def generate_structure(self, ctx): return {}
-    def generate_contract(self, ctx): return {}
-    def validate_configuration(self, config): return True, []
-    def get_recommended_providers(self): return ["local"]
-    def post_generation_hooks(self, ctx): pass
+
+    def generate_structure(self, ctx):
+        return {}
+
+    def generate_contract(self, ctx):
+        return {}
+
+    def validate_configuration(self, config):
+        return True, []
+
+    def get_recommended_providers(self):
+        return ["local"]
+
+    def post_generation_hooks(self, ctx):
+        pass
 
 
 class _StubTemplate2(_StubTemplate):
@@ -163,12 +196,18 @@ class TestGeneratorRegistry:
         reg = GeneratorRegistry()
 
         class StubGen(Generator):
-            def generate(self, ctx): return {}
-            def get_dependencies(self): return []
+            def generate(self, ctx):
+                return {}
+
+            def get_dependencies(self):
+                return []
 
         class StubGen2(Generator):
-            def generate(self, ctx): return {}
-            def get_dependencies(self): return ["gen1"]
+            def generate(self, ctx):
+                return {}
+
+            def get_dependencies(self):
+                return ["gen1"]
 
         reg.register("gen1", StubGen)
         reg.register("gen2", StubGen2)

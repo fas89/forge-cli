@@ -12,18 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 setup(
-    name='customer-360-dataflow',
-    version='1.0.0',
-    description='Real-time customer events processing pipeline for Customer 360 analytics',
+    name="customer-360-dataflow",
+    version="1.0.0",
+    description="Real-time customer events processing pipeline for Customer 360 analytics",
     packages=find_packages(),
     install_requires=[
-        'apache-beam[gcp]==2.50.0',
-        'google-cloud-bigquery==3.12.0',
-        'google-cloud-pubsub==2.18.4',
-        'google-cloud-storage==2.10.0',
+        "apache-beam[gcp]==2.50.0",
+        "google-cloud-bigquery==3.12.0",
+        "google-cloud-pubsub==2.18.4",
+        "google-cloud-storage==2.10.0",
     ],
-    python_requires='>=3.8',
+    python_requires=">=3.8",
 )

@@ -1,8 +1,26 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for fluid_build.forge.core.provider_actions — action parsing & dependency graphs."""
-import pytest
+
 from fluid_build.forge.core.provider_actions import (
-    ActionType, ProviderAction, ProviderActionParser,
-    get_action_by_id, filter_actions_by_provider, filter_actions_by_type,
+    ActionType,
+    ProviderAction,
+    ProviderActionParser,
+    filter_actions_by_provider,
+    filter_actions_by_type,
+    get_action_by_id,
 )
 
 
@@ -16,16 +34,20 @@ class TestActionType:
 class TestProviderAction:
     def test_defaults(self):
         a = ProviderAction(
-            action_id="a1", action_type=ActionType.PROVISION_DATASET,
-            provider="gcp", params={"k": "v"},
+            action_id="a1",
+            action_type=ActionType.PROVISION_DATASET,
+            provider="gcp",
+            params={"k": "v"},
         )
         assert a.depends_on == []
         assert a.description is None
 
     def test_repr(self):
         a = ProviderAction(
-            action_id="a1", action_type=ActionType.GRANT_ACCESS,
-            provider="aws", params={},
+            action_id="a1",
+            action_type=ActionType.GRANT_ACCESS,
+            provider="aws",
+            params={},
         )
         r = repr(a)
         assert "a1" in r
@@ -38,8 +60,19 @@ class TestProviderActionParser:
         contract = {
             "fluidVersion": "0.7.1",
             "providerActions": [
-                {"actionId": "prov1", "action": "provisionDataset", "provider": "gcp", "params": {"dataset": "x"}},
-                {"actionId": "grant1", "action": "grantAccess", "provider": "gcp", "params": {}, "dependsOn": ["prov1"]},
+                {
+                    "actionId": "prov1",
+                    "action": "provisionDataset",
+                    "provider": "gcp",
+                    "params": {"dataset": "x"},
+                },
+                {
+                    "actionId": "grant1",
+                    "action": "grantAccess",
+                    "provider": "gcp",
+                    "params": {},
+                    "dependsOn": ["prov1"],
+                },
             ],
         }
         parser = ProviderActionParser()
@@ -113,7 +146,11 @@ class TestProviderActionParser:
             "tags": ["important"],
             "labels": {"costCenter": "42"},
         }
-        expose = {"tags": ["expose-tag"], "labels": {"custom": "val"}, "policy": {"classification": "confidential"}}
+        expose = {
+            "tags": ["expose-tag"],
+            "labels": {"custom": "val"},
+            "policy": {"classification": "confidential"},
+        }
         labels = parser._extract_labels(contract, expose)
         assert labels["fluid_contract_id"] == "my-product"
         assert labels["fluid_layer"] == "gold"

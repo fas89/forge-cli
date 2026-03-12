@@ -24,6 +24,7 @@ from fluid_build.providers.datamesh_manager.datamesh_manager import DataMeshMana
 # and ``discover_providers()`` picks us up automatically.
 try:
     from fluid_build.providers import register_provider
+
     register_provider("datamesh-manager", DataMeshManagerProvider)
 except Exception:
     pass  # Registry not yet available (e.g. during isolated import)

@@ -24,44 +24,39 @@ Supports:
 - Deployment configuration
 """
 
-from typing import Dict, Any, List
 from datetime import datetime
-from fluid_build.cli.console import cprint, info, success
+from typing import Any, Dict, List
 
 
-def generate_prefect_flow(
-    contract: Dict[str, Any],
-    project: str,
-    region: str
-) -> str:
+def generate_prefect_flow(contract: Dict[str, Any], project: str, region: str) -> str:
     """
     Generate Prefect flow Python code from FLUID contract.
-    
+
     Args:
         contract: FLUID contract with orchestration section
         project: GCP project ID
         region: GCP region
-        
+
     Returns:
         Python code for Prefect flow
     """
     orchestration = contract.get("orchestration", {})
     if not orchestration:
         raise ValueError("Contract missing orchestration section")
-    
+
     tasks = orchestration.get("tasks", [])
     if not tasks:
         raise ValueError("Orchestration has no tasks")
-    
+
     # Extract configuration
     contract_id = contract.get("id", "unknown")
     contract_name = contract.get("name", contract_id)
     schedule = orchestration.get("schedule", "0 2 * * *")
     timezone = orchestration.get("timezone", "UTC")
-    
+
     # Filter provider action tasks
     provider_tasks = [t for t in tasks if t.get("type") == "provider_action"]
-    
+
     # Generate flow code
     code = _generate_header(contract_id, contract_name, schedule, timezone, project, region)
     code += "\n\n"
@@ -74,17 +69,12 @@ def generate_prefect_flow(
     code += _generate_flow(contract_id, contract_name, provider_tasks)
     code += "\n\n"
     code += _generate_deployment(contract_id, contract_name, schedule, timezone)
-    
+
     return code
 
 
 def _generate_header(
-    contract_id: str,
-    contract_name: str,
-    schedule: str,
-    timezone: str,
-    project: str,
-    region: str
+    contract_id: str, contract_name: str, schedule: str, timezone: str, project: str, region: str
 ) -> str:
     """Generate file header with metadata."""
     return f'''"""
@@ -103,14 +93,14 @@ Generated: {datetime.utcnow().isoformat()}Z
 
 def _generate_imports() -> str:
     """Generate import statements."""
-    return '''from prefect import flow, task
+    return """from prefect import flow, task
 from prefect.deployments import Deployment
 from prefect.server.schemas.schedules import CronSchedule
 from google.cloud import bigquery, storage, pubsub_v1
 import logging
 from datetime import timedelta
 
-logger = logging.getLogger(__name__)'''
+logger = logging.getLogger(__name__)"""
 
 
 def _generate_config(project: str, region: str) -> str:
@@ -120,39 +110,31 @@ GCP_PROJECT = "{project}"
 GCP_REGION = "{region}"'''
 
 
-def _generate_tasks(
-    tasks: List[Dict[str, Any]],
-    project: str,
-    region: str
-) -> str:
+def _generate_tasks(tasks: List[Dict[str, Any]], project: str, region: str) -> str:
     """Generate task definitions."""
     tasks_code = "# Prefect Tasks\n"
-    
+
     for task_spec in tasks:
         tasks_code += _generate_single_task(task_spec, project, region)
         tasks_code += "\n\n"
-    
+
     return tasks_code.rstrip()
 
 
-def _generate_single_task(
-    task_spec: Dict[str, Any],
-    project: str,
-    region: str
-) -> str:
+def _generate_single_task(task_spec: Dict[str, Any], project: str, region: str) -> str:
     """Generate code for a single task."""
     task_spec.get("taskId")
     action = task_spec.get("action", "")
     params = task_spec.get("params", {})
-    
+
     # Parse action
     action_parts = action.split(".")
     if len(action_parts) < 3:
         return _generate_generic_task(task_spec, project, region)
-    
+
     service = action_parts[1]
     operation = action_parts[2]
-    
+
     # Map to appropriate task
     if service == "bigquery":
         return _generate_bigquery_task(task_spec, operation, params)
@@ -165,17 +147,15 @@ def _generate_single_task(
 
 
 def _generate_bigquery_task(
-    task_spec: Dict[str, Any],
-    operation: str,
-    params: Dict[str, Any]
+    task_spec: Dict[str, Any], operation: str, params: Dict[str, Any]
 ) -> str:
     """Generate BigQuery task code."""
     task_id = task_spec.get("taskId")
-    
+
     if operation == "create_dataset":
         dataset_id = params.get("dataset_id", "unknown_dataset")
         location = params.get("location", "US")
-        
+
         return f'''@task(retries=3, retry_delay_seconds=30, timeout_seconds=600)
 def {task_id}():
     """Create BigQuery dataset: {dataset_id}"""
@@ -190,10 +170,10 @@ def {task_id}():
     except Exception as e:
         logger.error(f"Failed to create dataset: {{e}}")
         raise'''
-    
+
     elif operation == "query" or operation == "run_query":
         query_sql = params.get("query", "SELECT 1").replace('"', '\\"')
-        
+
         return f'''@task(retries=3, retry_delay_seconds=30, timeout_seconds=1800)
 def {task_id}():
     """Run BigQuery query"""
@@ -209,23 +189,19 @@ def {task_id}():
     except Exception as e:
         logger.error(f"Query failed: {{e}}")
         raise'''
-    
+
     else:
         return _generate_generic_task(task_spec, None, None)
 
 
-def _generate_gcs_task(
-    task_spec: Dict[str, Any],
-    operation: str,
-    params: Dict[str, Any]
-) -> str:
+def _generate_gcs_task(task_spec: Dict[str, Any], operation: str, params: Dict[str, Any]) -> str:
     """Generate Cloud Storage task code."""
     task_id = task_spec.get("taskId")
-    
+
     if operation == "create_bucket" or operation == "ensure_bucket":
         bucket_name = params.get("bucket", "unknown-bucket")
         location = params.get("location", "US")
-        
+
         return f'''@task(retries=3, retry_delay_seconds=30, timeout_seconds=300)
 def {task_id}():
     """Create GCS bucket: {bucket_name}"""
@@ -243,22 +219,18 @@ def {task_id}():
     except Exception as e:
         logger.error(f"Failed to create bucket: {{e}}")
         raise'''
-    
+
     else:
         return _generate_generic_task(task_spec, None, None)
 
 
-def _generate_pubsub_task(
-    task_spec: Dict[str, Any],
-    operation: str,
-    params: Dict[str, Any]
-) -> str:
+def _generate_pubsub_task(task_spec: Dict[str, Any], operation: str, params: Dict[str, Any]) -> str:
     """Generate Pub/Sub task code."""
     task_id = task_spec.get("taskId")
-    
+
     if operation == "create_topic":
         topic_name = params.get("topic", "unknown-topic")
-        
+
         return f'''@task(retries=3, retry_delay_seconds=30, timeout_seconds=300)
 def {task_id}():
     """Create Pub/Sub topic: {topic_name}"""
@@ -275,21 +247,17 @@ def {task_id}():
             return topic_path
         logger.error(f"Failed to create topic: {{e}}")
         raise'''
-    
+
     else:
         return _generate_generic_task(task_spec, None, None)
 
 
-def _generate_generic_task(
-    task_spec: Dict[str, Any],
-    project: str,
-    region: str
-) -> str:
+def _generate_generic_task(task_spec: Dict[str, Any], project: str, region: str) -> str:
     """Generate generic task."""
     task_id = task_spec.get("taskId")
     action = task_spec.get("action")
     params = task_spec.get("params", {})
-    
+
     return f'''@task(retries=2, retry_delay_seconds=30)
 def {task_id}():
     """Generic task: {action}"""
@@ -298,22 +266,18 @@ def {task_id}():
     return True'''
 
 
-def _generate_flow(
-    contract_id: str,
-    contract_name: str,
-    tasks: List[Dict[str, Any]]
-) -> str:
+def _generate_flow(contract_id: str, contract_name: str, tasks: List[Dict[str, Any]]) -> str:
     """Generate flow definition."""
     flow_name = _sanitize_name(contract_id)
-    
+
     # Build task execution sequence
     task_executions = []
     task_results = {}
-    
+
     for task in tasks:
         task_id = task.get("taskId")
         depends_on = task.get("dependsOn", [])
-        
+
         if depends_on:
             # Wait for dependencies (in Prefect, execution order is implicit)
             for dep in depends_on:
@@ -322,11 +286,11 @@ def _generate_flow(
             task_executions.append(f"    {task_id}_result = {task_id}()")
         else:
             task_executions.append(f"    {task_id}_result = {task_id}()")
-        
+
         task_results[task_id] = f"{task_id}_result"
-    
+
     task_exec_str = "\n".join(task_executions)
-    
+
     return f'''# Flow definition
 @flow(
     name="{flow_name}",
@@ -342,17 +306,12 @@ def {flow_name}_flow():
     return True'''
 
 
-def _generate_deployment(
-    contract_id: str,
-    contract_name: str,
-    schedule: str,
-    timezone: str
-) -> str:
+def _generate_deployment(contract_id: str, contract_name: str, schedule: str, timezone: str) -> str:
     """Generate deployment configuration."""
     flow_name = _sanitize_name(contract_id)
     cron_schedule = _convert_schedule(schedule)
-    
-    return f'''# Deployment configuration
+
+    return f"""# Deployment configuration
 if __name__ == "__main__":
     deployment = Deployment.build_from_flow(
         flow={flow_name}_flow,
@@ -371,7 +330,7 @@ if __name__ == "__main__":
     
     success(f"Deployment created: {{deployment.name}}")
     cprint(f"   Schedule: {cron_schedule} ({timezone})")
-    cprint(f"   Run: prefect deployment run '{flow_name}_flow/{flow_name}-deployment'")'''
+    cprint(f"   Run: prefect deployment run '{flow_name}_flow/{flow_name}-deployment'")"""
 
 
 def _convert_schedule(schedule: str) -> str:
@@ -386,11 +345,11 @@ def _convert_schedule(schedule: str) -> str:
         return "0 0 * * 0"
     elif schedule_lower == "@monthly":
         return "0 0 1 * *"
-    
+
     # Pass through cron expressions
     if schedule.count(" ") >= 4:
         return schedule
-    
+
     # Default to daily
     return "0 2 * * *"
 
@@ -398,4 +357,5 @@ def _convert_schedule(schedule: str) -> str:
 def _sanitize_name(name: str) -> str:
     """Sanitize name for Python identifier."""
     import re
-    return re.sub(r'[^a-zA-Z0-9_]', '_', name)
+
+    return re.sub(r"[^a-zA-Z0-9_]", "_", name)

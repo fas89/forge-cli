@@ -14,59 +14,54 @@
 
 # fluid_build/providers/snowflake/actions/view.py
 """Snowflake view operations."""
+
 from __future__ import annotations
 
 import time
 from typing import Any, Dict
 
-from ..util.config import get_connection_params
-from ..util.names import normalize_table_name, quote_identifier, build_qualified_name
 from ..connection import SnowflakeConnection
+from ..util.config import get_connection_params
+from ..util.names import build_qualified_name, normalize_table_name, quote_identifier
 
 
 def ensure_view(action: Dict[str, Any], provider) -> Dict[str, Any]:
     """Create or replace Snowflake view."""
     start_time = time.time()
-    
+
     database = action["database"]
     schema = action["schema"]
     name = normalize_table_name(action["name"])
     query = action["query"]
     account = action["account"]
     secure = action.get("secure", False)
-    
+
     provider.debug_kv(
-        event="ensure_view_started",
-        database=database,
-        schema=schema,
-        name=name,
-        secure=secure
+        event="ensure_view_started", database=database, schema=schema, name=name, secure=secure
     )
-    
+
     try:
         params = get_connection_params(
             account=account,
             warehouse=provider.warehouse,
             database=database,
             schema=schema,
-            **provider._kwargs
+            **provider._kwargs,
         )
-        
+
         with SnowflakeConnection(**params) as conn:
             qualified_name = build_qualified_name(database, schema, name)
-            
+
             # Create or replace view (idempotent)
-            create_sql = f"CREATE OR REPLACE {'SECURE ' if secure else ''}VIEW {qualified_name} AS {query}"
-            conn.execute(create_sql)
-            
-            provider.info_kv(
-                event="view_created",
-                database=database,
-                schema=schema,
-                name=name,
-                secure=secure
+            create_sql = (
+                f"CREATE OR REPLACE {'SECURE ' if secure else ''}VIEW {qualified_name} AS {query}"
             )
-            
+            conn.execute(create_sql)
+
+            provider.info_kv(
+                event="view_created", database=database, schema=schema, name=name, secure=secure
+            )
+
             return {
                 "status": "changed",
                 "op": action["op"],
@@ -74,16 +69,12 @@ def ensure_view(action: Dict[str, Any], provider) -> Dict[str, Any]:
                 "schema": schema,
                 "name": name,
                 "changed": True,
-                "duration_ms": int((time.time() - start_time) * 1000)
+                "duration_ms": int((time.time() - start_time) * 1000),
             }
-            
+
     except Exception as e:
         provider.err_kv(
-            event="ensure_view_failed",
-            database=database,
-            schema=schema,
-            name=name,
-            error=str(e)
+            event="ensure_view_failed", database=database, schema=schema, name=name, error=str(e)
         )
         raise
 
@@ -91,7 +82,7 @@ def ensure_view(action: Dict[str, Any], provider) -> Dict[str, Any]:
 def ensure_materialized_view(action: Dict[str, Any], provider) -> Dict[str, Any]:
     """Create or replace Snowflake materialized view."""
     start_time = time.time()
-    
+
     database = action["database"]
     schema = action["schema"]
     name = normalize_table_name(action["name"])
@@ -99,45 +90,44 @@ def ensure_materialized_view(action: Dict[str, Any], provider) -> Dict[str, Any]
     account = action["account"]
     secure = action.get("secure", False)
     cluster_by = action.get("cluster_by", [])
-    
+
     provider.debug_kv(
-        event="ensure_materialized_view_started",
-        database=database,
-        schema=schema,
-        name=name
+        event="ensure_materialized_view_started", database=database, schema=schema, name=name
     )
-    
+
     try:
         params = get_connection_params(
             account=account,
             warehouse=provider.warehouse,
             database=database,
             schema=schema,
-            **provider._kwargs
+            **provider._kwargs,
         )
-        
+
         with SnowflakeConnection(**params) as conn:
             qualified_name = build_qualified_name(database, schema, name)
-            
+
             # Create or replace materialized view
-            create_sql = f"CREATE OR REPLACE {'SECURE ' if secure else ''}MATERIALIZED VIEW {qualified_name}"
-            
+            create_sql = (
+                f"CREATE OR REPLACE {'SECURE ' if secure else ''}MATERIALIZED VIEW {qualified_name}"
+            )
+
             if cluster_by:
                 quoted_keys = [quote_identifier(key) for key in cluster_by]
                 create_sql += f" CLUSTER BY ({', '.join(quoted_keys)})"
-            
+
             create_sql += f" AS {query}"
-            
+
             conn.execute(create_sql)
-            
+
             provider.info_kv(
                 event="materialized_view_created",
                 database=database,
                 schema=schema,
                 name=name,
-                cluster_by=cluster_by
+                cluster_by=cluster_by,
             )
-            
+
             return {
                 "status": "changed",
                 "op": action["op"],
@@ -145,15 +135,15 @@ def ensure_materialized_view(action: Dict[str, Any], provider) -> Dict[str, Any]
                 "schema": schema,
                 "name": name,
                 "changed": True,
-                "duration_ms": int((time.time() - start_time) * 1000)
+                "duration_ms": int((time.time() - start_time) * 1000),
             }
-            
+
     except Exception as e:
         provider.err_kv(
             event="ensure_materialized_view_failed",
             database=database,
             schema=schema,
             name=name,
-            error=str(e)
+            error=str(e),
         )
         raise

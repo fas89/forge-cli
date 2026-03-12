@@ -75,10 +75,8 @@ _log = logging.getLogger("fluid.providers")
 
 # ------------------------------- Utilities --------------------------------- #
 
-def _safe_log(logger: Optional[logging.Logger],
-              level: int,
-              msg: str,
-              **fields: Any) -> None:
+
+def _safe_log(logger: Optional[logging.Logger], level: int, msg: str, **fields: Any) -> None:
     """
     Log with safe 'extra' keys; avoid reserved LogRecord attributes (e.g., 'module').
     """
@@ -104,18 +102,23 @@ def _normalize_name(name: str) -> str:
 
 
 def _add_discovery_error(source: str, modname: str, exc: BaseException) -> None:
-    DISCOVERY_ERRORS.append({
-        "source": source,
-        "modname": modname,
-        "error": f"{exc.__class__.__name__}: {exc}",
-        "traceback": "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)).strip(),
-    })
+    DISCOVERY_ERRORS.append(
+        {
+            "source": source,
+            "modname": modname,
+            "error": f"{exc.__class__.__name__}: {exc}",
+            "traceback": "".join(
+                traceback.format_exception(type(exc), exc, exc.__traceback__)
+            ).strip(),
+        }
+    )
 
 
 # ----------------------------- Public API ---------------------------------- #
 
 # CLI version for protocol compatibility checks
 _CLI_VERSION = "0.7.1"
+
 
 def _parse_version(v: str) -> Tuple[int, ...]:
     """Parse a dotted version string into a tuple of ints.  Handles '1.x' as (1, 999).
@@ -165,6 +168,7 @@ def _check_sdk_compat(name: str, provider: Any, logger: Optional[logging.Logger]
         if not min_v:
             try:
                 import fluid_provider_sdk as _sdk
+
                 min_v = getattr(_sdk, "MIN_CLI_VERSION", None)
                 max_v = getattr(_sdk, "MAX_CLI_VERSION", None)
             except ImportError:
@@ -174,15 +178,27 @@ def _check_sdk_compat(name: str, provider: Any, logger: Optional[logging.Logger]
         if min_v:
             min_t = _parse_version(min_v)
             if cli_t < min_t:
-                _safe_log(logger, logging.WARNING, "provider_version_warning",
-                          name=name, cli_version=_CLI_VERSION, min_cli_version=min_v,
-                          hint=f"Provider '{name}' requires CLI >= {min_v}")
+                _safe_log(
+                    logger,
+                    logging.WARNING,
+                    "provider_version_warning",
+                    name=name,
+                    cli_version=_CLI_VERSION,
+                    min_cli_version=min_v,
+                    hint=f"Provider '{name}' requires CLI >= {min_v}",
+                )
         if max_v:
             max_t = _parse_version(max_v)
             if cli_t > max_t:
-                _safe_log(logger, logging.WARNING, "provider_version_warning",
-                          name=name, cli_version=_CLI_VERSION, max_cli_version=max_v,
-                          hint=f"Provider '{name}' requires CLI <= {max_v}")
+                _safe_log(
+                    logger,
+                    logging.WARNING,
+                    "provider_version_warning",
+                    name=name,
+                    cli_version=_CLI_VERSION,
+                    max_cli_version=max_v,
+                    hint=f"Provider '{name}' requires CLI <= {max_v}",
+                )
     except Exception:
         pass  # Version check is advisory — never block registration
 
@@ -191,12 +207,15 @@ def _check_sdk_compat(name: str, provider: Any, logger: Optional[logging.Logger]
 _REGISTRY_META: Dict[str, Dict[str, str]] = {}
 _BANNED_NAMES = {"unknown", "stub", ""}
 
-def register_provider(name: str,
-                      provider: Any,
-                      *,
-                      override: bool = False,
-                      logger: Optional[logging.Logger] = None,
-                      source: str = "explicit") -> None:
+
+def register_provider(
+    name: str,
+    provider: Any,
+    *,
+    override: bool = False,
+    logger: Optional[logging.Logger] = None,
+    source: str = "explicit",
+) -> None:
     """
     Register a provider implementation under a canonical name.
 
@@ -208,18 +227,26 @@ def register_provider(name: str,
 
     cname = _normalize_name(name)
     if not _is_valid_name(cname):
-        raise ValueError(f"Invalid provider name '{name}'. "
-                         "Use lowercase letters, digits or underscore.")
+        raise ValueError(
+            f"Invalid provider name '{name}'. " "Use lowercase letters, digits or underscore."
+        )
     if cname in _BANNED_NAMES:
-        _safe_log(logger, logging.DEBUG, "provider_name_rejected",
-                  name=cname, reason="banned_name", source=source)
+        _safe_log(
+            logger,
+            logging.DEBUG,
+            "provider_name_rejected",
+            name=cname,
+            reason="banned_name",
+            source=source,
+        )
         return
 
     with _LOCK:
         exists = cname in PROVIDERS
         if exists and not override:
-            _safe_log(logger, logging.DEBUG, "provider_duplicate_ignored",
-                      name=cname, source=source)
+            _safe_log(
+                logger, logging.DEBUG, "provider_duplicate_ignored", name=cname, source=source
+            )
             return
 
         PROVIDERS[cname] = provider
@@ -227,11 +254,18 @@ def register_provider(name: str,
         mod = getattr(provider, "__module__", "<unknown>")
         qual = getattr(provider, "__qualname__", repr(provider))
         _REGISTRY_META[cname] = {"module": mod, "qualname": qual, "source": source}
-        _safe_log(logger, logging.DEBUG, "provider_registered_explicit",
-                  name=cname, provider=f"{mod}:{qual}", source=source)
+        _safe_log(
+            logger,
+            logging.DEBUG,
+            "provider_registered_explicit",
+            name=cname,
+            provider=f"{mod}:{qual}",
+            source=source,
+        )
 
     # Check SDK version compatibility (outside lock — read-only, advisory)
     _check_sdk_compat(cname, provider, logger)
+
 
 def registry_dump() -> Dict[str, Any]:
     """Return registry + meta for diagnostics."""
@@ -258,8 +292,7 @@ def get_provider(name: str) -> Any:
     cname = _normalize_name(name)
     with _LOCK:
         if cname not in PROVIDERS:
-            raise KeyError(f"Unknown provider '{name}'. "
-                           f"Available: {sorted(PROVIDERS.keys())}")
+            raise KeyError(f"Unknown provider '{name}'. " f"Available: {sorted(PROVIDERS.keys())}")
         return PROVIDERS[cname]
 
 
@@ -285,6 +318,7 @@ _DEFAULT_MODULES = (
     "fluid_build.providers.odps",
 )
 
+
 def discover_providers(logger: Optional[logging.Logger] = None, *, force: bool = False) -> None:
     """
     Import provider subpackages and auto-register implementations.
@@ -304,8 +338,13 @@ def discover_providers(logger: Optional[logging.Logger] = None, *, force: bool =
         _DISCOVERY_ATTEMPTS += 1
 
         if _DISCOVERY_DONE and PROVIDERS and not force:
-            _safe_log(logger, logging.DEBUG, "provider_discovery_short_circuit",
-                      attempts=_DISCOVERY_ATTEMPTS, count=len(PROVIDERS))
+            _safe_log(
+                logger,
+                logging.DEBUG,
+                "provider_discovery_short_circuit",
+                attempts=_DISCOVERY_ATTEMPTS,
+                count=len(PROVIDERS),
+            )
             return
 
         # 0) entry-point plugins (third-party packages)
@@ -322,8 +361,13 @@ def discover_providers(logger: Optional[logging.Logger] = None, *, force: bool =
             _fallback_registers(logger)
 
         _DISCOVERY_DONE = True
-        _safe_log(logger, logging.DEBUG, "provider_discovery_complete",
-                  count=len(PROVIDERS), errors=len(DISCOVERY_ERRORS))
+        _safe_log(
+            logger,
+            logging.DEBUG,
+            "provider_discovery_complete",
+            count=len(PROVIDERS),
+            errors=len(DISCOVERY_ERRORS),
+        )
 
 
 def _discover_entrypoints(logger: Optional[logging.Logger]) -> None:
@@ -345,7 +389,11 @@ def _discover_entrypoints(logger: Optional[logging.Logger]) -> None:
             eps = all_eps.get(EP_GROUP, [])
         else:
             # SelectableGroups (3.12+) or importlib_metadata backport
-            eps = all_eps.select(group=EP_GROUP) if hasattr(all_eps, "select") else all_eps.get(EP_GROUP, [])
+            eps = (
+                all_eps.select(group=EP_GROUP)
+                if hasattr(all_eps, "select")
+                else all_eps.get(EP_GROUP, [])
+            )
     except Exception as exc:
         _safe_log(logger, logging.DEBUG, "entrypoint_discovery_unavailable", error=str(exc))
         return
@@ -353,12 +401,20 @@ def _discover_entrypoints(logger: Optional[logging.Logger]) -> None:
     for ep in eps:
         try:
             provider_cls = ep.load()
-            register_provider(ep.name, provider_cls, override=False, logger=logger, source="entrypoint")
-            _safe_log(logger, logging.DEBUG, "provider_entrypoint_loaded",
-                      name=ep.name, entrypoint=str(ep))
+            register_provider(
+                ep.name, provider_cls, override=False, logger=logger, source="entrypoint"
+            )
+            _safe_log(
+                logger,
+                logging.DEBUG,
+                "provider_entrypoint_loaded",
+                name=ep.name,
+                entrypoint=str(ep),
+            )
         except Exception as exc:
-            _safe_log(logger, logging.WARNING, "provider_entrypoint_failed",
-                      name=ep.name, error=str(exc))
+            _safe_log(
+                logger, logging.WARNING, "provider_entrypoint_failed", name=ep.name, error=str(exc)
+            )
             _add_discovery_error("entrypoint", ep.name, exc)
 
 
@@ -370,8 +426,13 @@ def _preload_curated(logger: Optional[logging.Logger]) -> None:
             importlib.import_module(modname)
             _safe_log(logger, logging.DEBUG, "provider_module_imported", modname=modname)
         except Exception as exc:
-            _safe_log(logger, logging.DEBUG, "provider_module_import_failed",
-                      modname=modname, error=str(exc))
+            _safe_log(
+                logger,
+                logging.DEBUG,
+                "provider_module_import_failed",
+                modname=modname,
+                error=str(exc),
+            )
             _add_discovery_error("default", modname, exc)
 
 
@@ -394,8 +455,13 @@ def _discover_subpackages(logger: Optional[logging.Logger]) -> None:
             mod = importlib.import_module(modname)
             _safe_log(logger, logging.DEBUG, "provider_module_imported", modname=modname)
         except Exception as exc:
-            _safe_log(logger, logging.DEBUG, "provider_module_import_failed",
-                      modname=modname, error=str(exc))
+            _safe_log(
+                logger,
+                logging.DEBUG,
+                "provider_module_import_failed",
+                modname=modname,
+                error=str(exc),
+            )
             _add_discovery_error("subpackage", modname, exc)
             continue
 
@@ -413,9 +479,14 @@ def _auto_register_from_module(mod, logger: Optional[logging.Logger]) -> None:
             try:
                 register_provider(name, prov, override=False, logger=logger)
             except Exception as exc:
-                _safe_log(logger, logging.WARNING, "provider_auto_register_failed",
-                          modname=getattr(mod, "__name__", "<unknown>"),
-                          name=str(name), error=str(exc))
+                _safe_log(
+                    logger,
+                    logging.WARNING,
+                    "provider_auto_register_failed",
+                    modname=getattr(mod, "__name__", "<unknown>"),
+                    name=str(name),
+                    error=str(exc),
+                )
                 _add_discovery_error("auto_map", getattr(mod, "__name__", "?"), exc)
 
     # Strategy 2: NAME + Provider
@@ -424,18 +495,29 @@ def _auto_register_from_module(mod, logger: Optional[logging.Logger]) -> None:
     if isinstance(name, str) and prov is not None:
         try:
             register_provider(name, prov, override=False, logger=logger)
-            _safe_log(logger, logging.DEBUG, "provider_registered_auto",
-                      modname=getattr(mod, "__name__", "<unknown>"), name=_normalize_name(name))
+            _safe_log(
+                logger,
+                logging.DEBUG,
+                "provider_registered_auto",
+                modname=getattr(mod, "__name__", "<unknown>"),
+                name=_normalize_name(name),
+            )
             return
         except Exception as exc:
-            _safe_log(logger, logging.WARNING, "provider_auto_register_failed",
-                      modname=getattr(mod, "__name__", "<unknown>"),
-                      name=str(name), error=str(exc))
+            _safe_log(
+                logger,
+                logging.WARNING,
+                "provider_auto_register_failed",
+                modname=getattr(mod, "__name__", "<unknown>"),
+                name=str(name),
+                error=str(exc),
+            )
             _add_discovery_error("auto_name", getattr(mod, "__name__", "?"), exc)
 
     # Strategy 3: scan for exactly one subclass of BaseProvider
     try:
         from .base import BaseProvider  # local import to avoid circulars
+
         discovered: List[Type[BaseProvider]] = []
         for attr_name in dir(mod):
             attr = getattr(mod, attr_name, None)
@@ -447,11 +529,22 @@ def _auto_register_from_module(mod, logger: Optional[logging.Logger]) -> None:
             if not _is_valid_name(inferred):
                 inferred = _normalize_name(getattr(mod, "__name__", "provider").rsplit(".", 1)[-1])
             register_provider(inferred, cls, override=False, logger=logger)
-            _safe_log(logger, logging.DEBUG, "provider_registered_by_subclass",
-                      modname=getattr(mod, "__name__", "<unknown>"), name=inferred, provider=cls.__name__)
+            _safe_log(
+                logger,
+                logging.DEBUG,
+                "provider_registered_by_subclass",
+                modname=getattr(mod, "__name__", "<unknown>"),
+                name=inferred,
+                provider=cls.__name__,
+            )
     except Exception as exc:
-        _safe_log(logger, logging.DEBUG, "provider_single_subclass_scan_failed",
-                  modname=getattr(mod, "__name__", "<unknown>"), error=str(exc))
+        _safe_log(
+            logger,
+            logging.DEBUG,
+            "provider_single_subclass_scan_failed",
+            modname=getattr(mod, "__name__", "<unknown>"),
+            error=str(exc),
+        )
 
 
 def _fallback_registers(logger: Optional[logging.Logger]) -> None:
@@ -465,11 +558,17 @@ def _fallback_registers(logger: Optional[logging.Logger]) -> None:
             _safe_log(logger, logging.DEBUG, "provider_module_imported", modname=modname)
             _auto_register_from_module(mod, logger)
         except Exception as exc:
-            _safe_log(logger, logging.DEBUG, "provider_candidate_import_failed",
-                      modname=modname, error=str(exc))
+            _safe_log(
+                logger,
+                logging.DEBUG,
+                "provider_candidate_import_failed",
+                modname=modname,
+                error=str(exc),
+            )
 
 
 # ------------------------------ Diagnostics -------------------------------- #
+
 
 def diagnostics() -> Dict[str, Any]:
     """Return a structured diagnostic snapshot for scripts."""

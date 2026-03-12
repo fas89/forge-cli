@@ -13,82 +13,100 @@
 # limitations under the License.
 
 from __future__ import annotations
-import argparse, logging, os, json
+
+import argparse
+import logging
+import os
 from pathlib import Path
-from typing import Dict, Any, Optional
-from ._logging import info
-from ._common import CLIError
-from ._io import dump_json, atomic_write
+from typing import Any, Dict
+
 from fluid_build.cli.console import cprint
+
+from ._common import CLIError
+from ._io import atomic_write, dump_json
+from ._logging import info
 
 COMMAND = "wizard"
 
+
 def register(subparsers: argparse._SubParsersAction):
     p = subparsers.add_parser(
-        COMMAND, 
+        COMMAND,
         help="Interactive first-run wizard (TUI)",
-        description="Guided setup wizard for creating new FLUID data products with interactive prompts."
+        description="Guided setup wizard for creating new FLUID data products with interactive prompts.",
     )
-    p.add_argument("--provider", choices=["local", "gcp", "snowflake", "aws"], help="Pre-select provider")
-    p.add_argument("--skip-preview", action="store_true", help="Skip validation and preview at the end")
+    p.add_argument(
+        "--provider", choices=["local", "gcp", "snowflake", "aws"], help="Pre-select provider"
+    )
+    p.add_argument(
+        "--skip-preview", action="store_true", help="Skip validation and preview at the end"
+    )
     p.set_defaults(cmd=COMMAND, func=run)
+
 
 def run(args, logger: logging.Logger) -> int:
     try:
         # Try to import rich for better UX
         try:
             from rich.console import Console
-            from rich.prompt import Prompt, Confirm
             from rich.panel import Panel
+            from rich.prompt import Confirm, Prompt
+
             console = Console()
             has_rich = True
         except ImportError:
             console = None
             has_rich = False
-            info(logger, "wizard_fallback", message="Install 'rich' for better experience: pip install rich")
-        
+            info(
+                logger,
+                "wizard_fallback",
+                message="Install 'rich' for better experience: pip install rich",
+            )
+
         if has_rich and console:
-            console.print(Panel.fit(
-                "[bold cyan]FLUID Build Wizard[/bold cyan]\n"
-                "Create a new data product with guided setup",
-                border_style="cyan"
-            ))
+            console.print(
+                Panel.fit(
+                    "[bold cyan]FLUID Build Wizard[/bold cyan]\n"
+                    "Create a new data product with guided setup",
+                    border_style="cyan",
+                )
+            )
         else:
             cprint("\n=== FLUID Build Wizard ===")
             cprint("Create a new data product with guided setup\n")
-        
+
         # Detect and select provider
         provider = args.provider or _detect_provider(console, has_rich, logger)
-        
+
         # Gather product information
         config = _gather_product_info(console, has_rich, provider)
-        
+
         # Create directory structure
         product_dir = Path(config["id"])
         _create_directory_structure(product_dir, provider, logger)
-        
+
         # Generate contract
         contract = _generate_contract(config, provider)
         contract_path = product_dir / "contract.fluid.yaml"
         _write_yaml(contract_path, contract)
-        
+
         # Generate minimal scaffolding
         _generate_scaffolding(product_dir, provider, config, logger)
-        
+
         # Save context defaults
         _save_context(config, logger)
-        
+
         if has_rich and console:
             console.print(f"\n[green]✓[/green] Created data product: [bold]{config['id']}[/bold]")
             console.print(f"  Contract: [cyan]{contract_path}[/cyan]")
         else:
             cprint(f"\n✓ Created data product: {config['id']}")
             cprint(f"  Contract: {contract_path}")
-        
+
         # Run validation and preview
         if not args.skip_preview:
             _run_preview(str(contract_path), provider, logger)
-        
+
         if has_rich and console:
             console.print("\n[bold green]Setup complete![/bold green] Next steps:")
             console.print(f"  1. cd {config['id']}")
@@ -101,9 +119,9 @@ def run(args, logger: logging.Logger) -> int:
             cprint("  2. fluid validate contract.fluid.yaml")
             cprint("  3. fluid plan contract.fluid.yaml")
             cprint("  4. fluid apply contract.fluid.yaml")
-        
+
         return 0
-        
+
     except KeyboardInterrupt:
         info(logger, "wizard_cancelled")
         return 130
@@ -124,17 +142,19 @@ def _detect_provider(console, has_rich: bool, logger) -> str:
         detected = "aws"
     else:
         detected = "local"
-    
+
     if has_rich and console:
         from rich.prompt import Prompt
+
         provider = Prompt.ask(
-            "Select provider",
-            choices=["local", "gcp", "snowflake", "aws"],
-            default=detected
+            "Select provider", choices=["local", "gcp", "snowflake", "aws"], default=detected
         )
     else:
-        provider = input(f"Select provider [local/gcp/snowflake/aws] (default: {detected}): ").strip() or detected
-    
+        provider = (
+            input(f"Select provider [local/gcp/snowflake/aws] (default: {detected}): ").strip()
+            or detected
+        )
+
     return provider
 
 
@@ -142,6 +162,7 @@ def _gather_product_info(console, has_rich: bool, provider: str) -> Dict[str, An
     """Gather product information from user."""
     if has_rich and console:
         from rich.prompt import Prompt
+
         product_id = Prompt.ask("Product ID", default="my-data-product")
         domain = Prompt.ask("Domain", default="analytics")
         layer = Prompt.ask("Layer", choices=["bronze", "silver", "gold"], default="silver")
@@ -151,16 +172,20 @@ def _gather_product_info(console, has_rich: bool, provider: str) -> Dict[str, An
         product_id = input("Product ID (default: my-data-product): ").strip() or "my-data-product"
         domain = input("Domain (default: analytics): ").strip() or "analytics"
         layer = input("Layer [bronze/silver/gold] (default: silver): ").strip() or "silver"
-        owner = input(f"Owner/Team (default: {os.getenv('USER', 'data-team')}): ").strip() or os.getenv("USER", "data-team")
-        description = input("Description (default: A FLUID data product): ").strip() or "A FLUID data product"
-    
+        owner = input(
+            f"Owner/Team (default: {os.getenv('USER', 'data-team')}): "
+        ).strip() or os.getenv("USER", "data-team")
+        description = (
+            input("Description (default: A FLUID data product): ").strip() or "A FLUID data product"
+        )
+
     return {
         "id": product_id,
         "domain": domain,
         "layer": layer,
         "owner": owner,
         "description": description,
-        "provider": provider
+        "provider": provider,
     }
 
 
@@ -169,13 +194,13 @@ def _create_directory_structure(base: Path, provider: str, logger) -> None:
     base.mkdir(exist_ok=True)
     (base / "config").mkdir(exist_ok=True)
     (base / "docs").mkdir(exist_ok=True)
-    
+
     if provider in ("gcp", "local"):
         (base / "dbt").mkdir(exist_ok=True)
         (base / "dbt" / "models").mkdir(exist_ok=True)
     elif provider == "snowflake":
         (base / "sql").mkdir(exist_ok=True)
-    
+
     info(logger, "wizard_directories_created", path=str(base))
 
 
@@ -190,19 +215,19 @@ def _generate_contract(config: Dict[str, Any], provider: str) -> Dict[str, Any]:
             "domain": config["domain"],
             "owner": config["owner"],
             "description": config["description"],
-            "tags": [config["layer"], "wizard-generated"]
+            "tags": [config["layer"], "wizard-generated"],
         },
         "spec": {
             "builds": [
                 {
                     "id": "main",
                     "runtime": "dbt" if provider in ("gcp", "local") else "sql",
-                    "location": "dbt" if provider in ("gcp", "local") else "sql"
+                    "location": "dbt" if provider in ("gcp", "local") else "sql",
                 }
             ]
-        }
+        },
     }
-    
+
     return contract
 
 
@@ -210,6 +235,7 @@ def _write_yaml(path: Path, data: Dict[str, Any]) -> None:
     """Write data as YAML if PyYAML available, otherwise JSON."""
     try:
         import yaml
+
         atomic_write(str(path.with_suffix(".yaml")), yaml.safe_dump(data, sort_keys=False))
     except ImportError:
         # Fallback to JSON
@@ -244,7 +270,7 @@ fluid apply contract.fluid.yaml
 - **Provider**: {provider}
 """
     (base / "README.md").write_text(readme_content)
-    
+
     # Generate provider-specific files
     if provider in ("gcp", "local"):
         dbt_project = {
@@ -252,10 +278,10 @@ fluid apply contract.fluid.yaml
             "version": "1.0.0",
             "profile": config["id"].replace("-", "_"),
             "model-paths": ["models"],
-            "target-path": "target"
+            "target-path": "target",
         }
         dump_json(str(base / "dbt" / "dbt_project.json"), dbt_project)
-        
+
         # Sample model
         sample_model = f"""-- Example model for {config['id']}
 SELECT
@@ -264,7 +290,7 @@ SELECT
     CURRENT_TIMESTAMP() as created_at
 """
         (base / "dbt" / "models" / "example.sql").write_text(sample_model)
-    
+
     info(logger, "wizard_scaffolding_created")
 
 
@@ -272,14 +298,14 @@ def _save_context(config: Dict[str, Any], logger) -> None:
     """Save context defaults."""
     context_dir = Path(".fluid")
     context_dir.mkdir(exist_ok=True)
-    
+
     context = {
         "last_product": config["id"],
         "default_provider": config["provider"],
         "default_domain": config["domain"],
-        "default_owner": config["owner"]
+        "default_owner": config["owner"],
     }
-    
+
     dump_json(str(context_dir / "context.json"), context)
     info(logger, "wizard_context_saved")
 
@@ -287,14 +313,13 @@ def _save_context(config: Dict[str, Any], logger) -> None:
 def _run_preview(contract_path: str, provider: str, logger) -> None:
     """Run validation and plan preview."""
     try:
-        from . import validate, plan
-        
+
         # Simulate validation
         info(logger, "wizard_validating", contract=contract_path)
-        
+
         # Simulate plan
         info(logger, "wizard_planning", provider=provider)
         info(logger, "wizard_preview_complete")
-        
+
     except Exception as e:
         info(logger, "wizard_preview_skipped", error=str(e))

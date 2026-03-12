@@ -14,15 +14,17 @@
 
 # fluid_build/providers/aws/actions/events.py
 """AWS EventBridge actions."""
+
 import time
 from typing import Any, Dict
+
 from ..util.logging import duration_ms
 
 
 def ensure_rule(action: Dict[str, Any]) -> Dict[str, Any]:
     """Ensure EventBridge rule exists with full configuration."""
     start_time = time.time()
-    
+
     try:
         import boto3
         from botocore.exceptions import ClientError
@@ -33,7 +35,7 @@ def ensure_rule(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     rule_name = action.get("name")
     schedule = action.get("schedule")
     event_pattern = action.get("event_pattern")
@@ -42,7 +44,7 @@ def ensure_rule(action: Dict[str, Any]) -> Dict[str, Any]:
     event_bus_name = action.get("event_bus_name", "default")
     region = action.get("region", "us-east-1")
     tags = action.get("tags", {})
-    
+
     # Input validation
     if not rule_name:
         return {
@@ -51,7 +53,7 @@ def ensure_rule(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     if not schedule and not event_pattern:
         return {
             "status": "error",
@@ -59,7 +61,7 @@ def ensure_rule(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     if schedule and event_pattern:
         return {
             "status": "error",
@@ -67,7 +69,7 @@ def ensure_rule(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     # Validate state
     if state not in ["ENABLED", "DISABLED"]:
         return {
@@ -76,47 +78,45 @@ def ensure_rule(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     try:
         events = boto3.client("events", region_name=region)
-        
+
         changed = False
-        
+
         # Build rule configuration
         rule_config = {
             "Name": rule_name,
             "State": state,
             "EventBusName": event_bus_name,
         }
-        
+
         if description:
             rule_config["Description"] = description
-        
+
         if schedule:
             rule_config["ScheduleExpression"] = schedule
-        
+
         if event_pattern:
             import json
+
             if isinstance(event_pattern, dict):
                 rule_config["EventPattern"] = json.dumps(event_pattern)
             else:
                 rule_config["EventPattern"] = event_pattern
-        
+
         # Create or update rule
         response = events.put_rule(**rule_config)
         changed = True
-        
+
         # Tag the rule if tags provided
         if tags and response.get("RuleArn"):
             tag_list = [{"Key": k, "Value": v} for k, v in tags.items()]
             try:
-                events.tag_resource(
-                    ResourceARN=response["RuleArn"],
-                    Tags=tag_list
-                )
+                events.tag_resource(ResourceARN=response["RuleArn"], Tags=tag_list)
             except Exception:
                 pass  # Tagging is optional
-        
+
         return {
             "status": "changed" if changed else "ok",
             "rule": rule_name,
@@ -127,7 +127,7 @@ def ensure_rule(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": changed,
         }
-        
+
     except Exception as e:
         return {
             "status": "error",
@@ -148,15 +148,23 @@ def put_target(action: Dict[str, Any]) -> Dict[str, Any]:
     start_time = time.time()
     try:
         import boto3
+
         rule_name = action.get("rule")
         target_arn = action.get("target_arn")
-        
+
         events = boto3.client("events")
-        events.put_targets(
-            Rule=rule_name,
-            Targets=[{"Id": "1", "Arn": target_arn}]
-        )
-        
-        return {"status": "changed", "rule": rule_name, "duration_ms": duration_ms(start_time), "changed": True}
+        events.put_targets(Rule=rule_name, Targets=[{"Id": "1", "Arn": target_arn}])
+
+        return {
+            "status": "changed",
+            "rule": rule_name,
+            "duration_ms": duration_ms(start_time),
+            "changed": True,
+        }
     except Exception as e:
-        return {"status": "error", "error": str(e), "duration_ms": duration_ms(start_time), "changed": False}
+        return {
+            "status": "error",
+            "error": str(e),
+            "duration_ms": duration_ms(start_time),
+            "changed": False,
+        }

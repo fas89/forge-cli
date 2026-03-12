@@ -16,17 +16,18 @@
 """
 AWS-specific logging utilities.
 """
+
 from typing import Any, Dict
 
 
 def format_event(event: str, **kwargs: Any) -> str:
     """
     Format a structured log event.
-    
+
     Args:
         event: Event name
         **kwargs: Event attributes
-        
+
     Returns:
         Formatted event string
     """
@@ -39,18 +40,25 @@ def format_event(event: str, **kwargs: Any) -> str:
 def redact_dict(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Redact sensitive information from dictionary.
-    
+
     Args:
         data: Dictionary potentially containing secrets
-        
+
     Returns:
         Dictionary with sensitive values redacted
     """
     sensitive_keys = {
-        "password", "secret", "key", "token", "credential",
-        "api_key", "access_key", "secret_key", "private_key"
+        "password",
+        "secret",
+        "key",
+        "token",
+        "credential",
+        "api_key",
+        "access_key",
+        "secret_key",
+        "private_key",
     }
-    
+
     redacted = {}
     for key, value in data.items():
         key_lower = key.lower()
@@ -60,19 +68,20 @@ def redact_dict(data: Dict[str, Any]) -> Dict[str, Any]:
             redacted[key] = redact_dict(value)
         else:
             redacted[key] = value
-    
+
     return redacted
 
 
 def duration_ms(start_time: float) -> int:
     """
     Calculate duration in milliseconds from start time.
-    
+
     Args:
         start_time: Start timestamp from time.time()
-        
+
     Returns:
         Duration in milliseconds
     """
     import time
+
     return int((time.time() - start_time) * 1000)

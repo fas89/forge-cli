@@ -23,12 +23,14 @@ Provides hierarchical configuration loading from multiple sources:
 5. Environment variables (FLUID_*)
 6. Command-line arguments (highest priority)
 """
+
 from __future__ import annotations
 
-import os
 import logging
+import os
 from pathlib import Path
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional
+
 import yaml
 
 from .errors import ConfigurationError, FileSystemError
@@ -38,73 +40,51 @@ LOGGER = logging.getLogger("fluid.config")
 
 # Default configuration
 DEFAULT_CONFIG = {
-    "logging": {
-        "level": "INFO",
-        "format": "text",  # text or json
-        "file": None,
-        "console": True
-    },
-    "cache": {
-        "dir": "~/.fluid/cache",
-        "schema_cache_days": 7,
-        "auto_refresh": True
-    },
+    "logging": {"level": "INFO", "format": "text", "file": None, "console": True},  # text or json
+    "cache": {"dir": "~/.fluid/cache", "schema_cache_days": 7, "auto_refresh": True},
     "network": {
         "timeout": 30,
         "connect_timeout": 10,
         "max_retries": 3,
         "rate_limit": 50,  # requests per minute
-        "verify_ssl": True
+        "verify_ssl": True,
     },
-    "validation": {
-        "strict": False,
-        "offline": False,
-        "schema_version": None  # auto-detect
-    },
+    "validation": {"strict": False, "offline": False, "schema_version": None},  # auto-detect
     "apply": {
         "dry_run": False,
         "parallel_phases": True,
         "rollback_strategy": "immediate",
-        "timeout_minutes": 60
+        "timeout_minutes": 60,
     },
     "providers": {
-        "gcp": {
-            "default_region": "us-central1",
-            "default_location": "US"
-        },
-        "aws": {
-            "default_region": "us-east-1"
-        },
-        "snowflake": {
-            "default_warehouse": "COMPUTE_WH"
-        }
+        "gcp": {"default_region": "us-central1", "default_location": "US"},
+        "aws": {"default_region": "us-east-1"},
+        "snowflake": {"default_warehouse": "COMPUTE_WH"},
     },
     "catalogs": {
         "fluid-command-center": {
             "endpoint": "http://localhost:8000",
-            "auth": {
-                "type": "api_key"
-            },
+            "auth": {"type": "api_key"},
             "enabled": True,
             "max_retries": 3,
             "timeout": 30.0,
             "circuit_breaker_threshold": 3,
-            "circuit_breaker_timeout": 60
+            "circuit_breaker_timeout": 60,
         }
     },
     "output": {
         "format": "text",  # text, json, yaml
         "color": True,
         "verbose": False,
-        "quiet": False
-    }
+        "quiet": False,
+    },
 }
 
 
 class FluidConfig:
     """
     Hierarchical configuration manager for FLUID CLI.
-    
+
     Configuration is loaded from multiple sources in order:
     1. Defaults (lowest priority)
     2. System config
@@ -113,7 +93,7 @@ class FluidConfig:
     5. Environment variables
     6. CLI arguments (highest priority)
     """
-    
+
     def __init__(self):
         self._config: Dict[str, Any] = {}
         self._load_defaults()
@@ -121,120 +101,118 @@ class FluidConfig:
         self._load_user_config()
         self._load_project_config()
         self._load_env_vars()
-    
+
     def _load_defaults(self) -> None:
         """Load default configuration."""
         self._config = DEFAULT_CONFIG.copy()
         LOGGER.debug("Loaded default configuration")
-    
+
     def _load_system_config(self) -> None:
         """Load system-wide configuration."""
-        if os.name == 'nt':
+        if os.name == "nt":
             # Windows: C:\ProgramData\fluid\config.yaml
-            system_config = Path(os.environ.get('ProgramData', 'C:\\ProgramData')) / "fluid" / "config.yaml"
+            system_config = (
+                Path(os.environ.get("ProgramData", "C:\\ProgramData")) / "fluid" / "config.yaml"
+            )
         else:
             # Unix: /etc/fluid/config.yaml
             system_config = Path("/etc/fluid/config.yaml")
-        
+
         self._merge_config_file(system_config, "system")
-    
+
     def _load_user_config(self) -> None:
         """Load user configuration."""
         home = Path.home()
-        
+
         # Try multiple locations
         user_configs = [
             home / ".fluidrc.yaml",
             home / ".fluidrc",
-            home / ".config" / "fluid" / "config.yaml"
+            home / ".config" / "fluid" / "config.yaml",
         ]
-        
+
         for config_path in user_configs:
             if config_path.exists():
                 self._merge_config_file(config_path, "user")
                 break
-    
+
     def _load_project_config(self) -> None:
         """Load project-specific configuration from current directory."""
         cwd = Path.cwd()
-        
+
         # Try multiple filenames
         project_configs = [
             cwd / ".fluidrc.yaml",
             cwd / ".fluidrc",
             cwd / "fluid.config.yaml",
-            cwd / ".fluid" / "config.yaml"
+            cwd / ".fluid" / "config.yaml",
         ]
-        
+
         for config_path in project_configs:
             if config_path.exists():
                 self._merge_config_file(config_path, "project")
                 break
-    
+
     def _load_env_vars(self) -> None:
         """Load configuration from environment variables."""
         env_mappings = {
             # Logging
-            'FLUID_LOG_LEVEL': ('logging', 'level'),
-            'FLUID_LOG_FORMAT': ('logging', 'format'),
-            'FLUID_LOG_FILE': ('logging', 'file'),
-            
+            "FLUID_LOG_LEVEL": ("logging", "level"),
+            "FLUID_LOG_FORMAT": ("logging", "format"),
+            "FLUID_LOG_FILE": ("logging", "file"),
             # Cache
-            'FLUID_CACHE_DIR': ('cache', 'dir'),
-            
+            "FLUID_CACHE_DIR": ("cache", "dir"),
             # Network
-            'FLUID_TIMEOUT': ('network', 'timeout'),
-            'FLUID_MAX_RETRIES': ('network', 'max_retries'),
-            'FLUID_RATE_LIMIT': ('network', 'rate_limit'),
-            
+            "FLUID_TIMEOUT": ("network", "timeout"),
+            "FLUID_MAX_RETRIES": ("network", "max_retries"),
+            "FLUID_RATE_LIMIT": ("network", "rate_limit"),
             # Providers
-            'GCP_PROJECT_ID': ('providers', 'gcp', 'project_id'),
-            'GCP_REGION': ('providers', 'gcp', 'default_region'),
-            'AWS_REGION': ('providers', 'aws', 'default_region'),
-            'SNOWFLAKE_ACCOUNT': ('providers', 'snowflake', 'account'),
-            
+            "GCP_PROJECT_ID": ("providers", "gcp", "project_id"),
+            "GCP_REGION": ("providers", "gcp", "default_region"),
+            "AWS_REGION": ("providers", "aws", "default_region"),
+            "SNOWFLAKE_ACCOUNT": ("providers", "snowflake", "account"),
             # Output
-            'FLUID_OUTPUT_FORMAT': ('output', 'format'),
-            'FLUID_VERBOSE': ('output', 'verbose'),
-            'NO_COLOR': ('output', 'color')  # Inverse
+            "FLUID_OUTPUT_FORMAT": ("output", "format"),
+            "FLUID_VERBOSE": ("output", "verbose"),
+            "NO_COLOR": ("output", "color"),  # Inverse
         }
-        
+
         for env_var, config_path in env_mappings.items():
             value = os.environ.get(env_var)
             if value is not None:
                 # Special handling for NO_COLOR
-                if env_var == 'NO_COLOR':
+                if env_var == "NO_COLOR":
                     value = False if value else True
                 # Convert string booleans
-                elif value.lower() in ('true', 'yes', '1'):
+                elif value.lower() in ("true", "yes", "1"):
                     value = True
-                elif value.lower() in ('false', 'no', '0'):
+                elif value.lower() in ("false", "no", "0"):
                     value = False
                 # Convert numeric strings
                 elif value.isdigit():
                     value = int(value)
-                
+
                 self._set_nested(self._config, config_path, value)
                 LOGGER.debug(f"Loaded config from env var {env_var}: {config_path} = {value}")
-    
+
     def _merge_config_file(self, path: Path, source: str) -> None:
         """
         Merge configuration from a YAML file.
-        
+
         Args:
             path: Path to config file
             source: Source description for logging
         """
         if not path.exists():
             return
-        
+
         try:
-            with open(path, 'r') as f:
+            with open(path) as f:
                 file_config = yaml.safe_load(f) or {}
-            
+
             self._deep_merge(self._config, file_config)
             LOGGER.debug(f"Loaded {source} configuration from {path}")
-            
+
         except yaml.YAMLError as e:
             raise ConfigurationError(
                 f"Failed to parse {source} configuration file",
@@ -242,25 +220,22 @@ class FluidConfig:
                 suggestions=[
                     "Check YAML syntax",
                     f"Validate file with: yamllint {path}",
-                    "Remove or fix the configuration file"
+                    "Remove or fix the configuration file",
                 ],
-                original_error=e
+                original_error=e,
             )
         except Exception as e:
             raise FileSystemError(
                 f"Failed to read {source} configuration file",
                 context={"path": str(path), "error": str(e)},
-                suggestions=[
-                    "Check file permissions",
-                    "Verify file is readable"
-                ],
-                original_error=e
+                suggestions=["Check file permissions", "Verify file is readable"],
+                original_error=e,
             )
-    
+
     def _deep_merge(self, base: Dict, override: Dict) -> None:
         """
         Deep merge override dict into base dict.
-        
+
         Args:
             base: Base dictionary to merge into
             override: Dictionary to merge from
@@ -270,11 +245,11 @@ class FluidConfig:
                 self._deep_merge(base[key], value)
             else:
                 base[key] = value
-    
+
     def _set_nested(self, d: Dict, path: tuple, value: Any) -> None:
         """
         Set a nested dictionary value using a path tuple.
-        
+
         Args:
             d: Dictionary to modify
             path: Tuple of keys representing the path
@@ -285,170 +260,170 @@ class FluidConfig:
                 d[key] = {}
             d = d[key]
         d[path[-1]] = value
-    
+
     def get(self, path: str, default: Any = None) -> Any:
         """
         Get a configuration value using dot notation.
-        
+
         Args:
             path: Configuration path (e.g., 'logging.level')
             default: Default value if path doesn't exist
-            
+
         Returns:
             Configuration value or default
-            
+
         Examples:
             >>> config.get('logging.level')
             'INFO'
             >>> config.get('providers.gcp.default_region')
             'us-central1'
         """
-        keys = path.split('.')
+        keys = path.split(".")
         value = self._config
-        
+
         for key in keys:
             if isinstance(value, dict) and key in value:
                 value = value[key]
             else:
                 return default
-        
+
         return value
-    
+
     def set(self, path: str, value: Any) -> None:
         """
         Set a configuration value using dot notation.
-        
+
         Args:
             path: Configuration path (e.g., 'logging.level')
             value: Value to set
-            
+
         Examples:
             >>> config.set('logging.level', 'DEBUG')
             >>> config.set('providers.gcp.project_id', 'my-project')
         """
-        keys = path.split('.')
+        keys = path.split(".")
         self._set_nested(self._config, tuple(keys), value)
-    
+
     def get_section(self, section: str) -> Dict[str, Any]:
         """
         Get an entire configuration section.
-        
+
         Args:
             section: Section name (e.g., 'logging', 'providers.gcp')
-            
+
         Returns:
             Dictionary of configuration values
         """
         value = self.get(section, {})
         return value if isinstance(value, dict) else {}
-    
+
     def get_catalog_config(self, catalog_name: Optional[str] = None) -> Dict[str, Any]:
         """
         Get catalog configuration.
-        
+
         Args:
             catalog_name: Specific catalog name (e.g., 'fluid-command-center')
                          If None, returns all catalog configurations
-            
+
         Returns:
             Catalog configuration dictionary
         """
-        catalogs = self.get_section('catalogs')
-        
+        catalogs = self.get_section("catalogs")
+
         if catalog_name:
             catalog_config = catalogs.get(catalog_name, {})
-            
+
             # Apply environment variable overrides
-            if catalog_name == 'fluid-command-center':
-                endpoint = os.environ.get('FLUID_CC_ENDPOINT')
+            if catalog_name == "fluid-command-center":
+                endpoint = os.environ.get("FLUID_CC_ENDPOINT")
                 if endpoint:
-                    catalog_config['endpoint'] = endpoint
-                
-                api_key = os.environ.get('FLUID_API_KEY')
+                    catalog_config["endpoint"] = endpoint
+
+                api_key = os.environ.get("FLUID_API_KEY")
                 if api_key:
-                    if 'auth' not in catalog_config:
-                        catalog_config['auth'] = {}
-                    catalog_config['auth']['api_key'] = api_key
-            
+                    if "auth" not in catalog_config:
+                        catalog_config["auth"] = {}
+                    catalog_config["auth"]["api_key"] = api_key
+
             return catalog_config
-        
+
         return catalogs
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """
         Get the complete configuration as a dictionary.
-        
+
         Returns:
             Complete configuration dictionary
         """
         return self._config.copy()
-    
+
     def update_from_args(self, **kwargs) -> None:
         """
         Update configuration from command-line arguments.
-        
+
         This should be called after parsing CLI arguments to give them
         highest priority.
-        
+
         Args:
             **kwargs: Configuration key-value pairs
-            
+
         Examples:
             >>> config.update_from_args(verbose=True, log_level='DEBUG')
         """
         mapping = {
-            'verbose': 'output.verbose',
-            'quiet': 'output.quiet',
-            'log_level': 'logging.level',
-            'log_file': 'logging.file',
-            'cache_dir': 'cache.dir',
-            'timeout': 'network.timeout',
-            'max_retries': 'network.max_retries',
-            'dry_run': 'apply.dry_run',
-            'offline': 'validation.offline',
-            'strict': 'validation.strict',
-            'format': 'output.format',
-            'color': 'output.color'
+            "verbose": "output.verbose",
+            "quiet": "output.quiet",
+            "log_level": "logging.level",
+            "log_file": "logging.file",
+            "cache_dir": "cache.dir",
+            "timeout": "network.timeout",
+            "max_retries": "network.max_retries",
+            "dry_run": "apply.dry_run",
+            "offline": "validation.offline",
+            "strict": "validation.strict",
+            "format": "output.format",
+            "color": "output.color",
         }
-        
+
         for arg_name, value in kwargs.items():
             if value is None:
                 continue
-            
+
             config_path = mapping.get(arg_name, arg_name)
             self.set(config_path, value)
             LOGGER.debug(f"Updated config from CLI arg {arg_name}: {config_path} = {value}")
-    
+
     def save_user_config(self, path: Optional[Path] = None) -> None:
         """
         Save current configuration to user config file.
-        
+
         Args:
             path: Optional custom path (default: ~/.fluidrc.yaml)
-            
+
         Raises:
             FileSystemError: If unable to write config file
         """
         if path is None:
             path = Path.home() / ".fluidrc.yaml"
-        
+
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            
-            with open(path, 'w') as f:
+
+            with open(path, "w") as f:
                 yaml.dump(self._config, f, default_flow_style=False, sort_keys=False)
-            
+
             LOGGER.info(f"Saved user configuration to {path}")
-            
+
         except Exception as e:
             raise FileSystemError(
-                f"Failed to save configuration file",
+                "Failed to save configuration file",
                 context={"path": str(path), "error": str(e)},
                 suggestions=[
                     "Check directory permissions",
-                    f"Manually create directory: mkdir -p {path.parent}"
+                    f"Manually create directory: mkdir -p {path.parent}",
                 ],
-                original_error=e
+                original_error=e,
             )
 
 
@@ -459,7 +434,7 @@ _global_config: Optional[FluidConfig] = None
 def get_config() -> FluidConfig:
     """
     Get the global configuration instance.
-    
+
     Returns:
         Global FluidConfig instance
     """
@@ -478,7 +453,7 @@ def reset_config() -> None:
 def create_sample_config(path: Path) -> None:
     """
     Create a sample configuration file with comments.
-    
+
     Args:
         path: Path to create config file
     """
@@ -568,19 +543,19 @@ output:
   verbose: false  # Verbose output
   quiet: false  # Minimal output
 """
-    
+
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, 'w') as f:
+        with open(path, "w") as f:
             f.write(sample_config)
         LOGGER.info(f"Created sample configuration at {path}")
     except Exception as e:
         raise FileSystemError(
-            f"Failed to create sample configuration",
+            "Failed to create sample configuration",
             context={"path": str(path), "error": str(e)},
             suggestions=[
                 "Check directory permissions",
-                f"Manually create directory: mkdir -p {path.parent}"
+                f"Manually create directory: mkdir -p {path.parent}",
             ],
-            original_error=e
+            original_error=e,
         )

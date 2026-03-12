@@ -1,17 +1,38 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for fluid_build/providers/base.py — BaseProvider, PlanAction, ApplyResult, hooks."""
+
 import json
-import logging
+
 import pytest
-from unittest.mock import MagicMock
 
 from fluid_build.providers.base import (
-    BaseProvider, PlanAction, ApplyResult, ProviderError,
-    ProviderMetadata, ProviderCapabilities, ProviderHookSpec,
-    CostEstimate, invoke_hook, has_hook,
+    ApplyResult,
+    BaseProvider,
+    CostEstimate,
+    PlanAction,
+    ProviderCapabilities,
+    ProviderError,
+    ProviderHookSpec,
+    ProviderMetadata,
+    has_hook,
+    invoke_hook,
 )
 
-
 # ── PlanAction ──────────────────────────────────────────────────────────
+
 
 class TestPlanAction:
     def test_basic(self):
@@ -28,11 +49,15 @@ class TestPlanAction:
 
 # ── ApplyResult ─────────────────────────────────────────────────────────
 
+
 class TestApplyResult:
     def _result(self):
         return ApplyResult(
-            provider="gcp", applied=3, failed=1,
-            duration_sec=2.5, timestamp="2025-01-01T00:00:00Z",
+            provider="gcp",
+            applied=3,
+            failed=1,
+            duration_sec=2.5,
+            timestamp="2025-01-01T00:00:00Z",
             results=[{"id": "r1", "status": "ok"}],
         )
 
@@ -67,6 +92,7 @@ class TestApplyResult:
 
 # ── ProviderError ───────────────────────────────────────────────────────
 
+
 class TestProviderError:
     def test_is_runtime_error(self):
         err = ProviderError("bad thing")
@@ -75,6 +101,7 @@ class TestProviderError:
 
 
 # ── ProviderMetadata ────────────────────────────────────────────────────
+
 
 class TestProviderMetadata:
     def test_defaults(self):
@@ -97,6 +124,7 @@ class TestProviderMetadata:
 
 
 # ── ProviderCapabilities ────────────────────────────────────────────────
+
 
 class TestProviderCapabilities:
     def test_defaults(self):
@@ -125,6 +153,7 @@ class TestProviderCapabilities:
 
 # ── BaseProvider ────────────────────────────────────────────────────────
 
+
 class ConcreteProvider(BaseProvider):
     name = "test"
 
@@ -133,8 +162,11 @@ class ConcreteProvider(BaseProvider):
 
     def apply(self, actions):
         return ApplyResult(
-            provider="test", applied=1, failed=0,
-            duration_sec=0.1, timestamp="2025-01-01T00:00:00Z",
+            provider="test",
+            applied=1,
+            failed=0,
+            duration_sec=0.1,
+            timestamp="2025-01-01T00:00:00Z",
         )
 
 
@@ -201,6 +233,7 @@ class TestBaseProvider:
 
 # ── CostEstimate ────────────────────────────────────────────────────────
 
+
 class TestCostEstimate:
     def test_defaults(self):
         c = CostEstimate()
@@ -221,6 +254,7 @@ class TestCostEstimate:
 
 # ── Hook utilities ──────────────────────────────────────────────────────
 
+
 class TestHookSpec:
     def test_default_hooks(self):
         spec = ProviderHookSpec()
@@ -238,6 +272,7 @@ class TestInvokeHook:
         class MyHook:
             def pre_plan(self, contract):
                 return {"modified": True}
+
         result = invoke_hook(MyHook(), "pre_plan", {"id": "x"})
         assert result == {"modified": True}
 
@@ -253,6 +288,7 @@ class TestInvokeHook:
         class BadHook:
             def pre_plan(self, contract):
                 raise ValueError("oops")
+
         result = invoke_hook(BadHook(), "pre_plan", {"id": "x"})
         assert result == {"id": "x"}  # falls back to first arg
 
@@ -262,6 +298,7 @@ class TestHasHook:
         class MyProvider:
             def pre_plan(self, contract):
                 pass
+
         assert has_hook(MyProvider(), "pre_plan") is True
 
     def test_missing_hook(self):

@@ -1,15 +1,42 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for fluid_build/schema.py — FLUID contract schema validation."""
+
 import pytest
+
 from fluid_build.schema import (
-    _is_str, _is_obj, _is_list, _req, _opt, _assert,
-    _check_id, _check_version, _check_email, _check_column,
-    _check_location, _check_expose, _check_consumes, _check_metadata,
-    _check_build, validate_contract,
-    _ID_PATTERN, _VERSION_PATTERN, _EMAIL_PATTERN, _LAYERS, _PATTERNS,
+    _assert,
+    _check_build,
+    _check_column,
+    _check_consumes,
+    _check_email,
+    _check_expose,
+    _check_id,
+    _check_location,
+    _check_metadata,
+    _check_version,
+    _is_list,
+    _is_obj,
+    _is_str,
+    _opt,
+    _req,
+    validate_contract,
 )
 
-
 # ── helpers ──────────────────────────────────────────────────────────────
+
 
 class TestTypeHelpers:
     def test_is_str(self):
@@ -66,6 +93,7 @@ class TestAssert:
 
 
 # ── field validators ────────────────────────────────────────────────────
+
 
 class TestCheckId:
     @pytest.mark.parametrize("val", ["abc", "a.b.c", "A-1_2.x"])
@@ -329,6 +357,7 @@ class TestCheckBuild:
 
 
 # ── public API ──────────────────────────────────────────────────────────
+
 
 class TestValidateContract:
     def _minimal_contract(self):

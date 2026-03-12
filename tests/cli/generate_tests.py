@@ -27,22 +27,22 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 # Commands to generate tests for
 COMMANDS = [
-    'version_cmd',
-    'provider_cmds',
-    'doctor',
-    'docs_build',
-    'contract_tests',
-    'viz_plan',
-    'viz_graph',
-    'scaffold_ci',
-    'scaffold_composer',
-    'export_opds',
-    'opds',
-    'admin',
-    'forge',
-    'blueprint',
-    'market',
-    'auth',
+    "version_cmd",
+    "provider_cmds",
+    "doctor",
+    "docs_build",
+    "contract_tests",
+    "viz_plan",
+    "viz_graph",
+    "scaffold_ci",
+    "scaffold_composer",
+    "export_opds",
+    "opds",
+    "admin",
+    "forge",
+    "blueprint",
+    "market",
+    "auth",
 ]
 
 TEST_TEMPLATE = '''"""
@@ -112,37 +112,35 @@ if __name__ == '__main__':
 
 def to_class_name(module_name: str) -> str:
     """Convert module name to class name."""
-    parts = module_name.split('_')
-    return ''.join(word.capitalize() for word in parts)
+    parts = module_name.split("_")
+    return "".join(word.capitalize() for word in parts)
 
 
 def to_display_name(module_name: str) -> str:
     """Convert module name to display name."""
-    return module_name.replace('_', '-')
+    return module_name.replace("_", "-")
 
 
 def generate_test_file(command: str):
     """Generate a test file for a command."""
-    test_dir = PROJECT_ROOT / 'tests' / 'cli'
-    test_file = test_dir / f'test_{command}.py'
-    
+    test_dir = PROJECT_ROOT / "tests" / "cli"
+    test_file = test_dir / f"test_{command}.py"
+
     # Skip if test file already exists
     if test_file.exists():
         print(f"✓ Test file already exists: test_{command}.py")
         return
-    
+
     # Generate test content
     class_name = to_class_name(command)
     display_name = to_display_name(command)
-    
+
     content = TEST_TEMPLATE.format(
-        command_display=display_name,
-        module_name=command,
-        class_name=class_name
+        command_display=display_name, module_name=command, class_name=class_name
     )
-    
+
     # Write test file
-    test_file.write_text(content, encoding='utf-8')
+    test_file.write_text(content, encoding="utf-8")
     print(f"✨ Generated: test_{command}.py")
 
 
@@ -150,13 +148,13 @@ def main():
     """Generate all test files."""
     print("Generating CLI command test files...")
     print()
-    
+
     for command in COMMANDS:
         generate_test_file(command)
-    
+
     print()
     print(f"✅ Test file generation complete! Generated files for {len(COMMANDS)} commands.")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

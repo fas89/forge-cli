@@ -13,6 +13,10 @@
 # limitations under the License.
 
 from fluid_build.providers import register_provider
-from .odps import OdpsProvider  # class OdpsProvider(BaseProvider) with name="odps"; implements render()
+
+from .odps import (
+    OdpsProvider,  # class OdpsProvider(BaseProvider) with name="odps"; implements render()
+)
+
 register_provider("odps", OdpsProvider)
 __all__ = ["OdpsProvider"]

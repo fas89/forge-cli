@@ -1,42 +1,60 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for providers/aws/util/ddl.py — Athena + Redshift DDL generation."""
 
 import pytest
+
 from fluid_build.providers.aws.util.ddl import (
+    _escape_sql,
+    _get_stored_as_format,
+    extract_partition_columns,
     generate_athena_ddl,
     generate_redshift_ddl,
     map_fluid_type_to_athena,
     map_fluid_type_to_redshift,
     schema_to_glue_columns,
     schema_to_redshift_columns,
-    extract_partition_columns,
-    _get_stored_as_format,
-    _escape_sql,
 )
 
 
 # ── map_fluid_type_to_athena ─────────────────────────────────────────
 class TestMapFluidTypeToAthena:
-    @pytest.mark.parametrize("fluid,expected", [
-        ("string", "string"),
-        ("str", "string"),
-        ("text", "string"),
-        ("integer", "bigint"),
-        ("int", "bigint"),
-        ("int32", "int"),
-        ("int64", "bigint"),
-        ("long", "bigint"),
-        ("float", "double"),
-        ("float32", "float"),
-        ("float64", "double"),
-        ("double", "double"),
-        ("boolean", "boolean"),
-        ("bool", "boolean"),
-        ("timestamp", "timestamp"),
-        ("datetime", "timestamp"),
-        ("date", "date"),
-        ("binary", "binary"),
-        ("bytes", "binary"),
-    ])
+    @pytest.mark.parametrize(
+        "fluid,expected",
+        [
+            ("string", "string"),
+            ("str", "string"),
+            ("text", "string"),
+            ("integer", "bigint"),
+            ("int", "bigint"),
+            ("int32", "int"),
+            ("int64", "bigint"),
+            ("long", "bigint"),
+            ("float", "double"),
+            ("float32", "float"),
+            ("float64", "double"),
+            ("double", "double"),
+            ("boolean", "boolean"),
+            ("bool", "boolean"),
+            ("timestamp", "timestamp"),
+            ("datetime", "timestamp"),
+            ("date", "date"),
+            ("binary", "binary"),
+            ("bytes", "binary"),
+        ],
+    )
     def test_simple_types(self, fluid, expected):
         assert map_fluid_type_to_athena(fluid) == expected
 
@@ -65,27 +83,30 @@ class TestMapFluidTypeToAthena:
 
 # ── map_fluid_type_to_redshift ───────────────────────────────────────
 class TestMapFluidTypeToRedshift:
-    @pytest.mark.parametrize("fluid,expected", [
-        ("string", "VARCHAR(65535)"),
-        ("str", "VARCHAR(65535)"),
-        ("text", "VARCHAR(65535)"),
-        ("integer", "BIGINT"),
-        ("int", "BIGINT"),
-        ("int32", "INTEGER"),
-        ("int64", "BIGINT"),
-        ("long", "BIGINT"),
-        ("float", "DOUBLE PRECISION"),
-        ("float32", "REAL"),
-        ("float64", "DOUBLE PRECISION"),
-        ("double", "DOUBLE PRECISION"),
-        ("boolean", "BOOLEAN"),
-        ("bool", "BOOLEAN"),
-        ("timestamp", "TIMESTAMP"),
-        ("datetime", "TIMESTAMP"),
-        ("date", "DATE"),
-        ("binary", "VARBYTE(65535)"),
-        ("bytes", "VARBYTE(65535)"),
-    ])
+    @pytest.mark.parametrize(
+        "fluid,expected",
+        [
+            ("string", "VARCHAR(65535)"),
+            ("str", "VARCHAR(65535)"),
+            ("text", "VARCHAR(65535)"),
+            ("integer", "BIGINT"),
+            ("int", "BIGINT"),
+            ("int32", "INTEGER"),
+            ("int64", "BIGINT"),
+            ("long", "BIGINT"),
+            ("float", "DOUBLE PRECISION"),
+            ("float32", "REAL"),
+            ("float64", "DOUBLE PRECISION"),
+            ("double", "DOUBLE PRECISION"),
+            ("boolean", "BOOLEAN"),
+            ("bool", "BOOLEAN"),
+            ("timestamp", "TIMESTAMP"),
+            ("datetime", "TIMESTAMP"),
+            ("date", "DATE"),
+            ("binary", "VARBYTE(65535)"),
+            ("bytes", "VARBYTE(65535)"),
+        ],
+    )
     def test_simple_types(self, fluid, expected):
         assert map_fluid_type_to_redshift(fluid) == expected
 
@@ -101,14 +122,17 @@ class TestMapFluidTypeToRedshift:
 
 # ── _get_stored_as_format ────────────────────────────────────────────
 class TestGetStoredAsFormat:
-    @pytest.mark.parametrize("fmt,expected", [
-        ("parquet", "PARQUET"),
-        ("orc", "ORC"),
-        ("avro", "AVRO"),
-        ("csv", "TEXTFILE"),
-        ("json", "TEXTFILE"),
-        ("PARQUET", "PARQUET"),
-    ])
+    @pytest.mark.parametrize(
+        "fmt,expected",
+        [
+            ("parquet", "PARQUET"),
+            ("orc", "ORC"),
+            ("avro", "AVRO"),
+            ("csv", "TEXTFILE"),
+            ("json", "TEXTFILE"),
+            ("PARQUET", "PARQUET"),
+        ],
+    )
     def test_known(self, fmt, expected):
         assert _get_stored_as_format(fmt) == expected
 

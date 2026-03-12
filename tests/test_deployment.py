@@ -1,14 +1,31 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for fluid_build.forge.core.deployment"""
-import pytest
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+
+from unittest.mock import patch
+
 from fluid_build.forge.core.deployment import (
-    DeploymentTarget, DeploymentStatus, DeploymentConfig, DeploymentResult,
+    DeploymentConfig,
+    DeploymentResult,
+    DeploymentStatus,
+    DeploymentTarget,
     ProjectDeployer,
 )
 
-
 # ── Enum tests ──
+
 
 class TestEnums:
     def test_deployment_targets(self):
@@ -21,6 +38,7 @@ class TestEnums:
 
 
 # ── Dataclass tests ──
+
 
 class TestDeploymentConfig:
     def test_post_init_defaults(self):
@@ -58,9 +76,10 @@ class TestDeploymentResult:
 
 # ── ProjectDeployer tests ──
 
+
 class TestProjectDeployer:
     def test_init_creates_deployment_dir(self, tmp_path):
-        deployer = ProjectDeployer(tmp_path)
+        ProjectDeployer(tmp_path)
         assert (tmp_path / ".deployments").is_dir()
 
     def test_generate_deployment_id(self, tmp_path):
@@ -97,7 +116,7 @@ class TestProjectDeployer:
     def test_generate_docker_compose(self, tmp_path):
         deployer = ProjectDeployer(tmp_path)
         compose = deployer._generate_docker_compose()
-        project_name = tmp_path.name.lower().replace('_', '-')
+        project_name = tmp_path.name.lower().replace("_", "-")
         assert project_name in compose
         assert "8080:8080" in compose
         assert "version:" in compose
@@ -135,8 +154,10 @@ class TestProjectDeployer:
         deployer = ProjectDeployer(tmp_path)
         config = DeploymentConfig(target=DeploymentTarget.LOCAL)
         # _prepare_deployment_package will fail in temp dir without real project
-        with patch.object(deployer, '_prepare_deployment_package', side_effect=RuntimeError("boom")):
-            with patch.object(deployer, '_save_deployment_record'):
+        with patch.object(
+            deployer, "_prepare_deployment_package", side_effect=RuntimeError("boom")
+        ):
+            with patch.object(deployer, "_save_deployment_record"):
                 result = deployer.deploy(config)
         assert result.status == DeploymentStatus.FAILED
         assert "boom" in result.error

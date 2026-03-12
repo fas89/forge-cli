@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 def validate_no_overgrant(actions):
     for a in actions:
         if a.payload and isinstance(a.payload, dict):

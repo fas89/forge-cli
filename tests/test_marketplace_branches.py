@@ -1,20 +1,35 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Branch-coverage tests for fluid_build.cli.marketplace"""
+
 import argparse
 import logging
 import os
-import pytest
-from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
+import pytest
+
+from fluid_build.cli._common import CLIError
 from fluid_build.cli.marketplace import (
     COMMAND,
+    FALLBACK_OPTIONS,
+    get_api_url,
     register,
     run,
-    get_api_url,
-    FALLBACK_OPTIONS,
 )
-from fluid_build.cli._common import CLIError
 
 
 @pytest.fixture
@@ -23,6 +38,7 @@ def logger():
 
 
 # ── Module-level constants ──────────────────────────────────────────
+
 
 class TestModuleConstants:
     def test_command_name(self):
@@ -35,6 +51,7 @@ class TestModuleConstants:
 
 
 # ── register ────────────────────────────────────────────────────────
+
 
 class TestRegister:
     def test_register_adds_parser(self):
@@ -55,6 +72,7 @@ class TestRegister:
 
 
 # ── run dispatch ────────────────────────────────────────────────────
+
 
 class TestRun:
     def test_no_action_returns_1(self, logger):
@@ -107,6 +125,7 @@ class TestRun:
 
 # ── get_api_url ─────────────────────────────────────────────────────
 
+
 class TestGetApiUrl:
     @patch.dict(os.environ, {"FLUID_API_URL": "http://env-override"}, clear=False)
     def test_env_var_priority(self, logger):
@@ -156,7 +175,11 @@ class TestGetApiUrl:
         with pytest.raises((CLIError, TypeError)):
             get_api_url(logger)
 
-    @patch.dict(os.environ, {"FLUID_MARKETPLACE_FALLBACK": "public", "FLUID_PUBLIC_REGISTRY": "http://pub"}, clear=False)
+    @patch.dict(
+        os.environ,
+        {"FLUID_MARKETPLACE_FALLBACK": "public", "FLUID_PUBLIC_REGISTRY": "http://pub"},
+        clear=False,
+    )
     @patch("fluid_build.cli.marketplace.get_command_center_client")
     @patch("fluid_build.cli.marketplace.console", MagicMock())
     def test_public_fallback(self, mock_cc, logger):
@@ -171,27 +194,41 @@ class TestGetApiUrl:
 
 # ── search_blueprints ───────────────────────────────────────────────
 
+
 class TestSearchBlueprints:
     @patch("fluid_build.cli.marketplace.console", MagicMock())
     def test_search_success(self, logger):
         import requests as real_requests
+
         from fluid_build.cli.marketplace import search_blueprints
+
         mock_resp = MagicMock()
         mock_resp.json.return_value = {
             "items": [
-                {"id": "bp1", "name": "Test", "description": "desc",
-                 "category": "analytics", "labels": {"maturity": "stable"},
-                 "download_count": 100, "version": "1.0"}
+                {
+                    "id": "bp1",
+                    "name": "Test",
+                    "description": "desc",
+                    "category": "analytics",
+                    "labels": {"maturity": "stable"},
+                    "download_count": 100,
+                    "version": "1.0",
+                }
             ],
-            "total": 1
+            "total": 1,
         }
         mock_resp.raise_for_status = MagicMock()
         with patch("fluid_build.cli.marketplace.requests") as mock_requests:
             mock_requests.get.return_value = mock_resp
             mock_requests.exceptions = real_requests.exceptions
             args = SimpleNamespace(
-                query="test", category=None, tags=None,
-                maturity=None, state="published", sort="downloads", limit=20
+                query="test",
+                category=None,
+                tags=None,
+                maturity=None,
+                state="published",
+                sort="downloads",
+                limit=20,
             )
             result = search_blueprints(args, logger, "http://api")
         assert result == 0
@@ -199,7 +236,9 @@ class TestSearchBlueprints:
     @patch("fluid_build.cli.marketplace.console", MagicMock())
     def test_search_empty_results(self, logger):
         import requests as real_requests
+
         from fluid_build.cli.marketplace import search_blueprints
+
         mock_resp = MagicMock()
         mock_resp.json.return_value = {"items": [], "total": 0}
         mock_resp.raise_for_status = MagicMock()
@@ -207,8 +246,13 @@ class TestSearchBlueprints:
             mock_requests.get.return_value = mock_resp
             mock_requests.exceptions = real_requests.exceptions
             args = SimpleNamespace(
-                query="xyz", category=None, tags=None,
-                maturity=None, state="published", sort="downloads", limit=20
+                query="xyz",
+                category=None,
+                tags=None,
+                maturity=None,
+                state="published",
+                sort="downloads",
+                limit=20,
             )
             result = search_blueprints(args, logger, "http://api")
         assert result == 0
@@ -216,7 +260,9 @@ class TestSearchBlueprints:
     @patch("fluid_build.cli.marketplace.console", MagicMock())
     def test_search_with_all_filters(self, logger):
         import requests as real_requests
+
         from fluid_build.cli.marketplace import search_blueprints
+
         mock_resp = MagicMock()
         mock_resp.json.return_value = {"items": [], "total": 0}
         mock_resp.raise_for_status = MagicMock()
@@ -224,8 +270,13 @@ class TestSearchBlueprints:
             mock_requests.get.return_value = mock_resp
             mock_requests.exceptions = real_requests.exceptions
             args = SimpleNamespace(
-                query="q", category="analytics", tags="tag1,tag2",
-                maturity="stable", state="published", sort="name", limit=10
+                query="q",
+                category="analytics",
+                tags="tag1,tag2",
+                maturity="stable",
+                state="published",
+                sort="name",
+                limit=10,
             )
             result = search_blueprints(args, logger, "http://api")
         assert result == 0
@@ -233,13 +284,22 @@ class TestSearchBlueprints:
     @patch("fluid_build.cli.marketplace.console", MagicMock())
     def test_search_request_error(self, logger):
         import requests as real_requests
+
         from fluid_build.cli.marketplace import search_blueprints
+
         with patch("fluid_build.cli.marketplace.requests") as mock_requests:
-            mock_requests.get.side_effect = real_requests.exceptions.RequestException("Network error")
+            mock_requests.get.side_effect = real_requests.exceptions.RequestException(
+                "Network error"
+            )
             mock_requests.exceptions = real_requests.exceptions
             args = SimpleNamespace(
-                query="test", category=None, tags=None,
-                maturity=None, state="published", sort="downloads", limit=20
+                query="test",
+                category=None,
+                tags=None,
+                maturity=None,
+                state="published",
+                sort="downloads",
+                limit=20,
             )
             result = search_blueprints(args, logger, "http://api")
         assert result == 1
@@ -247,10 +307,12 @@ class TestSearchBlueprints:
 
 # ── list_categories ─────────────────────────────────────────────────
 
+
 class TestListCategories:
     @patch("fluid_build.cli.marketplace.console", MagicMock())
     def test_returns_zero(self, logger):
         from fluid_build.cli.marketplace import list_categories
+
         args = SimpleNamespace()
         result = list_categories(args, logger, "http://api")
         assert result == 0

@@ -22,29 +22,28 @@ Implements idempotent S3 operations including:
 - Versioning configuration
 - Public access settings
 """
-import time
-from typing import Any, Dict, Optional
 
-from fluid_build.providers.base import ProviderError
+import time
+from typing import Any, Dict
+
 from ..util.logging import duration_ms
-from ..util.names import normalize_bucket_name
 
 
 def ensure_bucket(action: Dict[str, Any]) -> Dict[str, Any]:
     """
     Ensure S3 bucket exists with specified configuration.
-    
+
     Creates bucket if it doesn't exist, updates configuration if changed.
     Idempotent operation - safe to run multiple times.
-    
+
     Args:
         action: Bucket action configuration
-        
+
     Returns:
         Action result with status and details
     """
     start_time = time.time()
-    
+
     try:
         import boto3
         from botocore.exceptions import ClientError
@@ -55,14 +54,14 @@ def ensure_bucket(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     bucket = action.get("bucket")
     region = action.get("region", "us-east-1")
     tags = action.get("tags", {})
     versioning = action.get("versioning", False)
     encryption = action.get("encryption", True)  # Enable by default for security
     public_access_block = action.get("block_public_access", True)
-    
+
     if not bucket:
         return {
             "status": "error",
@@ -70,7 +69,7 @@ def ensure_bucket(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     # Validate bucket name (S3 naming rules)
     if len(bucket) < 3 or len(bucket) > 63:
         return {
@@ -79,12 +78,12 @@ def ensure_bucket(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     try:
         s3 = boto3.client("s3", region_name=region)
-        
+
         changed = False
-        
+
         # Check if bucket exists
         try:
             s3.head_bucket(Bucket=bucket)
@@ -95,46 +94,39 @@ def ensure_bucket(action: Dict[str, Any]) -> Dict[str, Any]:
                 bucket_exists = False
             else:
                 raise
-        
+
         if not bucket_exists:
             # Create bucket
             if region == "us-east-1":
                 s3.create_bucket(Bucket=bucket)
             else:
                 s3.create_bucket(
-                    Bucket=bucket,
-                    CreateBucketConfiguration={"LocationConstraint": region}
+                    Bucket=bucket, CreateBucketConfiguration={"LocationConstraint": region}
                 )
             changed = True
-            
+
             # Apply tags if provided
             if tags:
                 tag_set = [{"Key": k, "Value": v} for k, v in tags.items()]
-                s3.put_bucket_tagging(
-                    Bucket=bucket,
-                    Tagging={"TagSet": tag_set}
-                )
-            
+                s3.put_bucket_tagging(Bucket=bucket, Tagging={"TagSet": tag_set})
+
             # Enable versioning if requested
             if versioning:
                 s3.put_bucket_versioning(
-                    Bucket=bucket,
-                    VersioningConfiguration={"Status": "Enabled"}
+                    Bucket=bucket, VersioningConfiguration={"Status": "Enabled"}
                 )
-            
+
             # Enable encryption (default AES256)
             if encryption:
                 s3.put_bucket_encryption(
                     Bucket=bucket,
                     ServerSideEncryptionConfiguration={
-                        "Rules": [{
-                            "ApplyServerSideEncryptionByDefault": {
-                                "SSEAlgorithm": "AES256"
-                            }
-                        }]
-                    }
+                        "Rules": [
+                            {"ApplyServerSideEncryptionByDefault": {"SSEAlgorithm": "AES256"}}
+                        ]
+                    },
                 )
-            
+
             # Block public access by default (security best practice)
             if public_access_block:
                 s3.put_public_access_block(
@@ -143,10 +135,10 @@ def ensure_bucket(action: Dict[str, Any]) -> Dict[str, Any]:
                         "BlockPublicAcls": True,
                         "IgnorePublicAcls": True,
                         "BlockPublicPolicy": True,
-                        "RestrictPublicBuckets": True
-                    }
+                        "RestrictPublicBuckets": True,
+                    },
                 )
-        
+
         return {
             "status": "changed" if changed else "ok",
             "bucket": bucket,
@@ -154,7 +146,7 @@ def ensure_bucket(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": changed,
         }
-        
+
     except Exception as e:
         return {
             "status": "error",
@@ -168,7 +160,7 @@ def ensure_bucket(action: Dict[str, Any]) -> Dict[str, Any]:
 def ensure_prefix(action: Dict[str, Any]) -> Dict[str, Any]:
     """Ensure S3 prefix (folder) exists."""
     start_time = time.time()
-    
+
     try:
         import boto3
     except ImportError:
@@ -178,19 +170,19 @@ def ensure_prefix(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     bucket = action.get("bucket")
     prefix = action.get("prefix", "").rstrip("/") + "/"
-    
+
     if not bucket:
         return {"status": "error", "error": "'bucket' required", "changed": False}
-    
+
     try:
         s3 = boto3.client("s3")
-        
+
         # Create empty object to represent folder
         s3.put_object(Bucket=bucket, Key=prefix, Body=b"")
-        
+
         return {
             "status": "changed",
             "bucket": bucket,
@@ -210,7 +202,7 @@ def ensure_prefix(action: Dict[str, Any]) -> Dict[str, Any]:
 def ensure_lifecycle(action: Dict[str, Any]) -> Dict[str, Any]:
     """Configure S3 bucket lifecycle policies."""
     start_time = time.time()
-    
+
     try:
         import boto3
     except ImportError:
@@ -220,22 +212,21 @@ def ensure_lifecycle(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     bucket = action.get("bucket")
     rules = action.get("rules", [])
-    
+
     if not bucket:
         return {"status": "error", "error": "'bucket' required", "changed": False}
-    
+
     try:
         s3 = boto3.client("s3")
-        
+
         # Put lifecycle configuration
         s3.put_bucket_lifecycle_configuration(
-            Bucket=bucket,
-            LifecycleConfiguration={"Rules": rules}
+            Bucket=bucket, LifecycleConfiguration={"Rules": rules}
         )
-        
+
         return {
             "status": "changed",
             "bucket": bucket,
@@ -255,7 +246,7 @@ def ensure_lifecycle(action: Dict[str, Any]) -> Dict[str, Any]:
 def ensure_versioning(action: Dict[str, Any]) -> Dict[str, Any]:
     """Configure S3 bucket versioning."""
     start_time = time.time()
-    
+
     try:
         import boto3
     except ImportError:
@@ -265,31 +256,30 @@ def ensure_versioning(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     bucket = action.get("bucket")
     enabled = action.get("enabled", True)
-    
+
     if not bucket:
         return {"status": "error", "error": "'bucket' required", "changed": False}
-    
+
     try:
         s3 = boto3.client("s3")
-        
+
         # Check current versioning status
         current = s3.get_bucket_versioning(Bucket=bucket)
         current_status = current.get("Status", "Disabled")
-        
+
         desired_status = "Enabled" if enabled else "Suspended"
-        
+
         if current_status != desired_status:
             s3.put_bucket_versioning(
-                Bucket=bucket,
-                VersioningConfiguration={"Status": desired_status}
+                Bucket=bucket, VersioningConfiguration={"Status": desired_status}
             )
             changed = True
         else:
             changed = False
-        
+
         return {
             "status": "changed" if changed else "ok",
             "bucket": bucket,

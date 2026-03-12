@@ -29,24 +29,20 @@ Tests cover:
 
 from __future__ import annotations
 
-import logging
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List
-from unittest.mock import MagicMock
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Local imports
 # ---------------------------------------------------------------------------
 from fluid_build.providers.local.local import LocalProvider, _validate_ident
 
-
 # ===========================================================================
 # Test: SQL identifier validation
 # ===========================================================================
+
 
 class TestIdentifierValidation:
     """Test _validate_ident prevents SQL injection."""
@@ -92,6 +88,7 @@ class TestIdentifierValidation:
 # Test: Payload flattening in _execute_action
 # ===========================================================================
 
+
 class TestPayloadFlattening:
     """Test that _execute_action flattens payload into action dict."""
 
@@ -105,14 +102,9 @@ class TestPayloadFlattening:
         action = {
             "op": "execute_sql",
             "resource_id": "test_sql",
-            "payload": {
-                "sql": "SELECT 42 AS answer",
-                "inputs": [],
-                "output_table": "test_output"
-            }
+            "payload": {"sql": "SELECT 42 AS answer", "inputs": [], "output_table": "test_output"},
         }
         # Set up session DB
-        import tempfile
         session_dir = tempfile.mkdtemp(prefix="fluid_test_")
         p._session_db = str(Path(session_dir) / "test.duckdb")
 
@@ -122,6 +114,7 @@ class TestPayloadFlattening:
             assert result.get("rows") is not None
         finally:
             import shutil
+
             shutil.rmtree(session_dir, ignore_errors=True)
             if hasattr(p, "_session_db"):
                 del p._session_db
@@ -147,7 +140,7 @@ class TestPayloadFlattening:
             "original_op": "my_op",
             "payload": {
                 "op": "execute_sql",  # should NOT overwrite
-            }
+            },
         }
         result = p._execute_action(0, action)
         # Should be noop, not execute_sql
@@ -157,6 +150,7 @@ class TestPayloadFlattening:
 # ===========================================================================
 # Test: Planner topological sort
 # ===========================================================================
+
 
 class TestPlannerTopologicalSort:
     """Test that the planner orders actions correctly."""
@@ -168,23 +162,25 @@ class TestPlannerTopologicalSort:
         contract = {
             "id": "test.hello",
             "name": "Test",
-            "builds": [{
-                "id": "sql_build",
-                "pattern": "embedded-logic",
-                "engine": "sql",
-                "properties": {
-                    "sql": "SELECT 1 AS value"
+            "builds": [
+                {
+                    "id": "sql_build",
+                    "pattern": "embedded-logic",
+                    "engine": "sql",
+                    "properties": {"sql": "SELECT 1 AS value"},
                 }
-            }],
-            "exposes": [{
-                "exposeId": "output",
-                "kind": "table",
-                "binding": {
-                    "platform": "local",
-                    "format": "csv",
-                    "location": {"path": "runtime/out/test.csv"}
+            ],
+            "exposes": [
+                {
+                    "exposeId": "output",
+                    "kind": "table",
+                    "binding": {
+                        "platform": "local",
+                        "format": "csv",
+                        "location": {"path": "runtime/out/test.csv"},
+                    },
                 }
-            }]
+            ],
         }
 
         actions = plan_actions(contract, "test", "local")
@@ -193,7 +189,9 @@ class TestPlannerTopologicalSort:
         # execute_sql must come before materialize
         sql_idx = ops.index("execute_sql")
         mat_idx = ops.index("materialize")
-        assert sql_idx < mat_idx, f"execute_sql({sql_idx}) should come before materialize({mat_idx})"
+        assert (
+            sql_idx < mat_idx
+        ), f"execute_sql({sql_idx}) should come before materialize({mat_idx})"
 
     def test_csv_input_ordering(self):
         """CSV input: load_data → execute_sql → materialize."""
@@ -202,37 +200,43 @@ class TestPlannerTopologicalSort:
         contract = {
             "id": "test.csv_input",
             "name": "CSV Test",
-            "builds": [{
-                "id": "transform",
-                "pattern": "embedded-logic",
-                "engine": "sql",
-                "properties": {
-                    "sql": "SELECT * FROM input_table",
-                    "parameters": {
-                        "inputs": [{
-                            "name": "input_table",
-                            "path": "/tmp/test.csv",
-                            "format": "csv"
-                        }]
-                    }
+            "builds": [
+                {
+                    "id": "transform",
+                    "pattern": "embedded-logic",
+                    "engine": "sql",
+                    "properties": {
+                        "sql": "SELECT * FROM input_table",
+                        "parameters": {
+                            "inputs": [
+                                {"name": "input_table", "path": "/tmp/test.csv", "format": "csv"}
+                            ]
+                        },
+                    },
                 }
-            }],
-            "exposes": [{
-                "exposeId": "output",
-                "kind": "table",
-                "binding": {
-                    "platform": "local",
-                    "format": "csv",
-                    "location": {"path": "runtime/out/test.csv"}
+            ],
+            "exposes": [
+                {
+                    "exposeId": "output",
+                    "kind": "table",
+                    "binding": {
+                        "platform": "local",
+                        "format": "csv",
+                        "location": {"path": "runtime/out/test.csv"},
+                    },
                 }
-            }]
+            ],
         }
 
         actions = plan_actions(contract, "test", "local")
         ops = [a["op"] for a in actions]
 
-        assert ops.index("load_data") < ops.index("execute_sql"), "load_data should come before execute_sql"
-        assert ops.index("execute_sql") < ops.index("materialize"), "execute_sql should come before materialize"
+        assert ops.index("load_data") < ops.index(
+            "execute_sql"
+        ), "load_data should come before execute_sql"
+        assert ops.index("execute_sql") < ops.index(
+            "materialize"
+        ), "execute_sql should come before materialize"
 
     def test_build_input_generates_load_data(self):
         """Build inputs with file paths should generate load_data actions."""
@@ -241,26 +245,32 @@ class TestPlannerTopologicalSort:
         contract = {
             "id": "test.build_input",
             "name": "Build Input Test",
-            "builds": [{
-                "id": "transform",
-                "pattern": "embedded-logic",
-                "engine": "sql",
-                "properties": {
-                    "sql": "SELECT * FROM my_data",
-                    "parameters": {
-                        "inputs": [{
-                            "name": "my_data",
-                            "path": "/tmp/data.csv",
-                            "format": "csv"
-                        }]
-                    }
+            "builds": [
+                {
+                    "id": "transform",
+                    "pattern": "embedded-logic",
+                    "engine": "sql",
+                    "properties": {
+                        "sql": "SELECT * FROM my_data",
+                        "parameters": {
+                            "inputs": [
+                                {"name": "my_data", "path": "/tmp/data.csv", "format": "csv"}
+                            ]
+                        },
+                    },
                 }
-            }],
-            "exposes": [{
-                "exposeId": "output",
-                "kind": "table",
-                "binding": {"platform": "local", "format": "csv", "location": {"path": "runtime/out/test.csv"}}
-            }]
+            ],
+            "exposes": [
+                {
+                    "exposeId": "output",
+                    "kind": "table",
+                    "binding": {
+                        "platform": "local",
+                        "format": "csv",
+                        "location": {"path": "runtime/out/test.csv"},
+                    },
+                }
+            ],
         }
 
         actions = plan_actions(contract, "test", "local")
@@ -274,6 +284,7 @@ class TestPlannerTopologicalSort:
 # Test: Planner expose path resolution
 # ===========================================================================
 
+
 class TestPlannerExposePathResolution:
     """Test that the planner correctly extracts expose output paths."""
 
@@ -284,16 +295,25 @@ class TestPlannerExposePathResolution:
         contract = {
             "id": "test.expose",
             "name": "Test",
-            "builds": [{"id": "b", "pattern": "embedded-logic", "engine": "sql", "properties": {"sql": "SELECT 1"}}],
-            "exposes": [{
-                "exposeId": "out",
-                "kind": "table",
-                "binding": {
-                    "platform": "local",
-                    "format": "csv",
-                    "location": {"path": "runtime/out/custom.csv"}
+            "builds": [
+                {
+                    "id": "b",
+                    "pattern": "embedded-logic",
+                    "engine": "sql",
+                    "properties": {"sql": "SELECT 1"},
                 }
-            }]
+            ],
+            "exposes": [
+                {
+                    "exposeId": "out",
+                    "kind": "table",
+                    "binding": {
+                        "platform": "local",
+                        "format": "csv",
+                        "location": {"path": "runtime/out/custom.csv"},
+                    },
+                }
+            ],
         }
 
         actions = plan_actions(contract, "test", "local")
@@ -308,12 +328,17 @@ class TestPlannerExposePathResolution:
         contract = {
             "id": "test.default_path",
             "name": "Test",
-            "builds": [{"id": "b", "pattern": "embedded-logic", "engine": "sql", "properties": {"sql": "SELECT 1"}}],
-            "exposes": [{
-                "exposeId": "my_output",
-                "kind": "table",
-                "binding": {"platform": "local"}
-            }]
+            "builds": [
+                {
+                    "id": "b",
+                    "pattern": "embedded-logic",
+                    "engine": "sql",
+                    "properties": {"sql": "SELECT 1"},
+                }
+            ],
+            "exposes": [
+                {"exposeId": "my_output", "kind": "table", "binding": {"platform": "local"}}
+            ],
         }
 
         actions = plan_actions(contract, "test", "local")
@@ -329,6 +354,7 @@ class TestPlannerExposePathResolution:
 # Test: End-to-end plan + apply
 # ===========================================================================
 
+
 class TestEndToEndPlanApply:
     """Test full plan → apply round-trip."""
 
@@ -340,23 +366,25 @@ class TestEndToEndPlanApply:
         contract = {
             "id": "test.e2e",
             "name": "E2E Test",
-            "builds": [{
-                "id": "hello",
-                "pattern": "embedded-logic",
-                "engine": "sql",
-                "properties": {
-                    "sql": "SELECT 'hello' AS message, 42 AS answer"
+            "builds": [
+                {
+                    "id": "hello",
+                    "pattern": "embedded-logic",
+                    "engine": "sql",
+                    "properties": {"sql": "SELECT 'hello' AS message, 42 AS answer"},
                 }
-            }],
-            "exposes": [{
-                "exposeId": "result",
-                "kind": "table",
-                "binding": {
-                    "platform": "local",
-                    "format": "csv",
-                    "location": {"path": "runtime/out/e2e_test.csv"}
+            ],
+            "exposes": [
+                {
+                    "exposeId": "result",
+                    "kind": "table",
+                    "binding": {
+                        "platform": "local",
+                        "format": "csv",
+                        "location": {"path": "runtime/out/e2e_test.csv"},
+                    },
                 }
-            }]
+            ],
         }
 
         actions = p.plan(contract)
@@ -378,30 +406,32 @@ class TestEndToEndPlanApply:
         contract = {
             "id": "test.csv_e2e",
             "name": "CSV E2E",
-            "builds": [{
-                "id": "transform",
-                "pattern": "embedded-logic",
-                "engine": "sql",
-                "properties": {
-                    "sql": "SELECT id, UPPER(name) AS name, value * 2 AS doubled FROM input_data",
-                    "parameters": {
-                        "inputs": [{
-                            "name": "input_data",
-                            "path": str(csv_file),
-                            "format": "csv"
-                        }]
-                    }
+            "builds": [
+                {
+                    "id": "transform",
+                    "pattern": "embedded-logic",
+                    "engine": "sql",
+                    "properties": {
+                        "sql": "SELECT id, UPPER(name) AS name, value * 2 AS doubled FROM input_data",
+                        "parameters": {
+                            "inputs": [
+                                {"name": "input_data", "path": str(csv_file), "format": "csv"}
+                            ]
+                        },
+                    },
                 }
-            }],
-            "exposes": [{
-                "exposeId": "output",
-                "kind": "table",
-                "binding": {
-                    "platform": "local",
-                    "format": "csv",
-                    "location": {"path": str(tmp_path / "output.csv")}
+            ],
+            "exposes": [
+                {
+                    "exposeId": "output",
+                    "kind": "table",
+                    "binding": {
+                        "platform": "local",
+                        "format": "csv",
+                        "location": {"path": str(tmp_path / "output.csv")},
+                    },
                 }
-            }]
+            ],
         }
 
         actions = p.plan(contract)
@@ -423,17 +453,24 @@ class TestEndToEndPlanApply:
 # Test: ApplyResult dict-like access (regression from earlier crash)
 # ===========================================================================
 
+
 class TestApplyResultAccess:
     """Test that ApplyResult supports dict-like access correctly."""
 
     def test_getitem_by_string(self):
         from fluid_provider_sdk.types import ApplyResult
-        r = ApplyResult(provider="local", applied=2, failed=0, duration_sec=0.1, timestamp="t", results=[])
+
+        r = ApplyResult(
+            provider="local", applied=2, failed=0, duration_sec=0.1, timestamp="t", results=[]
+        )
         assert r["applied"] == 2
         assert r["failed"] == 0
 
     def test_get_method(self):
         from fluid_provider_sdk.types import ApplyResult
-        r = ApplyResult(provider="local", applied=1, failed=0, duration_sec=0.1, timestamp="t", results=[])
+
+        r = ApplyResult(
+            provider="local", applied=1, failed=0, duration_sec=0.1, timestamp="t", results=[]
+        )
         assert r.get("applied") == 1
         assert r.get("nonexistent", "default") == "default"

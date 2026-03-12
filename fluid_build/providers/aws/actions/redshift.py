@@ -22,17 +22,19 @@ Implements idempotent Redshift operations:
 - SQL execution
 - View creation
 """
+
 import time
-from typing import Any, Dict, Optional
-from ..util.logging import duration_ms
+from typing import Any, Dict
+
 from ..util.ddl import generate_redshift_ddl
+from ..util.logging import duration_ms
 
 
 class RedshiftConnectionPool:
     """Simple connection pool for Redshift."""
-    
+
     _connections = {}
-    
+
     @classmethod
     def get_connection(cls, connection_string: str):
         """Get or create connection for connection string."""
@@ -43,11 +45,11 @@ class RedshiftConnectionPool:
                 raise RuntimeError(
                     "psycopg2 not installed. Install with: pip install psycopg2-binary"
                 )
-            
+
             cls._connections[connection_string] = psycopg2.connect(connection_string)
-        
+
         return cls._connections[connection_string]
-    
+
     @classmethod
     def close_all(cls):
         """Close all connections."""
@@ -66,29 +68,27 @@ def _get_connection_string(action: Dict[str, Any]) -> str:
     database = action.get("database")
     user = action.get("user")
     password = action.get("password")
-    
+
     if not all([host, database, user, password]):
-        raise ValueError(
-            "Redshift connection requires: host, database, user, password"
-        )
-    
+        raise ValueError("Redshift connection requires: host, database, user, password")
+
     return f"host={host} port={port} dbname={database} user={user} password={password}"
 
 
 def ensure_schema(action: Dict[str, Any]) -> Dict[str, Any]:
     """
     Ensure Redshift schema exists.
-    
+
     Creates schema if it doesn't exist. Idempotent operation.
-    
+
     Args:
         action: Schema action with connection details
-        
+
     Returns:
         Action result
     """
     start_time = time.time()
-    
+
     try:
         import psycopg2
     except ImportError:
@@ -98,7 +98,7 @@ def ensure_schema(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     schema = action.get("schema")
     if not schema:
         return {
@@ -107,26 +107,29 @@ def ensure_schema(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     try:
         conn_string = _get_connection_string(action)
         conn = RedshiftConnectionPool.get_connection(conn_string)
-        
+
         with conn.cursor() as cursor:
             # Check if schema exists
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT schema_name 
                 FROM information_schema.schemata 
                 WHERE schema_name = %s
-            """, (schema,))
-            
+            """,
+                (schema,),
+            )
+
             exists = cursor.fetchone() is not None
-            
+
             if not exists:
                 # Create schema
                 cursor.execute(f"CREATE SCHEMA {schema}")
                 conn.commit()
-                
+
                 return {
                     "status": "changed",
                     "message": f"Created schema: {schema}",
@@ -140,7 +143,7 @@ def ensure_schema(action: Dict[str, Any]) -> Dict[str, Any]:
                     "duration_ms": duration_ms(start_time),
                     "changed": False,
                 }
-    
+
     except Exception as e:
         return {
             "status": "error",
@@ -153,18 +156,18 @@ def ensure_schema(action: Dict[str, Any]) -> Dict[str, Any]:
 def ensure_table(action: Dict[str, Any]) -> Dict[str, Any]:
     """
     Ensure Redshift table exists.
-    
+
     Creates table from FLUID schema if it doesn't exist.
     Idempotent operation.
-    
+
     Args:
         action: Table action with schema and connection details
-        
+
     Returns:
         Action result
     """
     start_time = time.time()
-    
+
     try:
         import psycopg2
     except ImportError:
@@ -174,11 +177,11 @@ def ensure_table(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     schema = action.get("schema")
     table = action.get("table")
     columns = action.get("columns", [])
-    
+
     if not schema or not table:
         return {
             "status": "error",
@@ -186,7 +189,7 @@ def ensure_table(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     try:
         # Generate DDL from columns
         ddl = generate_redshift_ddl(
@@ -197,25 +200,28 @@ def ensure_table(action: Dict[str, Any]) -> Dict[str, Any]:
             sort_keys=action.get("sort_keys", []),
             dist_style=action.get("dist_style", "AUTO"),
         )
-        
+
         conn_string = _get_connection_string(action)
         conn = RedshiftConnectionPool.get_connection(conn_string)
-        
+
         with conn.cursor() as cursor:
             # Check if table exists
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT table_name 
                 FROM information_schema.tables 
                 WHERE table_schema = %s AND table_name = %s
-            """, (schema, table))
-            
+            """,
+                (schema, table),
+            )
+
             exists = cursor.fetchone() is not None
-            
+
             if not exists:
                 # Create table
                 cursor.execute(ddl)
                 conn.commit()
-                
+
                 return {
                     "status": "changed",
                     "message": f"Created table: {schema}.{table}",
@@ -231,7 +237,7 @@ def ensure_table(action: Dict[str, Any]) -> Dict[str, Any]:
                     "duration_ms": duration_ms(start_time),
                     "changed": False,
                 }
-    
+
     except Exception as e:
         return {
             "status": "error",
@@ -244,15 +250,15 @@ def ensure_table(action: Dict[str, Any]) -> Dict[str, Any]:
 def execute_sql(action: Dict[str, Any]) -> Dict[str, Any]:
     """
     Execute Redshift SQL statement.
-    
+
     Args:
         action: SQL action with query and connection details
-        
+
     Returns:
         Action result
     """
     start_time = time.time()
-    
+
     try:
         import psycopg2
     except ImportError:
@@ -262,7 +268,7 @@ def execute_sql(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     sql = action.get("sql")
     if not sql:
         return {
@@ -271,14 +277,14 @@ def execute_sql(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     try:
         conn_string = _get_connection_string(action)
         conn = RedshiftConnectionPool.get_connection(conn_string)
-        
+
         with conn.cursor() as cursor:
             cursor.execute(sql)
-            
+
             # Check if query returned results
             if cursor.description:
                 rows = cursor.fetchall()
@@ -286,9 +292,9 @@ def execute_sql(action: Dict[str, Any]) -> Dict[str, Any]:
                 results = [dict(zip(columns, row)) for row in rows]
             else:
                 results = []
-            
+
             conn.commit()
-            
+
             return {
                 "status": "changed",
                 "message": f"Executed SQL: {sql[:100]}...",
@@ -297,7 +303,7 @@ def execute_sql(action: Dict[str, Any]) -> Dict[str, Any]:
                 "duration_ms": duration_ms(start_time),
                 "changed": True,
             }
-    
+
     except Exception as e:
         return {
             "status": "error",
@@ -311,15 +317,15 @@ def execute_sql(action: Dict[str, Any]) -> Dict[str, Any]:
 def ensure_view(action: Dict[str, Any]) -> Dict[str, Any]:
     """
     Create or replace Redshift view.
-    
+
     Args:
         action: View action with SQL definition and connection details
-        
+
     Returns:
         Action result
     """
     start_time = time.time()
-    
+
     try:
         import psycopg2
     except ImportError:
@@ -329,11 +335,11 @@ def ensure_view(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     schema = action.get("schema")
     view = action.get("view")
     sql = action.get("sql")
-    
+
     if not schema or not view or not sql:
         return {
             "status": "error",
@@ -341,17 +347,17 @@ def ensure_view(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     try:
         conn_string = _get_connection_string(action)
         conn = RedshiftConnectionPool.get_connection(conn_string)
-        
+
         with conn.cursor() as cursor:
             # Create or replace view
             create_sql = f"CREATE OR REPLACE VIEW {schema}.{view} AS {sql}"
             cursor.execute(create_sql)
             conn.commit()
-            
+
             return {
                 "status": "changed",
                 "message": f"Created view: {schema}.{view}",
@@ -359,7 +365,7 @@ def ensure_view(action: Dict[str, Any]) -> Dict[str, Any]:
                 "duration_ms": duration_ms(start_time),
                 "changed": True,
             }
-    
+
     except Exception as e:
         return {
             "status": "error",

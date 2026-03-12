@@ -1,27 +1,40 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Branch-coverage tests for fluid_build.contract_tests (local DuckDB provider)"""
-import logging
+
 import os
-from pathlib import Path
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from fluid_build.contract_tests import (
     LocalProviderError,
     _as_list,
-    _glob_all,
-    _require_duckdb,
     _connect_duckdb,
-    _register_input,
     _execute_sql,
+    _glob_all,
+    _register_input,
+    _require_duckdb,
     _write_output,
-    apply_plan,
     apply_action,
+    apply_plan,
     json_log,
 )
 
-
 # ===================== Helpers =====================
+
 
 class TestHelpers:
     def test_as_list_string(self):
@@ -59,6 +72,7 @@ class TestHelpers:
 
 # ===================== connect_duckdb =====================
 
+
 class TestConnectDuckDB:
     def test_connect_memory(self):
         try:
@@ -92,6 +106,7 @@ class TestConnectDuckDB:
 
 # ===================== register_input =====================
 
+
 class TestRegisterInput:
     def test_missing_path(self):
         con = MagicMock()
@@ -123,7 +138,9 @@ class TestRegisterInput:
         for i in range(2):
             (tmp_path / f"data{i}.csv").write_text("a,b\n1,2\n3,4")
         con = duckdb.connect(":memory:")
-        name = _register_input(con, "multi", {"path": [str(tmp_path / "data0.csv"), str(tmp_path / "data1.csv")]})
+        name = _register_input(
+            con, "multi", {"path": [str(tmp_path / "data0.csv"), str(tmp_path / "data1.csv")]}
+        )
         assert name == "multi"
         con.close()
 
@@ -166,6 +183,7 @@ class TestRegisterInput:
 
 # ===================== execute_sql =====================
 
+
 class TestExecuteSQL:
     def test_empty_sql(self):
         con = MagicMock()
@@ -200,6 +218,7 @@ class TestExecuteSQL:
 
 # ===================== write_output =====================
 
+
 class TestWriteOutput:
     def test_missing_path(self):
         rel = MagicMock()
@@ -233,7 +252,9 @@ class TestWriteOutput:
         rel = con.sql("SELECT 1 AS a, 2 AS b UNION ALL SELECT 3, 4")
         out_path = str(tmp_path / "out.csv")
         try:
-            cnt, path = _write_output(rel, {"path": out_path, "format": "csv", "mode": "overwrite"}, dry_run=False)
+            cnt, path = _write_output(
+                rel, {"path": out_path, "format": "csv", "mode": "overwrite"}, dry_run=False
+            )
             assert cnt == 2
             assert path is not None
         except LocalProviderError:
@@ -245,10 +266,15 @@ class TestWriteOutput:
     def test_csv_append_not_supported(self, tmp_path):
         rel = MagicMock()
         with pytest.raises(LocalProviderError, match="overwrite only"):
-            _write_output(rel, {"path": str(tmp_path / "x.csv"), "format": "csv", "mode": "append"}, dry_run=False)
+            _write_output(
+                rel,
+                {"path": str(tmp_path / "x.csv"), "format": "csv", "mode": "append"},
+                dry_run=False,
+            )
 
 
 # ===================== apply_action =====================
+
 
 class TestApplyAction:
     def test_skip_non_sql_resource(self):
@@ -267,7 +293,9 @@ class TestApplyAction:
     def test_missing_outputs(self):
         ctx = MagicMock()
         with pytest.raises(LocalProviderError, match="missing outputs"):
-            apply_action({"resource_type": "sql", "op": "add", "id": "test", "sql": "SELECT 1"}, ctx)
+            apply_action(
+                {"resource_type": "sql", "op": "add", "id": "test", "sql": "SELECT 1"}, ctx
+            )
 
     def test_full_action_with_single_output(self, tmp_path):
         try:
@@ -277,10 +305,10 @@ class TestApplyAction:
         csv_in = tmp_path / "in.csv"
         csv_in.write_text("x,y\n1,2\n3,4")
         out_path = str(tmp_path / "out.csv")
-        
+
         ctx = MagicMock()
         ctx.dry_run = False
-        
+
         action = {
             "resource_type": "sql",
             "op": "add",
@@ -302,10 +330,10 @@ class TestApplyAction:
         csv_in = tmp_path / "in.csv"
         csv_in.write_text("x\n1\n2")
         out_path = str(tmp_path / "out.csv")
-        
+
         ctx = MagicMock()
         ctx.dry_run = False
-        
+
         action = {
             "resource_type": "sql",
             "op": "add",
@@ -326,10 +354,10 @@ class TestApplyAction:
             pytest.skip("duckdb not installed")
         csv_in = tmp_path / "in.csv"
         csv_in.write_text("x\n1")
-        
+
         ctx = MagicMock()
         ctx.dry_run = False
-        
+
         action = {
             "resource_type": "sql",
             "op": "add",
@@ -349,6 +377,7 @@ class TestApplyAction:
 
 # ===================== apply_plan =====================
 
+
 class TestApplyPlan:
     def test_empty_plan(self):
         ctx = MagicMock()
@@ -358,7 +387,7 @@ class TestApplyPlan:
     def test_plan_with_success_and_failure(self):
         ctx = MagicMock()
         ctx.dry_run = False
-        
+
         actions = [
             {"resource_type": "other", "id": "skip1"},  # will succeed (skip)
             {"resource_type": "sql", "op": "add", "id": "fail1"},  # will fail (no sql)

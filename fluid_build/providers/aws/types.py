@@ -17,13 +17,14 @@ AWS Provider Types - Production-grade type definitions for AWS services integrat
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Any, Optional, Union
 from datetime import datetime
 from enum import Enum
+from typing import Any, Dict, List, Optional, Union
 
 
 class AWSRegion(Enum):
     """AWS regions supported by FLUID."""
+
     US_EAST_1 = "us-east-1"
     US_EAST_2 = "us-east-2"
     US_WEST_1 = "us-west-1"
@@ -38,6 +39,7 @@ class AWSRegion(Enum):
 
 class AuthenticationMethod(Enum):
     """AWS authentication methods."""
+
     IAM_ROLE = "iam_role"
     ACCESS_KEYS = "access_keys"
     SSO = "sso"
@@ -48,6 +50,7 @@ class AuthenticationMethod(Enum):
 
 class StorageClass(Enum):
     """S3 storage classes for cost optimization."""
+
     STANDARD = "STANDARD"
     STANDARD_IA = "STANDARD_IA"
     ONEZONE_IA = "ONEZONE_IA"
@@ -60,6 +63,7 @@ class StorageClass(Enum):
 @dataclass
 class IAMConfiguration:
     """IAM-specific configuration."""
+
     role_arn: Optional[str] = None
     access_key_id: Optional[str] = None
     secret_access_key: Optional[str] = None
@@ -74,6 +78,7 @@ class IAMConfiguration:
 @dataclass
 class S3Configuration:
     """S3-specific configuration."""
+
     bucket_name: str
     region: AWSRegion
     encryption_type: str = "AES256"
@@ -91,6 +96,7 @@ class S3Configuration:
 @dataclass
 class RedshiftConfiguration:
     """Redshift-specific configuration."""
+
     cluster_identifier: str
     node_type: str = "dc2.large"
     number_of_nodes: int = 1
@@ -118,6 +124,7 @@ class RedshiftConfiguration:
 @dataclass
 class GlueConfiguration:
     """Glue-specific configuration."""
+
     role_arn: str
     glue_version: str = "4.0"
     python_version: str = "3.9"
@@ -143,6 +150,7 @@ class GlueConfiguration:
 @dataclass
 class AthenaConfiguration:
     """Athena-specific configuration."""
+
     workgroup: str = "primary"
     database: str = "default"
     output_location: str = ""
@@ -157,6 +165,7 @@ class AthenaConfiguration:
 @dataclass
 class KinesisConfiguration:
     """Kinesis-specific configuration."""
+
     stream_name: str
     shard_count: int = 1
     retention_period: int = 24  # hours
@@ -170,6 +179,7 @@ class KinesisConfiguration:
 @dataclass
 class LambdaConfiguration:
     """Lambda-specific configuration."""
+
     function_name: str
     runtime: str = "python3.9"
     handler: str = "lambda_function.lambda_handler"
@@ -195,6 +205,7 @@ class LambdaConfiguration:
 @dataclass
 class EMRConfiguration:
     """EMR-specific configuration."""
+
     cluster_name: str
     release_label: str = "emr-6.15.0"
     applications: List[str] = field(default_factory=lambda: ["Spark", "Hadoop"])
@@ -217,6 +228,7 @@ class EMRConfiguration:
 @dataclass
 class SageMakerConfiguration:
     """SageMaker-specific configuration."""
+
     model_name: str
     role_arn: str
     primary_container: Dict[str, Any] = field(default_factory=dict)
@@ -230,6 +242,7 @@ class SageMakerConfiguration:
 @dataclass
 class SecurityConfig:
     """Comprehensive security configuration for AWS services."""
+
     encryption_at_rest: bool = True
     encryption_in_transit: bool = True
     kms_key_id: Optional[str] = None
@@ -250,6 +263,7 @@ class SecurityConfig:
 @dataclass
 class MonitoringConfig:
     """Comprehensive monitoring configuration."""
+
     cloudwatch_enabled: bool = True
     xray_tracing_enabled: bool = False
     custom_metrics: List[Dict[str, Any]] = field(default_factory=list)
@@ -266,6 +280,7 @@ class MonitoringConfig:
 @dataclass
 class CostOptimizationConfig:
     """Cost optimization configuration."""
+
     reserved_instances: List[Dict[str, Any]] = field(default_factory=list)
     spot_instances: List[Dict[str, Any]] = field(default_factory=list)
     s3_intelligent_tiering: bool = True
@@ -280,6 +295,7 @@ class CostOptimizationConfig:
 @dataclass
 class ServiceConfig:
     """Service-specific configurations."""
+
     s3: Optional[S3Configuration] = None
     redshift: Optional[RedshiftConfiguration] = None
     glue: Optional[GlueConfiguration] = None
@@ -293,41 +309,42 @@ class ServiceConfig:
 @dataclass
 class AWSProviderOptions:
     """Comprehensive AWS provider configuration options."""
+
     # Basic configuration
     region: AWSRegion = AWSRegion.US_EAST_1
     account_id: Optional[str] = None
-    
+
     # Authentication
     authentication: IAMConfiguration = field(default_factory=IAMConfiguration)
     auth_method: AuthenticationMethod = AuthenticationMethod.IAM_ROLE
-    
+
     # Service configurations
     services: ServiceConfig = field(default_factory=ServiceConfig)
-    
+
     # Security
     security: SecurityConfig = field(default_factory=SecurityConfig)
-    
+
     # Monitoring and observability
     monitoring: MonitoringConfig = field(default_factory=MonitoringConfig)
-    
+
     # Cost optimization
     cost_optimization: CostOptimizationConfig = field(default_factory=CostOptimizationConfig)
-    
+
     # Global tags
     tags: Dict[str, str] = field(default_factory=dict)
-    
+
     # Multi-region support
-    multi_region: Dict[str, 'AWSProviderOptions'] = field(default_factory=dict)
-    
+    multi_region: Dict[str, "AWSProviderOptions"] = field(default_factory=dict)
+
     # Environment-specific overrides
     environment_overrides: Dict[str, Dict[str, Any]] = field(default_factory=dict)
-    
+
     # Advanced configurations
     connection_timeout: int = 60
     read_timeout: int = 60
     max_retries: int = 3
     retry_backoff_factor: float = 2.0
-    
+
     # Feature flags
     enable_cost_monitoring: bool = True
     enable_security_scanning: bool = True
@@ -338,6 +355,7 @@ class AWSProviderOptions:
 @dataclass
 class TableSpec:
     """AWS table specification for various services."""
+
     name: str
     service: str  # 'redshift', 'athena', 'dynamodb'
     columns: List[Dict[str, Any]] = field(default_factory=list)
@@ -358,6 +376,7 @@ class TableSpec:
 @dataclass
 class APISpec:
     """AWS API specification for API Gateway."""
+
     name: str
     description: str = ""
     protocol_type: str = "REST"  # REST, HTTP, WEBSOCKET
@@ -378,6 +397,7 @@ class APISpec:
 @dataclass
 class StreamSpec:
     """AWS stream specification for Kinesis/MSK."""
+
     name: str
     service: str  # 'kinesis', 'msk', 'kinesis_firehose'
     shard_count: Optional[int] = None
@@ -395,6 +415,7 @@ class StreamSpec:
 @dataclass
 class ModelSpec:
     """AWS ML model specification for SageMaker."""
+
     name: str
     description: str = ""
     model_artifacts: str = ""
@@ -413,6 +434,7 @@ class ModelSpec:
 @dataclass
 class DeploymentMetadata:
     """Deployment metadata for tracking and rollback."""
+
     deployment_id: str
     timestamp: datetime
     strategy: str  # 'blue_green', 'rolling', 'canary'

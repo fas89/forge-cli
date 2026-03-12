@@ -18,30 +18,26 @@ Prefect Flow Generation for Snowflake Provider.
 Generates Python flow code from FLUID contracts for Prefect with Snowflake.
 """
 
-from typing import Dict, Any, List
 from datetime import datetime
-from fluid_build.cli.console import cprint, info, success
+from typing import Any, Dict, List
 
 
 def generate_prefect_flow(
-    contract: Dict[str, Any],
-    account: str,
-    database: str,
-    warehouse: str = "COMPUTE_WH"
+    contract: Dict[str, Any], account: str, database: str, warehouse: str = "COMPUTE_WH"
 ) -> str:
     """Generate Prefect flow from FLUID contract."""
     orchestration = contract.get("orchestration", {})
     if not orchestration:
         raise ValueError("Contract missing orchestration section")
-    
+
     tasks = orchestration.get("tasks", [])
     provider_tasks = [t for t in tasks if t.get("type") == "provider_action"]
-    
+
     contract_id = contract.get("id", "unknown")
     contract_name = contract.get("name", contract_id)
     schedule = orchestration.get("schedule", "0 2 * * *")
     timezone = orchestration.get("timezone", "UTC")
-    
+
     code = _generate_header(contract_id, contract_name, account, database, warehouse)
     code += "\n\n"
     code += _generate_imports()
@@ -53,11 +49,13 @@ def generate_prefect_flow(
     code += _generate_flow(contract_id, contract_name, provider_tasks)
     code += "\n\n"
     code += _generate_deployment(contract_id, contract_name, schedule, timezone)
-    
+
     return code
 
 
-def _generate_header(contract_id: str, contract_name: str, account: str, database: str, warehouse: str) -> str:
+def _generate_header(
+    contract_id: str, contract_name: str, account: str, database: str, warehouse: str
+) -> str:
     return f'''"""
 FLUID Generated Prefect Flow: {contract_name}
 
@@ -72,14 +70,14 @@ Generated: {datetime.utcnow().isoformat()}Z
 
 
 def _generate_imports() -> str:
-    return '''from prefect import flow, task
+    return """from prefect import flow, task
 from prefect.deployments import Deployment
 from prefect.server.schemas.schedules import CronSchedule
 from snowflake.connector import connect
 import logging
 import os
 
-logger = logging.getLogger(__name__)'''
+logger = logging.getLogger(__name__)"""
 
 
 def _generate_config(account: str, database: str, warehouse: str) -> str:
@@ -113,16 +111,16 @@ def _generate_single_task(task_spec: Dict[str, Any], database: str, warehouse: s
     task_id = task_spec.get("taskId")
     action = task_spec.get("action", "")
     params = task_spec.get("params", {})
-    
+
     action_parts = action.split(".")
     if len(action_parts) >= 3:
         operation = action_parts[2]
-        
+
         if operation == "query" or operation == "run_query":
             sql = params.get("sql", params.get("query", "SELECT 1"))
             # Escape for Python string
-            sql_escaped = sql.replace('\\', '\\\\').replace('"', '\\"')
-            
+            sql_escaped = sql.replace("\\", "\\\\").replace('"', '\\"')
+
             return f'''@task(retries=3, retry_delay_seconds=30, timeout_seconds=1800)
 def {task_id}():
     """Execute Snowflake query"""
@@ -136,7 +134,7 @@ def {task_id}():
     finally:
         cursor.close()
         conn.close()'''
-    
+
     return f'''@task(retries=2, retry_delay_seconds=30)
 def {task_id}():
     """Generic task: {action}"""
@@ -150,9 +148,9 @@ def _generate_flow(contract_id: str, contract_name: str, tasks: List[Dict[str, A
     for task in tasks:
         task_id = task.get("taskId")
         task_executions.append(f"    {task_id}_result = {task_id}()")
-    
+
     task_exec_str = "\n".join(task_executions)
-    
+
     return f'''# Flow definition
 @flow(
     name="{flow_name}",
@@ -171,8 +169,8 @@ def {flow_name}_flow():
 def _generate_deployment(contract_id: str, contract_name: str, schedule: str, timezone: str) -> str:
     flow_name = _sanitize_name(contract_id)
     cron_schedule = _convert_schedule(schedule)
-    
-    return f'''# Deployment configuration
+
+    return f"""# Deployment configuration
 if __name__ == "__main__":
     deployment = Deployment.build_from_flow(
         flow={flow_name}_flow,
@@ -190,7 +188,7 @@ if __name__ == "__main__":
     
     success(f"Deployment created: {{deployment.name}}")
     cprint(f"   Schedule: {cron_schedule} ({timezone})")
-    cprint(f"   Run: prefect deployment run '{flow_name}_flow/{flow_name}-deployment'")'''
+    cprint(f"   Run: prefect deployment run '{flow_name}_flow/{flow_name}-deployment'")"""
 
 
 def _convert_schedule(schedule: str) -> str:
@@ -210,4 +208,5 @@ def _convert_schedule(schedule: str) -> str:
 
 def _sanitize_name(name: str) -> str:
     import re
-    return re.sub(r'[^a-zA-Z0-9_]', '_', name)
+
+    return re.sub(r"[^a-zA-Z0-9_]", "_", name)

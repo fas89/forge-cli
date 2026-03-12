@@ -25,12 +25,14 @@ Implements comprehensive Snowflake integration with:
 - Data sharing and secure views
 - Performance monitoring and optimization
 """
+
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, List, Mapping, Optional
+from collections.abc import Mapping
+from typing import Any, Dict, List, Optional
 
-from fluid_build.providers.base import BaseProvider, ProviderError, ApplyResult
+from fluid_build.providers.base import ApplyResult, BaseProvider, ProviderError
 
 from .plan.planner import plan_actions
 from .util.auth import get_auth_report
@@ -41,7 +43,7 @@ from .util.retry import with_retry
 class SnowflakeProviderEnhanced(BaseProvider):
     """
     Production Snowflake provider with comprehensive service support.
-    
+
     Features:
     - Complete database/schema/table management
     - View and materialized view support
@@ -57,6 +59,7 @@ class SnowflakeProviderEnhanced(BaseProvider):
     @classmethod
     def get_provider_info(cls):
         from fluid_build.providers.base import ProviderMetadata
+
         return ProviderMetadata(
             name="snowflake",
             display_name="Snowflake",
@@ -81,26 +84,26 @@ class SnowflakeProviderEnhanced(BaseProvider):
     ) -> None:
         # Normalize database/project
         database = database or project
-        
+
         # Store kwargs for later use in connections
         self._kwargs = kwargs
-        
+
         super().__init__(project=database, region=region, logger=logger, **kwargs)
-        
+
         # Import config utilities
         from .util.config import resolve_account_and_warehouse
-        
+
         self.account, self.warehouse = resolve_account_and_warehouse(account, warehouse)
         self.database = database
         self.schema = schema or "PUBLIC"
         self.region = region
-        
+
         self.info_kv(
             event="provider_initialized",
             provider="snowflake",
             account=self.account,
             warehouse=self.warehouse,
-            database=self.database
+            database=self.database,
         )
 
     def capabilities(self) -> Mapping[str, bool]:
@@ -116,7 +119,7 @@ class SnowflakeProviderEnhanced(BaseProvider):
     def plan(self, contract: Mapping[str, Any]) -> List[Dict[str, Any]]:
         """
         Generate Snowflake actions from FLUID contract.
-        
+
         Converts contract specifications into concrete Snowflake operations:
         - Databases and schemas
         - Tables, views, materialized views
@@ -125,41 +128,28 @@ class SnowflakeProviderEnhanced(BaseProvider):
         - RBAC grants
         """
         self.debug_kv(
-            event="plan_started",
-            contract_id=contract.get("id"),
-            contract_name=contract.get("name")
+            event="plan_started", contract_id=contract.get("id"), contract_name=contract.get("name")
         )
-        
+
         try:
             actions = plan_actions(
-                contract, 
-                self.account, 
-                self.warehouse,
-                self.database,
-                self.schema,
-                self.logger
+                contract, self.account, self.warehouse, self.database, self.schema, self.logger
             )
-            
+
             self.info_kv(
-                event="plan_completed",
-                contract_id=contract.get("id"),
-                actions_count=len(actions)
+                event="plan_completed", contract_id=contract.get("id"), actions_count=len(actions)
             )
-            
+
             return actions
-            
+
         except Exception as e:
-            self.err_kv(
-                event="plan_failed",
-                contract_id=contract.get("id"),
-                error=str(e)
-            )
+            self.err_kv(event="plan_failed", contract_id=contract.get("id"), error=str(e))
             raise ProviderError(f"Failed to plan Snowflake deployment: {e}") from e
 
     def apply(self, actions: List[Dict[str, Any]], **kwargs: Any) -> ApplyResult:
         """
         Execute Snowflake actions with idempotent semantics.
-        
+
         Dispatches actions to appropriate service handlers with:
         - Retry logic for transient failures
         - Proper error categorization
@@ -171,49 +161,42 @@ class SnowflakeProviderEnhanced(BaseProvider):
         applied = 0
         failed = 0
 
-        self.info_kv(
-            event="apply_started",
-            actions_count=len(actions),
-            provider="snowflake"
-        )
+        self.info_kv(event="apply_started", actions_count=len(actions), provider="snowflake")
 
         for i, action in enumerate(actions):
             op = action.get("op")
             action_id = action.get("id", f"action_{i}")
-            
+
             try:
                 # Redact action before logging (removes 'op' from spread to avoid duplicate)
                 redacted_action = redact_dict(action)
                 redacted_action.pop("op", None)  # Remove op to avoid duplicate with explicit op=op
                 redacted_action.pop("id", None)  # Remove id to avoid duplicate (0.5.7)
-                redacted_action.pop("action_id", None)  # Remove action_id to avoid duplicate (0.7.1)
-                
-                self.debug_kv(
-                    event="action_started",
-                    action_id=action_id,
-                    op=op,
-                    **redacted_action
-                )
-                
+                redacted_action.pop(
+                    "action_id", None
+                )  # Remove action_id to avoid duplicate (0.7.1)
+
+                self.debug_kv(event="action_started", action_id=action_id, op=op, **redacted_action)
+
                 result = self._execute_action(action)
                 result["action_id"] = action_id
                 result["index"] = i
-                
+
                 results.append(result)
-                
+
                 if result.get("status") == "changed" or (
                     result.get("status") == "ok" and not result.get("skipped", False)
                 ):
                     applied += 1
-                
+
                 self.debug_kv(
                     event="action_completed",
                     action_id=action_id,
                     status=result.get("status"),
                     changed=result.get("changed", False),
-                    duration_ms=result.get("duration_ms", 0)
+                    duration_ms=result.get("duration_ms", 0),
                 )
-                
+
             except Exception as e:
                 failed += 1
                 error_result = {
@@ -222,35 +205,27 @@ class SnowflakeProviderEnhanced(BaseProvider):
                     "status": "error",
                     "op": op,
                     "error": str(e),
-                    "changed": False
+                    "changed": False,
                 }
                 results.append(error_result)
-                
-                self.err_kv(
-                    event="action_failed",
-                    action_id=action_id,
-                    op=op,
-                    error=str(e)
-                )
+
+                self.err_kv(event="action_failed", action_id=action_id, op=op, error=str(e))
 
         duration_sec = round(time.time() - start_time, 3)
-        
+
         apply_result = ApplyResult(
             provider="snowflake",
             applied=applied,
             failed=failed,
             duration_sec=duration_sec,
             timestamp=self._utc_timestamp(),
-            results=results
+            results=results,
         )
-        
+
         self.info_kv(
-            event="apply_completed",
-            applied=applied,
-            failed=failed,
-            duration_sec=duration_sec
+            event="apply_completed", applied=applied, failed=failed, duration_sec=duration_sec
         )
-        
+
         return apply_result
 
     def render(
@@ -263,9 +238,11 @@ class SnowflakeProviderEnhanced(BaseProvider):
         """Export FLUID contracts to external formats."""
         if fmt == "opds":
             from .plan.export import export_opds
+
             return export_opds(src)
         elif fmt == "dot":
             from .plan.export import export_dot_graph
+
             return export_dot_graph(src)
         else:
             raise ProviderError(f"Unsupported render format: {fmt}. Supported: opds, dot")
@@ -275,16 +252,12 @@ class SnowflakeProviderEnhanced(BaseProvider):
         try:
             return get_auth_report(self.account, self.warehouse, self.database)
         except Exception as e:
-            return {
-                "status": "error",
-                "error": str(e),
-                "provider": "snowflake"
-            }
+            return {"status": "error", "error": str(e), "provider": "snowflake"}
 
     def _execute_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """
         Dispatch action to appropriate service handler.
-        
+
         Routes actions based on operation prefix:
         - sf.database.*: Database operations
         - sf.schema.*: Schema operations
@@ -298,10 +271,10 @@ class SnowflakeProviderEnhanced(BaseProvider):
         - sf.share.*: Data sharing operations
         """
         op = action.get("op")
-        
+
         if not op:
             raise ProviderError("Action missing required 'op' field")
-            
+
         # Route to service-specific handlers
         if op.startswith("sf.database."):
             return self._execute_database_action(action)
@@ -326,24 +299,20 @@ class SnowflakeProviderEnhanced(BaseProvider):
         elif op.startswith("sf.sql."):
             return self._execute_sql_action(action)
         else:
-            self.warn_kv(
-                event="unknown_action_op",
-                op=op,
-                action_id=action.get("id")
-            )
+            self.warn_kv(event="unknown_action_op", op=op, action_id=action.get("id"))
             return {
                 "status": "skipped",
                 "op": op,
                 "reason": f"Unknown operation: {op}",
-                "changed": False
+                "changed": False,
             }
 
     def _execute_database_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Execute database operations."""
         from .actions import database
-        
+
         op = action.get("op")
-        
+
         if op == "sf.database.ensure":
             return with_retry(lambda: database.ensure_database(action, self), self)
         elif op == "sf.database.drop":
@@ -354,9 +323,9 @@ class SnowflakeProviderEnhanced(BaseProvider):
     def _execute_schema_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Execute schema operations."""
         from .actions import schema
-        
+
         op = action.get("op")
-        
+
         if op == "sf.schema.ensure":
             return with_retry(lambda: schema.ensure_schema(action, self), self)
         elif op == "sf.schema.drop":
@@ -367,9 +336,9 @@ class SnowflakeProviderEnhanced(BaseProvider):
     def _execute_table_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Execute table operations."""
         from .actions import table
-        
+
         op = action.get("op")
-        
+
         if op == "sf.table.ensure":
             return with_retry(lambda: table.ensure_table(action, self), self)
         elif op == "sf.table.alter":
@@ -382,9 +351,9 @@ class SnowflakeProviderEnhanced(BaseProvider):
     def _execute_view_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Execute view operations."""
         from .actions import view
-        
+
         op = action.get("op")
-        
+
         if op == "sf.view.ensure":
             return view.ensure_view(action, self)
         elif op == "sf.view.materialized.ensure":
@@ -395,9 +364,9 @@ class SnowflakeProviderEnhanced(BaseProvider):
     def _execute_stream_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Execute stream operations."""
         from .actions import stream
-        
+
         op = action.get("op")
-        
+
         if op == "sf.stream.ensure":
             return stream.ensure_stream(action, self)
         else:
@@ -406,9 +375,9 @@ class SnowflakeProviderEnhanced(BaseProvider):
     def _execute_task_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Execute task operations."""
         from .actions import task
-        
+
         op = action.get("op")
-        
+
         if op == "sf.task.ensure":
             return task.ensure_task(action, self)
         elif op == "sf.task.resume":
@@ -421,9 +390,9 @@ class SnowflakeProviderEnhanced(BaseProvider):
     def _execute_procedure_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Execute stored procedure operations."""
         from .actions import procedure
-        
+
         op = action.get("op")
-        
+
         if op == "sf.procedure.ensure":
             return procedure.ensure_procedure(action, self)
         else:
@@ -432,9 +401,9 @@ class SnowflakeProviderEnhanced(BaseProvider):
     def _execute_udf_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Execute UDF operations."""
         from .actions import udf
-        
+
         op = action.get("op")
-        
+
         if op == "sf.udf.ensure":
             return udf.ensure_udf(action, self)
         else:
@@ -443,9 +412,9 @@ class SnowflakeProviderEnhanced(BaseProvider):
     def _execute_grant_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Execute RBAC grant operations."""
         from .actions import grants
-        
+
         op = action.get("op")
-        
+
         if op == "sf.grant.role":
             return grants.grant_role(action, self)
         elif op == "sf.grant.privilege":
@@ -456,9 +425,9 @@ class SnowflakeProviderEnhanced(BaseProvider):
     def _execute_share_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Execute data sharing operations."""
         from .actions import share
-        
+
         op = action.get("op")
-        
+
         if op == "sf.share.ensure":
             return share.ensure_share(action, self)
         else:
@@ -467,9 +436,9 @@ class SnowflakeProviderEnhanced(BaseProvider):
     def _execute_sql_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Execute arbitrary SQL."""
         from .actions import sql
-        
+
         op = action.get("op")
-        
+
         if op == "sf.sql.execute":
             return sql.execute_sql(action, self)
         else:
@@ -478,116 +447,119 @@ class SnowflakeProviderEnhanced(BaseProvider):
     def _utc_timestamp(self) -> str:
         """Generate UTC timestamp string."""
         from datetime import datetime, timezone
+
         return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    
+
     def export(
         self,
         contract: Mapping[str, Any],
         engine: str = "airflow",
         output_dir: str = ".",
-        **kwargs: Any
+        **kwargs: Any,
     ) -> str:
         """
         Export contract as executable DAG/pipeline code for Snowflake.
-        
+
         Generates ready-to-run orchestration code for the specified engine.
         Supports Airflow, Dagster, and Prefect workflows.
-        
+
         Args:
             contract: FLUID contract with orchestration section
             engine: Target orchestration engine ("airflow", "dagster", "prefect")
             output_dir: Directory to write generated file (default: current directory)
             **kwargs: Additional parameters for code generation
-        
+
         Returns:
             Path to generated file
-        
+
         Raises:
             ProviderError: If export fails or engine is unsupported
         """
         import os
-        from fluid_build.providers.common.codegen_utils import validate_contract_for_export, detect_circular_dependencies
-        
+
+        from fluid_build.providers.common.codegen_utils import (
+            detect_circular_dependencies,
+            validate_contract_for_export,
+        )
+
         # Validate contract structure
         try:
             validate_contract_for_export(contract)
         except ValueError as e:
             raise ProviderError(f"Invalid contract: {e}") from e
-        
+
         # Check for circular dependencies
         tasks = contract["orchestration"]["tasks"]
         cycles = detect_circular_dependencies(tasks)
         if cycles:
             raise ProviderError(f"Circular dependencies detected in tasks: {', '.join(cycles)}")
-        
+
         orchestration = contract.get("orchestration")
         if not orchestration:
             raise ProviderError("Contract missing orchestration section - cannot export DAG")
-        
+
         contract_id = contract.get("id", "unnamed")
-        
+
         self.info_kv(
-            event="export_started",
-            contract_id=contract_id,
-            engine=engine,
-            output_dir=output_dir
+            event="export_started", contract_id=contract_id, engine=engine, output_dir=output_dir
         )
-        
+
         # Sanitize contract_id for safe use in filenames (prevent path traversal)
         import re
-        safe_id = re.sub(r'[^a-zA-Z0-9_\-.]', '_', contract_id)
-        
+
+        safe_id = re.sub(r"[^a-zA-Z0-9_\-.]", "_", contract_id)
+
         try:
             # Generate code based on engine
             if engine == "airflow":
                 from .codegen import generate_airflow_dag
+
                 code = generate_airflow_dag(contract, self.account, self.database, self.warehouse)
                 filename = f"{safe_id}_dag.py"
-            
+
             elif engine == "dagster":
                 from .codegen import generate_dagster_pipeline
-                code = generate_dagster_pipeline(contract, self.account, self.database, self.warehouse)
+
+                code = generate_dagster_pipeline(
+                    contract, self.account, self.database, self.warehouse
+                )
                 filename = f"{safe_id}_pipeline.py"
-            
+
             elif engine == "prefect":
                 from .codegen import generate_prefect_flow
+
                 code = generate_prefect_flow(contract, self.account, self.database, self.warehouse)
                 filename = f"{safe_id}_flow.py"
-            
+
             else:
                 raise ProviderError(
                     f"Unsupported orchestration engine: {engine}. "
                     f"Supported: airflow, dagster, prefect"
                 )
-            
+
             # Ensure output directory exists
             os.makedirs(output_dir, exist_ok=True)
-            
+
             # Write generated code to file
             output_path = os.path.join(output_dir, filename)
             with open(output_path, "w") as f:
                 f.write(code)
-            
+
             # Log success
             code_lines = code.count("\n") + 1
             file_size = len(code.encode("utf-8"))
-            
+
             self.info_kv(
                 event="export_completed",
                 contract_id=contract_id,
                 engine=engine,
                 output_file=output_path,
                 code_lines=code_lines,
-                file_size=file_size
+                file_size=file_size,
             )
-            
+
             return output_path
-            
+
         except Exception as e:
-            self.err_kv(
-                event="export_failed",
-                contract_id=contract_id,
-                engine=engine,
-                error=str(e)
-            )
+            self.err_kv(event="export_failed", contract_id=contract_id, engine=engine, error=str(e))
             raise ProviderError(f"Export failed: {e}") from e

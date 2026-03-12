@@ -1,14 +1,29 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for init.py CI/CD generators and generate_contracts_from_scan."""
+
 import logging
+
 import pytest
-from pathlib import Path
 
 from fluid_build.cli.init import (
-    generate_jenkinsfile,
-    generate_github_actions,
-    generate_gitlab_ci,
     generate_cloudbuild,
     generate_contracts_from_scan,
+    generate_github_actions,
+    generate_gitlab_ci,
+    generate_jenkinsfile,
 )
 
 
@@ -93,10 +108,26 @@ class TestGenerateContractsFromScan:
     def test_dbt_project(self, logger):
         results = {
             "project_type": "dbt",
-            "metadata": {"project_name": "my-dbt", "target_platform": "gcp", "target_database": "proj", "target_schema": "ds"},
+            "metadata": {
+                "project_name": "my-dbt",
+                "target_platform": "gcp",
+                "target_database": "proj",
+                "target_schema": "ds",
+            },
             "models": [
-                {"name": "orders", "raw_sql": "SELECT * FROM raw.orders", "columns": [{"name": "id", "type": "integer"}, {"name": "amount", "type": "float"}]},
-                {"name": "users", "raw_sql": "SELECT * FROM raw.users", "columns": [{"name": "user_id"}]},
+                {
+                    "name": "orders",
+                    "raw_sql": "SELECT * FROM raw.orders",
+                    "columns": [
+                        {"name": "id", "type": "integer"},
+                        {"name": "amount", "type": "float"},
+                    ],
+                },
+                {
+                    "name": "users",
+                    "raw_sql": "SELECT * FROM raw.users",
+                    "columns": [{"name": "user_id"}],
+                },
             ],
         }
         contracts = generate_contracts_from_scan(results, "gcp", logger)

@@ -12,8 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os, pathlib, textwrap
-from ..base import PlanAction, ApplyResult
+import pathlib
 
 DAG_TEMPLATE = """from airflow import DAG
 from airflow.operators.bash import BashOperator
@@ -25,12 +24,14 @@ with DAG(dag_id='{dag_id}', schedule='{cron}', start_date=datetime(2024,1,1), ca
     )
 """
 
+
 def scaffold_dag(contract: dict, out_dir: str, project: str, region: str):
     # Support both 0.5.7 (builds array) and 0.4.0 (build object)
     from fluid_build.util.contract import get_primary_build
+
     build = get_primary_build(contract) or {}
-    cron = build.get("execution",{}).get("trigger",{}).get("cron","0 2 * * *")
-    dag_id = contract.get("id","fluid_product").replace(".","_")
+    cron = build.get("execution", {}).get("trigger", {}).get("cron", "0 2 * * *")
+    dag_id = contract.get("id", "fluid_product").replace(".", "_")
     bash_cmd = f"python -m fluid_build.cli apply {contract.get('id','contract.fluid.yaml')} --provider gcp --project {project} --region {region}"
     code = DAG_TEMPLATE.format(dag_id=dag_id, cron=cron, bash_cmd=bash_cmd)
     p = pathlib.Path(out_dir) / f"{dag_id}.py"

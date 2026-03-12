@@ -12,8 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json, yaml, os, pathlib
+import json
+import pathlib
 from typing import Any, Dict
+
+import yaml
+
 
 def load_contract(path: str) -> Dict[str, Any]:
     p = pathlib.Path(path)
@@ -24,11 +28,13 @@ def load_contract(path: str) -> Dict[str, Any]:
         return yaml.safe_load(text)
     return json.loads(text)
 
+
 def dump_json(path: str, obj):
     pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(obj, f, indent=2)
 
+
 def read_json(path: str):
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)

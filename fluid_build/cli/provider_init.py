@@ -14,18 +14,17 @@
 
 # fluid_build/cli/provider_init.py
 """``fluid provider-init`` — scaffold a new FLUID provider package."""
+
 from __future__ import annotations
 
 import argparse
 import logging
-import os
 import re
 import textwrap
 from pathlib import Path
-from typing import Optional
 
 from fluid_build.cli._common import CLIError
-from fluid_build.cli.console import cprint, info
+from fluid_build.cli.console import cprint
 
 COMMAND = "provider-init"
 
@@ -35,7 +34,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         COMMAND,
         help="Scaffold a new FLUID provider package",
         description="Generate a ready-to-develop provider package with tests, "
-                    "entry points, and SDK conformance harness.",
+        "entry points, and SDK conformance harness.",
         epilog=textwrap.dedent("""\
             Examples:
               fluid provider-init databricks
@@ -55,13 +54,28 @@ def run(args: argparse.Namespace, logger: logging.Logger) -> int:
     name = args.name.strip().lower().replace("-", "_")
 
     if not re.match(r"^[a-z][a-z0-9_]*$", name):
-        raise CLIError(1, "invalid_provider_name", {
-            "name": name,
-            "hint": "Must start with a letter and contain only lowercase alphanumeric + underscores",
-        })
+        raise CLIError(
+            1,
+            "invalid_provider_name",
+            {
+                "name": name,
+                "hint": "Must start with a letter and contain only lowercase alphanumeric + underscores",
+            },
+        )
 
-    reserved = {"unknown", "stub", "base", "test", "none", "default", "local",
-                "aws", "gcp", "snowflake", "odps"}
+    reserved = {
+        "unknown",
+        "stub",
+        "base",
+        "test",
+        "none",
+        "default",
+        "local",
+        "aws",
+        "gcp",
+        "snowflake",
+        "odps",
+    }
     if name in reserved:
         raise CLIError(1, "reserved_provider_name", {"name": name})
 
@@ -80,23 +94,24 @@ def run(args: argparse.Namespace, logger: logging.Logger) -> int:
     # Print next steps
     slug = name.replace("_", "-")
     cprint(f"\nCreated fluid-provider-{slug}/")
-    cprint(f"  pyproject.toml          — package config with entry points")
+    cprint("  pyproject.toml          — package config with entry points")
     cprint(f"  src/fluid_provider_{name}/__init__.py")
     cprint(f"  src/fluid_provider_{name}/provider.py  — BaseProvider subclass")
-    cprint(f"  tests/test_conformance.py              — SDK harness tests")
-    cprint(f"  tests/fixtures/basic_contract.yaml")
-    cprint(f"  README.md")
+    cprint("  tests/test_conformance.py              — SDK harness tests")
+    cprint("  tests/fixtures/basic_contract.yaml")
+    cprint("  README.md")
     cprint()
     cprint("Next steps:")
     cprint(f"  cd fluid-provider-{slug}")
-    cprint(f'  pip install -e ".[dev]"')
-    cprint(f"  # Implement plan() in provider.py")
-    cprint(f"  # Implement apply() in provider.py")
-    cprint(f"  pytest -v  # Run conformance tests")
+    cprint('  pip install -e ".[dev]"')
+    cprint("  # Implement plan() in provider.py")
+    cprint("  # Implement apply() in provider.py")
+    cprint("  pytest -v  # Run conformance tests")
     return 0
 
 
 # ── File generation ─────────────────────────────────────────────────
+
 
 def _scaffold(root: Path, name: str, description: str, author: str) -> None:
     slug = name.replace("_", "-")

@@ -13,17 +13,24 @@
 # limitations under the License.
 
 from __future__ import annotations
-import argparse, logging, json, os
-from ._common import read_json, CLIError
+
+import argparse
+import json
+import logging
+import os
+
+from ._common import CLIError, read_json
 from ._logging import info
 
 COMMAND = "viz-plan"
+
 
 def register(subparsers: argparse._SubParsersAction):
     p = subparsers.add_parser(COMMAND, help="Render a static HTML for a plan.json")
     p.add_argument("plan", help="runtime/plan.json")
     p.add_argument("--out", default="runtime/plan.html", help="HTML path")
     p.set_defaults(cmd=COMMAND, func=run)
+
 
 def render_plan_html(plan_path: str, out_html: str, logger: logging.Logger) -> None:
     data = read_json(plan_path)
@@ -43,6 +50,7 @@ def render_plan_html(plan_path: str, out_html: str, logger: logging.Logger) -> N
     with open(out_html, "w", encoding="utf-8") as f:
         f.write(html)
     info(logger, "viz_plan_ok", out=out_html, actions=len(actions))
+
 
 def run(args, logger: logging.Logger) -> int:
     try:

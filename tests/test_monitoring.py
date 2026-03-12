@@ -1,14 +1,33 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for fluid_build.forge.core.monitoring"""
-import time
-import pytest
-from unittest.mock import patch, MagicMock
+
+from unittest.mock import patch
+
 from fluid_build.forge.core.monitoring import (
-    MetricType, AlertSeverity, Metric, Alert, LogEntry, HealthCheck,
+    Alert,
+    AlertSeverity,
+    HealthCheck,
+    LogEntry,
+    Metric,
+    MetricType,
     MonitoringSystem,
 )
 
-
 # ── Enum tests ──
+
 
 class TestEnums:
     def test_metric_type_values(self):
@@ -24,6 +43,7 @@ class TestEnums:
 
 # ── Dataclass tests ──
 
+
 class TestMetric:
     def test_create_minimal(self):
         m = Metric(name="cpu", value=42.0, metric_type=MetricType.GAUGE)
@@ -34,8 +54,9 @@ class TestMetric:
         assert m.unit is None
 
     def test_create_with_tags(self):
-        m = Metric(name="req", value=1, metric_type=MetricType.COUNTER,
-                    tags={"host": "a"}, unit="count")
+        m = Metric(
+            name="req", value=1, metric_type=MetricType.COUNTER, tags={"host": "a"}, unit="count"
+        )
         assert m.tags == {"host": "a"}
         assert m.unit == "count"
 
@@ -47,8 +68,9 @@ class TestAlert:
         assert a.tags == {}
 
     def test_custom_fields(self):
-        a = Alert(name="x", severity=AlertSeverity.CRITICAL, message="m",
-                  resolved=True, tags={"k": "v"})
+        a = Alert(
+            name="x", severity=AlertSeverity.CRITICAL, message="m", resolved=True, tags={"k": "v"}
+        )
         assert a.resolved is True
         assert a.tags["k"] == "v"
 
@@ -70,11 +92,12 @@ class TestHealthCheck:
 
 # ── MonitoringSystem core logic ──
 
+
 class TestCalculateAggregations:
     """Test _calculate_aggregations — pure computation."""
 
     def _make_system(self):
-        with patch.object(MonitoringSystem, '_start_background_workers'):
+        with patch.object(MonitoringSystem, "_start_background_workers"):
             return MonitoringSystem("test")
 
     def test_empty_metrics(self):
@@ -123,7 +146,7 @@ class TestCalculateAggregations:
 
 class TestDefaultAlertRules:
     def _make_system(self):
-        with patch.object(MonitoringSystem, '_start_background_workers'):
+        with patch.object(MonitoringSystem, "_start_background_workers"):
             return MonitoringSystem("test")
 
     def test_alert_rules_created(self):
@@ -136,8 +159,7 @@ class TestDefaultAlertRules:
         rule = sys.alert_rules[0]
         # Create > 10 error metrics
         error_metrics = [
-            Metric(name="error_count", value=1, metric_type=MetricType.COUNTER)
-            for _ in range(15)
+            Metric(name="error_count", value=1, metric_type=MetricType.COUNTER) for _ in range(15)
         ]
         result = rule(error_metrics)
         assert result is not None
@@ -147,8 +169,7 @@ class TestDefaultAlertRules:
         sys = self._make_system()
         rule = sys.alert_rules[0]
         metrics = [
-            Metric(name="error_count", value=1, metric_type=MetricType.COUNTER)
-            for _ in range(5)
+            Metric(name="error_count", value=1, metric_type=MetricType.COUNTER) for _ in range(5)
         ]
         result = rule(metrics)
         assert result is None

@@ -14,7 +14,6 @@
 
 # fluid_build/provider/snowflake/util.py
 from __future__ import annotations
-from typing import Dict
 
 _FLUID_TO_SF = {
     "STRING": "VARCHAR",
@@ -30,20 +29,23 @@ _FLUID_TO_SF = {
     "BYTES": "BINARY",
 }
 
+
 def map_type(fluid_type: str) -> str:
     t = fluid_type.upper().strip()
     return _FLUID_TO_SF.get(t, t)  # fallback to same token if unknown
 
+
 def backtick(s: str) -> str:
     # Keep consistent quoting (Snowflake prefers double quotes for identifiers)
     return f'"{s}"'
+
 
 def create_table_ddl(table_spec) -> str:
     cols = []
     for c in table_spec.columns:
         coltype = map_type(c.type)
         nulls = "NULL" if c.nullable else "NOT NULL"
-        cols.append(f'{backtick(c.name)} {coltype} {nulls}')
+        cols.append(f"{backtick(c.name)} {coltype} {nulls}")
     columns_sql = ",\n  ".join(cols)
     db, sch, name = table_spec.ident.database, table_spec.ident.schema, table_spec.ident.name
     return f"""CREATE TABLE IF NOT EXISTS {backtick(db)}.{backtick(sch)}.{backtick(name)} (

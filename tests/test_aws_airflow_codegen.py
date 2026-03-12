@@ -1,20 +1,31 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for providers/aws/codegen/airflow.py — pure codegen helpers."""
 
 import pytest
 
 from fluid_build.providers.aws.codegen.airflow import (
-    _sanitize_dag_id,
-    _sanitize_task_id,
     _convert_schedule,
+    _generate_dag_definition,
     _generate_dag_header,
     _generate_dag_imports,
-    _generate_dag_definition,
-    _generate_task_dependencies,
-    _generate_single_task,
     _generate_python_task,
-    _generate_s3_task,
-    _generate_glue_task,
-    _generate_athena_task,
+    _generate_single_task,
+    _generate_task_dependencies,
+    _sanitize_dag_id,
+    _sanitize_task_id,
     generate_airflow_dag,
 )
 
@@ -120,28 +131,40 @@ class TestGenerateTaskDependencies:
 # ── _generate_single_task ───────────────────────────────────────────
 class TestGenerateSingleTask:
     def test_s3_task(self):
-        task = {"taskId": "create_bucket", "action": "aws.s3.ensure_bucket",
-                "params": {"bucket": "my-bucket"}}
+        task = {
+            "taskId": "create_bucket",
+            "action": "aws.s3.ensure_bucket",
+            "params": {"bucket": "my-bucket"},
+        }
         result = _generate_single_task(task, "123", "us-east-1")
         assert "S3CreateBucketOperator" in result
         assert "my-bucket" in result
 
     def test_glue_ensure_database(self):
-        task = {"taskId": "create_db", "action": "aws.glue.ensure_database",
-                "params": {"database": "mydb"}}
+        task = {
+            "taskId": "create_db",
+            "action": "aws.glue.ensure_database",
+            "params": {"database": "mydb"},
+        }
         result = _generate_single_task(task, "123", "us-east-1")
         assert "mydb" in result
 
     def test_glue_ensure_table(self):
-        task = {"taskId": "create_tbl", "action": "aws.glue.ensure_table",
-                "params": {"database": "mydb", "table": "tbl"}}
+        task = {
+            "taskId": "create_tbl",
+            "action": "aws.glue.ensure_table",
+            "params": {"database": "mydb", "table": "tbl"},
+        }
         result = _generate_single_task(task, "123", "us-east-1")
         assert "mydb" in result
         assert "tbl" in result
 
     def test_athena_task(self):
-        task = {"taskId": "run_query", "action": "aws.athena.execute_query",
-                "params": {"query": "SELECT 1", "database": "mydb"}}
+        task = {
+            "taskId": "run_query",
+            "action": "aws.athena.execute_query",
+            "params": {"query": "SELECT 1", "database": "mydb"},
+        }
         result = _generate_single_task(task, "123", "us-east-1")
         assert "AthenaOperator" in result
 
@@ -183,13 +206,19 @@ class TestGenerateAirflowDag:
                 "schedule": "daily",
                 "timezone": "UTC",
                 "tasks": [
-                    {"taskId": "load", "type": "provider_action",
-                     "action": "aws.s3.ensure_bucket",
-                     "params": {"bucket": "data-bucket"}},
-                    {"taskId": "transform", "type": "provider_action",
-                     "action": "aws.glue.ensure_database",
-                     "params": {"database": "analytics"},
-                     "dependsOn": ["load"]},
+                    {
+                        "taskId": "load",
+                        "type": "provider_action",
+                        "action": "aws.s3.ensure_bucket",
+                        "params": {"bucket": "data-bucket"},
+                    },
+                    {
+                        "taskId": "transform",
+                        "type": "provider_action",
+                        "action": "aws.glue.ensure_database",
+                        "params": {"database": "analytics"},
+                        "dependsOn": ["load"],
+                    },
                 ],
             },
         }

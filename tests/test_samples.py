@@ -1,16 +1,27 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for fluid_build/providers/local/samples.py — sample data generators."""
-import json
-import csv
+
 import random
-import pytest
-from pathlib import Path
 
 from fluid_build.providers.local.samples import (
     CustomerDataGenerator,
-    OrderDataGenerator,
     EventDataGenerator,
-    TimeSeriesDataGenerator,
+    OrderDataGenerator,
     SampleDataManager,
+    TimeSeriesDataGenerator,
 )
 
 
@@ -24,10 +35,23 @@ class TestCustomerDataGenerator:
         gen = CustomerDataGenerator()
         c = gen.generate(count=1)[0]
         required = {
-            "customer_id", "first_name", "last_name", "email", "phone",
-            "company", "segment", "industry", "city", "state", "postal_code",
-            "country", "created_at", "last_active_at", "lifetime_value",
-            "total_orders", "is_active",
+            "customer_id",
+            "first_name",
+            "last_name",
+            "email",
+            "phone",
+            "company",
+            "segment",
+            "industry",
+            "city",
+            "state",
+            "postal_code",
+            "country",
+            "created_at",
+            "last_active_at",
+            "lifetime_value",
+            "total_orders",
+            "is_active",
         }
         assert required.issubset(c.keys())
 
@@ -35,7 +59,7 @@ class TestCustomerDataGenerator:
         gen = CustomerDataGenerator()
         customers = gen.generate(count=5)
         for i, c in enumerate(customers, 1):
-            assert c["customer_id"] == "CUST{:06d}".format(i)
+            assert c["customer_id"] == f"CUST{i:06d}"
 
     def test_email_format(self):
         gen = CustomerDataGenerator()
@@ -72,9 +96,19 @@ class TestOrderDataGenerator:
         gen = OrderDataGenerator()
         o = gen.generate(count=1)[0]
         required = {
-            "order_id", "customer_id", "order_date", "product_name",
-            "product_category", "quantity", "unit_price", "subtotal",
-            "tax", "shipping", "total", "status", "payment_method",
+            "order_id",
+            "customer_id",
+            "order_date",
+            "product_name",
+            "product_category",
+            "quantity",
+            "unit_price",
+            "subtotal",
+            "tax",
+            "shipping",
+            "total",
+            "status",
+            "payment_method",
         }
         assert required.issubset(o.keys())
 
@@ -82,7 +116,7 @@ class TestOrderDataGenerator:
         gen = OrderDataGenerator()
         orders = gen.generate(count=3)
         for i, o in enumerate(orders, 1):
-            assert o["order_id"] == "ORD{:08d}".format(i)
+            assert o["order_id"] == f"ORD{i:08d}"
 
     def test_custom_customer_ids(self):
         gen = OrderDataGenerator()

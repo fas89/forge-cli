@@ -1,32 +1,49 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Branch-coverage tests for fluid_build.forge.core.testing"""
-import json
-import pytest
-from pathlib import Path
-from unittest.mock import patch, MagicMock, PropertyMock
+
+from unittest.mock import MagicMock, patch
 
 from fluid_build.forge.core.testing import (
-    TestResult,
-    TemplateTestSuite,
     ForgeTestRunner,
+    TemplateTestSuite,
+    TestResult,
 )
-
 
 # ── TestResult dataclass ────────────────────────────────────────────
 
+
 class TestTestResult:
     def test_success(self):
-        r = TestResult(success=True, errors=[], warnings=[], generated_files=["a.py"], execution_time=0.5)
+        r = TestResult(
+            success=True, errors=[], warnings=[], generated_files=["a.py"], execution_time=0.5
+        )
         assert r.success is True
         assert r.errors == []
         assert r.generated_files == ["a.py"]
 
     def test_failure(self):
-        r = TestResult(success=False, errors=["bad"], warnings=["ok"], generated_files=[], execution_time=1.0)
+        r = TestResult(
+            success=False, errors=["bad"], warnings=["ok"], generated_files=[], execution_time=1.0
+        )
         assert r.success is False
         assert len(r.errors) == 1
 
 
 # ── TemplateTestSuite._test_metadata ────────────────────────────────
+
 
 class TestTemplateTestSuiteMetadata:
     @patch("fluid_build.forge.core.testing.get_provider_registry")
@@ -131,6 +148,7 @@ class TestTemplateTestSuiteMetadata:
 
 # ── _create_project_structure ────────────────────────────────────────
 
+
 class TestCreateProjectStructure:
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
@@ -171,6 +189,7 @@ class TestCreateProjectStructure:
 
 # ── _test_file_validation ────────────────────────────────────────────
 
+
 class TestFileValidation:
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
@@ -183,7 +202,9 @@ class TestFileValidation:
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
     def test_all_present(self, mock_tr, mock_pr, tmp_path):
-        (tmp_path / "contract.fluid.yaml").write_text("apiVersion: 0.5.7\nkind: DataContract\nmetadata:\n  name: t\nspec:\n  inputs: []")
+        (tmp_path / "contract.fluid.yaml").write_text(
+            "apiVersion: 0.5.7\nkind: DataContract\nmetadata:\n  name: t\nspec:\n  inputs: []"
+        )
         (tmp_path / "README.md").write_text("# test")
         (tmp_path / "requirements.txt").write_text("pandas")
         suite = TemplateTestSuite("t")
@@ -215,6 +236,7 @@ class TestFileValidation:
 
 # ── _test_contract_validation ────────────────────────────────────────
 
+
 class TestContractValidation:
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
@@ -230,9 +252,10 @@ class TestContractValidation:
             "apiVersion": "0.5.7",
             "kind": "DataContract",
             "metadata": {"name": "test"},
-            "spec": {"inputs": [], "outputs": []}
+            "spec": {"inputs": [], "outputs": []},
         }
         import yaml as real_yaml
+
         (tmp_path / "contract.fluid.yaml").write_text(real_yaml.dump(contract))
         suite = TemplateTestSuite("t")
         errors = suite._test_contract_validation(tmp_path)
@@ -250,6 +273,7 @@ class TestContractValidation:
     @patch("fluid_build.forge.core.testing.get_template_registry")
     def test_missing_metadata_name(self, mock_tr, mock_pr, tmp_path):
         import yaml as real_yaml
+
         contract = {"apiVersion": "0.5.7", "kind": "DC", "metadata": {}, "spec": {"inputs": []}}
         (tmp_path / "contract.fluid.yaml").write_text(real_yaml.dump(contract))
         suite = TemplateTestSuite("t")
@@ -260,6 +284,7 @@ class TestContractValidation:
     @patch("fluid_build.forge.core.testing.get_template_registry")
     def test_no_inputs_or_outputs(self, mock_tr, mock_pr, tmp_path):
         import yaml as real_yaml
+
         contract = {"apiVersion": "0.5.7", "kind": "DC", "metadata": {"name": "t"}, "spec": {}}
         (tmp_path / "contract.fluid.yaml").write_text(real_yaml.dump(contract))
         suite = TemplateTestSuite("t")
@@ -268,6 +293,7 @@ class TestContractValidation:
 
 
 # ── run_full_test ────────────────────────────────────────────────────
+
 
 class TestRunFullTest:
     @patch("fluid_build.forge.core.testing.get_provider_registry")
@@ -290,6 +316,7 @@ class TestRunFullTest:
 
 
 # ── ForgeTestRunner ─────────────────────────────────────────────────
+
 
 class TestForgeTestRunner:
     @patch("fluid_build.forge.core.testing.cprint")

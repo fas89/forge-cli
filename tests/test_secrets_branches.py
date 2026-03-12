@@ -1,18 +1,34 @@
-"""Branch-coverage tests for fluid_build.secrets"""
-import os
-import logging
-import pytest
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
+"""Branch-coverage tests for fluid_build.secrets"""
+
+import logging
+import os
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from fluid_build.errors import AuthenticationError, ConfigurationError
 from fluid_build.secrets import (
-    SecretSource,
     SecretConfig,
     SecretManager,
-    get_secret_manager,
+    SecretSource,
     get_secret,
+    get_secret_manager,
 )
-from fluid_build.errors import ConfigurationError, AuthenticationError
 
 
 @pytest.fixture
@@ -21,6 +37,7 @@ def logger():
 
 
 # ── SecretSource enum ────────────────────────────────────────────────
+
 
 class TestSecretSource:
     def test_env(self):
@@ -44,6 +61,7 @@ class TestSecretSource:
 
 # ── SecretConfig dataclass ───────────────────────────────────────────
 
+
 class TestSecretConfig:
     def test_defaults(self):
         cfg = SecretConfig(source=SecretSource.ENV)
@@ -64,6 +82,7 @@ class TestSecretConfig:
 
 
 # ── SecretManager ────────────────────────────────────────────────────
+
 
 class TestSecretManager:
     def test_default_config(self):
@@ -121,7 +140,10 @@ class TestSecretManager:
     def test_gcp_import_error(self):
         cfg = SecretConfig(source=SecretSource.GCP_SECRET_MANAGER, project_id="proj")
         sm = SecretManager(cfg)
-        with patch.dict("sys.modules", {"google.cloud.secretmanager": None, "google.cloud": None, "google": None}):
+        with patch.dict(
+            "sys.modules",
+            {"google.cloud.secretmanager": None, "google.cloud": None, "google": None},
+        ):
             with pytest.raises(ConfigurationError):
                 sm._get_from_gcp("secret")
 
@@ -129,7 +151,14 @@ class TestSecretManager:
         cfg = SecretConfig(source=SecretSource.GCP_SECRET_MANAGER, project_id=None)
         sm = SecretManager(cfg)
         mock_mod = MagicMock()
-        with patch.dict("sys.modules", {"google.cloud.secretmanager": mock_mod, "google.cloud": MagicMock(), "google": MagicMock()}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "google.cloud.secretmanager": mock_mod,
+                "google.cloud": MagicMock(),
+                "google": MagicMock(),
+            },
+        ):
             with pytest.raises(ConfigurationError):
                 sm._get_from_gcp("secret")
 
@@ -144,11 +173,14 @@ class TestSecretManager:
         mock_secretmanager.SecretManagerServiceClient.return_value = mock_client
         mock_google_cloud = MagicMock()
         mock_google_cloud.secretmanager = mock_secretmanager
-        with patch.dict("sys.modules", {
-            "google": MagicMock(),
-            "google.cloud": mock_google_cloud,
-            "google.cloud.secretmanager": mock_secretmanager,
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "google": MagicMock(),
+                "google.cloud": mock_google_cloud,
+                "google.cloud.secretmanager": mock_secretmanager,
+            },
+        ):
             result = sm._get_from_gcp("test_secret")
         assert result == "my-secret-value"
 
@@ -156,14 +188,19 @@ class TestSecretManager:
         cfg = SecretConfig(source=SecretSource.GCP_SECRET_MANAGER, project_id="proj")
         sm = SecretManager(cfg)
         mock_secretmanager = MagicMock()
-        mock_secretmanager.SecretManagerServiceClient.return_value.access_secret_version.side_effect = RuntimeError("fail")
+        mock_secretmanager.SecretManagerServiceClient.return_value.access_secret_version.side_effect = RuntimeError(
+            "fail"
+        )
         mock_google_cloud = MagicMock()
         mock_google_cloud.secretmanager = mock_secretmanager
-        with patch.dict("sys.modules", {
-            "google": MagicMock(),
-            "google.cloud": mock_google_cloud,
-            "google.cloud.secretmanager": mock_secretmanager,
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "google": MagicMock(),
+                "google.cloud": mock_google_cloud,
+                "google.cloud.secretmanager": mock_secretmanager,
+            },
+        ):
             result = sm._get_from_gcp("test_secret")
         assert result is None
 
@@ -171,7 +208,9 @@ class TestSecretManager:
     def test_aws_import_error(self):
         cfg = SecretConfig(source=SecretSource.AWS_SECRETS_MANAGER)
         sm = SecretManager(cfg)
-        with patch.dict("sys.modules", {"boto3": None, "botocore": None, "botocore.exceptions": None}):
+        with patch.dict(
+            "sys.modules", {"boto3": None, "botocore": None, "botocore.exceptions": None}
+        ):
             with pytest.raises(ConfigurationError):
                 sm._get_from_aws("secret")
 
@@ -183,7 +222,14 @@ class TestSecretManager:
         mock_client.get_secret_value.return_value = {"SecretString": "aws-secret"}
         mock_boto3.client.return_value = mock_client
         mock_botocore = MagicMock()
-        with patch.dict("sys.modules", {"boto3": mock_boto3, "botocore": mock_botocore, "botocore.exceptions": mock_botocore.exceptions}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "boto3": mock_boto3,
+                "botocore": mock_botocore,
+                "botocore.exceptions": mock_botocore.exceptions,
+            },
+        ):
             result = sm._get_from_aws("my-secret")
         assert result == "aws-secret"
 
@@ -220,10 +266,15 @@ class TestSecretManager:
     def test_azure_import_error(self):
         cfg = SecretConfig(source=SecretSource.AZURE_KEY_VAULT, vault_url="https://v")
         sm = SecretManager(cfg)
-        with patch.dict("sys.modules", {
-            "azure.keyvault.secrets": None, "azure.keyvault": None, "azure": None,
-            "azure.identity": None,
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "azure.keyvault.secrets": None,
+                "azure.keyvault": None,
+                "azure": None,
+                "azure.identity": None,
+            },
+        ):
             with pytest.raises(ConfigurationError):
                 sm._get_from_azure("s")
 
@@ -232,10 +283,15 @@ class TestSecretManager:
         sm = SecretManager(cfg)
         mock_az = MagicMock()
         mock_id = MagicMock()
-        with patch.dict("sys.modules", {
-            "azure.keyvault.secrets": mock_az, "azure.keyvault": MagicMock(), "azure": MagicMock(),
-            "azure.identity": mock_id,
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "azure.keyvault.secrets": mock_az,
+                "azure.keyvault": MagicMock(),
+                "azure": MagicMock(),
+                "azure.identity": mock_id,
+            },
+        ):
             with pytest.raises(ConfigurationError):
                 sm._get_from_azure("s")
 
@@ -279,7 +335,9 @@ class TestSecretManager:
 
     @patch.dict(os.environ, {"VAULT_TOKEN": "tok"})
     def test_vault_success(self):
-        cfg = SecretConfig(source=SecretSource.HASHICORP_VAULT, vault_url="http://v", vault_path="kv")
+        cfg = SecretConfig(
+            source=SecretSource.HASHICORP_VAULT, vault_url="http://v", vault_path="kv"
+        )
         sm = SecretManager(cfg)
         mock_hvac = MagicMock()
         mock_client = MagicMock()
@@ -305,10 +363,12 @@ class TestSecretManager:
 
 # ── Module-level functions ───────────────────────────────────────────
 
+
 class TestModuleLevelFunctions:
     @patch.dict(os.environ, {"GCP_PROJECT": "my-proj"}, clear=False)
     def test_get_secret_manager_gcp(self):
         import fluid_build.secrets as mod
+
         mod._global_manager = None
         mgr = get_secret_manager()
         assert mgr.config.source == SecretSource.GCP_SECRET_MANAGER
@@ -317,6 +377,7 @@ class TestModuleLevelFunctions:
     @patch.dict(os.environ, {"AWS_REGION": "eu-west-1"}, clear=False)
     def test_get_secret_manager_aws(self):
         import fluid_build.secrets as mod
+
         old = os.environ.pop("GCP_PROJECT", None)
         mod._global_manager = None
         mgr = get_secret_manager()
@@ -328,6 +389,7 @@ class TestModuleLevelFunctions:
     @patch.dict(os.environ, {}, clear=True)
     def test_get_secret_manager_default_env(self):
         import fluid_build.secrets as mod
+
         mod._global_manager = None
         mgr = get_secret_manager()
         assert mgr.config.source == SecretSource.ENV
@@ -336,6 +398,7 @@ class TestModuleLevelFunctions:
     @patch.dict(os.environ, {"TEST_KEY": "hello"}, clear=False)
     def test_get_secret_convenience(self):
         import fluid_build.secrets as mod
+
         mod._global_manager = None
         result = get_secret("TEST_KEY")
         assert result == "hello"
@@ -344,6 +407,7 @@ class TestModuleLevelFunctions:
     @patch.dict(os.environ, {}, clear=True)
     def test_get_secret_default(self):
         import fluid_build.secrets as mod
+
         mod._global_manager = None
         result = get_secret("MISSING_KEY", required=False, default="fallback")
         assert result == "fallback"

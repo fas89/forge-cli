@@ -15,6 +15,7 @@
 """
 Git repository information detection.
 """
+
 import subprocess
 from pathlib import Path
 from typing import Dict, Optional
@@ -23,10 +24,10 @@ from typing import Dict, Optional
 def get_git_info(directory: Optional[Path] = None) -> Dict[str, Optional[str]]:
     """
     Extract git information from current directory.
-    
+
     Args:
         directory: Directory to check (default: current directory)
-    
+
     Returns:
         Dictionary with git information:
         - repo: Git repository URL
@@ -35,7 +36,7 @@ def get_git_info(directory: Optional[Path] = None) -> Dict[str, Optional[str]]:
         - tag: Current tag (if on a tag)
         - author: Commit author name and email
         - dirty: True if working directory has uncommitted changes
-    
+
     Example:
         >>> info = get_git_info()
         >>> print(info)
@@ -50,16 +51,16 @@ def get_git_info(directory: Optional[Path] = None) -> Dict[str, Optional[str]]:
     """
     if directory is None:
         directory = Path.cwd()
-    
+
     info = {
         "repo": None,
         "commit": None,
         "branch": None,
         "tag": None,
         "author": None,
-        "dirty": False
+        "dirty": False,
     }
-    
+
     try:
         # Check if in a git repository
         subprocess.run(
@@ -67,12 +68,12 @@ def get_git_info(directory: Optional[Path] = None) -> Dict[str, Optional[str]]:
             cwd=directory,
             capture_output=True,
             check=True,
-            timeout=2
+            timeout=2,
         )
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
         # Not a git repository or git not installed
         return info
-    
+
     # Get remote URL
     try:
         result = subprocess.run(
@@ -80,27 +81,23 @@ def get_git_info(directory: Optional[Path] = None) -> Dict[str, Optional[str]]:
             cwd=directory,
             capture_output=True,
             text=True,
-            timeout=2
+            timeout=2,
         )
         if result.returncode == 0:
             info["repo"] = result.stdout.strip()
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
-    
+
     # Get current commit hash
     try:
         result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=directory,
-            capture_output=True,
-            text=True,
-            timeout=2
+            ["git", "rev-parse", "HEAD"], cwd=directory, capture_output=True, text=True, timeout=2
         )
         if result.returncode == 0:
             info["commit"] = result.stdout.strip()
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
-    
+
     # Get current branch
     try:
         result = subprocess.run(
@@ -108,7 +105,7 @@ def get_git_info(directory: Optional[Path] = None) -> Dict[str, Optional[str]]:
             cwd=directory,
             capture_output=True,
             text=True,
-            timeout=2
+            timeout=2,
         )
         if result.returncode == 0:
             branch = result.stdout.strip()
@@ -117,7 +114,7 @@ def get_git_info(directory: Optional[Path] = None) -> Dict[str, Optional[str]]:
                 info["branch"] = branch
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
-    
+
     # Get current tag (if on a tag)
     try:
         result = subprocess.run(
@@ -125,13 +122,13 @@ def get_git_info(directory: Optional[Path] = None) -> Dict[str, Optional[str]]:
             cwd=directory,
             capture_output=True,
             text=True,
-            timeout=2
+            timeout=2,
         )
         if result.returncode == 0:
             info["tag"] = result.stdout.strip()
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
-    
+
     # Get commit author
     try:
         result = subprocess.run(
@@ -139,13 +136,13 @@ def get_git_info(directory: Optional[Path] = None) -> Dict[str, Optional[str]]:
             cwd=directory,
             capture_output=True,
             text=True,
-            timeout=2
+            timeout=2,
         )
         if result.returncode == 0:
             info["author"] = result.stdout.strip()
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
-    
+
     # Check if working directory is dirty
     try:
         result = subprocess.run(
@@ -153,11 +150,11 @@ def get_git_info(directory: Optional[Path] = None) -> Dict[str, Optional[str]]:
             cwd=directory,
             capture_output=True,
             text=True,
-            timeout=2
+            timeout=2,
         )
         if result.returncode == 0:
             info["dirty"] = bool(result.stdout.strip())
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
-    
+
     return info

@@ -1,8 +1,21 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for providers/aws/actions/kinesis.py — input validation (mocked boto3)."""
 
 import sys
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 # We need boto3 + botocore mocked since kinesis.py imports them inside functions
 _mock_boto3 = MagicMock()
@@ -12,18 +25,21 @@ _mock_botocore_exc = MagicMock()
 
 def _patch_boto():
     """Context manager to make boto3 importable."""
-    return patch.dict(sys.modules, {
-        "boto3": _mock_boto3,
-        "botocore": _mock_botocore,
-        "botocore.exceptions": _mock_botocore_exc,
-    })
+    return patch.dict(
+        sys.modules,
+        {
+            "boto3": _mock_boto3,
+            "botocore": _mock_botocore,
+            "botocore.exceptions": _mock_botocore_exc,
+        },
+    )
 
 
 from fluid_build.providers.aws.actions.kinesis import (
-    ensure_stream,
-    ensure_firehose,
-    put_records,
     ensure_analytics_application,
+    ensure_firehose,
+    ensure_stream,
+    put_records,
 )
 
 
@@ -125,10 +141,12 @@ class TestEnsureAnalyticsValidation:
 
     def test_invalid_runtime(self):
         with _patch_boto():
-            result = ensure_analytics_application({
-                "application_name": "app",
-                "service_execution_role": "arn:aws:iam::role/test",
-                "runtime_environment": "INVALID",
-            })
+            result = ensure_analytics_application(
+                {
+                    "application_name": "app",
+                    "service_execution_role": "arn:aws:iam::role/test",
+                    "runtime_environment": "INVALID",
+                }
+            )
         assert result["status"] == "error"
         assert "runtime_environment" in result["error"]

@@ -14,11 +14,14 @@
 
 # fluid_build/provider/snowflake/connection.py
 from __future__ import annotations
-import logging, os, time
-from typing import Optional, Dict, Any, Iterable
+
+import logging
+from collections.abc import Iterable
+from typing import Any, Dict, Optional
 
 try:
     import snowflake.connector
+
     SNOWFLAKE_AVAILABLE = True
 except ImportError:
     SNOWFLAKE_AVAILABLE = False
@@ -28,11 +31,12 @@ from .types import ProviderOptions
 
 log = logging.getLogger("fluid.provider.snowflake")
 
+
 class SnowflakeConnection:
     def __init__(self, opts: ProviderOptions = None, **kwargs):
         """
         Initialize Snowflake connection.
-        
+
         Accepts either a ProviderOptions dataclass or keyword arguments
         matching ProviderOptions fields. This supports both:
             SnowflakeConnection(opts=provider_options)
@@ -77,7 +81,7 @@ class SnowflakeConnection:
                 "snowflake-connector-python not installed. "
                 "Install with: pip install snowflake-connector-python"
             )
-        
+
         kwargs: Dict[str, Any] = dict(
             account=self.opts.account,
             user=self.opts.user,
@@ -92,12 +96,16 @@ class SnowflakeConnection:
             kwargs["authenticator"] = "oauth"
             kwargs["token"] = self.opts.oauth_token
         elif self.opts.private_key_path:
-            import os
             from cryptography.hazmat.primitives import serialization
+
             with open(self.opts.private_key_path, "rb") as f:
                 pkey = serialization.load_pem_private_key(
                     f.read(),
-                    password=(self.opts.private_key_passphrase.encode("utf-8") if self.opts.private_key_passphrase else None)
+                    password=(
+                        self.opts.private_key_passphrase.encode("utf-8")
+                        if self.opts.private_key_passphrase
+                        else None
+                    ),
                 )
             pkb = pkey.private_bytes(
                 serialization.Encoding.DER,
@@ -108,12 +116,17 @@ class SnowflakeConnection:
         else:
             kwargs["password"] = self.opts.password
 
-        log.info("Connecting to Snowflake account=%s role=%s wh=%s db=%s sch=%s",
-                 kwargs.get("account"), kwargs.get("role"), kwargs.get("warehouse"),
-                 kwargs.get("database"), kwargs.get("schema"))
+        log.info(
+            "Connecting to Snowflake account=%s role=%s wh=%s db=%s sch=%s",
+            kwargs.get("account"),
+            kwargs.get("role"),
+            kwargs.get("warehouse"),
+            kwargs.get("database"),
+            kwargs.get("schema"),
+        )
         return snowflake.connector.connect(**kwargs)
 
-    def execute(self, sql: str, params: Optional[Iterable]=None, many: bool=False):
+    def execute(self, sql: str, params: Optional[Iterable] = None, many: bool = False):
         log.debug("Executing SQL:\n%s", sql)
         with self._conn.cursor() as cur:
             if many and isinstance(params, list):

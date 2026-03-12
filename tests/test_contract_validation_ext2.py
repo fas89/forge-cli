@@ -1,12 +1,26 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Extended tests for ContractValidator in cli/contract_validation.py.
 
 Tests _validate_single_expose, _validate_exposes, _validate_binding (deeper),
 _validate_schema_definition (deeper) via a stubbed validator.
 """
+
 import logging
-import pytest
-from unittest.mock import MagicMock, patch
 from pathlib import Path
+from unittest.mock import patch
 
 from fluid_build.cli.contract_validation import ContractValidator, ValidationReport
 
@@ -43,7 +57,12 @@ def _make_validator(contract_dict=None):
 class TestValidateSingleExpose:
     def test_all_required_fields_present(self):
         v = _make_validator()
-        expose = {"id": "out", "type": "table", "binding": {"platform": "local", "location": {"format": "csv", "properties": {}}}, "schema": [{"name": "x", "type": "STRING"}]}
+        expose = {
+            "id": "out",
+            "type": "table",
+            "binding": {"platform": "local", "location": {"format": "csv", "properties": {}}},
+            "schema": [{"name": "x", "type": "STRING"}],
+        }
         v._validate_single_expose(expose, 0)
         errors = [i for i in v.report.issues if i.severity == "error"]
         assert len(errors) == 0
@@ -64,10 +83,17 @@ class TestValidateSingleExpose:
 
     def test_binding_validation_called(self):
         v = _make_validator()
-        expose = {"id": "out", "type": "table", "binding": {"platform": "local", "location": {"format": "parquet", "properties": {}}}, "schema": []}
+        expose = {
+            "id": "out",
+            "type": "table",
+            "binding": {"platform": "local", "location": {"format": "parquet", "properties": {}}},
+            "schema": [],
+        }
         v._validate_single_expose(expose, 0)
         # Binding is valid so no binding errors
-        binding_errors = [i for i in v.report.issues if i.category == "binding" and i.severity == "error"]
+        binding_errors = [
+            i for i in v.report.issues if i.category == "binding" and i.severity == "error"
+        ]
         assert len(binding_errors) == 0
 
 
@@ -79,12 +105,14 @@ class TestValidateExposes:
         assert any("No data products" in w.message for w in warnings)
 
     def test_multiple_exposes(self):
-        v = _make_validator({
-            "exposes": [
-                {"id": "a", "type": "table", "binding": {"platform": "local"}, "schema": []},
-                {"id": "b", "type": "view", "binding": {"platform": "local"}, "schema": []},
-            ]
-        })
+        v = _make_validator(
+            {
+                "exposes": [
+                    {"id": "a", "type": "table", "binding": {"platform": "local"}, "schema": []},
+                    {"id": "b", "type": "view", "binding": {"platform": "local"}, "schema": []},
+                ]
+            }
+        )
         v._validate_exposes()
         assert v.report.exposes_validated == 2
 
@@ -105,8 +133,7 @@ class TestValidateBindingDeeper:
     def test_location_missing_format(self):
         v = _make_validator()
         v._validate_binding(
-            {"platform": "local", "location": {"properties": {}}},
-            "exposes[0].binding", "test"
+            {"platform": "local", "location": {"properties": {}}}, "exposes[0].binding", "test"
         )
         warnings = [i for i in v.report.issues if i.severity == "warning"]
         assert any("format" in w.message for w in warnings)
@@ -114,8 +141,7 @@ class TestValidateBindingDeeper:
     def test_location_missing_properties(self):
         v = _make_validator()
         v._validate_binding(
-            {"platform": "local", "location": {"format": "parquet"}},
-            "exposes[0].binding", "test"
+            {"platform": "local", "location": {"format": "parquet"}}, "exposes[0].binding", "test"
         )
         warnings = [i for i in v.report.issues if i.severity == "warning"]
         assert any("properties" in w.message for w in warnings)
@@ -125,7 +151,8 @@ class TestValidateBindingDeeper:
         v.provider_name = "gcp"
         v._validate_binding(
             {"platform": "gcp", "location": {"format": "parquet", "properties": {"project": "p"}}},
-            "path", "test"
+            "path",
+            "test",
         )
         errors = [i for i in v.report.issues if i.severity == "error"]
         # Missing dataset and table
@@ -136,8 +163,15 @@ class TestValidateBindingDeeper:
         v = _make_validator()
         v.provider_name = "gcp"
         v._validate_binding(
-            {"platform": "gcp", "location": {"format": "parquet", "properties": {"project": "p", "dataset": "d", "table": "t"}}},
-            "path", "test"
+            {
+                "platform": "gcp",
+                "location": {
+                    "format": "parquet",
+                    "properties": {"project": "p", "dataset": "d", "table": "t"},
+                },
+            },
+            "path",
+            "test",
         )
         errors = [i for i in v.report.issues if i.severity == "error"]
         assert len(errors) == 0
@@ -145,8 +179,12 @@ class TestValidateBindingDeeper:
     def test_valid_binding(self):
         v = _make_validator()
         v._validate_binding(
-            {"platform": "local", "location": {"format": "parquet", "properties": {"path": "/data"}}},
-            "path", "test"
+            {
+                "platform": "local",
+                "location": {"format": "parquet", "properties": {"path": "/data"}},
+            },
+            "path",
+            "test",
         )
         assert len(v.report.issues) == 0
 
@@ -189,9 +227,24 @@ class TestValidateSchemaDefinitionDeeper:
     def test_all_standard_types(self):
         """Verify all standard types pass without warnings."""
         v = _make_validator()
-        standard = ["VARCHAR", "STRING", "TEXT", "INT", "INTEGER", "BIGINT",
-                     "FLOAT", "DOUBLE", "DECIMAL", "BOOL", "BOOLEAN",
-                     "DATE", "DATETIME", "TIMESTAMP", "JSON", "BYTES"]
+        standard = [
+            "VARCHAR",
+            "STRING",
+            "TEXT",
+            "INT",
+            "INTEGER",
+            "BIGINT",
+            "FLOAT",
+            "DOUBLE",
+            "DECIMAL",
+            "BOOL",
+            "BOOLEAN",
+            "DATE",
+            "DATETIME",
+            "TIMESTAMP",
+            "JSON",
+            "BYTES",
+        ]
         schema = [{"name": f"c{i}", "type": t} for i, t in enumerate(standard)]
         v._validate_schema_definition(schema, "path", "test")
         warnings = [i for i in v.report.issues if i.severity == "warning"]

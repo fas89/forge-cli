@@ -42,13 +42,14 @@ _SAFE_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 def _validate_ident(name: str) -> str:
     if not _SAFE_IDENT.match(name):
-        raise ValueError("Invalid SQL identifier: {!r}".format(name))
+        raise ValueError(f"Invalid SQL identifier: {name!r}")
     return name
 
 
 @dataclass
 class QualityCheckResult:
     """Result of a single data quality check."""
+
     rule_id: str
     rule_type: str
     selector: str
@@ -63,15 +64,16 @@ class QualityCheckResult:
 # SQL generators per rule type
 # ------------------------------------------------------------------
 
+
 def _completeness_sql(table_ref: str, column: str) -> str:
     """Generate SQL to compute non-null fraction for a column."""
     col = _validate_ident(column)
     return (
         "SELECT "
-        "CAST(SUM(CASE WHEN \"{col}\" IS NOT NULL THEN 1 ELSE 0 END) AS DOUBLE PRECISION) "
+        f'CAST(SUM(CASE WHEN "{col}" IS NOT NULL THEN 1 ELSE 0 END) AS DOUBLE PRECISION) '
         "/ NULLIF(COUNT(*), 0) AS completeness_ratio "
-        "FROM {tbl}"
-    ).format(col=col, tbl=table_ref)
+        f"FROM {table_ref}"
+    )
 
 
 def _uniqueness_sql(table_ref: str, column: str) -> str:
@@ -79,16 +81,16 @@ def _uniqueness_sql(table_ref: str, column: str) -> str:
     col = _validate_ident(column)
     return (
         "SELECT "
-        "CAST(COUNT(DISTINCT \"{col}\") AS DOUBLE PRECISION) "
-        "/ NULLIF(COUNT(\"{col}\"), 0) AS uniqueness_ratio "
-        "FROM {tbl}"
-    ).format(col=col, tbl=table_ref)
+        f'CAST(COUNT(DISTINCT "{col}") AS DOUBLE PRECISION) '
+        f'/ NULLIF(COUNT("{col}"), 0) AS uniqueness_ratio '
+        f"FROM {table_ref}"
+    )
 
 
 def _accuracy_min_sql(table_ref: str, column: str) -> str:
     """Generate SQL to get the minimum value of a numeric column."""
     col = _validate_ident(column)
-    return 'SELECT MIN("{col}") AS min_val FROM {tbl}'.format(col=col, tbl=table_ref)
+    return f'SELECT MIN("{col}") AS min_val FROM {table_ref}'
 
 
 def _freshness_sql(table_ref: str, column: str, dialect: str = "ansi") -> str:
@@ -96,20 +98,20 @@ def _freshness_sql(table_ref: str, column: str, dialect: str = "ansi") -> str:
     col = _validate_ident(column)
     if dialect == "snowflake":
         return (
-            "SELECT DATEDIFF('second', MAX(\"{col}\"), CURRENT_TIMESTAMP()) AS age_seconds "
-            "FROM {tbl}"
-        ).format(col=col, tbl=table_ref)
+            f"SELECT DATEDIFF('second', MAX(\"{col}\"), CURRENT_TIMESTAMP()) AS age_seconds "
+            f"FROM {table_ref}"
+        )
     elif dialect == "bigquery":
         return (
-            "SELECT TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), MAX(`{col}`), SECOND) AS age_seconds "
-            "FROM {tbl}"
-        ).format(col=col, tbl=table_ref)
+            f"SELECT TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), MAX(`{col}`), SECOND) AS age_seconds "
+            f"FROM {table_ref}"
+        )
     else:
         # ANSI / DuckDB / Athena (Presto)
         return (
-            "SELECT EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - MAX(\"{col}\"))) AS age_seconds "
-            "FROM {tbl}"
-        ).format(col=col, tbl=table_ref)
+            f'SELECT EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - MAX("{col}"))) AS age_seconds '
+            f"FROM {table_ref}"
+        )
 
 
 # ------------------------------------------------------------------
@@ -118,11 +120,11 @@ def _freshness_sql(table_ref: str, column: str, dialect: str = "ansi") -> str:
 
 _OPERATORS = {
     ">=": lambda a, b: a >= b,
-    ">":  lambda a, b: a > b,
+    ">": lambda a, b: a > b,
     "<=": lambda a, b: a <= b,
-    "<":  lambda a, b: a < b,
+    "<": lambda a, b: a < b,
     "==": lambda a, b: a == b,
-    "=":  lambda a, b: a == b,
+    "=": lambda a, b: a == b,
     "!=": lambda a, b: a != b,
 }
 
@@ -130,7 +132,7 @@ _OPERATORS = {
 def _compare(actual, threshold, operator: str) -> bool:
     fn = _OPERATORS.get(operator)
     if fn is None:
-        raise ValueError("Unsupported operator: {!r}".format(operator))
+        raise ValueError(f"Unsupported operator: {operator!r}")
     try:
         return fn(float(actual), float(threshold))
     except (TypeError, ValueError):
@@ -157,6 +159,7 @@ def _parse_duration_seconds(value: str) -> Optional[int]:
 # ------------------------------------------------------------------
 # Public API
 # ------------------------------------------------------------------
+
 
 def execute_quality_checks(
     rules: List[Dict[str, Any]],
@@ -195,11 +198,16 @@ def execute_quality_checks(
         operator = rule.get("operator", ">=")
 
         if not selector:
-            results.append(QualityCheckResult(
-                rule_id=rule_id, rule_type=rule_type, selector="",
-                passed=False, severity=severity,
-                message="Rule '{}' missing 'selector' (column name)".format(rule_id),
-            ))
+            results.append(
+                QualityCheckResult(
+                    rule_id=rule_id,
+                    rule_type=rule_type,
+                    selector="",
+                    passed=False,
+                    severity=severity,
+                    message=f"Rule '{rule_id}' missing 'selector' (column name)",
+                )
+            )
             continue
 
         try:
@@ -219,11 +227,16 @@ def execute_quality_checks(
             )
             results.append(result)
         except Exception as e:
-            results.append(QualityCheckResult(
-                rule_id=rule_id, rule_type=rule_type, selector=selector,
-                passed=False, severity=severity,
-                message="Error executing rule '{}': {}".format(rule_id, e),
-            ))
+            results.append(
+                QualityCheckResult(
+                    rule_id=rule_id,
+                    rule_type=rule_type,
+                    selector=selector,
+                    passed=False,
+                    severity=severity,
+                    message=f"Error executing rule '{rule_id}': {e}",
+                )
+            )
 
     return results
 
@@ -236,20 +249,23 @@ def quality_results_to_issues(
     issues: List[ValidationIssue] = []
     for r in results:
         if not r.passed:
-            issues.append(ValidationIssue(
-                severity=r.severity,
-                category="quality",
-                message=r.message,
-                path="{}.{}".format(path_prefix, r.rule_id),
-                expected=r.expected,
-                actual=r.actual,
-            ))
+            issues.append(
+                ValidationIssue(
+                    severity=r.severity,
+                    category="quality",
+                    message=r.message,
+                    path=f"{path_prefix}.{r.rule_id}",
+                    expected=r.expected,
+                    actual=r.actual,
+                )
+            )
     return issues
 
 
 # ------------------------------------------------------------------
 # Internal dispatch
 # ------------------------------------------------------------------
+
 
 def _execute_single_rule(
     *,
@@ -269,34 +285,66 @@ def _execute_single_rule(
 
     if rule_type == "completeness":
         return _check_completeness(
-            rule_id, selector, severity, description,
-            threshold, operator, table_ref, execute_fn,
+            rule_id,
+            selector,
+            severity,
+            description,
+            threshold,
+            operator,
+            table_ref,
+            execute_fn,
         )
     elif rule_type == "uniqueness":
         return _check_uniqueness(
-            rule_id, selector, severity, description,
-            threshold, operator, table_ref, execute_fn,
+            rule_id,
+            selector,
+            severity,
+            description,
+            threshold,
+            operator,
+            table_ref,
+            execute_fn,
         )
     elif rule_type == "accuracy":
         return _check_accuracy(
-            rule_id, selector, severity, description,
-            threshold, operator, table_ref, execute_fn,
+            rule_id,
+            selector,
+            severity,
+            description,
+            threshold,
+            operator,
+            table_ref,
+            execute_fn,
         )
     elif rule_type == "validity":
         return _check_validity(
-            rule_id, selector, severity, description,
-            valid_values, table_ref, execute_fn,
+            rule_id,
+            selector,
+            severity,
+            description,
+            valid_values,
+            table_ref,
+            execute_fn,
         )
     elif rule_type == "freshness":
         return _check_freshness(
-            rule_id, selector, severity, description,
-            window, table_ref, execute_fn, dialect,
+            rule_id,
+            selector,
+            severity,
+            description,
+            window,
+            table_ref,
+            execute_fn,
+            dialect,
         )
     else:
         return QualityCheckResult(
-            rule_id=rule_id, rule_type=rule_type, selector=selector,
-            passed=False, severity="warning",
-            message="Unknown DQ rule type '{}' for rule '{}'".format(rule_type, rule_id),
+            rule_id=rule_id,
+            rule_type=rule_type,
+            selector=selector,
+            passed=False,
+            severity="warning",
+            message=f"Unknown DQ rule type '{rule_type}' for rule '{rule_id}'",
         )
 
 
@@ -304,115 +352,159 @@ def _execute_single_rule(
 # Individual check implementations
 # ------------------------------------------------------------------
 
+
 def _check_completeness(
-    rule_id, selector, severity, description,
-    threshold, operator, table_ref, execute_fn,
+    rule_id,
+    selector,
+    severity,
+    description,
+    threshold,
+    operator,
+    table_ref,
+    execute_fn,
 ) -> QualityCheckResult:
     sql = _completeness_sql(table_ref, selector)
     rows = execute_fn(sql)
     ratio = rows[0][0] if rows and rows[0][0] is not None else 0.0
     passed = _compare(ratio, threshold, operator) if threshold is not None else ratio == 1.0
     return QualityCheckResult(
-        rule_id=rule_id, rule_type="completeness", selector=selector,
-        passed=passed, severity=severity,
+        rule_id=rule_id,
+        rule_type="completeness",
+        selector=selector,
+        passed=passed,
+        severity=severity,
         message=(
-            "{desc} — completeness for '{col}' is {ratio:.2%}".format(
-                desc=description or rule_id, col=selector, ratio=float(ratio))
-            if not passed else
-            "Completeness OK for '{}'".format(selector)
+            f"{description or rule_id} — completeness for '{selector}' is {float(ratio):.2%}"
+            if not passed
+            else f"Completeness OK for '{selector}'"
         ),
-        expected="{op} {t}".format(op=operator, t=threshold) if threshold is not None else "1.0",
-        actual="{:.4f}".format(float(ratio)),
+        expected=f"{operator} {threshold}" if threshold is not None else "1.0",
+        actual=f"{float(ratio):.4f}",
     )
 
 
 def _check_uniqueness(
-    rule_id, selector, severity, description,
-    threshold, operator, table_ref, execute_fn,
+    rule_id,
+    selector,
+    severity,
+    description,
+    threshold,
+    operator,
+    table_ref,
+    execute_fn,
 ) -> QualityCheckResult:
     sql = _uniqueness_sql(table_ref, selector)
     rows = execute_fn(sql)
     ratio = rows[0][0] if rows and rows[0][0] is not None else 0.0
     passed = _compare(ratio, threshold, operator) if threshold is not None else ratio == 1.0
     return QualityCheckResult(
-        rule_id=rule_id, rule_type="uniqueness", selector=selector,
-        passed=passed, severity=severity,
+        rule_id=rule_id,
+        rule_type="uniqueness",
+        selector=selector,
+        passed=passed,
+        severity=severity,
         message=(
-            "{desc} — uniqueness for '{col}' is {ratio:.2%}".format(
-                desc=description or rule_id, col=selector, ratio=float(ratio))
-            if not passed else
-            "Uniqueness OK for '{}'".format(selector)
+            f"{description or rule_id} — uniqueness for '{selector}' is {float(ratio):.2%}"
+            if not passed
+            else f"Uniqueness OK for '{selector}'"
         ),
-        expected="{op} {t}".format(op=operator, t=threshold) if threshold is not None else "1.0",
-        actual="{:.4f}".format(float(ratio)),
+        expected=f"{operator} {threshold}" if threshold is not None else "1.0",
+        actual=f"{float(ratio):.4f}",
     )
 
 
 def _check_accuracy(
-    rule_id, selector, severity, description,
-    threshold, operator, table_ref, execute_fn,
+    rule_id,
+    selector,
+    severity,
+    description,
+    threshold,
+    operator,
+    table_ref,
+    execute_fn,
 ) -> QualityCheckResult:
     sql = _accuracy_min_sql(table_ref, selector)
     rows = execute_fn(sql)
     min_val = rows[0][0] if rows and rows[0][0] is not None else None
     if min_val is None:
         return QualityCheckResult(
-            rule_id=rule_id, rule_type="accuracy", selector=selector,
-            passed=False, severity=severity,
-            message="No data to check accuracy for '{}'".format(selector),
+            rule_id=rule_id,
+            rule_type="accuracy",
+            selector=selector,
+            passed=False,
+            severity=severity,
+            message=f"No data to check accuracy for '{selector}'",
         )
     passed = _compare(min_val, threshold, operator) if threshold is not None else True
     return QualityCheckResult(
-        rule_id=rule_id, rule_type="accuracy", selector=selector,
-        passed=passed, severity=severity,
+        rule_id=rule_id,
+        rule_type="accuracy",
+        selector=selector,
+        passed=passed,
+        severity=severity,
         message=(
-            "{desc} — min value of '{col}' is {val}".format(
-                desc=description or rule_id, col=selector, val=min_val)
-            if not passed else
-            "Accuracy OK for '{}'".format(selector)
+            f"{description or rule_id} — min value of '{selector}' is {min_val}"
+            if not passed
+            else f"Accuracy OK for '{selector}'"
         ),
-        expected="{op} {t}".format(op=operator, t=threshold) if threshold is not None else "pass",
+        expected=f"{operator} {threshold}" if threshold is not None else "pass",
         actual=str(min_val),
     )
 
 
 def _check_validity(
-    rule_id, selector, severity, description,
-    valid_values, table_ref, execute_fn,
+    rule_id,
+    selector,
+    severity,
+    description,
+    valid_values,
+    table_ref,
+    execute_fn,
 ) -> QualityCheckResult:
     if not valid_values:
         return QualityCheckResult(
-            rule_id=rule_id, rule_type="validity", selector=selector,
-            passed=False, severity="warning",
-            message="Rule '{}' is type 'validity' but has no 'validValues' list".format(rule_id),
+            rule_id=rule_id,
+            rule_type="validity",
+            selector=selector,
+            passed=False,
+            severity="warning",
+            message=f"Rule '{rule_id}' is type 'validity' but has no 'validValues' list",
         )
     col = _validate_ident(selector)
     # Build SQL with quoted string literals for valid values
     escaped = ", ".join("'{}'".format(v.replace("'", "''")) for v in valid_values)
     sql = (
-        'SELECT COUNT(*) AS invalid_count FROM {tbl} '
-        'WHERE "{col}" IS NOT NULL AND "{col}" NOT IN ({vals})'
-    ).format(tbl=table_ref, col=col, vals=escaped)
+        f"SELECT COUNT(*) AS invalid_count FROM {table_ref} "
+        f'WHERE "{col}" IS NOT NULL AND "{col}" NOT IN ({escaped})'
+    )
     rows = execute_fn(sql)
     invalid_count = rows[0][0] if rows and rows[0][0] is not None else 0
     passed = invalid_count == 0
     return QualityCheckResult(
-        rule_id=rule_id, rule_type="validity", selector=selector,
-        passed=passed, severity=severity,
+        rule_id=rule_id,
+        rule_type="validity",
+        selector=selector,
+        passed=passed,
+        severity=severity,
         message=(
-            "{desc} — {n} invalid value(s) in '{col}'".format(
-                desc=description or rule_id, n=invalid_count, col=selector)
-            if not passed else
-            "Validity OK for '{}'".format(selector)
+            f"{description or rule_id} — {invalid_count} invalid value(s) in '{selector}'"
+            if not passed
+            else f"Validity OK for '{selector}'"
         ),
         expected="0 invalid values",
-        actual="{} invalid value(s)".format(invalid_count),
+        actual=f"{invalid_count} invalid value(s)",
     )
 
 
 def _check_freshness(
-    rule_id, selector, severity, description,
-    window, table_ref, execute_fn, dialect,
+    rule_id,
+    selector,
+    severity,
+    description,
+    window,
+    table_ref,
+    execute_fn,
+    dialect,
 ) -> QualityCheckResult:
     sql = _freshness_sql(table_ref, selector, dialect)
     rows = execute_fn(sql)
@@ -420,9 +512,12 @@ def _check_freshness(
 
     if age_seconds is None:
         return QualityCheckResult(
-            rule_id=rule_id, rule_type="freshness", selector=selector,
-            passed=False, severity=severity,
-            message="No data to check freshness for '{}'".format(selector),
+            rule_id=rule_id,
+            rule_type="freshness",
+            selector=selector,
+            passed=False,
+            severity=severity,
+            message=f"No data to check freshness for '{selector}'",
         )
 
     max_age_seconds = None
@@ -432,26 +527,27 @@ def _check_freshness(
     if max_age_seconds is None:
         # No threshold specified — just report the age
         return QualityCheckResult(
-            rule_id=rule_id, rule_type="freshness", selector=selector,
-            passed=True, severity="info",
-            message="Freshness for '{}': data is {:.0f}s old (no threshold set)".format(
-                selector, float(age_seconds)),
-            actual="{:.0f}s".format(float(age_seconds)),
+            rule_id=rule_id,
+            rule_type="freshness",
+            selector=selector,
+            passed=True,
+            severity="info",
+            message=f"Freshness for '{selector}': data is {float(age_seconds):.0f}s old (no threshold set)",
+            actual=f"{float(age_seconds):.0f}s",
         )
 
     passed = float(age_seconds) <= float(max_age_seconds)
     return QualityCheckResult(
-        rule_id=rule_id, rule_type="freshness", selector=selector,
-        passed=passed, severity=severity,
+        rule_id=rule_id,
+        rule_type="freshness",
+        selector=selector,
+        passed=passed,
+        severity=severity,
         message=(
-            "{desc} — data is {age:.0f}s old, max allowed is {max}s".format(
-                desc=description or rule_id,
-                age=float(age_seconds),
-                max=max_age_seconds,
-            )
-            if not passed else
-            "Freshness OK for '{}' ({:.0f}s old)".format(selector, float(age_seconds))
+            f"{description or rule_id} — data is {float(age_seconds):.0f}s old, max allowed is {max_age_seconds}s"
+            if not passed
+            else f"Freshness OK for '{selector}' ({float(age_seconds):.0f}s old)"
         ),
-        expected="<= {}s".format(max_age_seconds),
-        actual="{:.0f}s".format(float(age_seconds)),
+        expected=f"<= {max_age_seconds}s",
+        actual=f"{float(age_seconds):.0f}s",
     )

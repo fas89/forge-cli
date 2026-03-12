@@ -1,24 +1,45 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for fluid_build/util/ modules — contract, io, cron helpers."""
+
 import json
-import os
+
 import pytest
-from pathlib import Path
-from unittest.mock import patch
 
 from fluid_build.util.contract import (
-    get_expose_id, get_expose_kind, get_expose_binding,
-    get_expose_location, get_expose_schema, get_expose_contract,
-    get_expose_format, get_builds, get_primary_build,
-    get_build_engine, get_contract_version,
-    normalize_expose, normalize_contract,
+    get_build_engine,
+    get_builds,
+    get_contract_version,
+    get_expose_binding,
+    get_expose_contract,
+    get_expose_format,
+    get_expose_id,
+    get_expose_kind,
+    get_expose_location,
+    get_expose_schema,
+    get_primary_build,
+    normalize_contract,
+    normalize_expose,
 )
-from fluid_build.util.io import load_contract, dump_json, read_json
 from fluid_build.util.cron import get_cron
-
+from fluid_build.util.io import dump_json, load_contract, read_json
 
 # ═══════════════════════════════════════════════════════════════════════
 # util/contract.py
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class TestGetExposeId:
     def test_057_format(self):
@@ -180,9 +201,11 @@ class TestNormalizeContract:
         assert "build" not in result
 
     def test_exposes_normalized(self):
-        result = normalize_contract({
-            "exposes": [{"id": "x", "type": "table"}],
-        })
+        result = normalize_contract(
+            {
+                "exposes": [{"id": "x", "type": "table"}],
+            }
+        )
         assert result["exposes"][0]["exposeId"] == "x"
         assert result["exposes"][0]["kind"] == "table"
 
@@ -195,6 +218,7 @@ class TestNormalizeContract:
 # ═══════════════════════════════════════════════════════════════════════
 # util/io.py
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class TestLoadContract:
     def test_yaml_file(self, tmp_path):
@@ -233,25 +257,14 @@ class TestDumpAndReadJson:
 # util/cron.py
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestGetCron:
     def test_with_cron(self):
-        contract = {
-            "build": {
-                "execution": {
-                    "trigger": {"cron": "0 * * * *"}
-                }
-            }
-        }
+        contract = {"build": {"execution": {"trigger": {"cron": "0 * * * *"}}}}
         assert get_cron(contract) == "0 * * * *"
 
     def test_builds_array(self):
-        contract = {
-            "builds": [{
-                "execution": {
-                    "trigger": {"cron": "30 6 * * *"}
-                }
-            }]
-        }
+        contract = {"builds": [{"execution": {"trigger": {"cron": "30 6 * * *"}}}]}
         assert get_cron(contract) == "30 6 * * *"
 
     def test_no_cron(self):

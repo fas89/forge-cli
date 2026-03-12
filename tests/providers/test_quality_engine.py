@@ -13,26 +13,27 @@
 # limitations under the License.
 
 """Tests for the quality engine — SQL generation, check execution, result conversion."""
+
 from __future__ import annotations
 
 import pytest
 
 from fluid_build.providers.quality_engine import (
     QualityCheckResult,
-    execute_quality_checks,
-    quality_results_to_issues,
-    _completeness_sql,
-    _uniqueness_sql,
     _accuracy_min_sql,
+    _completeness_sql,
     _freshness_sql,
     _parse_duration_seconds,
+    _uniqueness_sql,
     _validate_ident,
+    execute_quality_checks,
+    quality_results_to_issues,
 )
-
 
 # ---------------------------------------------------------------------------
 # SQL generation helpers
 # ---------------------------------------------------------------------------
+
 
 class TestCompletenessSql:
     def test_basic(self):
@@ -82,6 +83,7 @@ class TestFreshnessSql:
 # Duration parser
 # ---------------------------------------------------------------------------
 
+
 class TestParseDuration:
     def test_hours(self):
         assert _parse_duration_seconds("1h") == 3600
@@ -109,6 +111,7 @@ class TestParseDuration:
 # Identifier validation
 # ---------------------------------------------------------------------------
 
+
 class TestValidateIdent:
     def test_valid_simple(self):
         assert _validate_ident("my_column") == "my_column"
@@ -129,28 +132,33 @@ class TestValidateIdent:
 # execute_quality_checks (integration-style with mock execute_fn)
 # ---------------------------------------------------------------------------
 
+
 class TestExecuteQualityChecks:
     def _make_executor(self, return_values):
         """Return a mock execute_fn that returns canned results."""
         calls = []
         idx = [0]
+
         def _exec(sql):
             calls.append(sql)
             val = return_values[idx[0]] if idx[0] < len(return_values) else [(0,)]
             idx[0] += 1
             return val
+
         _exec.calls = calls
         return _exec
 
     def test_completeness_pass(self):
-        rules = [{
-            "id": "no_nulls",
-            "type": "completeness",
-            "selector": "customer_id",
-            "threshold": 0.95,
-            "operator": ">=",
-            "severity": "error",
-        }]
+        rules = [
+            {
+                "id": "no_nulls",
+                "type": "completeness",
+                "selector": "customer_id",
+                "threshold": 0.95,
+                "operator": ">=",
+                "severity": "error",
+            }
+        ]
         executor = self._make_executor([[(1.0,)]])
         results = execute_quality_checks(rules, "my_table", executor)
         assert len(results) == 1
@@ -158,41 +166,47 @@ class TestExecuteQualityChecks:
         assert results[0].rule_id == "no_nulls"
 
     def test_completeness_fail(self):
-        rules = [{
-            "id": "no_nulls",
-            "type": "completeness",
-            "selector": "customer_id",
-            "threshold": 1.0,
-            "operator": ">=",
-            "severity": "error",
-        }]
+        rules = [
+            {
+                "id": "no_nulls",
+                "type": "completeness",
+                "selector": "customer_id",
+                "threshold": 1.0,
+                "operator": ">=",
+                "severity": "error",
+            }
+        ]
         executor = self._make_executor([[(0.85,)]])
         results = execute_quality_checks(rules, "my_table", executor)
         assert len(results) == 1
         assert results[0].passed is False
 
     def test_uniqueness_pass(self):
-        rules = [{
-            "id": "unique_ids",
-            "type": "uniqueness",
-            "selector": "order_id",
-            "threshold": 1.0,
-            "operator": ">=",
-            "severity": "error",
-        }]
+        rules = [
+            {
+                "id": "unique_ids",
+                "type": "uniqueness",
+                "selector": "order_id",
+                "threshold": 1.0,
+                "operator": ">=",
+                "severity": "error",
+            }
+        ]
         executor = self._make_executor([[(1.0,)]])
         results = execute_quality_checks(rules, "orders", executor)
         assert len(results) == 1
         assert results[0].passed is True
 
     def test_validity_pass(self):
-        rules = [{
-            "id": "valid_status",
-            "type": "validity",
-            "selector": "status",
-            "validValues": ["active", "inactive"],
-            "severity": "warning",
-        }]
+        rules = [
+            {
+                "id": "valid_status",
+                "type": "validity",
+                "selector": "status",
+                "validValues": ["active", "inactive"],
+                "severity": "warning",
+            }
+        ]
         # validity check returns (invalid_count,) — 0 means pass
         executor = self._make_executor([[(0,)]])
         results = execute_quality_checks(rules, "users", executor)
@@ -200,50 +214,72 @@ class TestExecuteQualityChecks:
         assert results[0].passed is True
 
     def test_accuracy_pass(self):
-        rules = [{
-            "id": "positive_price",
-            "type": "accuracy",
-            "selector": "price",
-            "threshold": 0,
-            "operator": ">=",
-            "severity": "warning",
-        }]
+        rules = [
+            {
+                "id": "positive_price",
+                "type": "accuracy",
+                "selector": "price",
+                "threshold": 0,
+                "operator": ">=",
+                "severity": "warning",
+            }
+        ]
         executor = self._make_executor([[(5.0,)]])
         results = execute_quality_checks(rules, "products", executor)
         assert len(results) == 1
         assert results[0].passed is True
 
     def test_accuracy_fail(self):
-        rules = [{
-            "id": "positive_price",
-            "type": "accuracy",
-            "selector": "price",
-            "threshold": 0,
-            "operator": ">=",
-            "severity": "warning",
-        }]
+        rules = [
+            {
+                "id": "positive_price",
+                "type": "accuracy",
+                "selector": "price",
+                "threshold": 0,
+                "operator": ">=",
+                "severity": "warning",
+            }
+        ]
         executor = self._make_executor([[(-1.0,)]])
         results = execute_quality_checks(rules, "products", executor)
         assert len(results) == 1
         assert results[0].passed is False
 
     def test_unknown_type_skipped(self):
-        rules = [{
-            "id": "unkn",
-            "type": "nonexistent_check",
-            "selector": "x",
-            "severity": "error",
-        }]
+        rules = [
+            {
+                "id": "unkn",
+                "type": "nonexistent_check",
+                "selector": "x",
+                "severity": "error",
+            }
+        ]
         executor = self._make_executor([])
         results = execute_quality_checks(rules, "t", executor)
         assert len(results) == 1
         assert results[0].passed is False
-        assert "unsupported" in results[0].message.lower() or "unknown" in results[0].message.lower()
+        assert (
+            "unsupported" in results[0].message.lower() or "unknown" in results[0].message.lower()
+        )
 
     def test_multiple_rules(self):
         rules = [
-            {"id": "r1", "type": "completeness", "selector": "a", "threshold": 0.9, "operator": ">=", "severity": "error"},
-            {"id": "r2", "type": "uniqueness", "selector": "b", "threshold": 0.9, "operator": ">=", "severity": "warning"},
+            {
+                "id": "r1",
+                "type": "completeness",
+                "selector": "a",
+                "threshold": 0.9,
+                "operator": ">=",
+                "severity": "error",
+            },
+            {
+                "id": "r2",
+                "type": "uniqueness",
+                "selector": "b",
+                "threshold": 0.9,
+                "operator": ">=",
+                "severity": "warning",
+            },
         ]
         executor = self._make_executor([[(0.95,)], [(0.99,)]])
         results = execute_quality_checks(rules, "t", executor)
@@ -255,33 +291,55 @@ class TestExecuteQualityChecks:
 # quality_results_to_issues
 # ---------------------------------------------------------------------------
 
+
 class TestQualityResultsToIssues:
     def test_passed_result_produces_no_issue(self):
-        results = [QualityCheckResult(
-            rule_id="r1", rule_type="completeness", selector="col",
-            passed=True, severity="error", message="OK",
-            expected=0.95, actual=1.0,
-        )]
+        results = [
+            QualityCheckResult(
+                rule_id="r1",
+                rule_type="completeness",
+                selector="col",
+                passed=True,
+                severity="error",
+                message="OK",
+                expected=0.95,
+                actual=1.0,
+            )
+        ]
         issues = quality_results_to_issues(results)
         # Passed results don't generate issues
         assert len(issues) == 0
 
     def test_failed_error_result(self):
-        results = [QualityCheckResult(
-            rule_id="r1", rule_type="completeness", selector="col",
-            passed=False, severity="error", message="Completeness 0.5 < 0.95",
-            expected=0.95, actual=0.5,
-        )]
+        results = [
+            QualityCheckResult(
+                rule_id="r1",
+                rule_type="completeness",
+                selector="col",
+                passed=False,
+                severity="error",
+                message="Completeness 0.5 < 0.95",
+                expected=0.95,
+                actual=0.5,
+            )
+        ]
         issues = quality_results_to_issues(results)
         assert len(issues) == 1
         assert issues[0].severity == "error"
 
     def test_failed_warning_result(self):
-        results = [QualityCheckResult(
-            rule_id="r1", rule_type="uniqueness", selector="col",
-            passed=False, severity="warning", message="Uniqueness 0.8 < 1.0",
-            expected=1.0, actual=0.8,
-        )]
+        results = [
+            QualityCheckResult(
+                rule_id="r1",
+                rule_type="uniqueness",
+                selector="col",
+                passed=False,
+                severity="warning",
+                message="Uniqueness 0.8 < 1.0",
+                expected=1.0,
+                actual=0.8,
+            )
+        ]
         issues = quality_results_to_issues(results)
         assert len(issues) == 1
         assert issues[0].severity == "warning"

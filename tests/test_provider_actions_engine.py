@@ -1,13 +1,26 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for forge/core/provider_actions.py — action parser, dependency graph, execution order."""
 
-import pytest
 from fluid_build.forge.core.provider_actions import (
     ActionType,
     ProviderAction,
     ProviderActionParser,
-    get_action_by_id,
     filter_actions_by_provider,
     filter_actions_by_type,
+    get_action_by_id,
 )
 
 
@@ -48,7 +61,12 @@ class TestParseExplicitActions:
     def test_basic_explicit(self):
         contract = {
             "providerActions": [
-                {"actionId": "p1", "action": "provisionDataset", "provider": "gcp", "params": {"x": 1}},
+                {
+                    "actionId": "p1",
+                    "action": "provisionDataset",
+                    "provider": "gcp",
+                    "params": {"x": 1},
+                },
                 {"actionId": "g1", "action": "grantAccess", "provider": "aws", "dependsOn": ["p1"]},
             ]
         }
@@ -132,9 +150,7 @@ class TestInferFromLegacy:
 
     def test_builds_schedule_task(self):
         contract = {
-            "builds": [
-                {"buildId": "b1", "engine": "dbt", "script": "run.sh", "schedule": "@daily"}
-            ]
+            "builds": [{"buildId": "b1", "engine": "dbt", "script": "run.sh", "schedule": "@daily"}]
         }
         actions = self.parser.parse(contract)
         assert len(actions) == 1
@@ -155,9 +171,7 @@ class TestExtractLabels:
         self.parser = ProviderActionParser()
 
     def test_contract_id_and_name(self):
-        labels = self.parser._extract_labels(
-            {"id": "My-Contract", "name": "Hello World"}, {}
-        )
+        labels = self.parser._extract_labels({"id": "My-Contract", "name": "Hello World"}, {})
         assert labels["fluid_contract_id"] == "my-contract"
         assert labels["fluid_contract_name"] == "hello_world"
 
@@ -175,9 +189,7 @@ class TestExtractLabels:
         assert labels["fluid_team"] == "data_eng"
 
     def test_contract_custom_labels(self):
-        labels = self.parser._extract_labels(
-            {"labels": {"Cost-Center": "CC99"}}, {}
-        )
+        labels = self.parser._extract_labels({"labels": {"Cost-Center": "CC99"}}, {})
         assert labels["cost-center"] == "cc99"
 
     def test_contract_tags(self):
@@ -186,9 +198,7 @@ class TestExtractLabels:
         assert labels["tag_real-time"] == "true"
 
     def test_exposure_labels_and_tags(self):
-        labels = self.parser._extract_labels(
-            {}, {"labels": {"env": "prod"}, "tags": ["critical"]}
-        )
+        labels = self.parser._extract_labels({}, {"labels": {"env": "prod"}, "tags": ["critical"]})
         assert labels["env"] == "prod"
         assert labels["tag_critical"] == "true"
 
@@ -225,8 +235,7 @@ class TestDependencyGraph:
 
     def _make_actions(self, specs):
         return [
-            ProviderAction(s[0], ActionType.CUSTOM, "local", {}, depends_on=s[1])
-            for s in specs
+            ProviderAction(s[0], ActionType.CUSTOM, "local", {}, depends_on=s[1]) for s in specs
         ]
 
     def test_no_cycles(self):
@@ -251,8 +260,7 @@ class TestExecutionOrder:
 
     def _make_actions(self, specs):
         return [
-            ProviderAction(s[0], ActionType.CUSTOM, "local", {}, depends_on=s[1])
-            for s in specs
+            ProviderAction(s[0], ActionType.CUSTOM, "local", {}, depends_on=s[1]) for s in specs
         ]
 
     def test_linear_chain(self):

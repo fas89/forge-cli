@@ -1,5 +1,21 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Extended tests for CopilotAgent._analyze_requirements and contract generation."""
+
 import pytest
+
 from fluid_build.cli.forge import CopilotAgent
 
 
@@ -12,44 +28,72 @@ class TestAnalyzeRequirementsDeep:
     """Thorough tests for _analyze_requirements keyword matching."""
 
     def test_ml_goal(self, agent):
-        ctx = {"project_goal": "Build ML prediction model", "data_sources": "", "complexity": "intermediate"}
+        ctx = {
+            "project_goal": "Build ML prediction model",
+            "data_sources": "",
+            "complexity": "intermediate",
+        }
         s = agent._analyze_requirements(ctx)
         assert s["recommended_template"] == "ml-pipeline"
         assert "feature_store" in s["recommended_patterns"]
         assert any("MLflow" in a for a in s["architecture_suggestions"])
 
     def test_dashboard_goal(self, agent):
-        ctx = {"project_goal": "Create analytics dashboard", "data_sources": "", "complexity": "intermediate"}
+        ctx = {
+            "project_goal": "Create analytics dashboard",
+            "data_sources": "",
+            "complexity": "intermediate",
+        }
         s = agent._analyze_requirements(ctx)
         assert s["recommended_template"] == "analytics-dashboard"
         assert "dimensional_modeling" in s["recommended_patterns"]
 
     def test_streaming_goal(self, agent):
-        ctx = {"project_goal": "Build real-time streaming pipeline", "data_sources": "", "complexity": "intermediate"}
+        ctx = {
+            "project_goal": "Build real-time streaming pipeline",
+            "data_sources": "",
+            "complexity": "intermediate",
+        }
         s = agent._analyze_requirements(ctx)
         assert s["recommended_template"] == "streaming-pipeline"
         assert "event_sourcing" in s["recommended_patterns"]
         assert any("Kafka" in a for a in s["architecture_suggestions"])
 
     def test_bigquery_source(self, agent):
-        ctx = {"project_goal": "analytics", "data_sources": "bigquery tables", "complexity": "intermediate"}
+        ctx = {
+            "project_goal": "analytics",
+            "data_sources": "bigquery tables",
+            "complexity": "intermediate",
+        }
         s = agent._analyze_requirements(ctx)
         assert "gcp" in s["recommended_provider"].lower()
         assert any("BigQuery" in bp for bp in s["best_practices"])
 
     def test_snowflake_source(self, agent):
-        ctx = {"project_goal": "analytics", "data_sources": "snowflake warehouse", "complexity": "intermediate"}
+        ctx = {
+            "project_goal": "analytics",
+            "data_sources": "snowflake warehouse",
+            "complexity": "intermediate",
+        }
         s = agent._analyze_requirements(ctx)
         assert "snowflake" in s["recommended_provider"].lower()
 
     def test_aws_source_s3(self, agent):
-        ctx = {"project_goal": "analytics", "data_sources": "data on s3", "complexity": "intermediate"}
+        ctx = {
+            "project_goal": "analytics",
+            "data_sources": "data on s3",
+            "complexity": "intermediate",
+        }
         s = agent._analyze_requirements(ctx)
         assert "aws" in s["recommended_provider"].lower()
         assert any("S3" in bp for bp in s["best_practices"])
 
     def test_aws_source_redshift(self, agent):
-        ctx = {"project_goal": "analytics", "data_sources": "redshift cluster", "complexity": "intermediate"}
+        ctx = {
+            "project_goal": "analytics",
+            "data_sources": "redshift cluster",
+            "complexity": "intermediate",
+        }
         s = agent._analyze_requirements(ctx)
         assert "aws" in s["recommended_provider"].lower()
 
@@ -124,4 +168,8 @@ class TestGenerateIntelligentReadme:
         }
         result = agent._generate_intelligent_readme(ctx, suggestions)
         # README should have some kind of instructions
-        assert "validate" in result.lower() or "getting started" in result.lower() or "quick" in result.lower()
+        assert (
+            "validate" in result.lower()
+            or "getting started" in result.lower()
+            or "quick" in result.lower()
+        )

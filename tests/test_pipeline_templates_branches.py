@@ -1,45 +1,66 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Branch-coverage tests for fluid_build.forge.core.pipeline_templates"""
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 from fluid_build.forge.core.pipeline_templates import (
-    PipelineProvider,
-    PipelineComplexity,
-    PipelineConfig,
-    PipelineTemplateGenerator,
     BasePipelineTemplate,
     GitHubActionsTemplate,
+    PipelineComplexity,
+    PipelineConfig,
+    PipelineProvider,
+    PipelineTemplateGenerator,
 )
-
 
 # ── Enum tests ──────────────────────────────────────────────────────
 
+
 class TestPipelineProvider:
-    @pytest.mark.parametrize("member,value", [
-        ("GITHUB_ACTIONS", "github_actions"),
-        ("GITLAB_CI", "gitlab_ci"),
-        ("AZURE_DEVOPS", "azure_devops"),
-        ("JENKINS", "jenkins"),
-        ("BITBUCKET", "bitbucket"),
-        ("CIRCLE_CI", "circle_ci"),
-        ("TEKTON", "tekton"),
-    ])
+    @pytest.mark.parametrize(
+        "member,value",
+        [
+            ("GITHUB_ACTIONS", "github_actions"),
+            ("GITLAB_CI", "gitlab_ci"),
+            ("AZURE_DEVOPS", "azure_devops"),
+            ("JENKINS", "jenkins"),
+            ("BITBUCKET", "bitbucket"),
+            ("CIRCLE_CI", "circle_ci"),
+            ("TEKTON", "tekton"),
+        ],
+    )
     def test_values(self, member, value):
         assert PipelineProvider[member].value == value
 
 
 class TestPipelineComplexity:
-    @pytest.mark.parametrize("member,value", [
-        ("BASIC", "basic"),
-        ("STANDARD", "standard"),
-        ("ADVANCED", "advanced"),
-        ("ENTERPRISE", "enterprise"),
-    ])
+    @pytest.mark.parametrize(
+        "member,value",
+        [
+            ("BASIC", "basic"),
+            ("STANDARD", "standard"),
+            ("ADVANCED", "advanced"),
+            ("ENTERPRISE", "enterprise"),
+        ],
+    )
     def test_values(self, member, value):
         assert PipelineComplexity[member].value == value
 
 
 # ── PipelineConfig tests ────────────────────────────────────────────
+
 
 class TestPipelineConfig:
     def test_basic_sets_dev_only(self):
@@ -105,6 +126,7 @@ class TestPipelineConfig:
 
 # ── BasePipelineTemplate tests ──────────────────────────────────────
 
+
 class TestBasePipelineTemplate:
     def test_init_defaults(self):
         t = BasePipelineTemplate()
@@ -156,6 +178,7 @@ class TestBasePipelineTemplate:
 
 # ── PipelineTemplateGenerator tests ─────────────────────────────────
 
+
 class TestPipelineTemplateGenerator:
     def test_init_populates_templates(self):
         gen = PipelineTemplateGenerator()
@@ -197,6 +220,7 @@ class TestPipelineTemplateGenerator:
 
 
 # ── GitHubActionsTemplate generate branches ─────────────────────────
+
 
 class TestGitHubActionsGenerate:
     def test_init(self):
@@ -243,6 +267,7 @@ class TestGitHubActionsGenerate:
 
 
 # ── Generate pipeline through generator ─────────────────────────────
+
 
 class TestGeneratePipeline:
     @pytest.mark.parametrize("provider", list(PipelineProvider))

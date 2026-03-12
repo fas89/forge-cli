@@ -12,14 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os, csv, logging, pathlib
-from ..base import PlanAction, ApplyResult
+import logging
+import pathlib
+
 from fluid_build.util.contract import get_expose_id, get_expose_kind, get_expose_location
+
+from ..base import ApplyResult, PlanAction
 
 try:
     import duckdb
 except Exception:  # pragma: no cover
     duckdb = None
+
 
 def plan_sql(contract: dict):
     actions = []
@@ -29,9 +33,16 @@ def plan_sql(contract: dict):
         location = get_expose_location(exp)
         if expose_kind == "file" and location and location.get("format") == "csv":
             expose_id = get_expose_id(exp)
-            path = location.get("path") if isinstance(location, dict) else location.get("properties", {}).get("path")
-            actions.append(PlanAction("create", "sql.to_csv", expose_id, {"sql": exp.get("sql"), "out": path}))
+            path = (
+                location.get("path")
+                if isinstance(location, dict)
+                else location.get("properties", {}).get("path")
+            )
+            actions.append(
+                PlanAction("create", "sql.to_csv", expose_id, {"sql": exp.get("sql"), "out": path})
+            )
     return actions
+
 
 def apply_sql(actions, dry_run=False):
     results = []

@@ -1,48 +1,69 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Branch-coverage tests for fluid_build.forge.core.deployment"""
-import os
-import shutil
-import pytest
+
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
+
+import pytest
 
 from fluid_build.forge.core.deployment import (
-    DeploymentTarget,
-    DeploymentStatus,
     DeploymentConfig,
     DeploymentResult,
+    DeploymentStatus,
+    DeploymentTarget,
     ProjectDeployer,
 )
 
-
 # ── Enum tests ──────────────────────────────────────────────────────
 
+
 class TestDeploymentTarget:
-    @pytest.mark.parametrize("member,value", [
-        ("LOCAL", "local"),
-        ("DOCKER", "docker"),
-        ("KUBERNETES", "kubernetes"),
-        ("GCP", "gcp"),
-        ("AWS", "aws"),
-        ("AZURE", "azure"),
-        ("CICD", "cicd"),
-    ])
+    @pytest.mark.parametrize(
+        "member,value",
+        [
+            ("LOCAL", "local"),
+            ("DOCKER", "docker"),
+            ("KUBERNETES", "kubernetes"),
+            ("GCP", "gcp"),
+            ("AWS", "aws"),
+            ("AZURE", "azure"),
+            ("CICD", "cicd"),
+        ],
+    )
     def test_values(self, member, value):
         assert DeploymentTarget[member].value == value
 
 
 class TestDeploymentStatus:
-    @pytest.mark.parametrize("member,value", [
-        ("PENDING", "pending"),
-        ("IN_PROGRESS", "in_progress"),
-        ("SUCCESS", "success"),
-        ("FAILED", "failed"),
-        ("ROLLBACK", "rollback"),
-    ])
+    @pytest.mark.parametrize(
+        "member,value",
+        [
+            ("PENDING", "pending"),
+            ("IN_PROGRESS", "in_progress"),
+            ("SUCCESS", "success"),
+            ("FAILED", "failed"),
+            ("ROLLBACK", "rollback"),
+        ],
+    )
     def test_values(self, member, value):
         assert DeploymentStatus[member].value == value
 
 
 # ── Dataclass tests ─────────────────────────────────────────────────
+
 
 class TestDeploymentConfig:
     def test_defaults_none_to_empty_dicts(self):
@@ -54,7 +75,6 @@ class TestDeploymentConfig:
     def test_preserves_provided_values(self):
         cfg = DeploymentConfig(
             target=DeploymentTarget.DOCKER,
-
             resources={"cpu": "1"},
             env_vars={"K": "V"},
             secrets={"s": "v"},
@@ -94,6 +114,7 @@ class TestDeploymentResult:
 
 # ── ProjectDeployer tests ───────────────────────────────────────────
 
+
 @pytest.fixture
 def deployer(tmp_path):
     """Create a ProjectDeployer with a temporary project directory."""
@@ -122,7 +143,9 @@ class TestGenerateDeploymentId:
         # IDs based on timestamp so quick successive calls may collide,
         # but the hash should still be deterministic per timestamp
         id1 = deployer._generate_deployment_id()
-        import time; time.sleep(1.1)
+        import time
+
+        time.sleep(1.1)
         id2 = deployer._generate_deployment_id()
         assert id1 != id2
 
@@ -135,7 +158,11 @@ class TestGenerateDockerfile:
 
     def test_with_package_json(self, tmp_path):
         (tmp_path / "package.json").write_text("{}")
-        (tmp_path / "requirements.txt").unlink() if (tmp_path / "requirements.txt").exists() else None
+        (
+            (tmp_path / "requirements.txt").unlink()
+            if (tmp_path / "requirements.txt").exists()
+            else None
+        )
         d = ProjectDeployer(tmp_path)
         content = d._generate_dockerfile()
         assert "node:16-alpine" in content

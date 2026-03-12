@@ -18,7 +18,8 @@ DDL generation utilities for AWS provider.
 Converts FLUID contract schemas to provider-specific DDL statements
 for Athena, Glue, and Redshift.
 """
-from typing import List, Dict, Any, Optional
+
+from typing import Any, Dict, List, Optional
 
 
 def generate_athena_ddl(
@@ -32,7 +33,7 @@ def generate_athena_ddl(
 ) -> str:
     """
     Generate CREATE EXTERNAL TABLE DDL for Athena.
-    
+
     Args:
         database: Database name
         table: Table name
@@ -41,7 +42,7 @@ def generate_athena_ddl(
         file_format: File format (parquet, orc, avro, csv, json)
         partition_columns: Partition column definitions
         table_properties: Additional table properties
-        
+
     Returns:
         Complete DDL statement
     """
@@ -52,11 +53,11 @@ def generate_athena_ddl(
         if col.get("Comment"):
             col_def += f" COMMENT '{_escape_sql(col['Comment'])}'"
         col_defs.append(col_def)
-    
+
     ddl = f"CREATE EXTERNAL TABLE IF NOT EXISTS `{database}`.`{table}` (\n"
     ddl += ",\n".join(col_defs)
     ddl += "\n)"
-    
+
     # Add partitions
     if partition_columns:
         part_defs = []
@@ -66,22 +67,22 @@ def generate_athena_ddl(
         ddl += "\nPARTITIONED BY (\n"
         ddl += ",\n".join(part_defs)
         ddl += "\n)"
-    
+
     # Add storage format
     ddl += f"\nSTORED AS {_get_stored_as_format(file_format)}"
-    
+
     # Add location
     ddl += f"\nLOCATION '{location}'"
-    
+
     # Add table properties
     if table_properties:
         props = [f"  '{k}'='{v}'" for k, v in table_properties.items()]
         ddl += "\nTBLPROPERTIES (\n"
         ddl += ",\n".join(props)
         ddl += "\n)"
-    
+
     ddl += ";"
-    
+
     return ddl
 
 
@@ -95,7 +96,7 @@ def generate_redshift_ddl(
 ) -> str:
     """
     Generate CREATE TABLE DDL for Redshift.
-    
+
     Args:
         schema: Schema name
         table: Table name
@@ -103,7 +104,7 @@ def generate_redshift_ddl(
         distribution_style: Distribution style (AUTO, EVEN, KEY, ALL)
         sort_key: Columns for sort key
         table_properties: Additional table properties
-        
+
     Returns:
         Complete DDL statement
     """
@@ -111,66 +112,66 @@ def generate_redshift_ddl(
     col_defs = []
     for col in columns:
         col_def = f"  {col['Name']} {col['Type']}"
-        
+
         # Add constraints
         if col.get("NotNull"):
             col_def += " NOT NULL"
-        
+
         if col.get("Encode"):
             col_def += f" ENCODE {col['Encode']}"
-        
+
         col_defs.append(col_def)
-    
+
     ddl = f"CREATE TABLE IF NOT EXISTS {schema}.{table} (\n"
     ddl += ",\n".join(col_defs)
     ddl += "\n)"
-    
+
     # Add distribution style
     if distribution_style != "AUTO":
         ddl += f"\nDISTSTYLE {distribution_style}"
-    
+
     # Add sort key
     if sort_key:
         ddl += f"\nSORTKEY ({', '.join(sort_key)})"
-    
+
     ddl += ";"
-    
+
     return ddl
 
 
 def map_fluid_type_to_athena(fluid_type: str) -> str:
     """
     Map FLUID schema types to Athena/Hive types.
-    
+
     Args:
         fluid_type: FLUID type string
-        
+
     Returns:
         Athena type string
     """
     # Handle parameterized types
     fluid_type_lower = fluid_type.lower()
-    
+
     # Decimal types - pass through
     if fluid_type_lower.startswith("decimal"):
         return fluid_type_lower
-    
+
     # Varchar/char types - pass through
     if fluid_type_lower.startswith(("varchar", "char")):
         return fluid_type_lower
-    
+
     # Array types
     if fluid_type_lower.startswith("array"):
         return fluid_type_lower
-    
+
     # Map types
     if fluid_type_lower.startswith("map"):
         return fluid_type_lower
-    
+
     # Struct types
     if fluid_type_lower.startswith("struct"):
         return fluid_type_lower
-    
+
     # Simple type mapping
     type_map = {
         "string": "string",
@@ -193,30 +194,30 @@ def map_fluid_type_to_athena(fluid_type: str) -> str:
         "binary": "binary",
         "bytes": "binary",
     }
-    
+
     return type_map.get(fluid_type_lower, "string")
 
 
 def map_fluid_type_to_redshift(fluid_type: str) -> str:
     """
     Map FLUID schema types to Redshift types.
-    
+
     Args:
         fluid_type: FLUID type string
-        
+
     Returns:
         Redshift type string
     """
     fluid_type_lower = fluid_type.lower()
-    
+
     # Decimal types - pass through
     if fluid_type_lower.startswith("decimal"):
         return fluid_type_lower.upper()
-    
+
     # Varchar types - pass through
     if fluid_type_lower.startswith("varchar"):
         return fluid_type_lower.upper()
-    
+
     # Simple type mapping
     type_map = {
         "string": "VARCHAR(65535)",
@@ -239,57 +240,57 @@ def map_fluid_type_to_redshift(fluid_type: str) -> str:
         "binary": "VARBYTE(65535)",
         "bytes": "VARBYTE(65535)",
     }
-    
+
     return type_map.get(fluid_type_lower, "VARCHAR(65535)")
 
 
 def schema_to_glue_columns(schema: List[Dict[str, Any]]) -> List[Dict[str, str]]:
     """
     Convert FLUID contract schema to Glue column definitions.
-    
+
     Args:
         schema: FLUID schema list
-        
+
     Returns:
         List of Glue column dicts (Name, Type, Comment)
     """
     columns = []
-    
+
     for field in schema:
         col = {
             "Name": field["name"],
             "Type": map_fluid_type_to_athena(field["type"]),
         }
-        
+
         if field.get("description"):
             col["Comment"] = field["description"]
-        
+
         columns.append(col)
-    
+
     return columns
 
 
 def schema_to_redshift_columns(schema: List[Dict[str, Any]]) -> List[Dict[str, str]]:
     """
     Convert FLUID contract schema to Redshift column definitions.
-    
+
     Args:
         schema: FLUID schema list
-        
+
     Returns:
         List of Redshift column dicts
     """
     columns = []
-    
+
     for field in schema:
         col = {
             "Name": field["name"],
             "Type": map_fluid_type_to_redshift(field["type"]),
         }
-        
+
         if field.get("required"):
             col["NotNull"] = True
-        
+
         # Default encoding based on type
         redshift_type = col["Type"].upper()
         if "VARCHAR" in redshift_type or "CHAR" in redshift_type:
@@ -298,9 +299,9 @@ def schema_to_redshift_columns(schema: List[Dict[str, Any]]) -> List[Dict[str, s
             col["Encode"] = "AZ64"
         elif redshift_type == "TIMESTAMP":
             col["Encode"] = "AZ64"
-        
+
         columns.append(col)
-    
+
     return columns
 
 
@@ -322,40 +323,39 @@ def _escape_sql(text: str) -> str:
 
 
 def extract_partition_columns(
-    schema: List[Dict[str, Any]],
-    partition_keys: Optional[List[str]] = None
+    schema: List[Dict[str, Any]], partition_keys: Optional[List[str]] = None
 ) -> tuple[List[Dict[str, str]], List[Dict[str, str]]]:
     """
     Split schema into data columns and partition columns.
-    
+
     Args:
         schema: Full FLUID schema
         partition_keys: List of column names to use as partitions
-        
+
     Returns:
         Tuple of (data_columns, partition_columns)
     """
     if not partition_keys:
         return schema_to_glue_columns(schema), []
-    
+
     partition_set = set(partition_keys)
     data_columns = []
     partition_columns = []
-    
+
     for field in schema:
         col = {
             "Name": field["name"],
             "Type": map_fluid_type_to_athena(field["type"]),
         }
-        
+
         if field.get("description"):
             col["Comment"] = field["description"]
-        
+
         if field["name"] in partition_set:
             partition_columns.append(col)
         else:
             data_columns.append(col)
-    
+
     return data_columns, partition_columns
 
 

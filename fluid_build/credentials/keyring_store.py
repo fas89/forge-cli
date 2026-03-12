@@ -17,7 +17,7 @@ OS Keyring credential storage.
 
 Securely stores credentials using the operating system's keyring:
 - macOS: Keychain
-- Windows: Credential Manager  
+- Windows: Credential Manager
 - Linux: Secret Service (GNOME Keyring, KWallet)
 """
 
@@ -28,7 +28,8 @@ logger = logging.getLogger(__name__)
 
 try:
     import keyring
-    from keyring.errors import PasswordDeleteError, KeyringError
+    from keyring.errors import KeyringError, PasswordDeleteError
+
     KEYRING_AVAILABLE = True
 except ImportError:
     KEYRING_AVAILABLE = False
@@ -37,18 +38,18 @@ except ImportError:
 
 class KeyringCredentialStore:
     """Secure credential storage using OS keyring."""
-    
+
     SERVICE_NAME = "fluid-cli"
-    
+
     @staticmethod
     def set_credential(key: str, value: str) -> None:
         """
         Store credential securely in OS keyring.
-        
+
         Args:
             key: Credential key (e.g., "snowflake.password")
             value: Credential value to store
-        
+
         Raises:
             ImportError: If keyring library not available
             KeyringError: If keyring operation fails
@@ -58,29 +59,29 @@ class KeyringCredentialStore:
                 "keyring library required for OS keyring support. "
                 "Install with: pip install keyring"
             )
-        
+
         try:
             keyring.set_password(KeyringCredentialStore.SERVICE_NAME, key, value)
             logger.debug(f"Stored credential in keyring: {key}")
         except KeyringError as e:
             logger.error(f"Failed to store credential in keyring: {e}")
             raise
-    
+
     @staticmethod
     def get_credential(key: str) -> Optional[str]:
         """
         Retrieve credential from OS keyring.
-        
+
         Args:
             key: Credential key (e.g., "snowflake.password")
-        
+
         Returns:
             Credential value or None if not found
         """
         if not KEYRING_AVAILABLE:
             logger.debug("keyring library not available")
             return None
-        
+
         try:
             value = keyring.get_password(KeyringCredentialStore.SERVICE_NAME, key)
             if value:
@@ -89,12 +90,12 @@ class KeyringCredentialStore:
         except KeyringError as e:
             logger.debug(f"Failed to retrieve credential from keyring: {e}")
             return None
-    
+
     @staticmethod
     def delete_credential(key: str) -> None:
         """
         Remove credential from OS keyring.
-        
+
         Args:
             key: Credential key to delete
         """
@@ -103,7 +104,7 @@ class KeyringCredentialStore:
                 "keyring library required for OS keyring support. "
                 "Install with: pip install keyring"
             )
-        
+
         try:
             keyring.delete_password(KeyringCredentialStore.SERVICE_NAME, key)
             logger.debug(f"Deleted credential from keyring: {key}")
@@ -113,15 +114,15 @@ class KeyringCredentialStore:
         except KeyringError as e:
             logger.error(f"Failed to delete credential from keyring: {e}")
             raise
-    
+
     @staticmethod
     def list_credentials() -> list:
         """
         List all credentials stored for fluid-cli.
-        
+
         Note: Not all keyring backends support listing credentials.
         Returns empty list if backend doesn't support it.
-        
+
         Returns:
             List of credential keys (without values)
         """

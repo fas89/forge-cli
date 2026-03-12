@@ -20,18 +20,24 @@ import logging
 import os
 import sys
 import time
-from typing import Optional, List
+from typing import List, Optional
 
+from fluid_build.cli.console import cprint, info, warning
+from fluid_build.cli.console import error as console_error
+
+from ._common import CLIError
 from .bootstrap import register_core_commands  # your aggregator that wires subcommands
 from .core import CLIContext, FluidCLIError
-from ._common import CLIError
-from .security import SecurityContext, set_security_context, ProductionLogger
+from .help_formatter import RICH_AVAILABLE as HELP_RICH_AVAILABLE
+from .help_formatter import print_command_help, print_first_run_help, print_main_help
 from .performance import (
-    optimize_startup, profile_command, get_performance_stats, 
-    run_health_checks, MemoryMonitor
+    MemoryMonitor,
+    get_performance_stats,
+    optimize_startup,
+    profile_command,
+    run_health_checks,
 )
-from .help_formatter import print_main_help, print_first_run_help, print_command_help, RICH_AVAILABLE as HELP_RICH_AVAILABLE
-from fluid_build.cli.console import cprint, error as console_error, info, warning
+from .security import ProductionLogger, SecurityContext, set_security_context
 
 # Import provider errors for structured catch in main()
 try:
@@ -45,32 +51,33 @@ DEFAULT_REGION = os.getenv("FLUID_REGION", "europe-west3")
 
 class ProductionCLI:
     """Production-ready CLI with enhanced features and monitoring"""
-    
+
     def __init__(self):
         self.start_time = time.time()
         self.memory_monitor = MemoryMonitor()
         self.logger = None
-        
+
     def setup_production_environment(self) -> None:
         """Setup production environment optimizations"""
         # Apply startup optimizations
         optimize_startup()
-        
+
         # Start memory monitoring
         self.memory_monitor.start_monitoring()
-        
+
         # Setup enhanced security context
         security_context = SecurityContext()
         # Allow common data file extensions in production
-        security_context.allowed_extensions.update({
-            '.log', '.csv', '.parquet', '.avro', '.orc', '.feather'
-        })
+        security_context.allowed_extensions.update(
+            {".log", ".csv", ".parquet", ".avro", ".orc", ".feather"}
+        )
         set_security_context(security_context)
+
 
 def build_parser() -> argparse.ArgumentParser:
     """Enhanced CLI parser with production features and comprehensive help"""
     p = argparse.ArgumentParser(
-        prog="fluid", 
+        prog="fluid",
         description="""
 FLUID Forge CLI — The Declarative Data Product Control Plane
 
@@ -110,108 +117,90 @@ Environment Variables:
 
 For more information, visit: https://github.com/agentics-rising/fluid-forge-cli
         """,
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    
+
     # Global options with enhanced help
     p.add_argument(
-        "--log-level", 
+        "--log-level",
         default=os.getenv("FLUID_LOG_LEVEL", "INFO"),
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="Set logging level (env: FLUID_LOG_LEVEL)"
+        help="Set logging level (env: FLUID_LOG_LEVEL)",
     )
     p.add_argument(
-        "--log-file", 
+        "--log-file",
         default=os.getenv("FLUID_LOG_FILE"),
-        help="Write logs to file (env: FLUID_LOG_FILE)"
+        help="Write logs to file (env: FLUID_LOG_FILE)",
     )
     p.add_argument(
-        "--provider", 
+        "--provider",
         choices=["local", "gcp", "snowflake", "odps", "opds", "aws", "azure"],
         default=os.getenv("FLUID_PROVIDER"),
-        help="Infrastructure provider (env: FLUID_PROVIDER)"
+        help="Infrastructure provider (env: FLUID_PROVIDER)",
     )
     p.add_argument(
-        "--project", 
+        "--project",
         default=os.getenv("FLUID_PROJECT"),
-        help="Cloud project/account identifier (env: FLUID_PROJECT)"
+        help="Cloud project/account identifier (env: FLUID_PROJECT)",
     )
     p.add_argument(
-        "--region", 
+        "--region",
         default=DEFAULT_REGION,
-        help=f"Cloud region/location (env: FLUID_REGION, default: {DEFAULT_REGION})"
+        help=f"Cloud region/location (env: FLUID_REGION, default: {DEFAULT_REGION})",
     )
-    p.add_argument(
-        "--config-dir",
-        help="Custom configuration directory (default: ~/.fluid)"
-    )
-    p.add_argument(
-        "--no-color",
-        action="store_true",
-        help="Disable colored output"
-    )
+    p.add_argument("--config-dir", help="Custom configuration directory (default: ~/.fluid)")
+    p.add_argument("--no-color", action="store_true", help="Disable colored output")
     from fluid_build import __version__ as _ver
-    p.add_argument(
-        "--version",
-        action="version",
-        version=f"FLUID Forge CLI v{_ver}"
-    )
-    
+
+    p.add_argument("--version", action="version", version=f"FLUID Forge CLI v{_ver}")
+
     # Production and monitoring options
     prod_group = p.add_argument_group("Production & Monitoring")
     prod_group.add_argument(
-        "--profile",
-        action="store_true",
-        help="Enable performance profiling for commands"
+        "--profile", action="store_true", help="Enable performance profiling for commands"
     )
     prod_group.add_argument(
-        "--health-check",
-        action="store_true",
-        help="Run operational health checks and exit"
+        "--health-check", action="store_true", help="Run operational health checks and exit"
     )
     prod_group.add_argument(
-        "--stats",
-        action="store_true",
-        help="Show performance statistics and exit"
+        "--stats", action="store_true", help="Show performance statistics and exit"
     )
     prod_group.add_argument(
-        "--safe-mode",
-        action="store_true",
-        help="Enable enhanced security validations"
+        "--safe-mode", action="store_true", help="Enable enhanced security validations"
     )
     prod_group.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable debug mode with detailed logging"
+        "--debug", action="store_true", help="Enable debug mode with detailed logging"
     )
 
     sp = p.add_subparsers(
-        dest="cmd", 
+        dest="cmd",
         title="Available Commands",
         description="Use 'fluid <command> --help' for command-specific help",
-        metavar="COMMAND"
+        metavar="COMMAND",
     )
-    register_core_commands(sp)   # pulls in validate/plan/apply/... from commands/*
+    register_core_commands(sp)  # pulls in validate/plan/apply/... from commands/*
     return p
+
 
 def main(argv: Optional[List[str]] = None) -> int:
     """Enhanced main entry point with production features and comprehensive error handling"""
     cli = ProductionCLI()
-    
+
     try:
         # Setup production environment first
         cli.setup_production_environment()
-        
+
         parser = build_parser()
-        
+
         # Intercept help requests for beautiful Rich-formatted output
         if argv is None:
             argv = sys.argv[1:]
-        
+
         if not argv or argv[0] in ("-h", "--help", "help"):
             if HELP_RICH_AVAILABLE:
                 # First-run? Show compact onboarding instead of the full wall of commands
                 from pathlib import Path as _Path
+
                 if not (_Path.home() / ".fluid").exists():
                     print_first_run_help(parser)
                 else:
@@ -232,142 +221,170 @@ def main(argv: Optional[List[str]] = None) -> int:
             cmd_name = argv[0]
             print_command_help(parser, cmd_name)
             return 0
-        
+
         args = parser.parse_args(argv)
-        
+
         # Handle special production commands first
-        if getattr(args, 'health_check', False):
+        if getattr(args, "health_check", False):
             return cli._handle_health_check()
-        
-        if getattr(args, 'stats', False):
+
+        if getattr(args, "stats", False):
             return cli._handle_performance_stats()
-        
+
         # Setup enhanced logging
         cli.logger = _setup_enhanced_logging(
-            args.log_level, 
-            args.log_file, 
-            getattr(args, 'no_color', False),
-            getattr(args, 'debug', False)
+            args.log_level,
+            args.log_file,
+            getattr(args, "no_color", False),
+            getattr(args, "debug", False),
         )
-        
+
         # Validate global arguments
         _validate_global_args(args, cli.logger)
-        
+
         # Create CLI context
         context = CLIContext()
-        
+
         # Store additional context information for commands
-        context.safe_mode = getattr(args, 'safe_mode', False)
-        context.debug = getattr(args, 'debug', False)
-        context.quiet = getattr(args, 'quiet', False)
-        
+        context.safe_mode = getattr(args, "safe_mode", False)
+        context.debug = getattr(args, "debug", False)
+        context.quiet = getattr(args, "quiet", False)
+
         # Enhanced startup logging (only show in debug mode or if explicitly requested)
-        if getattr(args, 'debug', False) or os.getenv('FLUID_LOG_LEVEL', '').upper() == 'DEBUG':
-            cli.logger.log_safe("info", "CLI starting", extra={
-                "cmd": getattr(args, "cmd", None),
-                "provider": getattr(args, "provider", None),
-                "project": getattr(args, "project", None),
-                "region": getattr(args, "region", None),
-                "log_level": args.log_level,
-                "safe_mode": getattr(args, 'safe_mode', False)
-            })
-        
+        if getattr(args, "debug", False) or os.getenv("FLUID_LOG_LEVEL", "").upper() == "DEBUG":
+            cli.logger.log_safe(
+                "info",
+                "CLI starting",
+                extra={
+                    "cmd": getattr(args, "cmd", None),
+                    "provider": getattr(args, "provider", None),
+                    "project": getattr(args, "project", None),
+                    "region": getattr(args, "region", None),
+                    "log_level": args.log_level,
+                    "safe_mode": getattr(args, "safe_mode", False),
+                },
+            )
+
         try:
             # Execute command with optional profiling
-            profiling_enabled = getattr(args, 'profile', False)
-            
-            if profiling_enabled and hasattr(args, 'cmd') and args.cmd:
+            profiling_enabled = getattr(args, "profile", False)
+
+            if profiling_enabled and hasattr(args, "cmd") and args.cmd:
                 with profile_command(args.cmd):
                     result = cli._execute_command(args)
             else:
                 result = cli._execute_command(args)
-            
+
             # Log final performance stats if requested
-            if profiling_enabled or getattr(args, 'debug', False):
+            if profiling_enabled or getattr(args, "debug", False):
                 total_time = time.time() - cli.start_time
                 memory_stats = cli.memory_monitor.get_stats() or {}
-                peak_memory = memory_stats.get('peak_mb', 0) or 0
-                
-                cli.logger.log_safe("info", "Command completed", extra={
-                    "cmd": getattr(args, "cmd", None),
-                    "total_time": f"{total_time:.3f}s",
-                    "peak_memory": f"{peak_memory:.1f}MB",
-                    "exit_code": result
-                })
-            
+                peak_memory = memory_stats.get("peak_mb", 0) or 0
+
+                cli.logger.log_safe(
+                    "info",
+                    "Command completed",
+                    extra={
+                        "cmd": getattr(args, "cmd", None),
+                        "total_time": f"{total_time:.3f}s",
+                        "peak_memory": f"{peak_memory:.1f}MB",
+                        "exit_code": result,
+                    },
+                )
+
             return int(result or 0)
-            
+
         except FluidCLIError as e:
             # Handle known CLI errors with enhanced formatting
             e.format_for_user(context.console)
-            cli.logger.log_safe("error", "CLI command error", extra={
-                "cmd": getattr(args, "cmd", None),
-                "event": e.event,
-                "exit_code": e.exit_code
-            })
+            cli.logger.log_safe(
+                "error",
+                "CLI command error",
+                extra={
+                    "cmd": getattr(args, "cmd", None),
+                    "event": e.event,
+                    "exit_code": e.exit_code,
+                },
+            )
             return e.exit_code
-            
+
         except CLIError as e:
             # Handle lightweight CLI errors from command modules
-            cli.logger.log_safe("error", "CLI command error", extra={
-                "cmd": getattr(args, "cmd", None),
-                "event": e.event,
-                "exit_code": e.exit_code
-            })
+            cli.logger.log_safe(
+                "error",
+                "CLI command error",
+                extra={
+                    "cmd": getattr(args, "cmd", None),
+                    "event": e.event,
+                    "exit_code": e.exit_code,
+                },
+            )
             context.console.print(f"[red]❌ {e.message}[/red]")
             if e.context:
                 for key, value in e.context.items():
                     context.console.print(f"  [dim]{key}:[/dim] {value}")
             return e.exit_code
-            
+
         except KeyboardInterrupt:
             context.console.print("\n[yellow]⚠️ Operation cancelled by user[/yellow]")
-            cli.logger.log_safe("info", "CLI interrupted by user", extra={
-                "cmd": getattr(args, "cmd", None)
-            })
+            cli.logger.log_safe(
+                "info", "CLI interrupted by user", extra={"cmd": getattr(args, "cmd", None)}
+            )
             return 1
-            
+
         except SystemExit as e:
             # Handle explicit sys.exit() calls
-            cli.logger.log_safe("info", "CLI system exit", extra={
-                "cmd": getattr(args, "cmd", None), 
-                "code": e.code
-            })
+            cli.logger.log_safe(
+                "info", "CLI system exit", extra={"cmd": getattr(args, "cmd", None), "code": e.code}
+            )
             raise
-            
+
         except Exception as e:  # noqa: BLE001
             # Structured catch for provider errors (before generic Exception)
             if ProviderError is not None and isinstance(e, ProviderError):
                 context.console.print(f"[red]❌ Provider error: {e}[/red]")
-                cli.logger.log_safe("error", "Provider error", extra={
-                    "cmd": getattr(args, "cmd", None),
-                    "error": str(e),
-                    "type": type(e).__name__
-                })
-                context.console.print("\n[yellow]💡 Check provider configuration and credentials.[/yellow]")
-                context.console.print("[yellow]Run 'fluid doctor' for diagnostics or 'fluid providers' to list available providers.[/yellow]")
+                cli.logger.log_safe(
+                    "error",
+                    "Provider error",
+                    extra={
+                        "cmd": getattr(args, "cmd", None),
+                        "error": str(e),
+                        "type": type(e).__name__,
+                    },
+                )
+                context.console.print(
+                    "\n[yellow]💡 Check provider configuration and credentials.[/yellow]"
+                )
+                context.console.print(
+                    "[yellow]Run 'fluid doctor' for diagnostics or 'fluid providers' to list available providers.[/yellow]"
+                )
                 return 1
-            
+
             # Handle unexpected errors with enhanced context
             context.console.print(f"[red]❌ Unexpected error: {e}[/red]")
-            cli.logger.log_safe("error", "CLI unhandled exception", extra={
-                "cmd": getattr(args, "cmd", "unknown"),
-                "error": str(e),
-                "type": type(e).__name__
-            })
-            
+            cli.logger.log_safe(
+                "error",
+                "CLI unhandled exception",
+                extra={
+                    "cmd": getattr(args, "cmd", "unknown"),
+                    "error": str(e),
+                    "type": type(e).__name__,
+                },
+            )
+
             # Show debug traceback if enabled
-            if getattr(args, 'debug', False):
+            if getattr(args, "debug", False):
                 import traceback
+
                 context.console.print("\n[red]Debug traceback:[/red]")
                 context.console.print(traceback.format_exc())
-            
+
             # Provide helpful guidance
             context.console.print("\n[yellow]💡 This appears to be an unexpected error.[/yellow]")
             context.console.print("[yellow]Use --debug for more details or check logs.[/yellow]")
-            
+
             return 2
-    
+
     except Exception as e:
         # Ultimate fallback for parser errors, etc.
         console_error(f"CLI initialization failed: {e}")
@@ -378,40 +395,40 @@ def main(argv: Optional[List[str]] = None) -> int:
 def _handle_health_check(self) -> int:
     """Handle health check command"""
     results = run_health_checks()
-    
+
     cprint("=== Operational Health Check ===")
-    for check_name, check_result in results['checks'].items():
-        status = check_result['status'].upper()
-        error = f" ({check_result.get('error', '')})" if check_result.get('error') else ""
+    for check_name, check_result in results["checks"].items():
+        status = check_result["status"].upper()
+        error = f" ({check_result.get('error', '')})" if check_result.get("error") else ""
         cprint(f"{check_name}: {status}{error}")
-    
-    overall = "HEALTHY" if results['overall_healthy'] else "UNHEALTHY"
+
+    overall = "HEALTHY" if results["overall_healthy"] else "UNHEALTHY"
     cprint(f"\nOverall Status: {overall}")
-    
-    return 0 if results['overall_healthy'] else 1
+
+    return 0 if results["overall_healthy"] else 1
 
 
 def _handle_performance_stats(self) -> int:
     """Handle performance stats command"""
     stats = get_performance_stats()
-    
+
     cprint("=== Performance Statistics ===")
-    startup_stats = stats.get('startup_stats', {})
-    cache_stats = stats.get('cache_stats', {})
-    memory_stats = stats.get('memory_stats', {})
-    
+    startup_stats = stats.get("startup_stats", {})
+    cache_stats = stats.get("cache_stats", {})
+    memory_stats = stats.get("memory_stats", {})
+
     cprint(f"Startup Time: {startup_stats.get('startup_time', 0):.3f}s")
     cprint(f"Cache Hit Ratio: {cache_stats.get('hit_ratio', 0):.2%}")
     cprint(f"Cache Size: {cache_stats.get('size', 0)} items")
     if memory_stats:
         cprint(f"Memory Growth: {memory_stats.get('growth_mb', 0):.1f}MB")
-    
+
     return 0
 
 
 def _execute_command(self, args: argparse.Namespace) -> int:
     """Execute the specified command"""
-    if hasattr(args, 'func'):
+    if hasattr(args, "func"):
         return args.func(args, self.logger.logger if self.logger else LOG)
     else:
         if self.logger:
@@ -423,18 +440,20 @@ def _execute_command(self, args: argparse.Namespace) -> int:
 
 # Attach methods to ProductionCLI class
 ProductionCLI._handle_health_check = _handle_health_check
-ProductionCLI._handle_performance_stats = _handle_performance_stats  
+ProductionCLI._handle_performance_stats = _handle_performance_stats
 ProductionCLI._execute_command = _execute_command
 
 
-def _setup_enhanced_logging(level: str, log_file: Optional[str], no_color: bool = False, debug: bool = False) -> ProductionLogger:
+def _setup_enhanced_logging(
+    level: str, log_file: Optional[str], no_color: bool = False, debug: bool = False
+) -> ProductionLogger:
     """Enhanced logging setup with production security features"""
     numeric = getattr(logging, str(level).upper(), logging.INFO)
-    
+
     # Override level for debug mode
     if debug:
         numeric = logging.DEBUG
-    
+
     # Create formatter based on output type
     if log_file:
         # Structured logging for files
@@ -444,69 +463,71 @@ def _setup_enhanced_logging(level: str, log_file: Optional[str], no_color: bool 
     else:
         # Human-readable for console
         if no_color:
-            formatter = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-            )
+            formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         else:
             # Simple format for console
-            formatter = logging.Formatter('%(message)s')
-    
+            formatter = logging.Formatter("%(message)s")
+
     # Setup root logger
-    logging.basicConfig(
-        level=numeric,
-        format='%(message)s' if not log_file else None,
-        handlers=[]
-    )
-    
+    logging.basicConfig(level=numeric, format="%(message)s" if not log_file else None, handlers=[])
+
     # Console handler — send to stderr so stdout stays clean for command output
     console_handler = logging.StreamHandler(sys.stderr)
     console_handler.setLevel(numeric)
     console_handler.setFormatter(formatter)
     logging.getLogger().addHandler(console_handler)
-    
+
     # File handler if specified
     if log_file:
         try:
             file_handler = logging.FileHandler(log_file)
             file_handler.setLevel(numeric)
-            file_handler.setFormatter(logging.Formatter(
-                '{"time":"%(asctime)s","level":"%(levelname)s","name":"%(name)s","message":"%(message)s"}'
-            ))
+            file_handler.setFormatter(
+                logging.Formatter(
+                    '{"time":"%(asctime)s","level":"%(levelname)s","name":"%(name)s","message":"%(message)s"}'
+                )
+            )
             logging.getLogger().addHandler(file_handler)
         except Exception as e:
             LOG.warning(f"Failed to setup file logging: {e}")
-    
+
     # Return production logger wrapper
     return ProductionLogger(LOG)
 
 
-def _validate_global_args(args: argparse.Namespace, logger: Optional[ProductionLogger] = None) -> None:
+def _validate_global_args(
+    args: argparse.Namespace, logger: Optional[ProductionLogger] = None
+) -> None:
     """Enhanced validation of global arguments with security considerations"""
     issues = []
     warnings = []
-    
+
     # Provider validation
-    if hasattr(args, 'provider') and args.provider:
+    if hasattr(args, "provider") and args.provider:
         # Only GCP and Azure require an explicit --project; AWS resolves account from STS/env
-        if args.provider in ['gcp', 'azure'] and not getattr(args, 'project', None):
+        if args.provider in ["gcp", "azure"] and not getattr(args, "project", None):
             issues.append(f"Provider '{args.provider}' requires --project to be specified")
-        
+
         # Security check for local provider in production (only show in debug mode)
-        if args.provider == 'local' and not getattr(args, 'debug', False):
+        if args.provider == "local" and not getattr(args, "debug", False):
             # Only show this warning in debug mode or if explicitly requested
-            if getattr(args, 'debug', False) or os.getenv('FLUID_LOG_LEVEL', '').upper() == 'DEBUG':
-                warnings.append("Local provider detected - ensure this is intended for production use")
-    
+            if getattr(args, "debug", False) or os.getenv("FLUID_LOG_LEVEL", "").upper() == "DEBUG":
+                warnings.append(
+                    "Local provider detected - ensure this is intended for production use"
+                )
+
     # Environment variable guidance (only show in debug mode)
-    if not os.getenv('FLUID_PROVIDER') and not getattr(args, 'provider', None):
+    if not os.getenv("FLUID_PROVIDER") and not getattr(args, "provider", None):
         # Only show this tip in debug mode to reduce noise
-        if getattr(args, 'debug', False) or os.getenv('FLUID_LOG_LEVEL', '').upper() == 'DEBUG':
-            warnings.append("💡 Tip: Set FLUID_PROVIDER environment variable to avoid specifying --provider each time")
-    
+        if getattr(args, "debug", False) or os.getenv("FLUID_LOG_LEVEL", "").upper() == "DEBUG":
+            warnings.append(
+                "💡 Tip: Set FLUID_PROVIDER environment variable to avoid specifying --provider each time"
+            )
+
     # Security mode recommendations
-    if not getattr(args, 'safe_mode', False) and os.getenv('PRODUCTION'):
+    if not getattr(args, "safe_mode", False) and os.getenv("PRODUCTION"):
         warnings.append("💡 Consider using --safe-mode in production environments")
-    
+
     # Log issues and warnings
     if logger:
         for issue in issues:

@@ -1,22 +1,40 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for fluid_build.structured_logging"""
+
 import json
 import logging
-import pytest
 from unittest.mock import patch
+
 from fluid_build.structured_logging import (
-    StructuredFormatter, ContextFilter, LogContext,
-    configure_structured_logging, get_logger,
-    log_operation_start, log_operation_success, log_operation_failure,
+    ContextFilter,
+    LogContext,
+    StructuredFormatter,
+    configure_structured_logging,
+    get_logger,
     log_metric,
+    log_operation_failure,
+    log_operation_start,
+    log_operation_success,
 )
 
 
 class TestStructuredFormatter:
     def _make_record(self, msg="hello", level=logging.INFO, exc_info=None, **extra):
         logger = logging.getLogger("test.formatter")
-        record = logger.makeRecord(
-            "test.formatter", level, "test.py", 42, msg, (), exc_info
-        )
+        record = logger.makeRecord("test.formatter", level, "test.py", 42, msg, (), exc_info)
         for k, v in extra.items():
             setattr(record, k, v)
         return record
@@ -55,6 +73,7 @@ class TestStructuredFormatter:
             raise ValueError("test err")
         except ValueError:
             import sys
+
             record = self._make_record(exc_info=sys.exc_info())
         data = json.loads(f.format(record))
         assert "exception" in data
@@ -101,10 +120,7 @@ class TestConfigureStructuredLogging:
     def test_json_output_mode(self):
         logger = configure_structured_logging(level="DEBUG", json_output=True)
         # Should have at least one handler with StructuredFormatter
-        found = any(
-            isinstance(h.formatter, StructuredFormatter)
-            for h in logger.handlers
-        )
+        found = any(isinstance(h.formatter, StructuredFormatter) for h in logger.handlers)
         assert found
 
     def test_file_handler(self, tmp_path):
@@ -123,25 +139,25 @@ class TestGetLogger:
 class TestConvenienceFunctions:
     def test_log_operation_start(self):
         mock_logger = logging.getLogger("test.op")
-        with patch.object(mock_logger, 'info') as mock_info:
+        with patch.object(mock_logger, "info") as mock_info:
             log_operation_start(mock_logger, "build")
         mock_info.assert_called_once()
         assert "build" in mock_info.call_args[0][0]
 
     def test_log_operation_success_with_duration(self):
         mock_logger = logging.getLogger("test.op2")
-        with patch.object(mock_logger, 'info') as mock_info:
+        with patch.object(mock_logger, "info") as mock_info:
             log_operation_success(mock_logger, "deploy", duration=1.5)
         assert "1.50s" in mock_info.call_args[0][0]
 
     def test_log_operation_failure(self):
         mock_logger = logging.getLogger("test.op3")
-        with patch.object(mock_logger, 'error') as mock_error:
+        with patch.object(mock_logger, "error") as mock_error:
             log_operation_failure(mock_logger, "validate", ValueError("fail"), duration=0.3)
         assert "validate" in mock_error.call_args[0][0]
 
     def test_log_metric(self):
         mock_logger = logging.getLogger("test.metric")
-        with patch.object(mock_logger, 'info') as mock_info:
+        with patch.object(mock_logger, "info") as mock_info:
             log_metric(mock_logger, "latency", 42.0, unit="ms", host="a")
         mock_info.assert_called_once()

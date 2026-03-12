@@ -17,20 +17,21 @@ Custom Rich-formatted help for FLUID CLI
 
 Provides beautiful, colorful help output using Rich library.
 """
+
 from __future__ import annotations
 
 import argparse
-from typing import Optional
 
 from fluid_build import __version__ as _VERSION
 
 try:
+    from rich import box
     from rich.console import Console
     from rich.panel import Panel
+    from rich.syntax import Syntax
     from rich.table import Table
     from rich.text import Text
-    from rich.syntax import Syntax
-    from rich import box
+
     RICH_AVAILABLE = True
 except ImportError:
     RICH_AVAILABLE = False
@@ -51,15 +52,17 @@ def print_first_run_help(parser: argparse.ArgumentParser) -> None:
     console.print()
 
     # Welcome — warm but brief
-    console.print(Panel(
-        "[bold bright_cyan]🌊 Welcome to FLUID Forge![/bold bright_cyan]\n\n"
-        "[bright_white]Build, deploy and govern data products with declarative contracts.[/bright_white]\n"
-        "[dim]No cloud account required — the local provider runs everything on your machine.[/dim]",
-        border_style="bright_cyan",
-        padding=(1, 2),
-        title="[bold bright_white]👋 First Time?[/bold bright_white]",
-        title_align="left",
-    ))
+    console.print(
+        Panel(
+            "[bold bright_cyan]🌊 Welcome to FLUID Forge![/bold bright_cyan]\n\n"
+            "[bright_white]Build, deploy and govern data products with declarative contracts.[/bright_white]\n"
+            "[dim]No cloud account required — the local provider runs everything on your machine.[/dim]",
+            border_style="bright_cyan",
+            padding=(1, 2),
+            title="[bold bright_white]👋 First Time?[/bold bright_white]",
+            title_align="left",
+        )
+    )
     console.print()
 
     # Three-step quick start
@@ -70,24 +73,30 @@ def print_first_run_help(parser: argparse.ArgumentParser) -> None:
     steps.add_column(style="bright_cyan", width=46)
     steps.add_column(style="dim bright_white")
 
-    steps.add_row("1.", "fluid init my-project --quickstart", "Create a working project with sample data")
-    steps.add_row("2.", "cd my-project && fluid validate contract.fluid.yaml", "Check the generated contract")
+    steps.add_row(
+        "1.", "fluid init my-project --quickstart", "Create a working project with sample data"
+    )
+    steps.add_row(
+        "2.", "cd my-project && fluid validate contract.fluid.yaml", "Check the generated contract"
+    )
     steps.add_row("3.", "fluid apply contract.fluid.yaml --yes", "Run the pipeline end-to-end")
 
     console.print(steps)
     console.print()
 
     # Helpful pointers
-    console.print(Panel(
-        "[bright_yellow]fluid doctor[/bright_yellow]       Check your system is ready\n"
-        "[bright_yellow]fluid --help[/bright_yellow]       See all commands & options\n"
-        "[bright_yellow]fluid <cmd> -h[/bright_yellow]     Help for a specific command\n\n"
-        "[dim]📚 Docs:[/dim]  [bright_cyan]https://github.com/open-data-protocol/fluid[/bright_cyan]",
-        title="[bold bright_white]What's next?[/bold bright_white]",
-        title_align="left",
-        border_style="bright_white",
-        padding=(1, 2),
-    ))
+    console.print(
+        Panel(
+            "[bright_yellow]fluid doctor[/bright_yellow]       Check your system is ready\n"
+            "[bright_yellow]fluid --help[/bright_yellow]       See all commands & options\n"
+            "[bright_yellow]fluid <cmd> -h[/bright_yellow]     Help for a specific command\n\n"
+            "[dim]📚 Docs:[/dim]  [bright_cyan]https://github.com/open-data-protocol/fluid[/bright_cyan]",
+            title="[bold bright_white]What's next?[/bold bright_white]",
+            title_align="left",
+            border_style="bright_white",
+            padding=(1, 2),
+        )
+    )
     console.print()
 
 
@@ -128,8 +137,7 @@ def print_main_help(parser: argparse.ArgumentParser) -> None:
     console.print()
 
     # ── helper to build a group ─────────────────────────────────────
-    def _section(icon: str, title: str, color: str,
-                 rows: list[tuple[str, str]]) -> None:
+    def _section(icon: str, title: str, color: str, rows: list[tuple[str, str]]) -> None:
         tbl = Table(
             show_header=False,
             box=None,
@@ -140,86 +148,105 @@ def print_main_help(parser: argparse.ArgumentParser) -> None:
         tbl.add_column(style="bright_white")
         for cmd, desc in rows:
             tbl.add_row(f"  {cmd}", desc)
-        console.print(
-            f"  {icon} [bold {color}]{title}[/bold {color}]"
-        )
+        console.print(f"  {icon} [bold {color}]{title}[/bold {color}]")
         console.print(tbl)
         console.print()
 
     # ── Core Workflow ───────────────────────────────────────────────
-    _section("▸", "Core Workflow", "bright_blue", [
-        ("init",     "Create a new project  [dim]--quickstart · --scan · --wizard[/dim]"),
-        ("validate", "Check contract syntax and provider rules"),
-        ("plan",     "Preview what will change  [dim]--env · --out[/dim]"),
-        ("apply",    "Execute the contract  [dim]--yes · --dry-run · --provider[/dim]"),
-        ("verify",   "Confirm deployed state matches the contract"),
-    ])
+    _section(
+        "▸",
+        "Core Workflow",
+        "bright_blue",
+        [
+            ("init", "Create a new project  [dim]--quickstart · --scan · --wizard[/dim]"),
+            ("validate", "Check contract syntax and provider rules"),
+            ("plan", "Preview what will change  [dim]--env · --out[/dim]"),
+            ("apply", "Execute the contract  [dim]--yes · --dry-run · --provider[/dim]"),
+            ("verify", "Confirm deployed state matches the contract"),
+        ],
+    )
 
     # ── Generation & Scaffolding ────────────────────────────────────
-    _section("▸", "Generation & Scaffolding", "green", [
-        ("generate-airflow", "Produce Airflow DAG  [dim](GCP · AWS · Snowflake)[/dim]"),
-        ("export",           "Export to Airflow · Dagster · Prefect  [dim]--engine[/dim]"),
-        ("forge",            "AI-powered project creation  [dim]--mode copilot[/dim]"),
-        ("blueprint",        "Browse / scaffold reusable templates"),
-        ("scaffold-ci",      "Generate CI/CD pipeline config"),
-    ])
+    _section(
+        "▸",
+        "Generation & Scaffolding",
+        "green",
+        [
+            ("generate-airflow", "Produce Airflow DAG  [dim](GCP · AWS · Snowflake)[/dim]"),
+            ("export", "Export to Airflow · Dagster · Prefect  [dim]--engine[/dim]"),
+            ("forge", "AI-powered project creation  [dim]--mode copilot[/dim]"),
+            ("blueprint", "Browse / scaffold reusable templates"),
+            ("scaffold-ci", "Generate CI/CD pipeline config"),
+        ],
+    )
 
     # ── Enterprise Integration & Publishing ─────────────────────────
-    _section("▸", "Enterprise Integration & Publishing", "bright_magenta", [
-        ("export-opds", "Export to ODPS [dim](Open Data Product Spec)[/dim]"),
-        ("odcs",        "ODCS v3.1 [dim](Open Data Contract Standard — Bitol.io)[/dim]"),
-        ("odps",        "ODPS v4.1 [dim](Linux Foundation data product spec)[/dim]"),
-        ("market",      "Browse & install marketplace data products"),
-        ("publish",     "Publish a data product to the marketplace"),
-    ])
+    _section(
+        "▸",
+        "Enterprise Integration & Publishing",
+        "bright_magenta",
+        [
+            ("export-opds", "Export to ODPS [dim](Open Data Product Spec)[/dim]"),
+            ("odcs", "ODCS v3.1 [dim](Open Data Contract Standard — Bitol.io)[/dim]"),
+            ("odps", "ODPS v4.1 [dim](Linux Foundation data product spec)[/dim]"),
+            ("market", "Browse & install marketplace data products"),
+            ("publish", "Publish a data product to the marketplace"),
+        ],
+    )
 
     # ── Quality & Governance ────────────────────────────────────────
-    _section("▸", "Quality & Governance", "yellow", [
-        ("test",                "Test contract against live data  [dim]--output json · --strict[/dim]"),
-        ("contract-tests",      "Run contract test suites"),
-        ("contract-validation", "Deep semantic validation"),
-        ("policy-check",        "Governance & compliance checks  [dim]--strict[/dim]"),
-        ("diff",                "Detect drift from deployed state"),
-    ])
+    _section(
+        "▸",
+        "Quality & Governance",
+        "yellow",
+        [
+            ("test", "Test contract against live data  [dim]--output json · --strict[/dim]"),
+            ("contract-tests", "Run contract test suites"),
+            ("contract-validation", "Deep semantic validation"),
+            ("policy-check", "Governance & compliance checks  [dim]--strict[/dim]"),
+            ("diff", "Detect drift from deployed state"),
+        ],
+    )
 
     # ── Utilities & System ──────────────────────────────────────────
-    _section("▸", "Utilities & System", "bright_white", [
-        ("doctor",    "Check system health & dependencies"),
-        ("auth",      "Manage cloud provider credentials  [dim]login · status · logout[/dim]"),
-        ("admin",     "System admin  [dim]diagnostics · test · status · registry[/dim]"),
-        ("version",   "Show version info"),
-        ("viz-graph", "Generate lineage graph  [dim](DOT · PNG)[/dim]"),
-    ])
+    _section(
+        "▸",
+        "Utilities & System",
+        "bright_white",
+        [
+            ("doctor", "Check system health & dependencies"),
+            ("auth", "Manage cloud provider credentials  [dim]login · status · logout[/dim]"),
+            ("admin", "System admin  [dim]diagnostics · test · status · registry[/dim]"),
+            ("version", "Show version info"),
+            ("viz-graph", "Generate lineage graph  [dim](DOT · PNG)[/dim]"),
+        ],
+    )
 
     # ── More commands ───────────────────────────────────────────────
     extras = Table(show_header=False, box=None, padding=(0, 1), pad_edge=False)
     extras.add_column(style="dim bright_cyan", min_width=24, max_width=24)
     extras.add_column(style="dim")
-    extras.add_row("  context",       "Switch project / environment")
-    extras.add_row("  copilot",       "Interactive AI assistant")
-    extras.add_row("  execute",       "Run build jobs manually")
-    extras.add_row("  wizard",        "Step-by-step guided setup")
-    extras.add_row("  marketplace",   "Extended marketplace browser")
-    extras.add_row("  odps-bitol",    "ODPS-Bitol v1.0 (Entropy Data)")
-    extras.add_row("  preview",       "Dry-run alias for apply")
-    extras.add_row("  viz-plan",      "Interactive plan visualization")
+    extras.add_row("  context", "Switch project / environment")
+    extras.add_row("  copilot", "Interactive AI assistant")
+    extras.add_row("  execute", "Run build jobs manually")
+    extras.add_row("  wizard", "Step-by-step guided setup")
+    extras.add_row("  marketplace", "Extended marketplace browser")
+    extras.add_row("  odps-bitol", "ODPS-Bitol v1.0 (Entropy Data)")
+    extras.add_row("  preview", "Dry-run alias for apply")
+    extras.add_row("  viz-plan", "Interactive plan visualization")
     console.print("  [dim]▸ More Commands[/dim]")
     console.print(extras)
     console.print()
 
     # ── Quick-start ─────────────────────────────────────────────────
-    console.print(
-        f"  {bar}"
-    )
+    console.print(f"  {bar}")
     console.print(
         "  [bold bright_green]⚡ Quick Start[/bold bright_green]     "
         "[bright_cyan]fluid init my-project --quickstart[/bright_cyan]  →  "
         "[bright_cyan]fluid validate contract.fluid.yaml[/bright_cyan]  →  "
         "[bright_cyan]fluid apply contract.fluid.yaml --yes[/bright_cyan]"
     )
-    console.print(
-        f"  {bar}"
-    )
+    console.print(f"  {bar}")
 
     # ── Footer ──────────────────────────────────────────────────────
     console.print(
@@ -237,48 +264,60 @@ def print_forge_help() -> None:
     """Print beautiful help specifically for forge command"""
     if not RICH_AVAILABLE:
         return False
-    
+
     console = Console()
-    
+
     # Header
     console.print()
-    console.print(Panel(
-        "[bold bright_magenta]🔨 FLUID Forge[/bold bright_magenta] [dim bright_white]v1.0.0[/dim bright_white]\n"
-        "[bright_white]The One Command You Need to Know[/bright_white]\n"
-        f"[dim]Create FLUID {_VERSION} data products with AI assistance[/dim]",
-        border_style="bright_magenta",
-        padding=(1, 2),
-        title="[bold bright_white]✨ Project Generator[/bold bright_white]",
-        title_align="left"
-    ))
+    console.print(
+        Panel(
+            "[bold bright_magenta]🔨 FLUID Forge[/bold bright_magenta] [dim bright_white]v1.0.0[/dim bright_white]\n"
+            "[bright_white]The One Command You Need to Know[/bright_white]\n"
+            f"[dim]Create FLUID {_VERSION} data products with AI assistance[/dim]",
+            border_style="bright_magenta",
+            padding=(1, 2),
+            title="[bold bright_white]✨ Project Generator[/bold bright_white]",
+            title_align="left",
+        )
+    )
     console.print()
-    
+
     # Usage
     console.print("[bold bright_white]Usage:[/bold bright_white]")
     console.print("  [bright_cyan]fluid forge[/bright_cyan] [yellow][OPTIONS][/yellow]")
-    console.print("  [bright_cyan]fluid forge[/bright_cyan] [yellow]--mode[/yellow] [bright_green]copilot[/bright_green]")
-    console.print("  [bright_cyan]fluid forge[/bright_cyan] [yellow]--template[/yellow] [bright_white]analytics[/bright_white] [yellow]--provider[/yellow] [bright_white]gcp[/bright_white]")
+    console.print(
+        "  [bright_cyan]fluid forge[/bright_cyan] [yellow]--mode[/yellow] [bright_green]copilot[/bright_green]"
+    )
+    console.print(
+        "  [bright_cyan]fluid forge[/bright_cyan] [yellow]--template[/yellow] [bright_white]analytics[/bright_white] [yellow]--provider[/yellow] [bright_white]gcp[/bright_white]"
+    )
     console.print()
-    
+
     # Creation Modes
-    modes_table = Table(show_header=False, box=box.ROUNDED, padding=(0, 2), border_style="bright_magenta")
+    modes_table = Table(
+        show_header=False, box=box.ROUNDED, padding=(0, 2), border_style="bright_magenta"
+    )
     modes_table.add_column(style="bright_magenta bold", width=20)
     modes_table.add_column(style="bright_white")
-    
+
     modes_table.add_row("copilot", "🤖 AI-powered intelligent project creation (recommended)")
     modes_table.add_row("agent", "🎯 Specialized domain experts for specific industries")
     modes_table.add_row("template", "📋 Traditional template-based creation")
     modes_table.add_row("blueprint", "🏗️  Complete enterprise data product templates")
-    
-    console.print("[bold bright_magenta]🎨 Creation Modes[/bold bright_magenta] [dim](Choose your workflow)[/dim]")
+
+    console.print(
+        "[bold bright_magenta]🎨 Creation Modes[/bold bright_magenta] [dim](Choose your workflow)[/dim]"
+    )
     console.print(modes_table)
     console.print()
-    
+
     # Key Options
-    options_table = Table(show_header=True, box=box.ROUNDED, padding=(0, 1), border_style="bright_yellow")
+    options_table = Table(
+        show_header=True, box=box.ROUNDED, padding=(0, 1), border_style="bright_yellow"
+    )
     options_table.add_column("Option", style="bright_yellow bold", width=30)
     options_table.add_column("Description", style="bright_white")
-    
+
     options_table.add_row("--mode, -m", "Creation mode (copilot/agent/template/blueprint)")
     options_table.add_row("--agent, -a", "Specific AI agent (finance/healthcare/retail)")
     options_table.add_row("--template, -t", "Project template name")
@@ -289,29 +328,45 @@ def print_forge_help() -> None:
     options_table.add_row("--interactive, -i", "Force interactive mode")
     options_table.add_row("--dry-run", "Preview without creating files")
     options_table.add_row("--context", "Additional AI context (JSON string or file)")
-    
+
     console.print("[bold bright_yellow]⚙️  Options[/bold bright_yellow]")
     console.print(options_table)
     console.print()
-    
+
     # Examples
     console.print("[bold bright_green]💡 Quick Start Examples[/bold bright_green]")
     console.print()
-    
+
     examples = [
         ("AI Copilot Mode (Recommended):", "fluid forge", "Interactive AI assistant guides you"),
-        ("Specific Template:", "fluid forge --template analytics --provider gcp", "Use pre-built analytics template"),
-        ("Domain Expert:", "fluid forge --mode agent --agent finance", "Finance-specific best practices"),
-        ("Enterprise Blueprint:", "fluid forge --mode blueprint --blueprint customer-360", "Complete enterprise solution"),
+        (
+            "Specific Template:",
+            "fluid forge --template analytics --provider gcp",
+            "Use pre-built analytics template",
+        ),
+        (
+            "Domain Expert:",
+            "fluid forge --mode agent --agent finance",
+            "Finance-specific best practices",
+        ),
+        (
+            "Enterprise Blueprint:",
+            "fluid forge --mode blueprint --blueprint customer-360",
+            "Complete enterprise solution",
+        ),
         ("Quick Start:", "fluid forge --quickstart", "Use smart defaults, no questions"),
-        ("Preview First:", "fluid forge --dry-run --template ml-pipeline", "See what will be created"),
+        (
+            "Preview First:",
+            "fluid forge --dry-run --template ml-pipeline",
+            "See what will be created",
+        ),
     ]
-    
+
     for desc, cmd, help_text in examples:
         console.print(f"  [bold bright_white]{desc}[/bold bright_white] [dim]{help_text}[/dim]")
         syntax = Syntax(f"  {cmd}", "bash", theme="monokai", padding=(0, 2))
         console.print(syntax)
-    
+
     # Workflow
     console.print()
     workflow_panel = Panel(
@@ -323,11 +378,11 @@ def print_forge_help() -> None:
         "[dim]💡 First time? Just run [bright_cyan]fluid forge[/bright_cyan] and follow the prompts![/dim]",
         title="[bold bright_green]🚀 How It Works[/bold bright_green]",
         border_style="bright_green",
-        padding=(1, 2)
+        padding=(1, 2),
     )
     console.print(workflow_panel)
     console.print()
-    
+
     # Tips
     tips_panel = Panel(
         "💡 [bold]Pro Tips:[/bold]\n\n"
@@ -339,25 +394,27 @@ def print_forge_help() -> None:
         border_style="bright_yellow",
         padding=(1, 2),
         title="[bold]✨ Tips[/bold]",
-        title_align="left"
+        title_align="left",
     )
     console.print(tips_panel)
     console.print()
-    
+
     # Footer
-    console.print(Panel(
-        "[bold bright_cyan]📚 Learn More[/bold bright_cyan]\n"
-        "   https://github.com/open-data-protocol/fluid/docs/forge\n\n"
-        "[bold bright_green]💬 Need Help?[/bold bright_green]\n"
-        "   Run: [bright_cyan]fluid forge[/bright_cyan] and let AI guide you\n"
-        "   Or: [bright_cyan]fluid doctor[/bright_cyan] to check your setup\n\n"
-        "[dim]Made with ❤️  for data engineers everywhere[/dim]",
-        title="[bold bright_white]📖 Resources[/bold bright_white]",
-        title_align="left",
-        border_style="bright_cyan",
-        padding=(1, 2)
-    ))
-    
+    console.print(
+        Panel(
+            "[bold bright_cyan]📚 Learn More[/bold bright_cyan]\n"
+            "   https://github.com/open-data-protocol/fluid/docs/forge\n\n"
+            "[bold bright_green]💬 Need Help?[/bold bright_green]\n"
+            "   Run: [bright_cyan]fluid forge[/bright_cyan] and let AI guide you\n"
+            "   Or: [bright_cyan]fluid doctor[/bright_cyan] to check your setup\n\n"
+            "[dim]Made with ❤️  for data engineers everywhere[/dim]",
+            title="[bold bright_white]📖 Resources[/bold bright_white]",
+            title_align="left",
+            border_style="bright_cyan",
+            padding=(1, 2),
+        )
+    )
+
     return True
 
 
@@ -505,9 +562,7 @@ _COMMAND_ENRICHMENT: dict[str, tuple[str, str]] = {
     ),
     "providers": (
         "List all discoverable infrastructure providers and their capabilities.",
-        (
-            "  fluid providers"
-        ),
+        ("  fluid providers"),
     ),
     "context": (
         "Get or set default provider, project, and region for the current workspace.",
@@ -577,11 +632,7 @@ _COMMAND_ENRICHMENT: dict[str, tuple[str, str]] = {
     ),
     "wizard": (
         "Step-by-step guided setup wizard with interactive prompts for creating data products.",
-        (
-            "  fluid wizard\n"
-            "  fluid wizard --provider gcp\n"
-            "  fluid wizard --skip-preview"
-        ),
+        ("  fluid wizard\n" "  fluid wizard --provider gcp\n" "  fluid wizard --skip-preview"),
     ),
     "diff": (
         "Detect configuration drift by comparing contract (desired state) with actual deployed resources.",
@@ -594,11 +645,7 @@ _COMMAND_ENRICHMENT: dict[str, tuple[str, str]] = {
     ),
     "doctor": (
         "Run comprehensive diagnostics — checks FLUID core, providers, schemas, and dependencies.",
-        (
-            "  fluid doctor\n"
-            "  fluid doctor --verbose\n"
-            "  fluid doctor --features-only"
-        ),
+        ("  fluid doctor\n" "  fluid doctor --verbose\n" "  fluid doctor --features-only"),
     ),
     "admin": (
         "System administration — diagnostics, tests, templates, pipeline scaffolds, registries.",
@@ -682,9 +729,7 @@ def print_command_help(parser: argparse.ArgumentParser, command_name: str) -> No
     # ── Header ───────────────────────────────────────────────────────
     console.print()
     console.print(f"  {bar}")
-    console.print(
-        f"  [bold bright_cyan]🌊 fluid {command_name}[/bold bright_cyan]"
-    )
+    console.print(f"  [bold bright_cyan]🌊 fluid {command_name}[/bold bright_cyan]")
     if desc:
         console.print(f"  [bright_white]{desc}[/bright_white]")
     console.print(f"  {bar}")
@@ -735,7 +780,8 @@ def print_command_help(parser: argparse.ArgumentParser, command_name: str) -> No
     # ── Arguments & Options ──────────────────────────────────────────
     for group in subparser._action_groups:
         actions = [
-            a for a in group._group_actions
+            a
+            for a in group._group_actions
             if not isinstance(a, (argparse._HelpAction, argparse._SubParsersAction))
         ]
         if not actions:
@@ -814,7 +860,7 @@ def print_command_help(parser: argparse.ArgumentParser, command_name: str) -> No
                 formatted.append(f"  [bright_cyan]{stripped}[/bright_cyan]")
             else:
                 formatted.append(f"  {stripped}")
-        console.print(f"  [bold bright_magenta]▸ Examples[/bold bright_magenta]")
+        console.print("  [bold bright_magenta]▸ Examples[/bold bright_magenta]")
         console.print("\n".join(formatted))
         console.print()
 

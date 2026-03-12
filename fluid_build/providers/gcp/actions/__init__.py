@@ -20,14 +20,7 @@ Exports all action handlers for use by the provider.
 """
 
 # Import all action modules for easy access
-from . import bigquery
-from . import storage
-from . import pubsub
-from . import composer
-from . import iam
-from . import dataflow
-from . import run
-from . import scheduler
+from . import bigquery, composer, dataflow, iam, pubsub, run, scheduler, storage
 
 __all__ = [
     "bigquery",

@@ -33,17 +33,20 @@ import shutil
 import sys
 import tempfile
 import time
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+from fluid_build.providers.base import ApplyResult, BaseProvider, ProviderMetadata
+
+from .util.logging import (
+    duration_ms,
+    redact_dict,
+    redact_sql,
+)
 
 # Import retry and logging utilities
 from .util.retry import with_retry
-from .util.logging import (
-    redact_dict,
-    redact_sql,
-    duration_ms,
-)
-from fluid_build.providers.base import ApplyResult, BaseProvider, ProviderMetadata
 
 JSONLike = Dict[str, Any]
 PathLike = Union[str, Path]
@@ -51,11 +54,30 @@ PathLike = Union[str, Path]
 # ------------------------------ Utilities ------------------------------ #
 
 RESERVED_LOG_KEYS = {
-    "name","msg","message","args","asctime","created","exc_info","exc_text",
-    "filename","funcName","levelname","levelno","lineno","module","msecs",
-    "pathname","process","processName","relativeCreated","stack_info",
-    "thread","threadName"
+    "name",
+    "msg",
+    "message",
+    "args",
+    "asctime",
+    "created",
+    "exc_info",
+    "exc_text",
+    "filename",
+    "funcName",
+    "levelname",
+    "levelno",
+    "lineno",
+    "module",
+    "msecs",
+    "pathname",
+    "process",
+    "processName",
+    "relativeCreated",
+    "stack_info",
+    "thread",
+    "threadName",
 }
+
 
 def _safe_extra(extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Avoid clobbering LogRecord fields by nesting custom keys under ctx."""
@@ -66,12 +88,18 @@ def _safe_extra(extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         return {"ctx": extra}
     return extra
 
+
 def _now_iso() -> str:
     import datetime as _dt
-    return _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+    return (
+        _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    )
+
 
 # Regex for safe SQL identifiers (letters, digits, underscores)
-_SAFE_IDENT = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+_SAFE_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
 
 def _validate_ident(name: str) -> str:
     """Validate a SQL identifier to prevent injection. Returns the name if safe."""
@@ -79,24 +107,33 @@ def _validate_ident(name: str) -> str:
         raise ValueError(f"Invalid SQL identifier: {name!r}")
     return name
 
+
 def _mkdir(p: PathLike) -> Path:
-    p = Path(p); p.mkdir(parents=True, exist_ok=True); return p
+    p = Path(p)
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
 
 def _ext(p: Path) -> str:
     return p.suffix.lower().lstrip(".")
+
 
 def _has_glob(path: Path) -> bool:
     s = path.as_posix()
     return any(ch in s for ch in ("*", "?", "["))
 
+
 def _guess_table_name_from_path(p: Path) -> str:
     stem = re.sub(r"[^A-Za-z0-9_]+", "_", p.stem)
     return stem or "t"
 
+
 # --------------------------- DuckDB adaptor ---------------------------- #
+
 
 class _Duck:
     _duck = None
+
     @classmethod
     def get(cls):
         if cls._duck is None:
@@ -109,7 +146,9 @@ class _Duck:
             cls._duck = duckdb
         return cls._duck
 
+
 # ----------------------------- Provider -------------------------------- #
+
 
 class LocalProvider(BaseProvider):
     """Local development provider using DuckDB.
@@ -145,7 +184,7 @@ class LocalProvider(BaseProvider):
     ) -> None:
         super().__init__(project=project, region=region, logger=logger, **kwargs)
         self.persist = persist  # Enable persistent DuckDB at ~/.fluid/local.db
-    
+
     def _get_db_path(self) -> str:
         """Get database path - persistent, session-scoped, or in-memory."""
         if self.persist:
@@ -163,54 +202,54 @@ class LocalProvider(BaseProvider):
     def capabilities(self) -> Dict[str, bool]:
         """
         Advertise Local Provider capabilities.
-        
+
         Updated to match GCP provider feature set for consistency.
         """
         return {
-            "planning": True,     # Full planning engine with planner.py
-            "apply": True,        # Execution via DuckDB
-            "render": True,       # OPDS export support
-            "graph": True,        # Dependency graphing
-            "auth": False,        # No auth needed for local
+            "planning": True,  # Full planning engine with planner.py
+            "apply": True,  # Execution via DuckDB
+            "render": True,  # OPDS export support
+            "graph": True,  # Dependency graphing
+            "auth": False,  # No auth needed for local
         }
 
     def plan(self, contract: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Generate local execution plan from FLUID contract.
-        
+
         Uses full planning engine to create properly ordered actions:
         - load_data: Import consumes[] files
         - execute_sql: Run transformations
         - materialize: Write exposes[] outputs
-        
+
         Args:
             contract: FLUID contract (0.4.0 or 0.5.7 format)
-            
+
         Returns:
             List of actions ready for apply()
         """
         self._log_info("local_plan_start", {"contract_id": contract.get("id")})
-        
+
         # Import planner (lazy to avoid circular import)
         from .planner import plan_actions, validate_plan
-        
+
         try:
             actions = plan_actions(contract, self.project, self.region, self.logger)
-            
+
             # Validate plan before returning
             is_valid, errors = validate_plan(actions, self.logger)
-            
+
             if not is_valid:
                 self._log_error("local_plan_validation_failed", {"errors": errors})
                 # Still return actions - let apply() handle the errors
-            
-            self._log_info("local_plan_complete", {
-                "contract_id": contract.get("id"),
-                "actions_count": len(actions)
-            })
-            
+
+            self._log_info(
+                "local_plan_complete",
+                {"contract_id": contract.get("id"), "actions_count": len(actions)},
+            )
+
             return actions
-            
+
         except Exception as e:
             self._log_error("local_plan_error", {"error": str(e)})
             raise
@@ -221,7 +260,7 @@ class LocalProvider(BaseProvider):
         plan: Optional[Dict[str, Any]] = None,
         out: Optional[str] = None,
         **kwargs: Any,
-    ) -> "ApplyResult":
+    ) -> ApplyResult:
         """
         Execute a plan locally. Accepts either `actions` or `plan` (or both).
         - If only `plan` passed, derive actions = plan["actions"] or from embedded contract.
@@ -250,7 +289,9 @@ class LocalProvider(BaseProvider):
                 elif isinstance(plan.get("contract"), dict):
                     norm_actions = self._derive_actions_from_contract(plan["contract"])
                 else:
-                    norm_actions = self._derive_actions_from_contract(plan)  # treat plan itself as contract
+                    norm_actions = self._derive_actions_from_contract(
+                        plan
+                    )  # treat plan itself as contract
             else:
                 norm_actions = [self._demo_action()]
         else:
@@ -269,13 +310,19 @@ class LocalProvider(BaseProvider):
             if contract is None:
                 contract = kwargs.get("contract")
             if isinstance(contract, dict):
-                self._log_info("local_fallback_contract_actions", {"reason": "only_unsupported_ops"})
+                self._log_info(
+                    "local_fallback_contract_actions", {"reason": "only_unsupported_ops"}
+                )
                 derived = self._derive_actions_from_contract(contract)
                 # Preserve original infra ops as explicit NOOPs for auditability
                 norm_actions = [self._infra_as_noop(a) for a in norm_actions] + derived
             else:
-                self._log_info("local_fallback_demo", {"reason": "only_unsupported_ops_no_contract"})
-                norm_actions = [self._infra_as_noop(a) for a in norm_actions] + [self._demo_action()]
+                self._log_info(
+                    "local_fallback_demo", {"reason": "only_unsupported_ops_no_contract"}
+                )
+                norm_actions = [self._infra_as_noop(a) for a in norm_actions] + [
+                    self._demo_action()
+                ]
 
         # ---- Execute ----
         results: List[Dict[str, Any]] = []
@@ -286,7 +333,9 @@ class LocalProvider(BaseProvider):
                 results.append({"i": idx, "status": "ok", **res})
             except Exception as e:
                 error_count += 1
-                self._log_error("local_apply_action_error", {"i": idx, "error": str(e), "action": action})
+                self._log_error(
+                    "local_apply_action_error", {"i": idx, "error": str(e), "action": action}
+                )
                 results.append({"i": idx, "status": "error", "error": str(e)})
 
         summary = ApplyResult(
@@ -302,7 +351,9 @@ class LocalProvider(BaseProvider):
             self._write_text_or_stdout(out, summary.to_json() + "\n")
 
         self._append_jsonl("runtime/out/local_apply_log.jsonl", results)
-        self._log_info("local_apply_end", {"applied": summary["applied"], "failed": summary["failed"]})
+        self._log_info(
+            "local_apply_end", {"applied": summary["applied"], "failed": summary["failed"]}
+        )
 
         # Clean up session DB
         if hasattr(self, "_session_db"):
@@ -343,36 +394,40 @@ class LocalProvider(BaseProvider):
         """
         # Import contract utilities for version-agnostic access
         from fluid_build.util.contract import get_primary_build
-        
+
         build = get_primary_build(contract)
         sql_text: Optional[str] = None
         inputs_spec: List[Any] = []
-        
+
         if build:
             # Check for inline SQL in properties.sql (0.5.7) or properties.model file (0.4.0)
-            props = (build.get("properties") or {})
-            
+            props = build.get("properties") or {}
+
             # Try inline SQL first (0.5.7 embedded-logic pattern)
             inline_sql = props.get("sql")
             if isinstance(inline_sql, str) and inline_sql.strip():
                 sql_text = inline_sql
                 self._log_info("local_sql_inline", {"length": len(sql_text)})
-                
+
                 # Get inputs from parameters.inputs (0.5.7)
                 params = props.get("parameters") or {}
                 param_inputs = params.get("inputs") or []
                 for inp in param_inputs:
                     if isinstance(inp, dict):
                         path = inp.get("path")
-                        name = inp.get("name") or _guess_table_name_from_path(Path(path)) if path else None
+                        name = (
+                            inp.get("name") or _guess_table_name_from_path(Path(path))
+                            if path
+                            else None
+                        )
                         if path and name:
                             inputs_spec.append({"path": path, "table": name})
             else:
                 # Try model file path (0.4.0)
-                trans = (build.get("transformation") or {})
-                trans_props = (trans.get("properties") or {})
+                trans = build.get("transformation") or {}
+                trans_props = trans.get("properties") or {}
                 model_path = trans_props.get("model")
-                
+
                 if isinstance(model_path, str) and model_path.strip():
                     mp = Path(model_path)
                     if mp.exists():
@@ -380,19 +435,21 @@ class LocalProvider(BaseProvider):
                         sql_text = mp.read_text(encoding="utf-8")
                     else:
                         self._log_warn("local_model_missing", {"model": model_path})
-        
+
         # If no inputs from build, collect from consumes (fallback)
         if not inputs_spec:
-            for c in (contract.get("consumes") or []):
+            for c in contract.get("consumes") or []:
                 p = c.get("path") or (c.get("location") or {}).get("path")
                 if p:
-                    inputs_spec.append({"path": p, "table": c.get("id") or _guess_table_name_from_path(Path(p))})
+                    inputs_spec.append(
+                        {"path": p, "table": c.get("id") or _guess_table_name_from_path(Path(p))}
+                    )
 
         # Decide output
         output_paths: List[str] = []
-        exposes = (contract.get("exposes") or [])
+        exposes = contract.get("exposes") or []
         if exposes:
-            loc = (exposes[0].get("location") or {})
+            loc = exposes[0].get("location") or {}
             out_path = loc.get("path")
             if out_path:
                 output_paths = [out_path]
@@ -410,12 +467,7 @@ class LocalProvider(BaseProvider):
             else:
                 sql_text = "SELECT 1 AS demo_col"
 
-        return [{
-            "op": "sql",
-            "sql": sql_text,
-            "inputs": inputs_spec,
-            "outputs": output_paths
-        }]
+        return [{"op": "sql", "sql": sql_text, "inputs": inputs_spec, "outputs": output_paths}]
 
     def _demo_action(self) -> Dict[str, Any]:
         return {"op": "copy", "out": "runtime/out/demo_artifact.csv"}
@@ -448,7 +500,9 @@ class LocalProvider(BaseProvider):
         if op in {"copy", "materialize"}:
             return self._run_copy_action(idx, flat)
         if op == "noop":
-            self._log_info("local_noop", {"i": idx, "original_op": flat.get("original_op", "<unknown>")})
+            self._log_info(
+                "local_noop", {"i": idx, "original_op": flat.get("original_op", "<unknown>")}
+            )
             return {"op": "noop", "skipped": True, "original_op": flat.get("original_op")}
 
         # Unknown op => treat as NOOP; don't fail the run.
@@ -456,68 +510,71 @@ class LocalProvider(BaseProvider):
         return {"op": op or "<missing>", "skipped": True}
 
     # ----------------------- Load Data Action (NEW) --------------------- #
-    
+
     def _run_load_data_action(self, idx: int, action: Dict[str, Any]) -> Dict[str, Any]:
         """
         Load data from file into DuckDB table with retry logic.
-        
+
         Supports: CSV, TSV, Parquet, JSON, JSONL
         Handles: Globs, schemas, custom options, retries on transient errors
         """
         duckdb = _Duck.get()
-        
+
         path = action.get("path")
         table_name = action.get("table_name") or action.get("resource_id")
         fmt = action.get("format", "csv")
         options = action.get("options", {})
-        
+
         if not path:
             raise ValueError(f"load_data action {idx} missing path")
         if not table_name:
             raise ValueError(f"load_data action {idx} missing table_name")
-        
+
         path_obj = Path(path)
-        
+
         # Check if file exists (unless glob pattern)
         if not _has_glob(path_obj) and not path_obj.exists():
             raise FileNotFoundError(f"Input file not found: {path}")
-        
+
         db_path = self._get_db_path()
         con = duckdb.connect(database=db_path)
-        
+
         try:
             # Use retry logic for table registration (can fail with I/O errors)
             def _register_with_retry():
                 self._register_one(con, table_name, path_obj, fmt, options)
-            
+
             with_retry(_register_with_retry, logger=self.logger, max_attempts=3)
-            
+
             # Get row count for reporting
-            rowcount = con.execute(f"SELECT COUNT(*) FROM {_validate_ident(table_name)}").fetchone()[0]
-            
-            self._log_info("local_load_data_complete", {
-                "i": idx,
-                "table": table_name,
-                "path": str(path),
-                "rows": rowcount,
-                "persistent": self.persist
-            })
-            
+            rowcount = con.execute(
+                f"SELECT COUNT(*) FROM {_validate_ident(table_name)}"
+            ).fetchone()[0]
+
+            self._log_info(
+                "local_load_data_complete",
+                {
+                    "i": idx,
+                    "table": table_name,
+                    "path": str(path),
+                    "rows": rowcount,
+                    "persistent": self.persist,
+                },
+            )
+
             return {
                 "op": "load_data",
                 "table": table_name,
                 "path": str(path),
                 "rows": rowcount,
-                "format": fmt
+                "format": fmt,
             }
-            
+
         except Exception as e:
-            self._log_error("local_load_data_error", {
-                "i": idx,
-                "error": str(e),
-                "path": str(path),
-                "table": table_name
-            })
+            self._log_error(
+                "local_load_data_error",
+                {"i": idx, "error": str(e), "path": str(path), "table": table_name},
+            )
             raise
 
     # ----------------------- SQL (DuckDB) execution --------------------- #
@@ -542,27 +599,33 @@ class LocalProvider(BaseProvider):
 
         # Log with redacted SQL (in case it contains sensitive data)
         redacted_sql = redact_sql(sql)
-        self._log_info("local_sql_begin", {
-            "i": idx,
-            "sql_len": len(sql),
-            "sql_preview": redacted_sql[:200],
-            "persistent": self.persist
-        })
-        
+        self._log_info(
+            "local_sql_begin",
+            {
+                "i": idx,
+                "sql_len": len(sql),
+                "sql_preview": redacted_sql[:200],
+                "persistent": self.persist,
+            },
+        )
+
         try:
             # Execute SQL with retry logic (handles transient DuckDB errors)
             def _execute_sql():
                 return con.sql(sql)
-            
+
             rel = with_retry(_execute_sql, logger=self.logger, max_attempts=3)
-            
+
         except Exception as e:
-            self._log_error("local_sql_error", {
-                "i": idx,
-                "error": str(e),
-                "sql_preview": redacted_sql[:500],
-                "duration_ms": duration_ms(start_time)
-            })
+            self._log_error(
+                "local_sql_error",
+                {
+                    "i": idx,
+                    "error": str(e),
+                    "sql_preview": redacted_sql[:500],
+                    "duration_ms": duration_ms(start_time),
+                },
+            )
             raise
 
         # If an output_table is specified, persist the result as a DuckDB table
@@ -570,9 +633,13 @@ class LocalProvider(BaseProvider):
         output_table = action.get("output_table") or action.get("table_name")
         if output_table and rel is not None:
             try:
-                con.execute(f"CREATE OR REPLACE TABLE {_validate_ident(output_table)} AS SELECT * FROM ({sql})")
+                con.execute(
+                    f"CREATE OR REPLACE TABLE {_validate_ident(output_table)} AS SELECT * FROM ({sql})"
+                )
             except Exception as e:
-                self._log_warn("local_sql_create_table_warn", {"table": output_table, "error": str(e)})
+                self._log_warn(
+                    "local_sql_create_table_warn", {"table": output_table, "error": str(e)}
+                )
 
         outputs = action.get("outputs") or action.get("out") or []
         if isinstance(outputs, (str, Path)):
@@ -582,16 +649,19 @@ class LocalProvider(BaseProvider):
         if outputs:
             for out_spec in outputs:
                 p, fmt = self._normalize_output(out_spec)
+
                 # Retry write operations (can fail with I/O errors)
                 def _write_with_retry():
                     self._write_relation(rel, p, fmt)
-                
+
                 with_retry(_write_with_retry, logger=self.logger, max_attempts=3)
                 written.append(str(p))
         else:
             p = Path(f"runtime/out/preview_{idx}.csv")
+
             def _write_preview():
                 rel.limit(50).write_csv(str(p))
+
             with_retry(_write_preview, logger=self.logger, max_attempts=3)
             written.append(str(p))
 
@@ -601,12 +671,15 @@ class LocalProvider(BaseProvider):
         except Exception:
             pass
 
-        self._log_info("local_sql_end", {
-            "i": idx,
-            "written": written,
-            "rows": rowcount,
-            "duration_ms": duration_ms(start_time)
-        })
+        self._log_info(
+            "local_sql_end",
+            {
+                "i": idx,
+                "written": written,
+                "rows": rowcount,
+                "duration_ms": duration_ms(start_time),
+            },
+        )
         return {"op": "sql", "written": written, "rows": rowcount, "inputs": reg_info}
 
     def _register_inputs(self, con: Any, inputs: Iterable[Any]) -> List[Dict[str, Any]]:
@@ -629,7 +702,9 @@ class LocalProvider(BaseProvider):
                 raise TypeError(f"Unsupported input spec: {item!r}")
         return info
 
-    def _register_one(self, con: Any, table: str, path: Path, fmt: str, options: Optional[Dict[str, Any]]) -> None:
+    def _register_one(
+        self, con: Any, table: str, path: Path, fmt: str, options: Optional[Dict[str, Any]]
+    ) -> None:
         is_glob = _has_glob(path)
         if not is_glob and not path.exists():
             raise FileNotFoundError(f"Input file not found: {path}")
@@ -676,11 +751,22 @@ class LocalProvider(BaseProvider):
                 con = duckdb.connect(database=db_path)
                 rel = con.sql(f"SELECT * FROM {_validate_ident(source_table)}")
                 self._write_relation(rel, dst, fmt)
-                rowcount = rel.count("*").fetchone()[0] if hasattr(rel, 'count') else -1
-                self._log_info("local_materialize_done", {"i": idx, "dst": str(dst), "source": source_table, "rows": rowcount})
-                return {"op": "materialize", "dst": str(dst), "source_table": source_table, "format": fmt}
+                rowcount = rel.count("*").fetchone()[0] if hasattr(rel, "count") else -1
+                self._log_info(
+                    "local_materialize_done",
+                    {"i": idx, "dst": str(dst), "source": source_table, "rows": rowcount},
+                )
+                return {
+                    "op": "materialize",
+                    "dst": str(dst),
+                    "source_table": source_table,
+                    "format": fmt,
+                }
             except Exception as e:
-                self._log_warn("local_materialize_fallback", {"i": idx, "source_table": source_table, "error": str(e)})
+                self._log_warn(
+                    "local_materialize_fallback",
+                    {"i": idx, "source_table": source_table, "error": str(e)},
+                )
 
         if src and not source_table:
             src = Path(str(src))
@@ -705,7 +791,8 @@ class LocalProvider(BaseProvider):
         if isinstance(out_spec, dict):
             p = Path(str(out_spec.get("path")))
             fmt = (out_spec.get("format") or _ext(p) or "csv").lower()
-            if fmt not in {"csv", "parquet"}: fmt = "csv"
+            if fmt not in {"csv", "parquet"}:
+                fmt = "csv"
             return p, fmt
         raise TypeError(f"Unsupported output spec: {out_spec!r}")
 
@@ -720,12 +807,16 @@ class LocalProvider(BaseProvider):
 
     def _write_text_or_stdout(self, out: str, text: str) -> None:
         if out.strip() == "-":
-            sys.stdout.write(text); sys.stdout.flush()
+            sys.stdout.write(text)
+            sys.stdout.flush()
         else:
-            p = Path(out); _mkdir(p.parent); p.write_text(text, encoding="utf-8")
+            p = Path(out)
+            _mkdir(p.parent)
+            p.write_text(text, encoding="utf-8")
 
     def _append_jsonl(self, path: PathLike, items: List[Dict[str, Any]]) -> None:
-        p = Path(path); _mkdir(p.parent)
+        p = Path(path)
+        _mkdir(p.parent)
         with p.open("a", encoding="utf-8") as f:
             for item in items:
                 f.write(json.dumps(item) + "\n")

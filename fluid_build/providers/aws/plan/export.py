@@ -14,7 +14,9 @@
 
 # fluid_build/providers/aws/plan/export.py
 """Export FLUID contracts to external formats (OPDS, DOT)."""
-from typing import Any, Dict, List, Mapping
+
+from collections.abc import Mapping
+from typing import Any, Dict, List
 
 
 def export_opds(src: Mapping[str, Any] | List[Mapping[str, Any]]) -> Dict[str, Any]:

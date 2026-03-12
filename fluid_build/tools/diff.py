@@ -12,9 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json, difflib
+import difflib
+import json
+
 
 def plan_diff(plan_a_path: str, plan_b_path: str) -> str:
     a = json.dumps(json.load(open(plan_a_path)), indent=2).splitlines()
     b = json.dumps(json.load(open(plan_b_path)), indent=2).splitlines()
-    return "\n".join(difflib.unified_diff(a, b, fromfile=plan_a_path, tofile=plan_b_path, lineterm=""))
+    return "\n".join(
+        difflib.unified_diff(a, b, fromfile=plan_a_path, tofile=plan_b_path, lineterm="")
+    )

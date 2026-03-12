@@ -1,7 +1,23 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for ODCS provider type mapping, status mapping, and conversion functions."""
 
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
+
 from fluid_build.providers.odcs.odcs import OdcsProvider
 
 
@@ -47,31 +63,34 @@ class TestMapStatusFromODCS:
 
 
 class TestMapTypeToLogical:
-    @pytest.mark.parametrize("fluid_type,expected", [
-        ("string", "string"),
-        ("text", "string"),
-        ("varchar", "string"),
-        ("char", "string"),
-        ("int", "integer"),
-        ("integer", "integer"),
-        ("bigint", "integer"),
-        ("long", "integer"),
-        ("float", "number"),
-        ("double", "number"),
-        ("decimal", "number"),
-        ("numeric", "number"),
-        ("bool", "boolean"),
-        ("boolean", "boolean"),
-        ("date", "date"),
-        ("datetime", "timestamp"),
-        ("timestamp", "timestamp"),
-        ("time", "time"),
-        ("json", "object"),
-        ("object", "object"),
-        ("array", "array"),
-        ("binary", "string"),
-        ("bytes", "string"),
-    ])
+    @pytest.mark.parametrize(
+        "fluid_type,expected",
+        [
+            ("string", "string"),
+            ("text", "string"),
+            ("varchar", "string"),
+            ("char", "string"),
+            ("int", "integer"),
+            ("integer", "integer"),
+            ("bigint", "integer"),
+            ("long", "integer"),
+            ("float", "number"),
+            ("double", "number"),
+            ("decimal", "number"),
+            ("numeric", "number"),
+            ("bool", "boolean"),
+            ("boolean", "boolean"),
+            ("date", "date"),
+            ("datetime", "timestamp"),
+            ("timestamp", "timestamp"),
+            ("time", "time"),
+            ("json", "object"),
+            ("object", "object"),
+            ("array", "array"),
+            ("binary", "string"),
+            ("bytes", "string"),
+        ],
+    )
     def test_type_mapping(self, provider, fluid_type, expected):
         assert provider._map_type_to_logical(fluid_type) == expected
 
@@ -88,39 +107,45 @@ class TestMapTypeToPhysical:
         result = provider._map_type_to_physical("string", None)
         assert result == "string"
 
-    @pytest.mark.parametrize("fluid_type,expected", [
-        ("string", "STRING"),
-        ("int", "INT64"),
-        ("float", "FLOAT64"),
-        ("bool", "BOOL"),
-        ("date", "DATE"),
-        ("timestamp", "TIMESTAMP"),
-        ("json", "JSON"),
-        ("object", "STRUCT"),
-        ("array", "ARRAY"),
-        ("binary", "BYTES"),
-    ])
+    @pytest.mark.parametrize(
+        "fluid_type,expected",
+        [
+            ("string", "STRING"),
+            ("int", "INT64"),
+            ("float", "FLOAT64"),
+            ("bool", "BOOL"),
+            ("date", "DATE"),
+            ("timestamp", "TIMESTAMP"),
+            ("json", "JSON"),
+            ("object", "STRUCT"),
+            ("array", "ARRAY"),
+            ("binary", "BYTES"),
+        ],
+    )
     def test_bigquery_types(self, provider, fluid_type, expected):
         assert provider._map_type_to_physical(fluid_type, "gcp") == expected
 
     def test_bigquery_alias(self, provider):
         assert provider._map_type_to_physical("string", "bigquery") == "STRING"
 
-    @pytest.mark.parametrize("fluid_type,expected", [
-        ("string", "VARCHAR"),
-        ("text", "TEXT"),
-        ("int", "NUMBER"),
-        ("float", "FLOAT"),
-        ("double", "DOUBLE"),
-        ("decimal", "DECIMAL"),
-        ("bool", "BOOLEAN"),
-        ("date", "DATE"),
-        ("datetime", "TIMESTAMP_NTZ"),
-        ("json", "VARIANT"),
-        ("object", "OBJECT"),
-        ("array", "ARRAY"),
-        ("binary", "BINARY"),
-    ])
+    @pytest.mark.parametrize(
+        "fluid_type,expected",
+        [
+            ("string", "VARCHAR"),
+            ("text", "TEXT"),
+            ("int", "NUMBER"),
+            ("float", "FLOAT"),
+            ("double", "DOUBLE"),
+            ("decimal", "DECIMAL"),
+            ("bool", "BOOLEAN"),
+            ("date", "DATE"),
+            ("datetime", "TIMESTAMP_NTZ"),
+            ("json", "VARIANT"),
+            ("object", "OBJECT"),
+            ("array", "ARRAY"),
+            ("binary", "BINARY"),
+        ],
+    )
     def test_snowflake_types(self, provider, fluid_type, expected):
         assert provider._map_type_to_physical(fluid_type, "snowflake") == expected
 
@@ -156,7 +181,7 @@ class TestExtractTeam:
                 "contacts": [
                     {"name": "Alice", "email": "alice@example.com", "role": "lead"},
                     {"name": "Bob", "email": "bob@example.com"},
-                ]
+                ],
             }
         }
         result = provider._extract_team(fluid)
@@ -191,10 +216,7 @@ class TestExtractFieldQuality:
         assert len(null_checks) == 1
 
     def test_pattern_validation(self, provider):
-        field = {
-            "name": "email",
-            "validations": [{"type": "pattern", "value": "^.+@.+$"}]
-        }
+        field = {"name": "email", "validations": [{"type": "pattern", "value": "^.+@.+$"}]}
         quality = provider._extract_field_quality(field)
         assert quality[0]["type"] == "text"
         assert "pattern" in quality[0]["description"]
@@ -205,7 +227,7 @@ class TestExtractFieldQuality:
             "validations": [
                 {"type": "min_length", "value": 3},
                 {"type": "max_length", "value": 10},
-            ]
+            ],
         }
         quality = provider._extract_field_quality(field)
         assert len(quality) == 2
@@ -216,32 +238,26 @@ class TestExtractFieldQuality:
             "validations": [
                 {"type": "min_value", "value": 0},
                 {"type": "max_value", "value": 1000},
-            ]
+            ],
         }
         quality = provider._extract_field_quality(field)
         assert len(quality) == 2
 
     def test_allowed_values(self, provider):
-        field = {
-            "name": "status",
-            "validations": [{"type": "enum", "values": ["a", "b", "c"]}]
-        }
+        field = {"name": "status", "validations": [{"type": "enum", "values": ["a", "b", "c"]}]}
         quality = provider._extract_field_quality(field)
         assert "one of" in quality[0]["description"]
 
     def test_allowed_values_truncated(self, provider):
         field = {
             "name": "code",
-            "validations": [{"type": "allowed_values", "values": list(range(10))}]
+            "validations": [{"type": "allowed_values", "values": list(range(10))}],
         }
         quality = provider._extract_field_quality(field)
         assert "10 total" in quality[0]["description"]
 
     def test_dict_validations_format(self, provider):
-        field = {
-            "name": "x",
-            "validations": {"pattern": "^[A-Z]+$", "min_length": 1}
-        }
+        field = {"name": "x", "validations": {"pattern": "^[A-Z]+$", "min_length": 1}}
         quality = provider._extract_field_quality(field)
         assert len(quality) == 2
 
@@ -252,24 +268,18 @@ class TestExtractFieldQuality:
     def test_custom_quality_odcs_format(self, provider):
         field = {
             "name": "x",
-            "quality": [{"type": "library", "metric": "rowCount", "mustBeGreaterThan": 0}]
+            "quality": [{"type": "library", "metric": "rowCount", "mustBeGreaterThan": 0}],
         }
         quality = provider._extract_field_quality(field)
         assert quality[0]["metric"] == "rowCount"
 
     def test_custom_quality_text_type(self, provider):
-        field = {
-            "name": "x",
-            "quality": [{"type": "text", "description": "Must be valid"}]
-        }
+        field = {"name": "x", "quality": [{"type": "text", "description": "Must be valid"}]}
         quality = provider._extract_field_quality(field)
         assert quality[0]["type"] == "text"
 
     def test_unique_validation(self, provider):
-        field = {
-            "name": "email",
-            "validations": [{"type": "unique", "value": True}]
-        }
+        field = {"name": "email", "validations": [{"type": "unique", "value": True}]}
         quality = provider._extract_field_quality(field)
         assert quality[0]["metric"] == "duplicateValues"
 
@@ -308,16 +318,19 @@ class TestFluidFieldToODCSProperty:
 
 
 class TestMapProviderToServerType:
-    @pytest.mark.parametrize("provider_name,expected", [
-        ("gcp", "bigquery"),
-        ("bigquery", "bigquery"),
-        ("snowflake", "snowflake"),
-        ("aws", "s3"),
-        ("s3", "s3"),
-        ("redshift", "redshift"),
-        ("kafka", "kafka"),
-        ("local", "local"),
-    ])
+    @pytest.mark.parametrize(
+        "provider_name,expected",
+        [
+            ("gcp", "bigquery"),
+            ("bigquery", "bigquery"),
+            ("snowflake", "snowflake"),
+            ("aws", "s3"),
+            ("s3", "s3"),
+            ("redshift", "redshift"),
+            ("kafka", "kafka"),
+            ("local", "local"),
+        ],
+    )
     def test_known_providers(self, provider, provider_name, expected):
         assert provider._map_provider_to_server_type(provider_name) == expected
 
@@ -329,14 +342,17 @@ class TestMapProviderToServerType:
 
 
 class TestMapServerTypeToProvider:
-    @pytest.mark.parametrize("server_type,expected", [
-        ("bigquery", "gcp"),
-        ("snowflake", "snowflake"),
-        ("s3", "aws"),
-        ("redshift", "aws"),
-        ("postgres", "postgres"),
-        ("kafka", "kafka"),
-    ])
+    @pytest.mark.parametrize(
+        "server_type,expected",
+        [
+            ("bigquery", "gcp"),
+            ("snowflake", "snowflake"),
+            ("s3", "aws"),
+            ("redshift", "aws"),
+            ("postgres", "postgres"),
+            ("kafka", "kafka"),
+        ],
+    )
     def test_known_types(self, provider, server_type, expected):
         assert provider._map_server_type_to_provider(server_type) == expected
 
@@ -345,20 +361,23 @@ class TestMapServerTypeToProvider:
 
 
 class TestMapLogicalTypeToFluid:
-    @pytest.mark.parametrize("logical_type,expected", [
-        ("string", "string"),
-        ("integer", "int"),
-        ("long", "bigint"),
-        ("float", "float"),
-        ("double", "double"),
-        ("decimal", "decimal"),
-        ("boolean", "bool"),
-        ("date", "date"),
-        ("timestamp", "timestamp"),
-        ("object", "object"),
-        ("array", "array"),
-        ("binary", "binary"),
-    ])
+    @pytest.mark.parametrize(
+        "logical_type,expected",
+        [
+            ("string", "string"),
+            ("integer", "int"),
+            ("long", "bigint"),
+            ("float", "float"),
+            ("double", "double"),
+            ("decimal", "decimal"),
+            ("boolean", "bool"),
+            ("date", "date"),
+            ("timestamp", "timestamp"),
+            ("object", "object"),
+            ("array", "array"),
+            ("binary", "binary"),
+        ],
+    )
     def test_type_mapping(self, provider, logical_type, expected):
         assert provider._map_logical_type_to_fluid(logical_type) == expected
 
@@ -409,7 +428,7 @@ class TestOdcsSchemaToExpose:
             "schema": [
                 {"name": "id", "logicalType": "integer"},
                 {"name": "name", "logicalType": "string"},
-            ]
+            ],
         }
         result = provider._odcs_schema_to_expose(odcs)
         assert result["id"] == "test-contract"

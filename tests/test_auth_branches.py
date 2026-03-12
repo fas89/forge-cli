@@ -1,22 +1,34 @@
 # Copyright 2024-2026 Agentics Transformation Ltd
-# Licensed under the Apache License, Version 2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Branch coverage tests for auth.py (fluid_build/cli/auth.py)."""
 
-import pytest
 import asyncio
-import subprocess
 import json
 import logging
-from pathlib import Path
-from unittest.mock import patch, MagicMock, AsyncMock, PropertyMock
-from datetime import datetime
+import subprocess
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 
 # ---- AuthStatus and AuthResult dataclass tests ----
+
 
 class TestAuthStatusEnum:
     def test_all_statuses(self):
         from fluid_build.cli.auth import AuthStatus
+
         assert AuthStatus.AUTHENTICATED.value == "authenticated"
         assert AuthStatus.NOT_AUTHENTICATED.value == "not_authenticated"
         assert AuthStatus.EXPIRED.value == "expired"
@@ -27,6 +39,7 @@ class TestAuthStatusEnum:
 class TestAuthResult:
     def test_fields(self):
         from fluid_build.cli.auth import AuthResult, AuthStatus
+
         result = AuthResult(
             provider="aws",
             status=AuthStatus.AUTHENTICATED,
@@ -42,6 +55,7 @@ class TestAuthResult:
 
     def test_error_result(self):
         from fluid_build.cli.auth import AuthResult, AuthStatus
+
         result = AuthResult(
             provider="gcp",
             status=AuthStatus.ERROR,
@@ -51,6 +65,7 @@ class TestAuthResult:
 
     def test_defaults(self):
         from fluid_build.cli.auth import AuthResult, AuthStatus
+
         result = AuthResult(provider="test", status=AuthStatus.UNKNOWN)
         assert result.user_info == {}
         assert result.scopes == []
@@ -59,9 +74,11 @@ class TestAuthResult:
 
 # ---- AuthProvider base class ----
 
+
 class TestAuthProviderBase:
     def test_run_command_success(self):
         from fluid_build.cli.auth import AuthProvider
+
         provider = AuthProvider.__new__(AuthProvider)
         provider.name = "test"
         provider.config = {}
@@ -74,6 +91,7 @@ class TestAuthProviderBase:
 
     def test_run_command_file_not_found(self):
         from fluid_build.cli.auth import AuthProvider, CLIError
+
         provider = AuthProvider.__new__(AuthProvider)
         provider.name = "test"
         provider.config = {}
@@ -85,6 +103,7 @@ class TestAuthProviderBase:
 
     def test_run_command_called_process_error(self):
         from fluid_build.cli.auth import AuthProvider
+
         provider = AuthProvider.__new__(AuthProvider)
         provider.name = "test"
         provider.config = {}
@@ -96,6 +115,7 @@ class TestAuthProviderBase:
 
     def test_login_not_implemented(self):
         from fluid_build.cli.auth import AuthProvider
+
         provider = AuthProvider.__new__(AuthProvider)
         provider.name = "test"
         with pytest.raises(NotImplementedError):
@@ -103,6 +123,7 @@ class TestAuthProviderBase:
 
     def test_logout_not_implemented(self):
         from fluid_build.cli.auth import AuthProvider
+
         provider = AuthProvider.__new__(AuthProvider)
         provider.name = "test"
         with pytest.raises(NotImplementedError):
@@ -110,6 +131,7 @@ class TestAuthProviderBase:
 
     def test_check_auth_not_implemented(self):
         from fluid_build.cli.auth import AuthProvider
+
         provider = AuthProvider.__new__(AuthProvider)
         provider.name = "test"
         with pytest.raises(NotImplementedError):
@@ -118,11 +140,16 @@ class TestAuthProviderBase:
 
 # ---- GoogleCloudAuthProvider ----
 
+
 class TestGoogleCloudAuthProvider:
     def _make_provider(self):
         from fluid_build.cli.auth import GoogleCloudAuthProvider
+
         return GoogleCloudAuthProvider(
-            config={"project_id": "my-project", "scopes": ["https://www.googleapis.com/auth/cloud-platform"]},
+            config={
+                "project_id": "my-project",
+                "scopes": ["https://www.googleapis.com/auth/cloud-platform"],
+            },
             logger=logging.getLogger("test"),
         )
 
@@ -133,6 +160,7 @@ class TestGoogleCloudAuthProvider:
 
     def test_check_auth_gcloud_not_installed(self):
         from fluid_build.cli.auth import AuthStatus
+
         p = self._make_provider()
         p._run_command = MagicMock(side_effect=Exception("not installed"))
         result = asyncio.run(p.check_auth())
@@ -140,11 +168,13 @@ class TestGoogleCloudAuthProvider:
 
     def test_check_auth_authenticated(self):
         from fluid_build.cli.auth import AuthStatus
+
         p = self._make_provider()
         # First call: gcloud version - success
         # Second call: print-access-token - success
         # Third call: get account info
         call_count = [0]
+
         def mock_run(cmd, **kwargs):
             call_count[0] += 1
             result = MagicMock()
@@ -158,8 +188,10 @@ class TestGoogleCloudAuthProvider:
 
     def test_check_auth_not_authenticated(self):
         from fluid_build.cli.auth import AuthStatus
+
         p = self._make_provider()
         call_count = [0]
+
         def mock_run(cmd, **kwargs):
             call_count[0] += 1
             if call_count[0] == 1:  # gcloud version
@@ -187,9 +219,11 @@ class TestGoogleCloudAuthProvider:
 
 # ---- AWSAuthProvider ----
 
+
 class TestAWSAuthProvider:
     def _make_provider(self):
         from fluid_build.cli.auth import AWSAuthProvider
+
         return AWSAuthProvider(
             config={"region": "us-west-2", "profile": "dev"},
             logger=logging.getLogger("test"),
@@ -203,19 +237,24 @@ class TestAWSAuthProvider:
 
     def test_init_defaults(self):
         from fluid_build.cli.auth import AWSAuthProvider
+
         p = AWSAuthProvider(config={}, logger=logging.getLogger("test"))
         assert p.region == "us-east-1"
         assert p.profile == "default"
 
     def test_check_auth_authenticated(self):
         from fluid_build.cli.auth import AuthStatus
+
         p = self._make_provider()
         call_count = [0]
+
         def mock_run(cmd, **kwargs):
             call_count[0] += 1
             result = MagicMock()
             result.returncode = 0
-            result.stdout = json.dumps({"Account": "123456", "UserId": "user1", "Arn": "arn:aws:iam::123:user/test"})
+            result.stdout = json.dumps(
+                {"Account": "123456", "UserId": "user1", "Arn": "arn:aws:iam::123:user/test"}
+            )
             return result
 
         p._run_command = mock_run
@@ -224,6 +263,7 @@ class TestAWSAuthProvider:
 
     def test_check_auth_aws_not_installed(self):
         from fluid_build.cli.auth import AuthStatus
+
         p = self._make_provider()
         p._run_command = MagicMock(side_effect=Exception("not found"))
         result = asyncio.run(p.check_auth())
@@ -231,8 +271,10 @@ class TestAWSAuthProvider:
 
     def test_check_auth_not_authenticated(self):
         from fluid_build.cli.auth import AuthStatus
+
         p = self._make_provider()
         call_count = [0]
+
         def mock_run(cmd, **kwargs):
             call_count[0] += 1
             if call_count[0] == 1:  # aws --version
@@ -258,9 +300,11 @@ class TestAWSAuthProvider:
 
 # ---- AzureAuthProvider ----
 
+
 class TestAzureAuthProvider:
     def _make_provider(self):
         from fluid_build.cli.auth import AzureAuthProvider
+
         return AzureAuthProvider(
             config={"tenant_id": "tenant-123", "subscription_id": "sub-456"},
             logger=logging.getLogger("test"),
@@ -274,24 +318,29 @@ class TestAzureAuthProvider:
 
     def test_init_no_tenant(self):
         from fluid_build.cli.auth import AzureAuthProvider
+
         p = AzureAuthProvider(config={}, logger=logging.getLogger("test"))
         assert p.tenant_id is None
         assert p.subscription_id is None
 
     def test_check_auth_authenticated(self):
         from fluid_build.cli.auth import AuthStatus
+
         p = self._make_provider()
         call_count = [0]
+
         def mock_run(cmd, **kwargs):
             call_count[0] += 1
             result = MagicMock()
             result.returncode = 0
-            result.stdout = json.dumps({
-                "name": "my-sub",
-                "user": {"name": "test@example.com", "type": "user"},
-                "tenantId": "t1",
-                "id": "sub-1"
-            })
+            result.stdout = json.dumps(
+                {
+                    "name": "my-sub",
+                    "user": {"name": "test@example.com", "type": "user"},
+                    "tenantId": "t1",
+                    "id": "sub-1",
+                }
+            )
             return result
 
         p._run_command = mock_run
@@ -300,6 +349,7 @@ class TestAzureAuthProvider:
 
     def test_check_auth_not_installed(self):
         from fluid_build.cli.auth import AuthStatus
+
         p = self._make_provider()
         p._run_command = MagicMock(side_effect=Exception("az not found"))
         result = asyncio.run(p.check_auth())
@@ -320,11 +370,19 @@ class TestAzureAuthProvider:
 
 # ---- SnowflakeAuthProvider ----
 
+
 class TestSnowflakeAuthProvider:
     def _make_provider(self):
         from fluid_build.cli.auth import SnowflakeAuthProvider
+
         return SnowflakeAuthProvider(
-            config={"account": "my_account", "user": "admin", "warehouse": "WH", "database": "DB", "role": "SYSADMIN"},
+            config={
+                "account": "my_account",
+                "user": "admin",
+                "warehouse": "WH",
+                "database": "DB",
+                "role": "SYSADMIN",
+            },
             logger=logging.getLogger("test"),
         )
 
@@ -335,8 +393,10 @@ class TestSnowflakeAuthProvider:
 
     def test_check_auth_authenticated(self):
         from fluid_build.cli.auth import AuthStatus
+
         p = self._make_provider()
         call_count = [0]
+
         def mock_run(cmd, **kwargs):
             call_count[0] += 1
             return MagicMock(returncode=0, stdout="ADMIN")
@@ -346,7 +406,8 @@ class TestSnowflakeAuthProvider:
         assert result.status == AuthStatus.AUTHENTICATED
 
     def test_check_auth_not_configured(self):
-        from fluid_build.cli.auth import SnowflakeAuthProvider, AuthStatus
+        from fluid_build.cli.auth import AuthStatus, SnowflakeAuthProvider
+
         p = SnowflakeAuthProvider(config={}, logger=logging.getLogger("test"))
         p._run_command = MagicMock(return_value=MagicMock(returncode=0))
         result = asyncio.run(p.check_auth())
@@ -354,6 +415,7 @@ class TestSnowflakeAuthProvider:
 
     def test_check_auth_snowsql_not_installed(self):
         from fluid_build.cli.auth import AuthStatus
+
         p = self._make_provider()
         p._run_command = MagicMock(side_effect=Exception("snowsql not found"))
         result = asyncio.run(p.check_auth())
@@ -367,9 +429,11 @@ class TestSnowflakeAuthProvider:
 
 # ---- DatabricksAuthProvider ----
 
+
 class TestDatabricksAuthProvider:
     def _make_provider(self):
         from fluid_build.cli.auth import DatabricksAuthProvider
+
         return DatabricksAuthProvider(
             config={"host": "https://my-workspace.cloud.databricks.com", "token": "abc123"},
             logger=logging.getLogger("test"),
@@ -382,6 +446,7 @@ class TestDatabricksAuthProvider:
 
     def test_check_auth_authenticated(self):
         from fluid_build.cli.auth import AuthStatus
+
         p = self._make_provider()
         p._run_command = MagicMock(return_value=MagicMock(returncode=0, stdout="/Users"))
         result = asyncio.run(p.check_auth())
@@ -389,6 +454,7 @@ class TestDatabricksAuthProvider:
 
     def test_check_auth_not_installed(self):
         from fluid_build.cli.auth import AuthStatus
+
         p = self._make_provider()
         p._run_command = MagicMock(side_effect=Exception("not found"))
         result = asyncio.run(p.check_auth())
@@ -418,9 +484,11 @@ class TestDatabricksAuthProvider:
 
 # ---- AuthManager ----
 
+
 class TestAuthManager:
     def _make_manager(self):
         from fluid_build.cli.auth import AuthManager
+
         return AuthManager(config={}, logger=logging.getLogger("test"))
 
     def test_init(self):
@@ -443,12 +511,14 @@ class TestAuthManager:
 
     def test_login_unknown_provider(self):
         from fluid_build.cli.auth import AuthStatus
+
         m = self._make_manager()
         result = asyncio.run(m.login("nonexistent_xyz"))
         assert result.status == AuthStatus.ERROR
 
     def test_check_auth_unknown_provider(self):
         from fluid_build.cli.auth import AuthStatus
+
         m = self._make_manager()
         result = asyncio.run(m.check_auth("nonexistent_xyz"))
         assert result.status == AuthStatus.ERROR
@@ -470,18 +540,22 @@ class TestAuthManager:
 
 # ---- CLI register/run functions ----
 
+
 class TestAuthCLI:
     def test_register(self):
         import argparse
+
         parser = argparse.ArgumentParser()
         sub = parser.add_subparsers()
         from fluid_build.cli.auth import register
+
         register(sub)
         # Should not raise
 
     @patch("fluid_build.cli.auth.AuthManager")
     def test_run_list(self, mock_manager_cls):
         from fluid_build.cli.auth import run
+
         mock_manager = MagicMock()
         mock_manager.list_providers.return_value = ["aws", "gcp", "azure"]
         mock_manager_cls.return_value = mock_manager
@@ -494,6 +568,7 @@ class TestAuthCLI:
     @patch("fluid_build.cli.auth.AuthManager")
     def test_run_unknown_verb(self, mock_manager_cls):
         from fluid_build.cli.auth import run
+
         mock_manager_cls.return_value = MagicMock()
         args = MagicMock()
         args.verb = "unknown_action"
@@ -506,6 +581,7 @@ class TestAuthCLI:
     @patch("fluid_build.cli.auth.AuthManager")
     def test_run_login(self, mock_manager_cls, mock_login):
         from fluid_build.cli.auth import run
+
         mock_manager_cls.return_value = MagicMock()
         mock_login.return_value = 0
         args = MagicMock()
@@ -519,6 +595,7 @@ class TestAuthCLI:
     @patch("fluid_build.cli.auth.AuthManager")
     def test_run_status(self, mock_manager_cls, mock_status):
         from fluid_build.cli.auth import run
+
         mock_manager_cls.return_value = MagicMock()
         mock_status.return_value = 0
         args = MagicMock()
@@ -532,6 +609,7 @@ class TestAuthCLI:
     @patch("fluid_build.cli.auth.AuthManager")
     def test_run_logout(self, mock_manager_cls, mock_logout):
         from fluid_build.cli.auth import run
+
         mock_manager_cls.return_value = MagicMock()
         mock_logout.return_value = 0
         args = MagicMock()
@@ -544,27 +622,35 @@ class TestAuthCLI:
 
 # ---- handle_login / handle_logout / handle_status ----
 
+
 class TestHandleLogin:
     def test_login_success(self):
-        from fluid_build.cli.auth import handle_login, AuthResult, AuthStatus
+        from fluid_build.cli.auth import AuthResult, AuthStatus, handle_login
+
         mgr = MagicMock()
-        mgr.login = AsyncMock(return_value=AuthResult(
-            provider="aws", status=AuthStatus.AUTHENTICATED, user_info={"account": "123"}
-        ))
+        mgr.login = AsyncMock(
+            return_value=AuthResult(
+                provider="aws", status=AuthStatus.AUTHENTICATED, user_info={"account": "123"}
+            )
+        )
         result = asyncio.run(handle_login("aws", mgr, logging.getLogger("test")))
         assert result == 0
 
     def test_login_failure(self):
-        from fluid_build.cli.auth import handle_login, AuthResult, AuthStatus
+        from fluid_build.cli.auth import AuthResult, AuthStatus, handle_login
+
         mgr = MagicMock()
-        mgr.login = AsyncMock(return_value=AuthResult(
-            provider="aws", status=AuthStatus.NOT_AUTHENTICATED, error_message="bad creds"
-        ))
+        mgr.login = AsyncMock(
+            return_value=AuthResult(
+                provider="aws", status=AuthStatus.NOT_AUTHENTICATED, error_message="bad creds"
+            )
+        )
         result = asyncio.run(handle_login("aws", mgr, logging.getLogger("test")))
         assert result == 1
 
     def test_login_exception(self):
         from fluid_build.cli.auth import handle_login
+
         mgr = MagicMock()
         mgr.login = AsyncMock(side_effect=RuntimeError("boom"))
         result = asyncio.run(handle_login("aws", mgr, logging.getLogger("test")))
@@ -574,6 +660,7 @@ class TestHandleLogin:
 class TestHandleLogout:
     def test_logout_success(self):
         from fluid_build.cli.auth import handle_logout
+
         mgr = MagicMock()
         mgr.logout = AsyncMock(return_value=True)
         result = asyncio.run(handle_logout("aws", mgr, logging.getLogger("test")))
@@ -581,6 +668,7 @@ class TestHandleLogout:
 
     def test_logout_failure(self):
         from fluid_build.cli.auth import handle_logout
+
         mgr = MagicMock()
         mgr.logout = AsyncMock(return_value=False)
         result = asyncio.run(handle_logout("aws", mgr, logging.getLogger("test")))
@@ -589,29 +677,34 @@ class TestHandleLogout:
 
 class TestHandleStatus:
     def test_status_single_provider_authenticated(self):
-        from fluid_build.cli.auth import handle_status, AuthResult, AuthStatus
+        from fluid_build.cli.auth import AuthResult, AuthStatus, handle_status
+
         mgr = MagicMock()
-        mgr.check_auth = AsyncMock(return_value=AuthResult(
-            provider="aws", status=AuthStatus.AUTHENTICATED, user_info={"account": "123"}
-        ))
+        mgr.check_auth = AsyncMock(
+            return_value=AuthResult(
+                provider="aws", status=AuthStatus.AUTHENTICATED, user_info={"account": "123"}
+            )
+        )
         result = asyncio.run(handle_status("aws", mgr, logging.getLogger("test")))
         assert result == 0
 
     def test_status_single_provider_not_authenticated(self):
-        from fluid_build.cli.auth import handle_status, AuthResult, AuthStatus
+        from fluid_build.cli.auth import AuthResult, AuthStatus, handle_status
+
         mgr = MagicMock()
-        mgr.check_auth = AsyncMock(return_value=AuthResult(
-            provider="aws", status=AuthStatus.NOT_AUTHENTICATED
-        ))
+        mgr.check_auth = AsyncMock(
+            return_value=AuthResult(provider="aws", status=AuthStatus.NOT_AUTHENTICATED)
+        )
         result = asyncio.run(handle_status("aws", mgr, logging.getLogger("test")))
         assert result == 1
 
     def test_status_all_providers(self):
-        from fluid_build.cli.auth import handle_status, AuthResult, AuthStatus
+        from fluid_build.cli.auth import AuthResult, AuthStatus, handle_status
+
         mgr = MagicMock()
         mgr.list_providers.return_value = ["aws", "gcp"]
-        mgr.check_auth = AsyncMock(return_value=AuthResult(
-            provider="aws", status=AuthStatus.AUTHENTICATED
-        ))
+        mgr.check_auth = AsyncMock(
+            return_value=AuthResult(provider="aws", status=AuthStatus.AUTHENTICATED)
+        )
         result = asyncio.run(handle_status(None, mgr, logging.getLogger("test")))
         assert result in (0, 1)

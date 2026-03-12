@@ -1,10 +1,31 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for AWS provider spec converters, planning, and SQL generation."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, patch, PropertyMock
+
 from fluid_build.providers.aws.types import (
-    TableSpec, APISpec, StreamSpec, ModelSpec,
-    AWSRegion, AuthenticationMethod, StorageClass,
+    APISpec,
+    AuthenticationMethod,
+    AWSRegion,
+    ModelSpec,
+    StorageClass,
+    StreamSpec,
+    TableSpec,
 )
 
 
@@ -79,7 +100,7 @@ class TestContractToTableSpec:
                     "columns": [{"name": "id", "type": "INTEGER"}],
                     "primary_keys": ["id"],
                 }
-            }
+            },
         }
         spec = p._contract_to_table_spec(expose)
         assert spec.name == "users"
@@ -105,7 +126,7 @@ class TestContractToTableSpec:
                     "sort_keys": ["event_date", "event_type"],
                     "partition_keys": ["region"],
                 }
-            }
+            },
         }
         spec = p._contract_to_table_spec(expose)
         assert spec.distribution_key == "event_date"
@@ -124,7 +145,7 @@ class TestContractToAPISpec:
                     "protocol_type": "HTTP",
                     "stages": ["dev", "prod"],
                 }
-            }
+            },
         }
         spec = p._contract_to_api_spec(expose)
         assert spec.name == "my-api"
@@ -152,7 +173,7 @@ class TestContractToStreamSpec:
                     "shard_count": 4,
                     "retention_period": 48,
                 }
-            }
+            },
         }
         spec = p._contract_to_stream_spec(expose)
         assert spec.name == "events-stream"
@@ -174,7 +195,7 @@ class TestContractToModelSpec:
                     "instance_type": "ml.m5.xlarge",
                     "instance_count": 2,
                 }
-            }
+            },
         }
         spec = p._contract_to_model_spec(expose)
         assert spec.name == "fraud-model"
@@ -271,11 +292,12 @@ class TestGenerateRedshiftSQL:
     def test_basic(self):
         p = _make_provider()
         table = TableSpec(
-            name="users", service="redshift",
+            name="users",
+            service="redshift",
             columns=[
                 {"name": "id", "type": "INTEGER", "nullable": False},
                 {"name": "name", "type": "VARCHAR(100)"},
-            ]
+            ],
         )
         sql = p._generate_redshift_sql(table)
         assert "CREATE TABLE IF NOT EXISTS users" in sql
@@ -285,7 +307,8 @@ class TestGenerateRedshiftSQL:
     def test_with_distribution_key(self):
         p = _make_provider()
         table = TableSpec(
-            name="events", service="redshift",
+            name="events",
+            service="redshift",
             columns=[{"name": "id", "type": "INT"}],
             distribution_key="id",
         )
@@ -295,7 +318,8 @@ class TestGenerateRedshiftSQL:
     def test_with_sort_keys(self):
         p = _make_provider()
         table = TableSpec(
-            name="events", service="redshift",
+            name="events",
+            service="redshift",
             columns=[{"name": "id", "type": "INT"}],
             sort_keys=["created_at", "region"],
         )
@@ -305,7 +329,8 @@ class TestGenerateRedshiftSQL:
     def test_with_default(self):
         p = _make_provider()
         table = TableSpec(
-            name="t", service="redshift",
+            name="t",
+            service="redshift",
             columns=[{"name": "status", "type": "VARCHAR", "default": "'active'"}],
         )
         sql = p._generate_redshift_sql(table)

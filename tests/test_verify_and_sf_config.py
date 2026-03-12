@@ -1,12 +1,28 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for verify.py drift severity assessment and Snowflake config utilities."""
 
 import os
-import pytest
 from unittest.mock import patch
+
+import pytest
+
 from fluid_build.cli.verify import assess_drift_severity
 from fluid_build.providers.snowflake.util.config import (
-    resolve_account_and_warehouse,
     _get_connection_params_legacy,
+    resolve_account_and_warehouse,
 )
 
 
@@ -45,7 +61,9 @@ class TestAssessDriftSeverity:
 
     def test_critical_over_warning(self):
         """Multiple issues should return highest severity."""
-        result = assess_drift_severity(["missing"], ["extra"], ["type_mismatch"], ["mode"], region_match=True)
+        result = assess_drift_severity(
+            ["missing"], ["extra"], ["type_mismatch"], ["mode"], region_match=True
+        )
         assert result["level"] == "CRITICAL"
 
     def test_all_critical_actions_combined(self):
@@ -61,8 +79,15 @@ class TestResolveAccountAndWarehouse:
 
     def test_env_var_fallback(self):
         """When credential adapter throws, falls back to env vars."""
-        with patch.dict(os.environ, {"SNOWFLAKE_ACCOUNT": "env_account", "SNOWFLAKE_WAREHOUSE": "env_wh"}, clear=False):
-            with patch("fluid_build.providers.snowflake.credentials.SnowflakeCredentialAdapter", side_effect=Exception("no adapter")):
+        with patch.dict(
+            os.environ,
+            {"SNOWFLAKE_ACCOUNT": "env_account", "SNOWFLAKE_WAREHOUSE": "env_wh"},
+            clear=False,
+        ):
+            with patch(
+                "fluid_build.providers.snowflake.credentials.SnowflakeCredentialAdapter",
+                side_effect=Exception("no adapter"),
+            ):
                 account, warehouse = resolve_account_and_warehouse()
                 assert account == "env_account"
                 assert warehouse == "env_wh"
@@ -87,7 +112,9 @@ class TestGetConnectionParamsLegacy:
         assert params["user"] == "explicit_user"
 
     def test_env_password(self):
-        with patch.dict(os.environ, {"SNOWFLAKE_USER": "u", "SNOWFLAKE_PASSWORD": "envpw"}, clear=True):
+        with patch.dict(
+            os.environ, {"SNOWFLAKE_USER": "u", "SNOWFLAKE_PASSWORD": "envpw"}, clear=True
+        ):
             params = _get_connection_params_legacy("acc", "wh")
             assert params["password"] == "envpw"
 
@@ -97,7 +124,9 @@ class TestGetConnectionParamsLegacy:
                 _get_connection_params_legacy("acc", "wh")
 
     def test_database_and_schema(self):
-        params = _get_connection_params_legacy("acc", "wh", database="db", schema="sch", user="u", password="p")
+        params = _get_connection_params_legacy(
+            "acc", "wh", database="db", schema="sch", user="u", password="p"
+        )
         assert params["database"] == "db"
         assert params["schema"] == "sch"
 
@@ -112,7 +141,9 @@ class TestGetConnectionParamsLegacy:
             assert params["authenticator"] == "externalbrowser"
 
     def test_env_authenticator(self):
-        with patch.dict(os.environ, {"SNOWFLAKE_USER": "u", "SNOWFLAKE_AUTHENTICATOR": "okta"}, clear=True):
+        with patch.dict(
+            os.environ, {"SNOWFLAKE_USER": "u", "SNOWFLAKE_AUTHENTICATOR": "okta"}, clear=True
+        ):
             params = _get_connection_params_legacy("acc", "wh")
             assert params["authenticator"] == "okta"
 
@@ -123,7 +154,9 @@ class TestGetConnectionParamsLegacy:
 
     def test_optional_params(self):
         with patch.dict(os.environ, {"SNOWFLAKE_USER": "u"}, clear=True):
-            params = _get_connection_params_legacy("acc", "wh", role="ADMIN", application="myapp", password="p")
+            params = _get_connection_params_legacy(
+                "acc", "wh", role="ADMIN", application="myapp", password="p"
+            )
             assert params["role"] == "ADMIN"
             assert params["application"] == "myapp"
 

@@ -17,6 +17,7 @@ Observability module for Fluid CLI.
 
 Provides unified logging, metrics, and Command Center integration.
 """
+
 from .config import CommandCenterConfig
 from .git import get_git_info
 from .reporter import CommandCenterReporter

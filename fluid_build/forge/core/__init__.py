@@ -17,7 +17,7 @@ FLUID Forge Core Module
 
 The core module provides the fundamental building blocks for the FLUID Forge system:
 - Base interfaces and protocols for extensibility
-- Component registry system for plugin management  
+- Component registry system for plugin management
 - Main orchestration engine for workflow coordination
 - Type definitions and utility classes
 
@@ -25,77 +25,67 @@ This module establishes the architectural foundation that enables teams to easil
 extend the forge system with custom templates, providers, and generators.
 """
 
+from .engine import ForgeEngine
 from .interfaces import (
-    ProjectTemplate,
-    InfrastructureProvider, 
-    Extension,
-    Generator,
-    ValidationPlugin,
-    GenerationContext,
-    TemplateMetadata,
     ComplexityLevel,
+    ComponentFactory,
+    Extension,
+    GenerationContext,
+    Generator,
+    InfrastructureProvider,
     ProjectLayer,
+    ProjectTemplate,
+    TemplateMetadata,
+    ValidationPlugin,
     ValidationResult,
-    ComponentFactory
 )
-
 from .registry import (
-    TemplateRegistry,
-    ProviderRegistry,
     ExtensionRegistry,
     GeneratorRegistry,
+    ProviderRegistry,
+    TemplateRegistry,
     ValidationRegistry,
-    template_registry,
-    provider_registry,
     extension_registry,
     generator_registry,
-    validation_registry,
+    get_registry_status,
     initialize_all_registries,
-    get_registry_status
+    provider_registry,
+    template_registry,
+    validation_registry,
 )
-
-from .engine import ForgeEngine
 
 __all__ = [
     # Core interfaces
-    'ProjectTemplate',
-    'InfrastructureProvider',
-    'Extension', 
-    'Generator',
-    'ValidationPlugin',
-    
+    "ProjectTemplate",
+    "InfrastructureProvider",
+    "Extension",
+    "Generator",
+    "ValidationPlugin",
     # Data classes
-    'GenerationContext',
-    'TemplateMetadata',
-    
+    "GenerationContext",
+    "TemplateMetadata",
     # Enums
-    'ComplexityLevel',
-    'ProjectLayer',
-    
+    "ComplexityLevel",
+    "ProjectLayer",
     # Type aliases
-    'ValidationResult',
-    
+    "ValidationResult",
     # Registry classes
-    'TemplateRegistry',
-    'ProviderRegistry', 
-    'ExtensionRegistry',
-    'GeneratorRegistry',
-    'ValidationRegistry',
-    
+    "TemplateRegistry",
+    "ProviderRegistry",
+    "ExtensionRegistry",
+    "GeneratorRegistry",
+    "ValidationRegistry",
     # Global registry instances
-    'template_registry',
-    'provider_registry',
-    'extension_registry', 
-    'generator_registry',
-    'validation_registry',
-    
+    "template_registry",
+    "provider_registry",
+    "extension_registry",
+    "generator_registry",
+    "validation_registry",
     # Registry utilities
-    'initialize_all_registries',
-    'get_registry_status',
-    
+    "initialize_all_registries",
+    "get_registry_status",
     # Main engine
-    'ForgeEngine',
-    
+    "ForgeEngine",
     # Utilities
-    'ComponentFactory'
+    "ComponentFactory",
 ]

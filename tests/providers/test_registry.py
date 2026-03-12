@@ -14,6 +14,7 @@
 
 # tests/providers/test_registry.py
 """Tests for provider registry, entry-point discovery (Phase 0), and SDK integration (Phase 1)."""
+
 from __future__ import annotations
 
 import logging
@@ -26,6 +27,7 @@ import pytest
 def _clean_registry():
     """Reset the canonical registry before each test."""
     from fluid_build.providers import clear_providers
+
     clear_providers()
     yield
     clear_providers()
@@ -35,9 +37,10 @@ def _clean_registry():
 # Canonical registry (providers/__init__.py)
 # ---------------------------------------------------------------------------
 
+
 class TestCanonicalRegistry:
     def test_register_and_get(self):
-        from fluid_build.providers import register_provider, get_provider, PROVIDERS
+        from fluid_build.providers import PROVIDERS, get_provider, register_provider
 
         class FakeProvider:
             name = "fake"
@@ -47,7 +50,7 @@ class TestCanonicalRegistry:
         assert get_provider("fake") is FakeProvider
 
     def test_normalize_name(self):
-        from fluid_build.providers import register_provider, get_provider
+        from fluid_build.providers import get_provider, register_provider
 
         class FakeProvider:
             name = "my_cloud"
@@ -67,7 +70,7 @@ class TestCanonicalRegistry:
             register_provider("has spaces", FakeProvider)
 
     def test_reject_banned_name(self):
-        from fluid_build.providers import register_provider, PROVIDERS
+        from fluid_build.providers import PROVIDERS, register_provider
 
         class FakeProvider:
             pass
@@ -76,7 +79,7 @@ class TestCanonicalRegistry:
         assert "unknown" not in PROVIDERS
 
     def test_first_write_wins(self):
-        from fluid_build.providers import register_provider, get_provider
+        from fluid_build.providers import get_provider, register_provider
 
         class First:
             pass
@@ -89,7 +92,7 @@ class TestCanonicalRegistry:
         assert get_provider("dup") is First
 
     def test_override(self):
-        from fluid_build.providers import register_provider, get_provider
+        from fluid_build.providers import get_provider, register_provider
 
         class First:
             pass
@@ -102,7 +105,7 @@ class TestCanonicalRegistry:
         assert get_provider("dup") is Second
 
     def test_list_providers(self):
-        from fluid_build.providers import register_provider, list_providers
+        from fluid_build.providers import list_providers, register_provider
 
         class A:
             pass
@@ -121,7 +124,7 @@ class TestCanonicalRegistry:
             get_provider("nonexistent")
 
     def test_registry_meta_tracks_source(self):
-        from fluid_build.providers import register_provider, _REGISTRY_META
+        from fluid_build.providers import _REGISTRY_META, register_provider
 
         class Ep:
             pass
@@ -131,7 +134,7 @@ class TestCanonicalRegistry:
         assert meta["source"] == "entrypoint"
 
     def test_clear_providers(self):
-        from fluid_build.providers import register_provider, clear_providers, PROVIDERS
+        from fluid_build.providers import PROVIDERS, clear_providers, register_provider
 
         class Fake:
             pass
@@ -146,6 +149,7 @@ class TestCanonicalRegistry:
 # Entry-point discovery
 # ---------------------------------------------------------------------------
 
+
 class TestEntryPointDiscovery:
     def test_discover_entrypoints_runs(self):
         """Entry-point discovery should execute without errors."""
@@ -155,7 +159,7 @@ class TestEntryPointDiscovery:
         # If we get here, no exceptions were raised
 
     def test_full_discovery_finds_builtin_providers(self):
-        from fluid_build.providers import discover_providers, PROVIDERS
+        from fluid_build.providers import PROVIDERS, discover_providers
 
         discover_providers()
         # At minimum these should be found:
@@ -166,6 +170,7 @@ class TestEntryPointDiscovery:
 # ---------------------------------------------------------------------------
 # Deprecated base.py re-exports
 # ---------------------------------------------------------------------------
+
 
 class TestBaseReExports:
     def test_register_provider_warns_deprecation(self):
@@ -190,11 +195,9 @@ class TestBaseReExports:
     def test_base_imports_still_work(self):
         """Ensure existing import paths don't break."""
         from fluid_build.providers.base import (
-            BaseProvider,
             ApplyResult,
+            BaseProvider,
             PlanAction,
-            ProviderError,
-            ProviderInternalError,
         )
 
         assert BaseProvider is not None
@@ -206,10 +209,11 @@ class TestBaseReExports:
 # LocalProvider migration
 # ---------------------------------------------------------------------------
 
+
 class TestLocalProviderMigration:
     def test_is_baseprovider_subclass(self):
-        from fluid_build.providers.local.local import LocalProvider
         from fluid_build.providers.base import BaseProvider
+        from fluid_build.providers.local.local import LocalProvider
 
         assert issubclass(LocalProvider, BaseProvider)
 
@@ -247,6 +251,7 @@ class TestLocalProviderMigration:
 # CLI build_provider name normalization
 # ---------------------------------------------------------------------------
 
+
 class TestBuildProviderNormalization:
     def test_case_insensitive_lookup(self):
         from fluid_build.cli._common import build_provider
@@ -275,23 +280,28 @@ class TestBuildProviderNormalization:
 # Phase 1: SDK integration
 # ---------------------------------------------------------------------------
 
+
 class TestSDKIntegration:
     """Verify that the standalone SDK package is wired into the CLI."""
 
     def test_has_sdk_flag(self):
         from fluid_build.providers.base import _HAS_SDK
+
         assert _HAS_SDK is True
 
     def test_sdk_version_exposed(self):
         from fluid_build.providers.base import SDK_VERSION
+
         assert SDK_VERSION == "0.1.0"
 
     def test_baseprovider_comes_from_sdk(self):
         from fluid_build.providers.base import BaseProvider
+
         assert "fluid_provider_sdk" in BaseProvider.__module__
 
     def test_provider_metadata_type(self):
         from fluid_build.providers.base import ProviderMetadata
+
         m = ProviderMetadata(name="test", display_name="Test", description="desc", version="1.0")
         assert m.name == "test"
         assert m.sdk_version == "0.1.0"  # auto-populated
@@ -300,6 +310,7 @@ class TestSDKIntegration:
 
     def test_provider_capabilities_mapping(self):
         from fluid_build.providers.base import ProviderCapabilities
+
         c = ProviderCapabilities(planning=True, apply=True, render=False, graph=False, auth=False)
         assert c["planning"] is True
         assert "apply" in c
@@ -312,6 +323,7 @@ class TestProviderInfo:
 
     def test_local_provider_info(self):
         from fluid_build.providers.local.local import LocalProvider
+
         info = LocalProvider.get_provider_info()
         assert info.name == "local"
         assert info.display_name == "Local (DuckDB)"
@@ -320,24 +332,28 @@ class TestProviderInfo:
 
     def test_aws_provider_info(self):
         from fluid_build.providers.aws.provider import AwsProvider
+
         info = AwsProvider.get_provider_info()
         assert info.name == "aws"
         assert "aws" in info.supported_platforms
 
     def test_gcp_provider_info(self):
         from fluid_build.providers.gcp.provider import GcpProvider
+
         info = GcpProvider.get_provider_info()
         assert info.name == "gcp"
         assert "bigquery" in info.supported_platforms
 
     def test_snowflake_provider_info(self):
         from fluid_build.providers.snowflake.provider_enhanced import SnowflakeProviderEnhanced
+
         info = SnowflakeProviderEnhanced.get_provider_info()
         assert info.name == "snowflake"
         assert "data-warehouse" in info.tags
 
     def test_provider_info_to_dict_roundtrip(self):
         from fluid_build.providers.local.local import LocalProvider
+
         info = LocalProvider.get_provider_info()
         d = info.to_dict()
         assert isinstance(d, dict)

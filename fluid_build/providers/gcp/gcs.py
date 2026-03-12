@@ -13,11 +13,14 @@
 # limitations under the License.
 
 import logging
-from ..base import PlanAction, ApplyResult
+
+from ..base import ApplyResult, PlanAction
+
 try:
     from google.cloud import storage
 except Exception:  # pragma: no cover
     storage = None
+
 
 def plan_gcs(contract: dict):
     actions = []
@@ -27,8 +30,13 @@ def plan_gcs(contract: dict):
             props = loc.get("properties", {})
             bucket = props.get("bucket")
             if bucket:
-                actions.append(PlanAction("create", "gcs.bucket", bucket, {"location": props.get("location", "EU")}))
+                actions.append(
+                    PlanAction(
+                        "create", "gcs.bucket", bucket, {"location": props.get("location", "EU")}
+                    )
+                )
     return actions
+
 
 def apply_gcs(actions, client=None, dry_run=False):
     results = []

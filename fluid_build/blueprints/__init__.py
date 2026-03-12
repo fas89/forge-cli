@@ -27,16 +27,11 @@ Blueprints are more than templates - they are fully functional data products wit
 - Deployment configurations
 """
 
-from .registry import BlueprintRegistry
 from .base import Blueprint, BlueprintMetadata
+from .registry import BlueprintRegistry
 from .validators import BlueprintValidator
 
-__all__ = [
-    'BlueprintRegistry',
-    'Blueprint', 
-    'BlueprintMetadata',
-    'BlueprintValidator'
-]
+__all__ = ["BlueprintRegistry", "Blueprint", "BlueprintMetadata", "BlueprintValidator"]
 
 # Global registry instance
 registry = BlueprintRegistry()

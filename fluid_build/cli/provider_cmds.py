@@ -13,21 +13,29 @@
 # limitations under the License.
 
 from __future__ import annotations
-import argparse, logging, json
-from ._logging import info
-from ._common import CLIError
+
+import argparse
+import json
+import logging
+
 from fluid_build.cli.console import cprint
 
+from ._common import CLIError
+from ._logging import info
+
 COMMAND = "providers"
+
 
 def register(subparsers: argparse._SubParsersAction):
     p = subparsers.add_parser(COMMAND, help="List discoverable providers")
     p.add_argument("--debug", action="store_true", help="Show discovery metadata (source, module)")
     p.set_defaults(cmd=COMMAND, func=run)
 
+
 def run(args, logger: logging.Logger) -> int:
     try:
         from fluid_build import providers as registry
+
         registry.discover_providers(logger)
         names = sorted(registry.PROVIDERS.keys())
         info(logger, "providers", providers=names)

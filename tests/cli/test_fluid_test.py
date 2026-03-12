@@ -13,20 +13,21 @@
 # limitations under the License.
 
 """Tests for the ``fluid test`` CLI command and ContractValidator DQ wiring."""
+
 from __future__ import annotations
 
 import json
 import os
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def _clean_env(monkeypatch):
@@ -106,10 +107,13 @@ def _write_contract(directory: Path, contract: dict, name: str = "contract.fluid
 # Command registration
 # ---------------------------------------------------------------------------
 
+
 class TestTestCommandRegistration:
     def test_test_command_registered(self, _clean_env):
-        from fluid_build.cli.bootstrap import register_core_commands
         import argparse
+
+        from fluid_build.cli.bootstrap import register_core_commands
+
         parser = argparse.ArgumentParser()
         sp = parser.add_subparsers(dest="command")
         register_core_commands(sp)
@@ -118,17 +122,23 @@ class TestTestCommandRegistration:
         assert parsed.command == "test"
 
     def test_test_accepts_server_flag(self, _clean_env):
-        from fluid_build.cli.bootstrap import register_core_commands
         import argparse
+
+        from fluid_build.cli.bootstrap import register_core_commands
+
         parser = argparse.ArgumentParser()
         sp = parser.add_subparsers(dest="command")
         register_core_commands(sp)
-        parsed = parser.parse_args(["test", "contract.fluid.yaml", "--server", "my-account.snowflakecomputing.com"])
+        parsed = parser.parse_args(
+            ["test", "contract.fluid.yaml", "--server", "my-account.snowflakecomputing.com"]
+        )
         assert parsed.server == "my-account.snowflakecomputing.com"
 
     def test_test_accepts_output_flag(self, _clean_env):
-        from fluid_build.cli.bootstrap import register_core_commands
         import argparse
+
+        from fluid_build.cli.bootstrap import register_core_commands
+
         parser = argparse.ArgumentParser()
         sp = parser.add_subparsers(dest="command")
         register_core_commands(sp)
@@ -139,6 +149,7 @@ class TestTestCommandRegistration:
 # ---------------------------------------------------------------------------
 # ContractValidator wiring
 # ---------------------------------------------------------------------------
+
 
 class TestContractValidatorDQ:
     def test_dq_rules_extracted_from_expose(self, tmp_path, _clean_env):
@@ -166,13 +177,15 @@ class TestContractValidatorDQ:
             validator.validation_provider = mock_provider
             validator.report.provider_name = "local"
 
-        with patch.object(validator, '_detect_and_validate_provider', side_effect=_set_mock_provider):
-            report = validator.validate()
+        with patch.object(
+            validator, "_detect_and_validate_provider", side_effect=_set_mock_provider
+        ):
+            validator.validate()
 
         # run_quality_checks should have been called with the DQ rules
         assert mock_provider.run_quality_checks.called
         call_args = mock_provider.run_quality_checks.call_args
-        rules = call_args[0][1] if len(call_args[0]) > 1 else call_args[1].get('rules', [])
+        rules = call_args[0][1] if len(call_args[0]) > 1 else call_args[1].get("rules", [])
         assert len(rules) == 2
 
     def test_no_dq_rules_means_no_call(self, tmp_path, _clean_env):
@@ -202,8 +215,10 @@ class TestContractValidatorDQ:
             validator.validation_provider = mock_provider
             validator.report.provider_name = "local"
 
-        with patch.object(validator, '_detect_and_validate_provider', side_effect=_set_mock_provider):
-            report = validator.validate()
+        with patch.object(
+            validator, "_detect_and_validate_provider", side_effect=_set_mock_provider
+        ):
+            validator.validate()
 
         assert not mock_provider.run_quality_checks.called
 
@@ -212,33 +227,39 @@ class TestContractValidatorDQ:
 # Provider label detection
 # ---------------------------------------------------------------------------
 
+
 class TestProviderLabel:
     def test_gcp_label(self):
         from fluid_build.cli.test import _detect_provider_label
+
         report = MagicMock()
         report.provider_name = "gcp"
         assert _detect_provider_label(report) == "gcp (BigQuery)"
 
     def test_snowflake_label(self):
         from fluid_build.cli.test import _detect_provider_label
+
         report = MagicMock()
         report.provider_name = "snowflake"
         assert _detect_provider_label(report) == "snowflake"
 
     def test_local_label(self):
         from fluid_build.cli.test import _detect_provider_label
+
         report = MagicMock()
         report.provider_name = "local"
         assert _detect_provider_label(report) == "local (DuckDB)"
 
     def test_aws_label(self):
         from fluid_build.cli.test import _detect_provider_label
+
         report = MagicMock()
         report.provider_name = "aws"
         assert _detect_provider_label(report) == "aws (Glue/Athena)"
 
     def test_unknown_label(self):
         from fluid_build.cli.test import _detect_provider_label
+
         report = MagicMock()
         report.provider_name = None
         assert _detect_provider_label(report) == "auto-detected"
@@ -248,10 +269,13 @@ class TestProviderLabel:
 # ValidationReport.provider_name field
 # ---------------------------------------------------------------------------
 
+
 class TestValidationReportProviderField:
     def test_provider_name_default_none(self):
-        from fluid_build.cli.contract_validation import ValidationReport
         from datetime import datetime
+
+        from fluid_build.cli.contract_validation import ValidationReport
+
         report = ValidationReport(
             contract_path="/test.yaml",
             contract_id="test",
@@ -262,8 +286,10 @@ class TestValidationReportProviderField:
         assert report.provider_name is None
 
     def test_provider_name_set(self):
-        from fluid_build.cli.contract_validation import ValidationReport
         from datetime import datetime
+
+        from fluid_build.cli.contract_validation import ValidationReport
+
         report = ValidationReport(
             contract_path="/test.yaml",
             contract_id="test",
@@ -279,10 +305,12 @@ class TestValidationReportProviderField:
 # Server flag wiring
 # ---------------------------------------------------------------------------
 
+
 class TestServerFlag:
     def test_server_stored_on_validator(self, tmp_path, _clean_env):
         contract_file = _write_contract(tmp_path, CONTRACT_WITH_DQ)
         from fluid_build.cli.contract_validation import ContractValidator
+
         validator = ContractValidator(
             contract_path=contract_file,
             server="my-custom-account",
@@ -297,6 +325,7 @@ class TestServerFlag:
 
         contract_file = _write_contract(tmp_path, CONTRACT_WITH_DQ)
         from fluid_build.cli.contract_validation import ContractValidator
+
         validator = ContractValidator(
             contract_path=contract_file,
             server="override-account",

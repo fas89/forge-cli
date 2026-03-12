@@ -13,35 +13,45 @@
 # limitations under the License.
 
 from __future__ import annotations
-import argparse, logging, os, json
-from ._logging import info
-from ._common import CLIError
+
+import argparse
+import json
+import logging
+import os
+
 from fluid_build.cli.console import cprint
+
+from ._common import CLIError
+from ._logging import info
 
 COMMAND = "context"
 CTX_PATH = ".fluid/context.json"
+
 
 def register(subparsers: argparse._SubParsersAction):
     p = subparsers.add_parser(COMMAND, help="Get/Set default provider/project/region")
     sp = p.add_subparsers(dest="verb", required=True)
     sp.add_parser("list", help="Show current context")
     g = sp.add_parser("set", help="Set a key")
-    g.add_argument("key", choices=["provider","project","region"], help="Key")
+    g.add_argument("key", choices=["provider", "project", "region"], help="Key")
     g.add_argument("value", help="Value")
     sp.add_parser("get", help="Get a key").add_argument("key")
     p.set_defaults(cmd=COMMAND, func=run)
 
+
 def _read():
     try:
-        with open(CTX_PATH, "r", encoding="utf-8") as f:
+        with open(CTX_PATH, encoding="utf-8") as f:
             return json.load(f)
     except FileNotFoundError:
         return {}
+
 
 def _write(d):
     os.makedirs(os.path.dirname(CTX_PATH), exist_ok=True)
     with open(CTX_PATH, "w", encoding="utf-8") as f:
         json.dump(d, f, indent=2)
+
 
 def run(args, logger: logging.Logger) -> int:
     try:

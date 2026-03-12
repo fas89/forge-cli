@@ -1,13 +1,25 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for providers/aws/util/agent_policy.py — tag sanitization, ARN parsing, policy extraction."""
 
-import pytest
-
 from fluid_build.providers.aws.util.agent_policy import (
-    sanitize_tag_value,
-    sanitize_tag_key,
     AgentPolicyExtractor,
     extract_agent_policy_tags,
     generate_lake_formation_policy,
+    sanitize_tag_key,
+    sanitize_tag_value,
 )
 
 
@@ -120,7 +132,10 @@ class TestAgentPolicyExtractorTags:
 class TestARNParsing:
     def test_extract_account(self):
         ext = AgentPolicyExtractor()
-        assert ext._extract_account_from_arn("arn:aws:glue:us-east-1:123456789:table/db/tbl") == "123456789"
+        assert (
+            ext._extract_account_from_arn("arn:aws:glue:us-east-1:123456789:table/db/tbl")
+            == "123456789"
+        )
 
     def test_extract_account_short(self):
         ext = AgentPolicyExtractor()
@@ -128,7 +143,9 @@ class TestARNParsing:
 
     def test_extract_database(self):
         ext = AgentPolicyExtractor()
-        assert ext._extract_database_from_arn("arn:aws:glue:us-east-1:123:table/mydb/mytbl") == "mydb"
+        assert (
+            ext._extract_database_from_arn("arn:aws:glue:us-east-1:123:table/mydb/mytbl") == "mydb"
+        )
 
     def test_extract_table(self):
         ext = AgentPolicyExtractor()

@@ -1,12 +1,30 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for fluid_build.providers.validation_provider — data classes + ABC helpers."""
-import pytest
+
 from fluid_build.providers.validation_provider import (
-    ResourceType, FieldSchema, ResourceSchema, ValidationIssue, ValidationResult,
+    FieldSchema,
+    ResourceSchema,
+    ResourceType,
+    ValidationIssue,
     ValidationProvider,
+    ValidationResult,
 )
 
-
 # ── Enum ──
+
 
 class TestResourceType:
     def test_values(self):
@@ -16,6 +34,7 @@ class TestResourceType:
 
 
 # ── FieldSchema ──
+
 
 class TestFieldSchema:
     def test_default_mode(self):
@@ -45,6 +64,7 @@ class TestFieldSchema:
 
 # ── ResourceSchema ──
 
+
 class TestResourceSchema:
     def test_post_init_metadata_none(self):
         rs = ResourceSchema(
@@ -65,6 +85,7 @@ class TestResourceSchema:
 
 
 # ── ValidationResult ──
+
 
 class TestValidationResult:
     def test_has_errors(self):
@@ -97,14 +118,18 @@ class TestValidationResult:
 # ── ValidationProvider base methods ──
 # Create a minimal concrete subclass to test ABC methods
 
+
 class _DummyProvider(ValidationProvider):
     @property
     def provider_name(self):
         return "dummy"
+
     def validate_connection(self):
         return True
+
     def get_resource_schema(self, resource_spec):
         return None
+
     def validate_resource(self, contract_spec, actual_schema):
         return ValidationResult("x", True, [])
 

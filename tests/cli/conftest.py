@@ -18,11 +18,13 @@ Pytest Configuration and Fixtures for CLI Tests
 Shared fixtures for testing FLUID CLI commands.
 """
 
-import pytest
-import tempfile
 import os
+import tempfile
 from pathlib import Path
-from unittest.mock import Mock, MagicMock
+from unittest.mock import MagicMock, Mock
+
+import pytest
+
 from fluid_build.cli.core import CLIContext
 
 
@@ -40,31 +42,24 @@ def sample_contract():
         "id": "test.contract.v1",
         "fluidVersion": "0.7.1",
         "kind": "DataContract",
-        "metadata": {
-            "name": "Test Contract",
-            "version": "1.0.0"
-        },
+        "metadata": {"name": "Test Contract", "version": "1.0.0"},
         "schema": [
             {"name": "id", "type": "integer"},
             {"name": "name", "type": "string"},
-            {"name": "created_at", "type": "timestamp"}
+            {"name": "created_at", "type": "timestamp"},
         ],
         "exposes": [
             {
                 "exposeId": "test_table",
-                "binding": {
-                    "platform": "local",
-                    "database": "test_db",
-                    "table": "test_table"
-                },
+                "binding": {"platform": "local", "database": "test_db", "table": "test_table"},
                 "contract": {
                     "schema": [
                         {"name": "id", "type": "integer"},
-                        {"name": "name", "type": "string"}
+                        {"name": "name", "type": "string"},
                     ]
-                }
+                },
             }
-        ]
+        ],
     }
 
 
@@ -78,21 +73,15 @@ def sample_contract_057():
         "name": "Test Contract",
         "version": "1.0.0",
         "schema": {
-            "fields": [
-                {"name": "id", "type": "integer"},
-                {"name": "name", "type": "string"}
-            ]
+            "fields": [{"name": "id", "type": "integer"}, {"name": "name", "type": "string"}]
         },
         "exposes": [
             {
                 "id": "test_table",
                 "provider": "local",
-                "location": {
-                    "database": "test_db",
-                    "table": "test_table"
-                }
+                "location": {"database": "test_db", "table": "test_table"},
             }
-        ]
+        ],
     }
 
 
@@ -120,11 +109,7 @@ def mock_console():
 def cli_context(mock_logger, mock_console):
     """Mock CLI context for testing"""
     context = CLIContext(
-        logger=mock_logger,
-        console=mock_console,
-        verbose=False,
-        dry_run=False,
-        yes=False
+        logger=mock_logger, console=mock_console, verbose=False, dry_run=False, yes=False
     )
     return context
 
@@ -134,12 +119,8 @@ def mock_provider():
     """Mock provider for testing"""
     provider = MagicMock()
     provider.name = "mock"
-    provider.plan = Mock(return_value=[
-        {"op": "create_table", "table": "test_table"}
-    ])
-    provider.apply = Mock(return_value=[
-        {"status": "success", "op": "create_table"}
-    ])
+    provider.plan = Mock(return_value=[{"op": "create_table", "table": "test_table"}])
+    provider.apply = Mock(return_value=[{"status": "success", "op": "create_table"}])
     return provider
 
 
@@ -147,8 +128,9 @@ def mock_provider():
 def contract_file(temp_dir, sample_contract):
     """Create a temporary contract YAML file"""
     import yaml
+
     contract_path = temp_dir / "contract.fluid.yaml"
-    with open(contract_path, 'w') as f:
+    with open(contract_path, "w") as f:
         yaml.dump(sample_contract, f)
     return contract_path
 
@@ -157,17 +139,13 @@ def contract_file(temp_dir, sample_contract):
 def plan_file(temp_dir):
     """Create a temporary plan JSON file"""
     import json
+
     plan = {
-        "metadata": {
-            "generated_at": "2026-01-23T00:00:00Z",
-            "provider": "local"
-        },
-        "actions": [
-            {"op": "create_table", "table": "test_table"}
-        ]
+        "metadata": {"generated_at": "2026-01-23T00:00:00Z", "provider": "local"},
+        "actions": [{"op": "create_table", "table": "test_table"}],
     }
     plan_path = temp_dir / "plan.json"
-    with open(plan_path, 'w') as f:
+    with open(plan_path, "w") as f:
         json.dump(plan, f)
     return plan_path
 
@@ -177,13 +155,13 @@ def plan_file(temp_dir):
 def test_environment():
     """Set up test environment variables"""
     original_env = os.environ.copy()
-    
+
     # Set test environment variables
-    os.environ['FLUID_ENV'] = 'test'
-    os.environ['FLUID_LOG_LEVEL'] = 'DEBUG'
-    
+    os.environ["FLUID_ENV"] = "test"
+    os.environ["FLUID_LOG_LEVEL"] = "DEBUG"
+
     yield
-    
+
     # Restore original environment
     os.environ.clear()
     os.environ.update(original_env)

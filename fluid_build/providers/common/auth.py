@@ -18,17 +18,14 @@ import os
 from typing import Dict, Optional
 
 
-def get_auth_headers(
-    endpoint: str,
-    auth_config: Optional[Dict[str, str]] = None
-) -> Dict[str, str]:
+def get_auth_headers(endpoint: str, auth_config: Optional[Dict[str, str]] = None) -> Dict[str, str]:
     """Generate authentication headers for API requests
-    
+
     Supports multiple auth methods:
     - API Key (X-API-Key header)
     - Bearer Token (Authorization header)
     - Basic Auth (Authorization header)
-    
+
     Args:
         endpoint: API endpoint URL
         auth_config: Authentication configuration dict with keys:
@@ -37,71 +34,69 @@ def get_auth_headers(
             - token: Bearer token value
             - username: Basic auth username
             - password: Basic auth password
-    
+
     Returns:
         Dictionary of HTTP headers
     """
-    headers = {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-    }
-    
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+
     if not auth_config:
         # Try environment variables as fallback
-        api_key = os.getenv('FLUID_API_KEY')
+        api_key = os.getenv("FLUID_API_KEY")
         if api_key:
-            headers['X-API-Key'] = api_key
-        
-        bearer_token = os.getenv('FLUID_BEARER_TOKEN')
+            headers["X-API-Key"] = api_key
+
+        bearer_token = os.getenv("FLUID_BEARER_TOKEN")
         if bearer_token:
-            headers['Authorization'] = f'Bearer {bearer_token}'
-        
+            headers["Authorization"] = f"Bearer {bearer_token}"
+
         return headers
-    
-    auth_type = auth_config.get('type', 'api_key')
-    
-    if auth_type == 'api_key':
-        api_key = auth_config.get('api_key') or os.getenv('FLUID_API_KEY')
+
+    auth_type = auth_config.get("type", "api_key")
+
+    if auth_type == "api_key":
+        api_key = auth_config.get("api_key") or os.getenv("FLUID_API_KEY")
         if api_key:
-            headers['X-API-Key'] = api_key
-    
-    elif auth_type == 'bearer':
-        token = auth_config.get('token') or os.getenv('FLUID_BEARER_TOKEN')
+            headers["X-API-Key"] = api_key
+
+    elif auth_type == "bearer":
+        token = auth_config.get("token") or os.getenv("FLUID_BEARER_TOKEN")
         if token:
-            headers['Authorization'] = f'Bearer {token}'
-    
-    elif auth_type == 'basic':
+            headers["Authorization"] = f"Bearer {token}"
+
+    elif auth_type == "basic":
         import base64
-        username = auth_config.get('username', '')
-        password = auth_config.get('password', '')
-        credentials = base64.b64encode(f'{username}:{password}'.encode()).decode()
-        headers['Authorization'] = f'Basic {credentials}'
-    
+
+        username = auth_config.get("username", "")
+        password = auth_config.get("password", "")
+        credentials = base64.b64encode(f"{username}:{password}".encode()).decode()
+        headers["Authorization"] = f"Basic {credentials}"
+
     return headers
 
 
 def validate_auth_config(auth_config: Dict[str, str]) -> bool:
     """Validate authentication configuration
-    
+
     Args:
         auth_config: Authentication configuration dictionary
-    
+
     Returns:
         True if valid, False otherwise
     """
     if not auth_config:
         # Check if environment variables are set
-        return bool(os.getenv('FLUID_API_KEY') or os.getenv('FLUID_BEARER_TOKEN'))
-    
-    auth_type = auth_config.get('type', 'api_key')
-    
-    if auth_type == 'api_key':
-        return 'api_key' in auth_config or bool(os.getenv('FLUID_API_KEY'))
-    
-    elif auth_type == 'bearer':
-        return 'token' in auth_config or bool(os.getenv('FLUID_BEARER_TOKEN'))
-    
-    elif auth_type == 'basic':
-        return 'username' in auth_config and 'password' in auth_config
-    
+        return bool(os.getenv("FLUID_API_KEY") or os.getenv("FLUID_BEARER_TOKEN"))
+
+    auth_type = auth_config.get("type", "api_key")
+
+    if auth_type == "api_key":
+        return "api_key" in auth_config or bool(os.getenv("FLUID_API_KEY"))
+
+    elif auth_type == "bearer":
+        return "token" in auth_config or bool(os.getenv("FLUID_BEARER_TOKEN"))
+
+    elif auth_type == "basic":
+        return "username" in auth_config and "password" in auth_config
+
     return False

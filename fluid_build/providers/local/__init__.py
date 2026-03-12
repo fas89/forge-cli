@@ -13,6 +13,8 @@
 # limitations under the License.
 
 from fluid_build.providers import register_provider
+
 from .local import LocalProvider  # must have class LocalProvider(BaseProvider) with name="local"
+
 register_provider("local", LocalProvider)
 __all__ = ["LocalProvider"]

@@ -38,24 +38,23 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
-import sys
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import List, Optional
+
 from fluid_build.cli.console import cprint
 
 try:
     from rich.console import Console
-    from rich.table import Table
     from rich.panel import Panel
+    from rich.table import Table
+
     RICH_AVAILABLE = True
 except ImportError:
     RICH_AVAILABLE = False
 
-from ._common import CLIError
-from ._logging import info, warn, error
 from ..config_manager import FluidConfig
 from ..loader import load_contract
-from ..providers.catalogs import get_catalog_provider, PublishResult
+from ..providers.catalogs import PublishResult, get_catalog_provider
 from ..providers.common import metrics_collector
 
 COMMAND = "publish"
@@ -119,79 +118,71 @@ Authentication:
 
 The publish command enables the full data product lifecycle: develop → deploy → register → discover.
         """,
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    
+
     # Contract file(s)
     p.add_argument(
         "contract_files",
         nargs="+",
-        help="FLUID contract file(s) to publish (supports glob patterns)"
+        help="FLUID contract file(s) to publish (supports glob patterns)",
     )
-    
+
     # Catalog selection
     catalog_group = p.add_argument_group("Catalog Selection")
     catalog_group.add_argument(
-        "--catalog", "-c",
+        "--catalog",
+        "-c",
         default="fluid-command-center",
-        help="Target catalog name (default: fluid-command-center)"
+        help="Target catalog name (default: fluid-command-center)",
     )
     catalog_group.add_argument(
-        "--list-catalogs",
-        action="store_true",
-        help="List configured catalogs and exit"
+        "--list-catalogs", action="store_true", help="List configured catalogs and exit"
     )
-    
+
     # Operation modes
     mode_group = p.add_argument_group("Operation Modes")
     mode_group.add_argument(
         "--dry-run",
         action="store_true",
-        help="Validate contract and show what would be published without actually publishing"
+        help="Validate contract and show what would be published without actually publishing",
     )
     mode_group.add_argument(
         "--verify-only",
         action="store_true",
-        help="Only verify if contract is already published (no create/update)"
+        help="Only verify if contract is already published (no create/update)",
     )
     mode_group.add_argument(
-        "--force",
-        action="store_true",
-        help="Force update even if asset exists and is unchanged"
+        "--force", action="store_true", help="Force update even if asset exists and is unchanged"
     )
-    
+
     # Output options
     output_group = p.add_argument_group("Output Options")
     output_group.add_argument(
-        "--format", "-f",
+        "--format",
+        "-f",
         choices=["text", "json", "yaml"],
         default="text",
-        help="Output format (default: text)"
+        help="Output format (default: text)",
     )
     output_group.add_argument(
-        "--verbose", "-v",
-        action="store_true",
-        help="Verbose output with detailed metrics"
+        "--verbose", "-v", action="store_true", help="Verbose output with detailed metrics"
     )
     output_group.add_argument(
-        "--quiet", "-q",
-        action="store_true",
-        help="Minimal output (only errors and final result)"
+        "--quiet", "-q", action="store_true", help="Minimal output (only errors and final result)"
     )
-    
+
     # Advanced options
     advanced_group = p.add_argument_group("Advanced Options")
     advanced_group.add_argument(
         "--skip-health-check",
         action="store_true",
-        help="Skip catalog health check before publishing"
+        help="Skip catalog health check before publishing",
     )
     advanced_group.add_argument(
-        "--show-metrics",
-        action="store_true",
-        help="Show detailed metrics after publish"
+        "--show-metrics", action="store_true", help="Show detailed metrics after publish"
     )
-    
+
     p.set_defaults(cmd=COMMAND, func=run)
 
 
@@ -202,10 +193,10 @@ async def publish_contract(
     dry_run: bool = False,
     verify_only: bool = False,
     skip_health_check: bool = False,
-    verbose: bool = False
+    verbose: bool = False,
 ) -> PublishResult:
     """Publish a single contract to catalog
-    
+
     Args:
         contract_path: Path to contract file
         catalog_name: Name of target catalog
@@ -214,13 +205,13 @@ async def publish_contract(
         verify_only: If True, only verify existence
         skip_health_check: If True, skip pre-publish health check
         verbose: If True, show detailed progress
-    
+
     Returns:
         PublishResult with success/failure details
     """
     if verbose:
         logger.info(f"📄 Loading contract: {contract_path}")
-    
+
     # Load contract
     try:
         contract = load_contract(str(contract_path))
@@ -229,27 +220,27 @@ async def publish_contract(
             success=False,
             catalog_id=catalog_name,
             asset_id=str(contract_path),
-            error=f"Failed to load contract: {e}"
+            error=f"Failed to load contract: {e}",
         )
-    
+
     # Get catalog config
     catalog_config = config.get_catalog_config(catalog_name)
     if not catalog_config:
         return PublishResult(
             success=False,
             catalog_id=catalog_name,
-            asset_id=contract.get('id', str(contract_path)),
-            error=f"Catalog '{catalog_name}' not configured"
+            asset_id=contract.get("id", str(contract_path)),
+            error=f"Catalog '{catalog_name}' not configured",
         )
-    
-    if not catalog_config.get('enabled', True):
+
+    if not catalog_config.get("enabled", True):
         return PublishResult(
             success=False,
             catalog_id=catalog_name,
-            asset_id=contract.get('id', str(contract_path)),
-            error=f"Catalog '{catalog_name}' is disabled in configuration"
+            asset_id=contract.get("id", str(contract_path)),
+            error=f"Catalog '{catalog_name}' is disabled in configuration",
         )
-    
+
     # Create provider instance
     try:
         provider = get_catalog_provider(catalog_name, catalog_config)
@@ -257,10 +248,10 @@ async def publish_contract(
         return PublishResult(
             success=False,
             catalog_id=catalog_name,
-            asset_id=contract.get('id', str(contract_path)),
-            error=f"Failed to create catalog provider: {e}"
+            asset_id=contract.get("id", str(contract_path)),
+            error=f"Failed to create catalog provider: {e}",
         )
-    
+
     # Map contract to asset
     try:
         asset = provider.map_contract_to_asset(contract)
@@ -268,13 +259,13 @@ async def publish_contract(
         return PublishResult(
             success=False,
             catalog_id=catalog_name,
-            asset_id=contract.get('id', str(contract_path)),
-            error=f"Failed to map contract to asset: {e}"
+            asset_id=contract.get("id", str(contract_path)),
+            error=f"Failed to map contract to asset: {e}",
         )
-    
+
     if verbose:
         logger.info(f"📦 Mapped contract to asset: {asset.name} (ID: {asset.id})")
-    
+
     # Verify-only mode
     if verify_only:
         exists = await provider.verify(asset.id)
@@ -283,9 +274,9 @@ async def publish_contract(
             catalog_id=catalog_name,
             asset_id=asset.id,
             error=None if exists else "Asset not found in catalog",
-            details={'verified': exists, 'operation': 'verify'}
+            details={"verified": exists, "operation": "verify"},
         )
-    
+
     # Dry-run mode
     if dry_run:
         is_valid, error_msg = provider.validate_asset(asset)
@@ -294,66 +285,81 @@ async def publish_contract(
             catalog_id=catalog_name,
             asset_id=asset.id,
             error=error_msg,
-            details={'dry_run': True, 'valid': is_valid}
+            details={"dry_run": True, "valid": is_valid},
         )
-    
+
     # Health check (unless skipped)
     if not skip_health_check:
         if verbose:
-            logger.info(f"🏥 Checking catalog health...")
-        
+            logger.info("🏥 Checking catalog health...")
+
         is_healthy = await provider.health_check()
         if not is_healthy:
             return PublishResult(
                 success=False,
                 catalog_id=catalog_name,
                 asset_id=asset.id,
-                error="Catalog health check failed - endpoint not accessible"
+                error="Catalog health check failed - endpoint not accessible",
             )
-    
+
     # Publish!
     if verbose:
         logger.info(f"🚀 Publishing to {catalog_name}...")
-    
+
     result = await provider.publish(asset)
     return result
 
 
-def format_results(results: List[PublishResult], format: str = "text", console: Optional[Console] = None) -> str:
+def format_results(
+    results: List[PublishResult], format: str = "text", console: Optional[Console] = None
+) -> str:
     """Format publish results
-    
+
     Args:
         results: List of publish results
         format: Output format (text, json, yaml)
         console: Rich console for formatted output
-    
+
     Returns:
         Formatted output string
     """
     if format == "json":
         import json
-        return json.dumps([{
-            'success': r.success,
-            'catalog_id': r.catalog_id,
-            'asset_id': r.asset_id,
-            'catalog_url': r.catalog_url,
-            'error': r.error,
-            'details': r.details,
-            'timestamp': r.timestamp.isoformat()
-        } for r in results], indent=2)
-    
+
+        return json.dumps(
+            [
+                {
+                    "success": r.success,
+                    "catalog_id": r.catalog_id,
+                    "asset_id": r.asset_id,
+                    "catalog_url": r.catalog_url,
+                    "error": r.error,
+                    "details": r.details,
+                    "timestamp": r.timestamp.isoformat(),
+                }
+                for r in results
+            ],
+            indent=2,
+        )
+
     elif format == "yaml":
         import yaml
-        return yaml.dump([{
-            'success': r.success,
-            'catalog_id': r.catalog_id,
-            'asset_id': r.asset_id,
-            'catalog_url': r.catalog_url,
-            'error': r.error,
-            'details': r.details,
-            'timestamp': r.timestamp.isoformat()
-        } for r in results])
-    
+
+        return yaml.dump(
+            [
+                {
+                    "success": r.success,
+                    "catalog_id": r.catalog_id,
+                    "asset_id": r.asset_id,
+                    "catalog_url": r.catalog_url,
+                    "error": r.error,
+                    "details": r.details,
+                    "timestamp": r.timestamp.isoformat(),
+                }
+                for r in results
+            ]
+        )
+
     else:  # text format
         if console and RICH_AVAILABLE:
             table = Table(title="📤 Publish Results")
@@ -361,17 +367,12 @@ def format_results(results: List[PublishResult], format: str = "text", console: 
             table.add_column("Status", style="bold")
             table.add_column("Catalog", style="magenta")
             table.add_column("Details")
-            
+
             for r in results:
                 status = "✅ Success" if r.success else "❌ Failed"
                 details = r.catalog_url if r.success else r.error
-                table.add_row(
-                    r.asset_id,
-                    status,
-                    r.catalog_id,
-                    details or ""
-                )
-            
+                table.add_row(r.asset_id, status, r.catalog_id, details or "")
+
             console.print(table)
             return ""
         else:
@@ -396,7 +397,7 @@ async def run_async(args, logger: logging.Logger) -> int:
     """Async main execution logic"""
     config = FluidConfig()
     console = Console() if RICH_AVAILABLE else None
-    
+
     # Handle --list-catalogs
     if args.list_catalogs:
         catalogs = config.get_catalog_config()
@@ -406,17 +407,12 @@ async def run_async(args, logger: logging.Logger) -> int:
             table.add_column("Endpoint", style="magenta")
             table.add_column("Enabled", style="bold")
             table.add_column("Auth Type")
-            
+
             for name, conf in catalogs.items():
-                enabled = "✅ Yes" if conf.get('enabled', True) else "❌ No"
-                auth_type = conf.get('auth', {}).get('type', 'none')
-                table.add_row(
-                    name,
-                    conf.get('endpoint', 'N/A'),
-                    enabled,
-                    auth_type
-                )
-            
+                enabled = "✅ Yes" if conf.get("enabled", True) else "❌ No"
+                auth_type = conf.get("auth", {}).get("type", "none")
+                table.add_row(name, conf.get("endpoint", "N/A"), enabled, auth_type)
+
             console.print(table)
         else:
             cprint("\n🗂️ Configured Catalogs:")
@@ -427,9 +423,10 @@ async def run_async(args, logger: logging.Logger) -> int:
                 cprint(f"  Enabled: {'Yes' if conf.get('enabled', True) else 'No'}")
                 cprint(f"  Auth: {conf.get('auth', {}).get('type', 'none')}")
         return 0
-    
+
     # Expand glob patterns in contract files
     from glob import glob
+
     contract_paths = []
     for pattern in args.contract_files:
         matches = glob(pattern)
@@ -437,20 +434,20 @@ async def run_async(args, logger: logging.Logger) -> int:
             contract_paths.extend([Path(m) for m in matches])
         else:
             contract_paths.append(Path(pattern))
-    
+
     if not contract_paths:
         logger.error("No contract files specified")
         return 1
-    
+
     # Validate contract files exist
     invalid_paths = [p for p in contract_paths if not p.exists()]
     if invalid_paths:
         logger.error(f"Contract files not found: {', '.join(str(p) for p in invalid_paths)}")
         return 1
-    
+
     if not args.quiet:
         logger.info(f"📤 Publishing {len(contract_paths)} contract(s) to '{args.catalog}'")
-    
+
     # Publish each contract
     results = []
     for contract_path in contract_paths:
@@ -461,15 +458,15 @@ async def run_async(args, logger: logging.Logger) -> int:
             dry_run=args.dry_run,
             verify_only=args.verify_only,
             skip_health_check=args.skip_health_check,
-            verbose=args.verbose
+            verbose=args.verbose,
         )
         results.append(result)
-    
+
     # Display results
     output = format_results(results, args.format, console)
     if output:
         cprint(output)
-    
+
     # Show metrics if requested
     if args.show_metrics:
         metrics = metrics_collector.get_summary()
@@ -480,7 +477,7 @@ async def run_async(args, logger: logging.Logger) -> int:
                 f"Total Failures: {metrics['total_failures']}\n"
                 f"Health Score: {metrics_collector.get_health_score():.2%}",
                 title="📊 Metrics",
-                border_style="blue"
+                border_style="blue",
             )
             console.print(panel)
         else:
@@ -488,7 +485,7 @@ async def run_async(args, logger: logging.Logger) -> int:
             cprint(f"  Total Requests: {metrics['total_requests']}")
             cprint(f"  Success Rate: {metrics['success_rate']}%")
             cprint(f"  Total Failures: {metrics['total_failures']}")
-    
+
     # Determine exit code
     success_count = sum(1 for r in results if r.success)
     if success_count == 0:
@@ -510,5 +507,6 @@ def run(args, logger: logging.Logger) -> int:
         logger.error(f"Publish failed: {e}")
         if args.verbose:
             import traceback
+
             traceback.print_exc()
         return 1

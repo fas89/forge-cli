@@ -20,28 +20,32 @@ Implements comprehensive AWS integration across S3, Glue, Athena, Redshift,
 EventBridge, Lambda, and more. Supports planning, idempotent application,
 and rich error reporting with proper auth handling.
 """
+
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, List, Mapping, Optional
+from collections.abc import Mapping
+from typing import Any, Dict, List, Optional
 
-from fluid_build.providers.base import BaseProvider, ProviderError, ProviderInternalError, ApplyResult
+from fluid_build.providers.base import (
+    ApplyResult,
+    BaseProvider,
+    ProviderError,
+)
 
 from .plan.planner import plan_actions
 from .util.auth import get_auth_report
+from .util.circuit_breaker import CircuitBreakerOpenError, get_circuit_breaker
+from .util.dependencies import order_actions_by_dependencies
 from .util.logging import redact_dict
 from .util.retry import with_retry
 from .util.validation import ResourceValidator, validate_actions_strict
-from .util.dependencies import order_actions_by_dependencies
-from .util.circuit_breaker import get_circuit_breaker, CircuitBreakerOpenError
-from .util.credentials import resolve_credentials
-from .util.metadata import extract_tags
 
 
 class AwsProvider(BaseProvider):
     """
     Production AWS provider with comprehensive service support.
-    
+
     Features:
     - Complete S3 integration (buckets, lifecycle policies, versioning)
     - AWS Glue Data Catalog (databases, tables, crawlers)
@@ -58,6 +62,7 @@ class AwsProvider(BaseProvider):
     @classmethod
     def get_provider_info(cls):
         from fluid_build.providers.base import ProviderMetadata
+
         return ProviderMetadata(
             name="aws",
             display_name="Amazon Web Services",
@@ -79,19 +84,19 @@ class AwsProvider(BaseProvider):
     ) -> None:
         # Normalize account_id/project (for compatibility with GCP patterns)
         account_id = account_id or project
-        
+
         # Import auth utilities to validate configuration early
         from .util.config import resolve_account_and_region
-        
+
         self.account_id, self.region = resolve_account_and_region(account_id, region)
-        
+
         super().__init__(project=account_id, region=self.region, logger=logger, **kwargs)
-        
+
         self.info_kv(
             event="provider_initialized",
             provider="aws",
             account_id=self.account_id,
-            region=self.region
+            region=self.region,
         )
 
     def capabilities(self) -> Mapping[str, bool]:
@@ -99,15 +104,15 @@ class AwsProvider(BaseProvider):
         return {
             "planning": True,
             "apply": True,
-            "render": True,      # OPDS export support
-            "graph": True,       # Resource dependency graphing
-            "auth": True,        # Auth context reporting
+            "render": True,  # OPDS export support
+            "graph": True,  # Resource dependency graphing
+            "auth": True,  # Auth context reporting
         }
 
     def plan(self, contract: Mapping[str, Any]) -> List[Dict[str, Any]]:
         """
         Generate AWS actions from FLUID contract.
-        
+
         Converts contract specifications into concrete AWS resource operations:
         - S3 buckets and objects
         - Glue databases, tables, crawlers
@@ -118,73 +123,67 @@ class AwsProvider(BaseProvider):
         - IAM roles and policies
         """
         self.debug_kv(
-            event="plan_started",
-            contract_id=contract.get("id"),
-            contract_name=contract.get("name")
+            event="plan_started", contract_id=contract.get("id"), contract_name=contract.get("name")
         )
-        
+
         try:
             # Validate sovereignty constraints (FLUID 0.7.1)
             self._validate_sovereignty(contract)
-            
+
             actions = plan_actions(contract, self.account_id, self.region, self.logger)
-            
+
             # Add orchestration actions (FLUID 0.7.1)
             orchestration_actions = self._plan_orchestration(contract)
             actions.extend(orchestration_actions)
-            
+
             # Add schedule actions (FLUID 0.7.1)
             schedule_actions = self._plan_schedule(contract)
             actions.extend(schedule_actions)
-            
+
             # Order actions by dependencies
             actions = order_actions_by_dependencies(actions)
-            
+
             # Validate actions before returning
             validator = ResourceValidator(self.account_id, self.region)
             validation_result = validator.validate_actions(actions)
-            
+
             if not validation_result["valid"]:
                 error_msg = "Plan validation failed:\n" + "\n".join(validation_result["errors"])
                 raise ProviderError(error_msg)
-            
+
             # Log warnings if any
             for warning in validation_result.get("warnings", []):
                 self.warn_kv(event="validation_warning", message=warning)
-            
+
             self.info_kv(
                 event="plan_completed",
                 contract_id=contract.get("id"),
                 actions_count=len(actions),
                 validated=True,
-                resource_counts=validation_result.get("resource_counts", {})
+                resource_counts=validation_result.get("resource_counts", {}),
             )
-            
+
             return actions
-            
+
         except ProviderError:
             # Re-raise ProviderError as-is
             raise
         except Exception as e:
-            self.err_kv(
-                event="plan_failed",
-                contract_id=contract.get("id"),
-                error=str(e)
-            )
+            self.err_kv(event="plan_failed", contract_id=contract.get("id"), error=str(e))
             # Wrap all other exceptions in ProviderError
             raise ProviderError(f"Failed to plan AWS deployment: {e}") from e
 
     def apply(self, actions: List[Dict[str, Any]], **kwargs: Any) -> ApplyResult:
         """
         Execute AWS actions with idempotent semantics.
-        
+
         Dispatches actions to appropriate service handlers with:
         - Retry logic for transient failures
         - Proper error categorization
         - Structured result reporting
         - Secret redaction in logs
         - Dry-run mode support
-        
+
         Args:
             actions: List of actions to execute
             **kwargs: Additional parameters:
@@ -195,10 +194,10 @@ class AwsProvider(BaseProvider):
         results: List[Dict[str, Any]] = []
         applied = 0
         failed = 0
-        
+
         dry_run = kwargs.get("dry_run", False)
         validate = kwargs.get("validate", True)
-        
+
         # Validate actions if requested
         if validate:
             try:
@@ -208,55 +207,52 @@ class AwsProvider(BaseProvider):
                 raise ProviderError(f"Action validation failed: {e}")
 
         self.info_kv(
-            event="apply_started",
-            actions_count=len(actions),
-            provider="aws",
-            dry_run=dry_run
+            event="apply_started", actions_count=len(actions), provider="aws", dry_run=dry_run
         )
 
         for i, action in enumerate(actions):
             op = action.get("op")
             action_id = action.get("action_id") or action.get("id", f"action_{i}")
-            
+
             try:
                 # Prepare redacted action for logging — strip keys passed as
                 # explicit kwargs to avoid "got multiple values" TypeError.
                 redacted_action = redact_dict(action)
                 for _pop_key in ("op", "action_id", "id", "event", "dry_run"):
                     redacted_action.pop(_pop_key, None)
-                
+
                 self.debug_kv(
                     event="action_started",
                     action_id=action_id,
                     op=op,
                     dry_run=dry_run,
-                    **redacted_action
+                    **redacted_action,
                 )
-                
+
                 if dry_run:
                     # In dry-run mode, check if resource already exists
                     result = self._dry_run_check(action, op, redacted_action)
                 else:
                     result = self._execute_action(action)
-                
+
                 result["action_id"] = action_id
                 result["index"] = i
-                
+
                 results.append(result)
-                
+
                 if result.get("status") == "changed" or (
                     result.get("status") == "ok" and not result.get("skipped", False)
                 ):
                     applied += 1
-                
+
                 self.debug_kv(
                     event="action_completed",
                     action_id=action_id,
                     status=result.get("status"),
                     changed=result.get("changed", False),
-                    duration_ms=result.get("duration_ms", 0)
+                    duration_ms=result.get("duration_ms", 0),
                 )
-                
+
             except Exception as e:
                 failed += 1
                 error_result = {
@@ -265,35 +261,27 @@ class AwsProvider(BaseProvider):
                     "status": "error",
                     "op": op,
                     "error": str(e),
-                    "changed": False
+                    "changed": False,
                 }
                 results.append(error_result)
-                
-                self.err_kv(
-                    event="action_failed",
-                    action_id=action_id,
-                    op=op,
-                    error=str(e)
-                )
+
+                self.err_kv(event="action_failed", action_id=action_id, op=op, error=str(e))
 
         duration_sec = round(time.time() - start_time, 3)
-        
+
         apply_result = ApplyResult(
             provider="aws",
             applied=applied,
             failed=failed,
             duration_sec=duration_sec,
             timestamp=self._utc_timestamp(),
-            results=results
+            results=results,
         )
-        
+
         self.info_kv(
-            event="apply_completed",
-            applied=applied,
-            failed=failed,
-            duration_sec=duration_sec
+            event="apply_completed", applied=applied, failed=failed, duration_sec=duration_sec
         )
-        
+
         return apply_result
 
     def render(
@@ -305,16 +293,18 @@ class AwsProvider(BaseProvider):
     ) -> Dict[str, Any]:
         """
         Export FLUID contracts to external formats.
-        
+
         Supported formats:
         - 'opds': Open Data Product Standard JSON
         - 'dot': GraphViz dependency graph
         """
         if fmt == "opds":
             from .plan.export import export_opds
+
             return export_opds(src)
         elif fmt == "dot":
             from .plan.export import export_dot_graph
+
             return export_dot_graph(src)
         else:
             raise ProviderError(f"Unsupported render format: {fmt}. Supported: opds, dot")
@@ -330,7 +320,7 @@ class AwsProvider(BaseProvider):
     def _execute_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """
         Dispatch action to appropriate service handler with circuit breaker protection.
-        
+
         Routes actions based on operation prefix:
         - s3.*: S3 operations
         - glue.*: Glue Data Catalog operations
@@ -344,16 +334,16 @@ class AwsProvider(BaseProvider):
         - cloudwatch.*: CloudWatch logs and metrics
         """
         op = action.get("op")
-        
+
         if not op:
             raise ProviderError("Action missing required 'op' field")
-        
+
         # Determine service from operation
         service = op.split(".")[0] if "." in op else "unknown"
-        
+
         # Get circuit breaker for this service
         breaker = get_circuit_breaker(service)
-        
+
         try:
             # Execute through circuit breaker
             return breaker.call(self._dispatch_action, action)
@@ -363,7 +353,7 @@ class AwsProvider(BaseProvider):
                 event="circuit_breaker_open",
                 service=service,
                 timeout_remaining=e.timeout_remaining,
-                message=str(e)
+                message=str(e),
             )
             return {
                 "status": "error",
@@ -371,7 +361,7 @@ class AwsProvider(BaseProvider):
                 "error": f"Service {service} unavailable (circuit breaker open)",
                 "circuit_open": True,
                 "retry_after": e.timeout_remaining,
-                "changed": False
+                "changed": False,
             }
 
     def _dry_run_check(
@@ -384,6 +374,7 @@ class AwsProvider(BaseProvider):
         already exists so the user can preview what *would* change.
         """
         import time
+
         start = time.time()
 
         exists: bool | None = None  # None = couldn't determine
@@ -485,15 +476,15 @@ class AwsProvider(BaseProvider):
             "changed": would_change,
             "duration_ms": duration_ms(start),
         }
-    
+
     def _dispatch_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """
         Internal action dispatcher (called through circuit breaker).
-        
+
         Routes to service-specific handlers.
         """
         op = action.get("op")
-            
+
         # Route to service-specific handlers
         if op.startswith("s3."):
             return self._execute_s3_action(action)
@@ -524,24 +515,20 @@ class AwsProvider(BaseProvider):
         elif op.startswith("dbt."):
             return self._execute_dbt_action(action)
         else:
-            self.warn_kv(
-                event="unknown_action_op",
-                op=op,
-                action_id=action.get("id")
-            )
+            self.warn_kv(event="unknown_action_op", op=op, action_id=action.get("id"))
             return {
                 "status": "skipped",
                 "op": op,
                 "reason": f"Unknown operation: {op}",
-                "changed": False
+                "changed": False,
             }
 
     def _execute_s3_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Execute S3 operations."""
         from .actions import s3
-        
+
         op = action.get("op")
-        
+
         if op == "s3.ensure_bucket":
             return with_retry(lambda: s3.ensure_bucket(action), self.logger)
         elif op == "s3.ensure_prefix":
@@ -556,9 +543,9 @@ class AwsProvider(BaseProvider):
     def _execute_glue_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Execute Glue Data Catalog operations."""
         from .actions import glue
-        
+
         op = action.get("op")
-        
+
         if op == "glue.ensure_database":
             return with_retry(lambda: glue.ensure_database(action), self.logger)
         elif op == "glue.ensure_table":
@@ -579,9 +566,9 @@ class AwsProvider(BaseProvider):
     def _execute_athena_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Execute Athena operations."""
         from .actions import athena
-        
+
         op = action.get("op")
-        
+
         if op == "athena.ensure_workgroup":
             return with_retry(lambda: athena.ensure_workgroup(action), self.logger)
         elif op == "athena.ensure_table":
@@ -594,9 +581,9 @@ class AwsProvider(BaseProvider):
             return athena.create_iceberg_table(action)
         """Execute Redshift operations."""
         from .actions import redshift
-        
+
         op = action.get("op")
-        
+
         if op == "redshift.ensure_schema":
             return with_retry(lambda: redshift.ensure_schema(action), self.logger)
         elif op == "redshift.ensure_table":
@@ -611,9 +598,9 @@ class AwsProvider(BaseProvider):
     def _execute_lambda_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Execute Lambda operations."""
         from .actions import lambda_fn
-        
+
         op = action.get("op")
-        
+
         if op == "lambda.ensure_function":
             return lambda_fn.ensure_function(action)
         elif op == "lambda.invoke":
@@ -626,9 +613,9 @@ class AwsProvider(BaseProvider):
     def _execute_events_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Execute EventBridge operations."""
         from .actions import events
-        
+
         op = action.get("op")
-        
+
         if op == "events.ensure_rule":
             return events.ensure_rule(action)
         elif op == "events.ensure_schedule":
@@ -641,9 +628,9 @@ class AwsProvider(BaseProvider):
     def _execute_stepfunctions_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Execute Step Functions operations."""
         from .actions import stepfunctions
-        
+
         op = action.get("op")
-        
+
         if op == "step.ensure_state_machine":
             return stepfunctions.ensure_state_machine(action)
         elif op == "step.start_execution":
@@ -654,9 +641,9 @@ class AwsProvider(BaseProvider):
     def _execute_kinesis_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Execute Kinesis operations."""
         from .actions import kinesis
-        
+
         op = action.get("op")
-        
+
         if op == "kinesis.ensure_stream":
             return kinesis.ensure_stream(action)
         elif op == "kinesis.ensure_firehose":
@@ -667,9 +654,9 @@ class AwsProvider(BaseProvider):
     def _execute_iam_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Execute IAM operations."""
         from .actions import iam
-        
+
         op = action.get("op")
-        
+
         if op == "iam.ensure_role":
             return iam.ensure_role(action)
         elif op == "iam.attach_policy":
@@ -686,9 +673,9 @@ class AwsProvider(BaseProvider):
     def _execute_cloudwatch_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Execute CloudWatch operations."""
         from .actions import cloudwatch
-        
+
         op = action.get("op")
-        
+
         if op == "cloudwatch.ensure_log_group":
             return with_retry(lambda: cloudwatch.ensure_log_group(action), self.logger)
         elif op == "cloudwatch.ensure_metric_alarm":
@@ -699,9 +686,9 @@ class AwsProvider(BaseProvider):
     def _execute_sqs_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Execute SQS operations."""
         from .actions import sqs
-        
+
         op = action.get("op")
-        
+
         if op == "sqs.ensure_queue":
             return with_retry(lambda: sqs.ensure_queue(action), self.logger)
         elif op == "sqs.send_message":
@@ -712,9 +699,9 @@ class AwsProvider(BaseProvider):
     def _execute_sns_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Execute SNS operations."""
         from .actions import sns
-        
+
         op = action.get("op")
-        
+
         if op == "sns.ensure_topic":
             return with_retry(lambda: sns.ensure_topic(action), self.logger)
         elif op == "sns.ensure_subscription":
@@ -727,9 +714,9 @@ class AwsProvider(BaseProvider):
     def _execute_secretsmanager_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Execute Secrets Manager operations."""
         from .actions import secretsmanager
-        
+
         op = action.get("op")
-        
+
         if op == "secretsmanager.ensure_secret":
             return with_retry(lambda: secretsmanager.ensure_secret(action), self.logger)
         elif op == "secretsmanager.get_secret_value":
@@ -740,9 +727,9 @@ class AwsProvider(BaseProvider):
     def _execute_dbt_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Execute dbt operations (Redshift/Athena targets)."""
         from .runtime import dbt_runner
-        
+
         op = action.get("op")
-        
+
         if op == "dbt.prepare_profile":
             return dbt_runner.prepare_profile(action)
         elif op == "dbt.run":
@@ -755,103 +742,89 @@ class AwsProvider(BaseProvider):
     def _validate_sovereignty(self, contract: Mapping[str, Any]) -> None:
         """
         Validate sovereignty constraints (FLUID 0.7.1).
-        
+
         Ensures AWS region matches jurisdiction and data residency requirements.
         """
         sovereignty = contract.get("sovereignty")
         if not sovereignty:
             return
-        
-        from .util.sovereignty import validate_sovereignty, SovereigntyViolationError
-        
+
+        from .util.sovereignty import SovereigntyViolationError, validate_sovereignty
+
         # Build binding from provider configuration
-        binding = {
-            "location": {
-                "region": self.region
-            }
-        }
-        
+        binding = {"location": {"region": self.region}}
+
         try:
             validate_sovereignty(contract, binding)
             self.info_kv(
                 event="sovereignty_validated",
                 region=self.region,
                 jurisdiction=sovereignty.get("jurisdiction"),
-                data_residency=sovereignty.get("dataResidency")
+                data_residency=sovereignty.get("dataResidency"),
             )
         except SovereigntyViolationError as e:
             self.err_kv(event="sovereignty_violation", error=str(e))
             raise ProviderError(str(e)) from e
-    
+
     def _plan_orchestration(self, contract: Mapping[str, Any]) -> List[Dict[str, Any]]:
         """
         Plan orchestration tasks from contract (FLUID 0.7.1).
-        
+
         Parses orchestration.tasks with type: provider_action and
         converts them to AWS provider actions.
         """
         orchestration = contract.get("orchestration")
         if not orchestration:
             return []
-        
-        from .plan.orchestration import plan_orchestration_tasks, OrchestrationError
-        
+
+        from .plan.orchestration import OrchestrationError, plan_orchestration_tasks
+
         try:
-            actions = plan_orchestration_tasks(
-                contract,
-                self.account_id,
-                self.region,
-                self.logger
-            )
-            
+            actions = plan_orchestration_tasks(contract, self.account_id, self.region, self.logger)
+
             if actions:
                 self.info_kv(
                     event="orchestration_planned",
                     task_count=len(actions),
-                    engine=orchestration.get("engine")
+                    engine=orchestration.get("engine"),
                 )
-            
+
             return actions
-            
+
         except OrchestrationError as e:
             self.err_kv(event="orchestration_planning_failed", error=str(e))
             raise ProviderError(f"Orchestration planning failed: {e}") from e
-    
+
     def _plan_schedule(self, contract: Mapping[str, Any]) -> List[Dict[str, Any]]:
         """
         Plan scheduling actions from contract (FLUID 0.7.1).
-        
+
         Parses orchestration.schedule and orchestration.triggers to create
         AWS scheduling infrastructure (EventBridge, MWAA, Lambda).
         """
         orchestration = contract.get("orchestration")
         if not orchestration:
             return []
-        
+
         # Only plan schedules if schedule or triggers are present
         if not orchestration.get("schedule") and not orchestration.get("triggers"):
             return []
-        
+
         from .plan.schedule import plan_schedule_actions
-        
+
         try:
-            actions = plan_schedule_actions(
-                contract,
-                self.account_id,
-                self.region,
-                self.logger
-            )
-            
+            actions = plan_schedule_actions(contract, self.account_id, self.region, self.logger)
+
             if actions:
                 self.info_kv(
                     event="schedule_planned",
                     action_count=len(actions),
                     has_schedule=bool(orchestration.get("schedule")),
-                    has_triggers=bool(orchestration.get("triggers"))
+                    has_triggers=bool(orchestration.get("triggers")),
                 )
-            
+
             return actions
-            
+
         except Exception as e:
             self.err_kv(event="schedule_planning_failed", error=str(e))
             raise ProviderError(f"Schedule planning failed: {e}") from e
@@ -859,117 +832,118 @@ class AwsProvider(BaseProvider):
     def _utc_timestamp(self) -> str:
         """Generate UTC timestamp string."""
         from datetime import datetime, timezone
+
         return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    
+
     def export(
         self,
         contract: Mapping[str, Any],
         engine: str = "airflow",
         output_dir: str = ".",
-        **kwargs: Any
+        **kwargs: Any,
     ) -> str:
         """
         Export contract as executable DAG/pipeline code.
-        
+
         Generates ready-to-run orchestration code for the specified engine.
         Supports Airflow, Dagster, and Prefect workflows.
-        
+
         Args:
             contract: FLUID contract with orchestration section
             engine: Target orchestration engine ("airflow", "dagster", "prefect")
             output_dir: Directory to write generated file (default: current directory)
             **kwargs: Additional parameters for code generation
-        
+
         Returns:
             Path to generated file
-        
+
         Raises:
             ProviderError: If export fails or engine is unsupported
-        
+
         Example:
             >>> provider = AwsProvider(account_id="YOUR_AWS_ACCOUNT_ID", region="us-east-1")
             >>> dag_file = provider.export(contract, engine="airflow", output_dir="./dags")
             >>> print(f"Generated: {dag_file}")
         """
         import os
-        from fluid_build.providers.common.codegen_utils import validate_contract_for_export, detect_circular_dependencies
-        
+
+        from fluid_build.providers.common.codegen_utils import (
+            detect_circular_dependencies,
+            validate_contract_for_export,
+        )
+
         # Validate contract structure
         try:
             validate_contract_for_export(contract)
         except ValueError as e:
             raise ProviderError(f"Invalid contract: {e}") from e
-        
+
         # Check for circular dependencies
         tasks = contract["orchestration"]["tasks"]
         cycles = detect_circular_dependencies(tasks)
         if cycles:
             raise ProviderError(f"Circular dependencies detected in tasks: {', '.join(cycles)}")
-        
+
         orchestration = contract.get("orchestration")
         if not orchestration:
             raise ProviderError("Contract missing orchestration section - cannot export DAG")
-        
+
         contract_id = contract.get("id", "unnamed")
         # Sanitize contract_id for safe use in filenames (prevent path traversal)
         import re
-        safe_id = re.sub(r'[^a-zA-Z0-9_\-.]', '_', contract_id)
-        
+
+        safe_id = re.sub(r"[^a-zA-Z0-9_\-.]", "_", contract_id)
+
         self.info_kv(
-            event="export_started",
-            contract_id=contract_id,
-            engine=engine,
-            output_dir=output_dir
+            event="export_started", contract_id=contract_id, engine=engine, output_dir=output_dir
         )
-        
+
         try:
             # Generate code based on engine
             if engine == "airflow" or engine == "mwaa":
                 from .codegen import generate_airflow_dag
+
                 code = generate_airflow_dag(contract, self.account_id, self.region)
                 filename = f"{safe_id}_dag.py"
-            
+
             elif engine == "dagster":
                 from .codegen import generate_dagster_pipeline
+
                 code = generate_dagster_pipeline(contract, self.account_id, self.region)
                 filename = f"{safe_id}_pipeline.py"
-            
+
             elif engine == "prefect":
                 from .codegen import generate_prefect_flow
+
                 code = generate_prefect_flow(contract, self.account_id, self.region)
                 filename = f"{safe_id}_flow.py"
-            
+
             else:
                 raise ProviderError(
                     f"Unsupported orchestration engine: {engine}. "
                     f"Supported: airflow, dagster, prefect"
                 )
-            
+
             # Ensure output directory exists
             os.makedirs(output_dir, exist_ok=True)
-            
+
             # Write generated code to file
             output_path = os.path.join(output_dir, filename)
             with open(output_path, "w") as f:
                 f.write(code)
-            
+
             self.info_kv(
                 event="export_completed",
                 contract_id=contract_id,
                 engine=engine,
                 output_file=output_path,
-                code_lines=len(code.splitlines())
+                code_lines=len(code.splitlines()),
             )
-            
+
             return output_path
-            
+
         except ProviderError:
             raise
         except Exception as e:
-            self.err_kv(
-                event="export_failed",
-                contract_id=contract_id,
-                engine=engine,
-                error=str(e)
-            )
+            self.err_kv(event="export_failed", contract_id=contract_id, engine=engine, error=str(e))
             raise ProviderError(f"Failed to export {engine} DAG: {e}") from e

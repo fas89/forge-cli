@@ -1,16 +1,31 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for providers/common/codegen_utils.py — shared codegen helpers."""
 
 import pytest
+
 from fluid_build.providers.common.codegen_utils import (
-    sanitize_identifier,
-    convert_schedule_to_cron,
-    convert_schedule_to_airflow,
-    generate_file_header,
-    escape_sql_for_python,
-    generate_task_dependencies_code,
-    validate_contract_for_export,
-    detect_circular_dependencies,
     calculate_code_metrics,
+    convert_schedule_to_airflow,
+    convert_schedule_to_cron,
+    detect_circular_dependencies,
+    escape_sql_for_python,
+    generate_file_header,
+    generate_task_dependencies_code,
+    sanitize_identifier,
+    validate_contract_for_export,
 )
 
 
@@ -35,14 +50,17 @@ class TestSanitizeIdentifier:
 
 # ── convert_schedule_to_cron ─────────────────────────────────────────
 class TestConvertScheduleToCron:
-    @pytest.mark.parametrize("keyword,expected", [
-        ("@hourly", "0 * * * *"),
-        ("@daily", "0 0 * * *"),
-        ("@weekly", "0 0 * * 0"),
-        ("@monthly", "0 0 1 * *"),
-        ("@yearly", "0 0 1 1 *"),
-        ("@annually", "0 0 1 1 *"),
-    ])
+    @pytest.mark.parametrize(
+        "keyword,expected",
+        [
+            ("@hourly", "0 * * * *"),
+            ("@daily", "0 0 * * *"),
+            ("@weekly", "0 0 * * 0"),
+            ("@monthly", "0 0 1 * *"),
+            ("@yearly", "0 0 1 1 *"),
+            ("@annually", "0 0 1 1 *"),
+        ],
+    )
     def test_keywords(self, keyword, expected):
         assert convert_schedule_to_cron(keyword) == expected
 
@@ -73,19 +91,19 @@ class TestConvertScheduleToAirflow:
 class TestGenerateFileHeader:
     def test_basic_header(self):
         hdr = generate_file_header("c001", "My Pipeline", "gcp")
-        assert 'Contract ID: c001' in hdr
-        assert 'Provider: GCP' in hdr
-        assert 'My Pipeline' in hdr
-        assert 'DO NOT EDIT MANUALLY' in hdr
+        assert "Contract ID: c001" in hdr
+        assert "Provider: GCP" in hdr
+        assert "My Pipeline" in hdr
+        assert "DO NOT EDIT MANUALLY" in hdr
 
     def test_extra_kwargs(self):
         hdr = generate_file_header("c1", "p", "aws", version="1.0", owner="team-x")
-        assert 'Owner: team-x' in hdr
-        assert 'Version: 1.0' in hdr
+        assert "Owner: team-x" in hdr
+        assert "Version: 1.0" in hdr
 
     def test_none_kwargs_excluded(self):
         hdr = generate_file_header("c1", "p", "aws", version=None)
-        assert 'Version' not in hdr
+        assert "Version" not in hdr
 
 
 # ── escape_sql_for_python ────────────────────────────────────────────

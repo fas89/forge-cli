@@ -13,8 +13,13 @@
 # limitations under the License.
 
 from __future__ import annotations
-import logging, json, sys, time
+
+import json
+import logging
+import sys
+import time
 from typing import Any, Dict
+
 
 def setup_logging(level: str = "INFO", file: str | None = None) -> logging.Logger:
     logger = logging.getLogger("fluid.cli")
@@ -23,29 +28,35 @@ def setup_logging(level: str = "INFO", file: str | None = None) -> logging.Logge
     logger.setLevel(lvl)
 
     sh = logging.StreamHandler(sys.stderr)
-    sh.setFormatter(logging.Formatter('%(message)s'))
+    sh.setFormatter(logging.Formatter("%(message)s"))
     logger.addHandler(sh)
 
     if file:
         fh = logging.FileHandler(file)
-        fh.setFormatter(logging.Formatter('%(message)s'))
+        fh.setFormatter(logging.Formatter("%(message)s"))
         logger.addHandler(fh)
     return logger
 
+
 def _event(level: str, name: str, payload: Dict[str, Any]) -> str:
-    return json.dumps({
-        "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "level": level,
-        "name": "fluid.cli",
-        "message": name,
-        **payload
-    })
+    return json.dumps(
+        {
+            "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "level": level,
+            "name": "fluid.cli",
+            "message": name,
+            **payload,
+        }
+    )
+
 
 def info(logger: logging.Logger, message: str, **payload: Any) -> None:
     logger.info(_event("INFO", message, payload))
 
+
 def warn(logger: logging.Logger, message: str, **payload: Any) -> None:
     logger.warning(_event("WARNING", message, payload))
+
 
 def error(logger: logging.Logger, message: str, **payload: Any) -> None:
     logger.error(_event("ERROR", message, payload))

@@ -1,17 +1,32 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for fluid_build.credentials.encrypted_store — Fernet-encrypted storage."""
-import json
-import pytest
-from pathlib import Path
+
 from unittest.mock import patch
+
+import pytest
 
 try:
     from cryptography.fernet import Fernet
+
     CRYPTO_AVAILABLE = True
 except ImportError:
     CRYPTO_AVAILABLE = False
 
 from fluid_build.credentials.encrypted_store import (
-    EncryptedCredentialStore, CRYPTOGRAPHY_AVAILABLE,
+    EncryptedCredentialStore,
 )
 
 

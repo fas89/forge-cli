@@ -29,18 +29,19 @@ import asyncio
 import json
 import logging
 import tempfile
-from datetime import datetime, timezone
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ._common import build_provider, CLIError
+from ._common import CLIError, build_provider
 
 # Rich imports for enhanced output
 try:
     from rich.console import Console
     from rich.panel import Panel
+
     RICH_AVAILABLE = True
 except ImportError:
     RICH_AVAILABLE = False
@@ -50,8 +51,10 @@ except ImportError:
 # Core Data Structures & Enums
 # ==========================================
 
+
 class ExecutionPhase(Enum):
     """Orchestration phases in dependency order"""
+
     VALIDATION = "validation"
     INFRASTRUCTURE = "infrastructure"
     DATA_INGESTION = "data_ingestion"
@@ -65,6 +68,7 @@ class ExecutionPhase(Enum):
 
 class ActionStatus(Enum):
     """Status of individual actions"""
+
     PENDING = "pending"
     RUNNING = "running"
     SUCCESS = "success"
@@ -76,6 +80,7 @@ class ActionStatus(Enum):
 
 class RollbackStrategy(Enum):
     """Rollback strategies for failure scenarios"""
+
     NONE = "none"
     IMMEDIATE = "immediate"
     PHASE_COMPLETE = "phase_complete"
@@ -85,6 +90,7 @@ class RollbackStrategy(Enum):
 @dataclass
 class ExecutionAction:
     """Individual action within an execution phase"""
+
     id: str
     phase: ExecutionPhase
     provider: str
@@ -105,6 +111,7 @@ class ExecutionAction:
 @dataclass
 class PhaseExecution:
     """Execution state for a complete phase"""
+
     phase: ExecutionPhase
     actions: List[ExecutionAction]
     parallel_execution: bool = False
@@ -119,6 +126,7 @@ class PhaseExecution:
 @dataclass
 class ExecutionPlan:
     """Complete execution plan with orchestration logic"""
+
     contract_path: str
     environment: Optional[str]
     phases: List[PhaseExecution]
@@ -132,6 +140,7 @@ class ExecutionPlan:
 @dataclass
 class ExecutionMetrics:
     """Comprehensive execution metrics"""
+
     total_actions: int = 0
     successful_actions: int = 0
     failed_actions: int = 0
@@ -145,6 +154,7 @@ class ExecutionMetrics:
 @dataclass
 class ExecutionContext:
     """Runtime context for the execution"""
+
     execution_id: str
     contract: Dict[str, Any]
     plan: ExecutionPlan
@@ -162,6 +172,7 @@ class ExecutionContext:
 # ==========================================
 # Orchestration Engine
 # ==========================================
+
 
 class FluidOrchestrationEngine:
     """
@@ -185,8 +196,11 @@ class FluidOrchestrationEngine:
     # ---- directory bootstrap ----
 
     def _ensure_directories(self):
-        for dir_path in [self.context.artifacts_dir, self.context.logs_dir,
-                         self.context.temp_dir.parent]:
+        for dir_path in [
+            self.context.artifacts_dir,
+            self.context.logs_dir,
+            self.context.temp_dir.parent,
+        ]:
             dir_path.mkdir(parents=True, exist_ok=True)
 
     # ---- main entry ----
@@ -232,15 +246,19 @@ class FluidOrchestrationEngine:
                 )
                 if hasattr(provider, "validate_readiness"):
                     await self._run_with_timeout(
-                        provider.validate_readiness(), 30,
+                        provider.validate_readiness(),
+                        30,
                         f"Provider {provider_name} readiness check",
                     )
                 self.context.providers[provider_name] = provider
                 self._log_success(f"✅ Provider '{provider_name}' initialized and ready")
             except Exception as e:
                 self._log_error(f"❌ Failed to initialize provider '{provider_name}': {e}")
-                raise CLIError(1, "provider_initialization_failed",
-                               {"provider": provider_name, "error": str(e)})
+                raise CLIError(
+                    1,
+                    "provider_initialization_failed",
+                    {"provider": provider_name, "error": str(e)},
+                )
 
     # ---- phase execution ----
 
@@ -280,12 +298,16 @@ class FluidOrchestrationEngine:
         remaining_actions = set(actions)
         while remaining_actions:
             ready_actions = [
-                a for a in remaining_actions
+                a
+                for a in remaining_actions
                 if all(d not in {x.id for x in remaining_actions} for d in a.dependencies)
             ]
             if not ready_actions:
-                raise CLIError(1, "circular_dependency_detected",
-                               {"actions": [a.id for a in remaining_actions]})
+                raise CLIError(
+                    1,
+                    "circular_dependency_detected",
+                    {"actions": [a.id for a in remaining_actions]},
+                )
             tasks = [self._execute_single_action(a) for a in ready_actions]
             await asyncio.gather(*tasks)
             for a in ready_actions:
@@ -311,7 +333,8 @@ class FluidOrchestrationEngine:
 
                 result = await self._run_with_timeout(
                     self._execute_operation(provider, action),
-                    action.timeout_seconds, f"Action {action.id}",
+                    action.timeout_seconds,
+                    f"Action {action.id}",
                 )
 
                 action.output = result
@@ -338,9 +361,10 @@ class FluidOrchestrationEngine:
                     action.status = ActionStatus.FAILED
                     action.error = str(e)
                     action.end_time = datetime.now(timezone.utc)
-                    raise CLIError(1, "action_execution_failed",
-                                   {"action": action.id, "error": str(e)})
-                await asyncio.sleep(min(2 ** attempt, 30))
+                    raise CLIError(
+                        1, "action_execution_failed", {"action": action.id, "error": str(e)}
+                    )
+                await asyncio.sleep(min(2**attempt, 30))
 
     async def _execute_operation(self, provider: Any, action: ExecutionAction) -> Dict[str, Any]:
         operation = action.operation
@@ -351,8 +375,9 @@ class FluidOrchestrationEngine:
                 return await method(**metadata)
             loop = asyncio.get_event_loop()
             return await loop.run_in_executor(None, lambda: method(**metadata))
-        raise CLIError(1, "operation_not_supported",
-                       {"provider": action.provider, "operation": operation})
+        raise CLIError(
+            1, "operation_not_supported", {"provider": action.provider, "operation": operation}
+        )
 
     # ---- rollback ----
 
@@ -362,7 +387,9 @@ class FluidOrchestrationEngine:
         elif phase_exec.rollback_strategy == RollbackStrategy.FULL_ROLLBACK:
             await self._execute_rollback(phase_only=False)
 
-    async def _execute_rollback(self, phase_only: bool = False, failed_phase: ExecutionPhase = None):
+    async def _execute_rollback(
+        self, phase_only: bool = False, failed_phase: ExecutionPhase = None
+    ):
         self._log_phase("🔄 Executing Rollback Operations")
         if phase_only and failed_phase:
             actions = [a for a in self.rollback_stack if a.phase == failed_phase]
@@ -375,7 +402,8 @@ class FluidOrchestrationEngine:
                 if provider and action.rollback_operation:
                     await self._run_with_timeout(
                         self._execute_rollback_operation(provider, action),
-                        action.timeout_seconds, f"Rollback for {action.id}",
+                        action.timeout_seconds,
+                        f"Rollback for {action.id}",
                     )
                     self._log_info(f"✅ Rolled back action '{action.id}'")
             except Exception as e:
@@ -390,7 +418,9 @@ class FluidOrchestrationEngine:
                 return await method(**metadata)
             loop = asyncio.get_event_loop()
             return await loop.run_in_executor(None, lambda: method(**metadata))
-        self._log_warning(f"Rollback operation '{rollback_op}' not found on provider '{action.provider}'")
+        self._log_warning(
+            f"Rollback operation '{rollback_op}' not found on provider '{action.provider}'"
+        )
 
     # ---- helpers ----
 
@@ -504,14 +534,17 @@ class FluidOrchestrationEngine:
 
     def _log_execution_start(self):
         if self.context.console and RICH_AVAILABLE:
-            self.context.console.print(Panel(
-                f"🌊 Starting FLUID Data Product Deployment\n"
-                f"📋 Execution ID: {self.context.execution_id}\n"
-                f"📁 Contract: {self.context.plan.contract_path}\n"
-                f"🌍 Environment: {self.context.plan.environment or 'default'}\n"
-                f"📊 Total Phases: {len(self.context.plan.phases)}",
-                title="🚀 FLUID Apply Engine", border_style="blue",
-            ))
+            self.context.console.print(
+                Panel(
+                    f"🌊 Starting FLUID Data Product Deployment\n"
+                    f"📋 Execution ID: {self.context.execution_id}\n"
+                    f"📁 Contract: {self.context.plan.contract_path}\n"
+                    f"🌍 Environment: {self.context.plan.environment or 'default'}\n"
+                    f"📊 Total Phases: {len(self.context.plan.phases)}",
+                    title="🚀 FLUID Apply Engine",
+                    border_style="blue",
+                )
+            )
         else:
             self.context.logger.info(f"🌊 Starting FLUID deployment: {self.context.execution_id}")
 
@@ -529,7 +562,11 @@ class FluidOrchestrationEngine:
             self.context.logger.info(msg)
 
     def _log_action_success(self, action: ExecutionAction):
-        dur = (action.end_time - action.start_time).total_seconds() if action.end_time and action.start_time else 0
+        dur = (
+            (action.end_time - action.start_time).total_seconds()
+            if action.end_time and action.start_time
+            else 0
+        )
         msg = f"  ✅ {action.description} completed in {dur:.2f}s"
         if self.context.console and RICH_AVAILABLE:
             self.context.console.print(msg, style="green")
@@ -564,6 +601,7 @@ class FluidOrchestrationEngine:
 # ==========================================
 # Plan Generation & Contract Analysis
 # ==========================================
+
 
 class FluidPlanGenerator:
     """
@@ -629,168 +667,325 @@ class FluidPlanGenerator:
     def _create_infrastructure_phase(self) -> PhaseExecution:
         actions: List[ExecutionAction] = []
         if "infrastructure" in self.contract:
-            actions.append(ExecutionAction(
-                id="provision_infrastructure", phase=ExecutionPhase.INFRASTRUCTURE,
-                provider="terraform", operation="apply",
-                description="Provision cloud infrastructure",
-                timeout_seconds=1800, rollback_operation="destroy",
-                metadata={"terraform_config": self.contract.get("infrastructure", {}),
-                           "environment": self.environment}))
-        actions.append(ExecutionAction(
-            id="configure_networking", phase=ExecutionPhase.INFRASTRUCTURE,
-            provider="gcp", operation="configure_network",
-            description="Configure network and security policies",
-            dependencies=(["provision_infrastructure"] if any(a.id == "provision_infrastructure" for a in actions) else []),
-            timeout_seconds=600, rollback_operation="cleanup_network",
-            metadata={"network_config": self.contract.get("network", {})}))
-        actions.append(ExecutionAction(
-            id="configure_iam", phase=ExecutionPhase.INFRASTRUCTURE,
-            provider="gcp", operation="configure_iam",
-            description="Configure IAM roles and permissions",
-            dependencies=["configure_networking"], timeout_seconds=300,
-            rollback_operation="cleanup_iam",
-            metadata={"iam_config": self.contract.get("iam", {})}))
-        return PhaseExecution(phase=ExecutionPhase.INFRASTRUCTURE, actions=actions,
-                              parallel_execution=False, continue_on_error=False,
-                              rollback_strategy=RollbackStrategy.IMMEDIATE)
+            actions.append(
+                ExecutionAction(
+                    id="provision_infrastructure",
+                    phase=ExecutionPhase.INFRASTRUCTURE,
+                    provider="terraform",
+                    operation="apply",
+                    description="Provision cloud infrastructure",
+                    timeout_seconds=1800,
+                    rollback_operation="destroy",
+                    metadata={
+                        "terraform_config": self.contract.get("infrastructure", {}),
+                        "environment": self.environment,
+                    },
+                )
+            )
+        actions.append(
+            ExecutionAction(
+                id="configure_networking",
+                phase=ExecutionPhase.INFRASTRUCTURE,
+                provider="gcp",
+                operation="configure_network",
+                description="Configure network and security policies",
+                dependencies=(
+                    ["provision_infrastructure"]
+                    if any(a.id == "provision_infrastructure" for a in actions)
+                    else []
+                ),
+                timeout_seconds=600,
+                rollback_operation="cleanup_network",
+                metadata={"network_config": self.contract.get("network", {})},
+            )
+        )
+        actions.append(
+            ExecutionAction(
+                id="configure_iam",
+                phase=ExecutionPhase.INFRASTRUCTURE,
+                provider="gcp",
+                operation="configure_iam",
+                description="Configure IAM roles and permissions",
+                dependencies=["configure_networking"],
+                timeout_seconds=300,
+                rollback_operation="cleanup_iam",
+                metadata={"iam_config": self.contract.get("iam", {})},
+            )
+        )
+        return PhaseExecution(
+            phase=ExecutionPhase.INFRASTRUCTURE,
+            actions=actions,
+            parallel_execution=False,
+            continue_on_error=False,
+            rollback_strategy=RollbackStrategy.IMMEDIATE,
+        )
 
     def _create_ingestion_phase(self) -> PhaseExecution:
         actions: List[ExecutionAction] = []
         for i, source in enumerate(self.contract.get("sources", [])):
             src_name = source.get("name", f"source_{i}")
-            actions.append(ExecutionAction(
-                id=f"ingest_source_{i}", phase=ExecutionPhase.DATA_INGESTION,
-                provider="airbyte", operation="create_connection",
-                description=f"Setup ingestion for {src_name}",
-                timeout_seconds=900, rollback_operation="delete_connection",
-                metadata={"source_config": source,
-                           "destination": self.contract.get("destination", {}),
-                           "sync_mode": source.get("sync_mode", "full_refresh")}))
-            actions.append(ExecutionAction(
-                id=f"sync_source_{i}", phase=ExecutionPhase.DATA_INGESTION,
-                provider="airbyte", operation="trigger_sync",
-                description=f"Sync data from {src_name}",
-                dependencies=[f"ingest_source_{i}"], timeout_seconds=3600,
-                metadata={"connection_id": f"ingest_source_{i}", "wait_for_completion": True}))
-        return PhaseExecution(phase=ExecutionPhase.DATA_INGESTION, actions=actions,
-                              parallel_execution=True, continue_on_error=True,
-                              rollback_strategy=RollbackStrategy.PHASE_COMPLETE)
+            actions.append(
+                ExecutionAction(
+                    id=f"ingest_source_{i}",
+                    phase=ExecutionPhase.DATA_INGESTION,
+                    provider="airbyte",
+                    operation="create_connection",
+                    description=f"Setup ingestion for {src_name}",
+                    timeout_seconds=900,
+                    rollback_operation="delete_connection",
+                    metadata={
+                        "source_config": source,
+                        "destination": self.contract.get("destination", {}),
+                        "sync_mode": source.get("sync_mode", "full_refresh"),
+                    },
+                )
+            )
+            actions.append(
+                ExecutionAction(
+                    id=f"sync_source_{i}",
+                    phase=ExecutionPhase.DATA_INGESTION,
+                    provider="airbyte",
+                    operation="trigger_sync",
+                    description=f"Sync data from {src_name}",
+                    dependencies=[f"ingest_source_{i}"],
+                    timeout_seconds=3600,
+                    metadata={"connection_id": f"ingest_source_{i}", "wait_for_completion": True},
+                )
+            )
+        return PhaseExecution(
+            phase=ExecutionPhase.DATA_INGESTION,
+            actions=actions,
+            parallel_execution=True,
+            continue_on_error=True,
+            rollback_strategy=RollbackStrategy.PHASE_COMPLETE,
+        )
 
     def _create_transformation_phase(self) -> PhaseExecution:
         actions: List[ExecutionAction] = []
         has_dbt = "dbt_project_dir" in self.contract or "models" in self.contract
         if has_dbt:
             proj_dir = self.contract.get("dbt_project_dir", ".")
-            actions.extend([
-                ExecutionAction(id="install_dbt_dependencies", phase=ExecutionPhase.TRANSFORMATION,
-                                provider="dbt", operation="deps",
-                                description="Install dbt dependencies", timeout_seconds=300,
-                                metadata={"project_dir": proj_dir}),
-                ExecutionAction(id="run_dbt_seed", phase=ExecutionPhase.TRANSFORMATION,
-                                provider="dbt", operation="seed",
-                                description="Load seed data", dependencies=["install_dbt_dependencies"],
-                                timeout_seconds=600, metadata={"project_dir": proj_dir}),
-                ExecutionAction(id="run_dbt_models", phase=ExecutionPhase.TRANSFORMATION,
-                                provider="dbt", operation="run",
-                                description="Execute dbt transformations", dependencies=["run_dbt_seed"],
-                                timeout_seconds=3600,
-                                metadata={"project_dir": proj_dir,
-                                           "models": self.contract.get("models", []),
-                                           "environment": self.environment}),
-                ExecutionAction(id="test_dbt_models", phase=ExecutionPhase.TRANSFORMATION,
-                                provider="dbt", operation="test",
-                                description="Run dbt tests", dependencies=["run_dbt_models"],
-                                timeout_seconds=1800, metadata={"project_dir": proj_dir}),
-            ])
+            actions.extend(
+                [
+                    ExecutionAction(
+                        id="install_dbt_dependencies",
+                        phase=ExecutionPhase.TRANSFORMATION,
+                        provider="dbt",
+                        operation="deps",
+                        description="Install dbt dependencies",
+                        timeout_seconds=300,
+                        metadata={"project_dir": proj_dir},
+                    ),
+                    ExecutionAction(
+                        id="run_dbt_seed",
+                        phase=ExecutionPhase.TRANSFORMATION,
+                        provider="dbt",
+                        operation="seed",
+                        description="Load seed data",
+                        dependencies=["install_dbt_dependencies"],
+                        timeout_seconds=600,
+                        metadata={"project_dir": proj_dir},
+                    ),
+                    ExecutionAction(
+                        id="run_dbt_models",
+                        phase=ExecutionPhase.TRANSFORMATION,
+                        provider="dbt",
+                        operation="run",
+                        description="Execute dbt transformations",
+                        dependencies=["run_dbt_seed"],
+                        timeout_seconds=3600,
+                        metadata={
+                            "project_dir": proj_dir,
+                            "models": self.contract.get("models", []),
+                            "environment": self.environment,
+                        },
+                    ),
+                    ExecutionAction(
+                        id="test_dbt_models",
+                        phase=ExecutionPhase.TRANSFORMATION,
+                        provider="dbt",
+                        operation="test",
+                        description="Run dbt tests",
+                        dependencies=["run_dbt_models"],
+                        timeout_seconds=1800,
+                        metadata={"project_dir": proj_dir},
+                    ),
+                ]
+            )
         else:
             try:
                 from ..util.contract import get_primary_build
+
                 build = get_primary_build(self.contract)
             except Exception:
                 build = None
             if build:
                 build_type = build.get("engine", "sql")
-                actions.append(ExecutionAction(
-                    id="execute_build_transformation", phase=ExecutionPhase.TRANSFORMATION,
-                    provider="local", operation="execute_build",
-                    description=f"Execute {build_type} transformation",
-                    timeout_seconds=3600,
-                    metadata={"build": build, "environment": self.environment}))
-        return PhaseExecution(phase=ExecutionPhase.TRANSFORMATION, actions=actions,
-                              parallel_execution=False, continue_on_error=False,
-                              rollback_strategy=RollbackStrategy.PHASE_COMPLETE)
+                actions.append(
+                    ExecutionAction(
+                        id="execute_build_transformation",
+                        phase=ExecutionPhase.TRANSFORMATION,
+                        provider="local",
+                        operation="execute_build",
+                        description=f"Execute {build_type} transformation",
+                        timeout_seconds=3600,
+                        metadata={"build": build, "environment": self.environment},
+                    )
+                )
+        return PhaseExecution(
+            phase=ExecutionPhase.TRANSFORMATION,
+            actions=actions,
+            parallel_execution=False,
+            continue_on_error=False,
+            rollback_strategy=RollbackStrategy.PHASE_COMPLETE,
+        )
 
     def _create_quality_gates_phase(self) -> PhaseExecution:
         actions = [
-            ExecutionAction(id="data_quality_checks", phase=ExecutionPhase.QUALITY_GATES,
-                            provider="great_expectations", operation="run_checkpoint",
-                            description="Execute data quality validations", timeout_seconds=1800,
-                            metadata={"expectations": self.contract.get("quality_expectations", []),
-                                       "checkpoints": self.contract.get("quality_checkpoints", [])}),
-            ExecutionAction(id="performance_tests", phase=ExecutionPhase.QUALITY_GATES,
-                            provider="builtin", operation="run_performance_tests",
-                            description="Execute performance benchmarks", timeout_seconds=900,
-                            metadata={"performance_thresholds": self.contract.get("performance", {}),
-                                       "test_queries": self.contract.get("performance_tests", [])}),
-            ExecutionAction(id="security_scan", phase=ExecutionPhase.QUALITY_GATES,
-                            provider="builtin", operation="run_security_scan",
-                            description="Execute security compliance scan", timeout_seconds=600,
-                            metadata={"security_policies": self.contract.get("security", {}),
-                                       "compliance_frameworks": self.contract.get("compliance", [])}),
+            ExecutionAction(
+                id="data_quality_checks",
+                phase=ExecutionPhase.QUALITY_GATES,
+                provider="great_expectations",
+                operation="run_checkpoint",
+                description="Execute data quality validations",
+                timeout_seconds=1800,
+                metadata={
+                    "expectations": self.contract.get("quality_expectations", []),
+                    "checkpoints": self.contract.get("quality_checkpoints", []),
+                },
+            ),
+            ExecutionAction(
+                id="performance_tests",
+                phase=ExecutionPhase.QUALITY_GATES,
+                provider="builtin",
+                operation="run_performance_tests",
+                description="Execute performance benchmarks",
+                timeout_seconds=900,
+                metadata={
+                    "performance_thresholds": self.contract.get("performance", {}),
+                    "test_queries": self.contract.get("performance_tests", []),
+                },
+            ),
+            ExecutionAction(
+                id="security_scan",
+                phase=ExecutionPhase.QUALITY_GATES,
+                provider="builtin",
+                operation="run_security_scan",
+                description="Execute security compliance scan",
+                timeout_seconds=600,
+                metadata={
+                    "security_policies": self.contract.get("security", {}),
+                    "compliance_frameworks": self.contract.get("compliance", []),
+                },
+            ),
         ]
-        return PhaseExecution(phase=ExecutionPhase.QUALITY_GATES, actions=actions,
-                              parallel_execution=True, continue_on_error=False,
-                              rollback_strategy=RollbackStrategy.FULL_ROLLBACK)
+        return PhaseExecution(
+            phase=ExecutionPhase.QUALITY_GATES,
+            actions=actions,
+            parallel_execution=True,
+            continue_on_error=False,
+            rollback_strategy=RollbackStrategy.FULL_ROLLBACK,
+        )
 
     def _create_governance_phase(self) -> PhaseExecution:
         actions = [
-            ExecutionAction(id="apply_data_policies", phase=ExecutionPhase.GOVERNANCE,
-                            provider="apache_ranger", operation="apply_policies",
-                            description="Apply data governance policies", timeout_seconds=600,
-                            rollback_operation="remove_policies",
-                            metadata={"policies": self.contract.get("governance_policies", []),
-                                       "data_classification": self.contract.get("data_classification", {})}),
-            ExecutionAction(id="setup_lineage_tracking", phase=ExecutionPhase.GOVERNANCE,
-                            provider="apache_atlas", operation="register_lineage",
-                            description="Register data lineage information", timeout_seconds=300,
-                            metadata={"lineage": self.contract.get("lineage", {}),
-                                       "metadata": self.contract.get("metadata", {})}),
-            ExecutionAction(id="configure_privacy_controls", phase=ExecutionPhase.GOVERNANCE,
-                            provider="privacera", operation="configure_privacy",
-                            description="Configure privacy and compliance controls", timeout_seconds=400,
-                            rollback_operation="remove_privacy_controls",
-                            metadata={"privacy_policies": self.contract.get("privacy", {}),
-                                       "anonymization_rules": self.contract.get("anonymization", [])}),
+            ExecutionAction(
+                id="apply_data_policies",
+                phase=ExecutionPhase.GOVERNANCE,
+                provider="apache_ranger",
+                operation="apply_policies",
+                description="Apply data governance policies",
+                timeout_seconds=600,
+                rollback_operation="remove_policies",
+                metadata={
+                    "policies": self.contract.get("governance_policies", []),
+                    "data_classification": self.contract.get("data_classification", {}),
+                },
+            ),
+            ExecutionAction(
+                id="setup_lineage_tracking",
+                phase=ExecutionPhase.GOVERNANCE,
+                provider="apache_atlas",
+                operation="register_lineage",
+                description="Register data lineage information",
+                timeout_seconds=300,
+                metadata={
+                    "lineage": self.contract.get("lineage", {}),
+                    "metadata": self.contract.get("metadata", {}),
+                },
+            ),
+            ExecutionAction(
+                id="configure_privacy_controls",
+                phase=ExecutionPhase.GOVERNANCE,
+                provider="privacera",
+                operation="configure_privacy",
+                description="Configure privacy and compliance controls",
+                timeout_seconds=400,
+                rollback_operation="remove_privacy_controls",
+                metadata={
+                    "privacy_policies": self.contract.get("privacy", {}),
+                    "anonymization_rules": self.contract.get("anonymization", []),
+                },
+            ),
         ]
-        return PhaseExecution(phase=ExecutionPhase.GOVERNANCE, actions=actions,
-                              parallel_execution=True, continue_on_error=True,
-                              rollback_strategy=RollbackStrategy.PHASE_COMPLETE)
+        return PhaseExecution(
+            phase=ExecutionPhase.GOVERNANCE,
+            actions=actions,
+            parallel_execution=True,
+            continue_on_error=True,
+            rollback_strategy=RollbackStrategy.PHASE_COMPLETE,
+        )
 
     def _create_monitoring_phase(self) -> PhaseExecution:
         actions = [
-            ExecutionAction(id="setup_data_monitoring", phase=ExecutionPhase.MONITORING,
-                            provider="datadog", operation="create_monitors",
-                            description="Setup data quality monitoring", timeout_seconds=300,
-                            rollback_operation="delete_monitors",
-                            metadata={"monitors": self.contract.get("monitoring", {}),
-                                       "alerts": self.contract.get("alerts", [])}),
-            ExecutionAction(id="configure_dashboards", phase=ExecutionPhase.MONITORING,
-                            provider="grafana", operation="create_dashboards",
-                            description="Configure monitoring dashboards",
-                            dependencies=["setup_data_monitoring"], timeout_seconds=180,
-                            rollback_operation="delete_dashboards",
-                            metadata={"dashboards": self.contract.get("dashboards", []),
-                                       "metrics": self.contract.get("metrics", {})}),
-            ExecutionAction(id="setup_log_aggregation", phase=ExecutionPhase.MONITORING,
-                            provider="elastic", operation="configure_logging",
-                            description="Configure log aggregation and analysis", timeout_seconds=240,
-                            rollback_operation="cleanup_logging",
-                            metadata={"log_config": self.contract.get("logging", {}),
-                                       "log_retention": self.contract.get("log_retention", "30d")}),
+            ExecutionAction(
+                id="setup_data_monitoring",
+                phase=ExecutionPhase.MONITORING,
+                provider="datadog",
+                operation="create_monitors",
+                description="Setup data quality monitoring",
+                timeout_seconds=300,
+                rollback_operation="delete_monitors",
+                metadata={
+                    "monitors": self.contract.get("monitoring", {}),
+                    "alerts": self.contract.get("alerts", []),
+                },
+            ),
+            ExecutionAction(
+                id="configure_dashboards",
+                phase=ExecutionPhase.MONITORING,
+                provider="grafana",
+                operation="create_dashboards",
+                description="Configure monitoring dashboards",
+                dependencies=["setup_data_monitoring"],
+                timeout_seconds=180,
+                rollback_operation="delete_dashboards",
+                metadata={
+                    "dashboards": self.contract.get("dashboards", []),
+                    "metrics": self.contract.get("metrics", {}),
+                },
+            ),
+            ExecutionAction(
+                id="setup_log_aggregation",
+                phase=ExecutionPhase.MONITORING,
+                provider="elastic",
+                operation="configure_logging",
+                description="Configure log aggregation and analysis",
+                timeout_seconds=240,
+                rollback_operation="cleanup_logging",
+                metadata={
+                    "log_config": self.contract.get("logging", {}),
+                    "log_retention": self.contract.get("log_retention", "30d"),
+                },
+            ),
         ]
-        return PhaseExecution(phase=ExecutionPhase.MONITORING, actions=actions,
-                              parallel_execution=False, continue_on_error=True,
-                              rollback_strategy=RollbackStrategy.PHASE_COMPLETE)
+        return PhaseExecution(
+            phase=ExecutionPhase.MONITORING,
+            actions=actions,
+            parallel_execution=False,
+            continue_on_error=True,
+            rollback_strategy=RollbackStrategy.PHASE_COMPLETE,
+        )
 
     # ---- helpers ----
 

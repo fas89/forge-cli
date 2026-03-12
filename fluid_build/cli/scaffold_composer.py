@@ -13,11 +13,16 @@
 # limitations under the License.
 
 from __future__ import annotations
-import argparse, logging, os
-from ._common import load_contract_with_overlay, CLIError
+
+import argparse
+import logging
+import os
+
+from ._common import CLIError, load_contract_with_overlay
 from ._logging import info
 
 COMMAND = "scaffold-composer"
+
 
 def register(subparsers: argparse._SubParsersAction):
     p = subparsers.add_parser(COMMAND, help="Generate Cloud Composer DAG from contract")
@@ -25,6 +30,7 @@ def register(subparsers: argparse._SubParsersAction):
     p.add_argument("--env", help="overlay env")
     p.add_argument("--out-dir", default="runtime/composer/dags", help="DAGs directory")
     p.set_defaults(cmd=COMMAND, func=run)
+
 
 DAG_TMPL = """from __future__ import annotations
 from airflow import DAG
@@ -53,16 +59,21 @@ with DAG(
     validate >> plan >> apply
 """
 
+
 def run(args, logger: logging.Logger) -> int:
     try:
         c = load_contract_with_overlay(args.contract, getattr(args, "env", None), logger)
-        cron = (c.get("build", {}).get("execution", {}).get("trigger", {}) or {}).get("cron", "0 2 * * *")
-        dag_id = (c.get("id") or c.get("name") or "fluid_product").replace(".","_")
+        cron = (c.get("build", {}).get("execution", {}).get("trigger", {}) or {}).get(
+            "cron", "0 2 * * *"
+        )
+        dag_id = (c.get("id") or c.get("name") or "fluid_product").replace(".", "_")
         provider = "gcp"
         os.makedirs(args.out_dir, exist_ok=True)
         path = os.path.join(args.out_dir, f"{dag_id}.py")
         with open(path, "w", encoding="utf-8") as f:
-            f.write(DAG_TMPL.format(dag_id=dag_id, cron=cron, contract=args.contract, provider=provider))
+            f.write(
+                DAG_TMPL.format(dag_id=dag_id, cron=cron, contract=args.contract, provider=provider)
+            )
         info(logger, "composer_dag_written", path=path)
         return 0
     except Exception as e:

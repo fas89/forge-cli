@@ -1,10 +1,22 @@
-"""Tests for pure logic in cli/init.py: should_generate_dag, create_basic_dag, create_dags_readme."""
-import logging
-import pytest
-from pathlib import Path
-from unittest.mock import MagicMock
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-from fluid_build.cli.init import should_generate_dag, create_basic_dag, create_dags_readme
+"""Tests for pure logic in cli/init.py: should_generate_dag, create_basic_dag, create_dags_readme."""
+
+import logging
+
+from fluid_build.cli.init import create_basic_dag, create_dags_readme, should_generate_dag
 
 
 class TestShouldGenerateDag:
@@ -43,7 +55,10 @@ class TestShouldGenerateDag:
 
 class TestCreateBasicDag:
     def test_generates_dag_file(self, tmp_path):
-        contract = {"name": "my-product", "orchestration": {"schedule": "@hourly", "retries": 2, "retry_delay": "10m"}}
+        contract = {
+            "name": "my-product",
+            "orchestration": {"schedule": "@hourly", "retries": 2, "retry_delay": "10m"},
+        }
         logger = logging.getLogger("test")
         create_basic_dag(tmp_path, contract, logger)
         dag_dir = tmp_path / "dags"

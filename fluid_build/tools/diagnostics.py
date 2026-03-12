@@ -12,15 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json, os, platform, datetime
+import datetime
+import os
+import platform
+
 from ..auth import doctor as auth_doctor
+
 
 def doctor(provider: str, project: str = None) -> dict:
     return {
         "timestamp": datetime.datetime.utcnow().isoformat(),
         "python": platform.python_version(),
         "platform": platform.platform(),
-        "env": {k: os.getenv(k) for k in ["GOOGLE_APPLICATION_CREDENTIALS","GOOGLE_CLOUD_PROJECT","GCLOUD_PROJECT","FLUID_LOG_LEVEL"]},
+        "env": {
+            k: os.getenv(k)
+            for k in [
+                "GOOGLE_APPLICATION_CREDENTIALS",
+                "GOOGLE_CLOUD_PROJECT",
+                "GCLOUD_PROJECT",
+                "FLUID_LOG_LEVEL",
+            ]
+        },
         "auth": auth_doctor(provider, project),
         "provider": provider,
     }

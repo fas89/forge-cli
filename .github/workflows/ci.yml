@@ -10,8 +10,7 @@ permissions:
   contents: read
 
 env:
-  # GitHub repo for fluid-provider-sdk (update org/repo once mirrored to GitHub)
-  SDK_REPO: agentics-rising/fluid-provider-sdk
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   lint:
@@ -42,10 +41,10 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - name: Install SDK dependency
-        run: pip install "fluid-provider-sdk @ git+https://github.com/${{ env.SDK_REPO }}.git"
       - name: Install dependencies
-        run: pip install -e ".[dev,local]"
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[dev,local]" || pip install -e ".[dev]"
       - name: Run tests
         run: pytest --tb=short -q
       - name: Run tests with coverage
@@ -55,7 +54,7 @@ jobs:
           pytest --cov=fluid_build --cov-report=xml --cov-report=term-missing -q
       - name: Upload coverage
         if: matrix.python-version == '3.12'
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           files: coverage.xml
           fail_ci_if_error: false
@@ -69,8 +68,6 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install SDK dependency
-        run: pip install "fluid-provider-sdk @ git+https://github.com/${{ env.SDK_REPO }}.git"
       - name: Build wheel
         run: |
           pip install --upgrade pip build

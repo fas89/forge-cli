@@ -12,23 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Optional, Tuple
-import os, logging
+import os
 from dataclasses import dataclass
+from typing import Optional
 
 try:
     import google.auth
-    from google.oauth2.service_account import Credentials as SACredentials
-    from google.auth._default import _get_explicit_environ_credentials
-    from google.auth.transport.requests import Request
     from google.auth.exceptions import DefaultCredentialsError
-    from google.oauth2 import credentials as user_creds
-    from google.auth import external_account as ext_account
+    from google.auth.transport.requests import Request
+    from google.oauth2.service_account import Credentials as SACredentials
 except Exception:  # pragma: no cover
     google = None
 
     class DefaultCredentialsError(Exception):  # pragma: no cover
         """Fallback so except clause doesn't NameError when google-auth missing."""
+
 
 SCOPES = [
     "https://www.googleapis.com/auth/cloud-platform",
@@ -36,19 +34,24 @@ SCOPES = [
     "https://www.googleapis.com/auth/devstorage.full_control",
 ]
 
+
 @dataclass
 class GcpAuthResult:
     credentials: object
     project_id: Optional[str]
     mode: str
 
+
 def _adc():
     if google is None:
-        raise RuntimeError("google-auth not installed. Run: pip install google-auth google-cloud-* or use --provider local")
+        raise RuntimeError(
+            "google-auth not installed. Run: pip install google-auth google-cloud-* or use --provider local"
+        )
     creds, proj = google.auth.default(scopes=SCOPES)
     if creds and creds.expired and creds.refresh_token:
         creds.refresh(Request())
     return GcpAuthResult(creds, proj, "adc")
+
 
 def _sa_key(path: str):
     if google is None:
@@ -58,13 +61,17 @@ def _sa_key(path: str):
     creds = SACredentials.from_service_account_file(path, scopes=SCOPES)
     return GcpAuthResult(creds, creds.project_id, "sa-key")
 
+
 def _external(path: str):
     if google is None:
         raise RuntimeError("google-auth not installed.")
     if not os.path.exists(path):
         raise FileNotFoundError(f"External account JSON not found: {path}")
-    creds, proj = google.auth.load_credentials_from_file(path, scopes=SCOPES, quota_project_id=os.getenv("GOOGLE_CLOUD_QUOTA_PROJECT"))
+    creds, proj = google.auth.load_credentials_from_file(
+        path, scopes=SCOPES, quota_project_id=os.getenv("GOOGLE_CLOUD_QUOTA_PROJECT")
+    )
     return GcpAuthResult(creds, proj, "external")
+
 
 def authenticate(mode: Optional[str], credentials_path: Optional[str]) -> GcpAuthResult:
     """
@@ -85,9 +92,12 @@ def authenticate(mode: Optional[str], credentials_path: Optional[str]) -> GcpAut
         else:
             raise ValueError(f"Unknown auth mode: {mode}")
     except DefaultCredentialsError as e:
-        raise RuntimeError("No ADC detected. Run `gcloud auth application-default login` or pass --auth sa-key/--credentials") from e
+        raise RuntimeError(
+            "No ADC detected. Run `gcloud auth application-default login` or pass --auth sa-key/--credentials"
+        ) from e
     except Exception:
         raise
+
 
 def doctor(provider: str, project: Optional[str]) -> dict:
     info = {

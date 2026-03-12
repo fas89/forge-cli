@@ -24,47 +24,46 @@ Supports:
 - Data loading operations
 """
 
-from typing import Dict, Any, List
 from datetime import datetime
+from typing import Any, Dict, List
 
 
 def generate_airflow_dag(
-    contract: Dict[str, Any],
-    account: str,
-    database: str,
-    warehouse: str = "COMPUTE_WH"
+    contract: Dict[str, Any], account: str, database: str, warehouse: str = "COMPUTE_WH"
 ) -> str:
     """
     Generate Airflow DAG Python code from FLUID contract.
-    
+
     Args:
         contract: FLUID contract with orchestration section
         account: Snowflake account ID
         database: Snowflake database
         warehouse: Snowflake warehouse (default: COMPUTE_WH)
-        
+
     Returns:
         Python code for Airflow DAG
     """
     orchestration = contract.get("orchestration", {})
     if not orchestration:
         raise ValueError("Contract missing orchestration section")
-    
+
     tasks = orchestration.get("tasks", [])
     if not tasks:
         raise ValueError("Orchestration has no tasks")
-    
+
     # Extract configuration
     contract_id = contract.get("id", "unknown")
     contract_name = contract.get("name", contract_id)
     schedule = orchestration.get("schedule", "0 2 * * *")
     timezone = orchestration.get("timezone", "UTC")
-    
+
     # Filter provider action tasks
     provider_tasks = [t for t in tasks if t.get("type") == "provider_action"]
-    
+
     # Generate DAG code
-    dag_code = _generate_dag_header(contract_id, contract_name, schedule, timezone, account, database, warehouse)
+    dag_code = _generate_dag_header(
+        contract_id, contract_name, schedule, timezone, account, database, warehouse
+    )
     dag_code += "\n\n"
     dag_code += _generate_dag_imports()
     dag_code += "\n\n"
@@ -73,7 +72,7 @@ def generate_airflow_dag(
     dag_code += _generate_task_definitions(provider_tasks, account, database, warehouse)
     dag_code += "\n\n"
     dag_code += _generate_task_dependencies(provider_tasks)
-    
+
     return dag_code
 
 
@@ -84,7 +83,7 @@ def _generate_dag_header(
     timezone: str,
     account: str,
     database: str,
-    warehouse: str
+    warehouse: str,
 ) -> str:
     """Generate DAG file header with metadata."""
     return f'''"""
@@ -104,7 +103,7 @@ Generated: {datetime.utcnow().isoformat()}Z
 
 def _generate_dag_imports() -> str:
     """Generate import statements."""
-    return '''from datetime import datetime, timedelta
+    return """from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from airflow import DAG
 from airflow.operators.python import PythonOperator
@@ -113,19 +112,16 @@ from airflow.providers.snowflake.hooks.snowflake import SnowflakeHook
 import json
 import logging
 
-logger = logging.getLogger(__name__)'''
+logger = logging.getLogger(__name__)"""
 
 
 def _generate_dag_definition(
-    contract_id: str,
-    contract_name: str,
-    schedule: str,
-    timezone: str
+    contract_id: str, contract_name: str, schedule: str, timezone: str
 ) -> str:
     """Generate DAG definition with default arguments."""
     airflow_schedule = _convert_schedule(schedule)
-    
-    return f'''# Default DAG arguments
+
+    return f"""# Default DAG arguments
 default_args = {{
     'owner': 'fluid-forge',
     'depends_on_past': False,
@@ -148,44 +144,36 @@ dag = DAG(
 )
 
 # Snowflake connection ID (configure in Airflow UI or via env vars)
-SNOWFLAKE_CONN_ID = 'snowflake_default'  '''
+SNOWFLAKE_CONN_ID = 'snowflake_default'  """
 
 
 def _generate_task_definitions(
-    tasks: List[Dict[str, Any]],
-    account: str,
-    database: str,
-    warehouse: str
+    tasks: List[Dict[str, Any]], account: str, database: str, warehouse: str
 ) -> str:
     """Generate task definitions."""
     task_code = "# Task definitions\n"
-    
+
     for task in tasks:
         task_code += _generate_single_task(task, account, database, warehouse)
         task_code += "\n\n"
-    
+
     return task_code.rstrip()
 
 
-def _generate_single_task(
-    task: Dict[str, Any],
-    account: str,
-    database: str,
-    warehouse: str
-) -> str:
+def _generate_single_task(task: Dict[str, Any], account: str, database: str, warehouse: str) -> str:
     """Generate code for a single task."""
     task.get("taskId")
     action = task.get("action", "")
     params = task.get("params", {})
-    
+
     # Parse action (e.g., "snowflake.database.create")
     action_parts = action.split(".")
     if len(action_parts) < 3:
         return _generate_python_task(task, account, database)
-    
+
     service = action_parts[1]
     operation = action_parts[2]
-    
+
     # Map to appropriate Snowflake operator
     if service in ("database", "schema", "table", "query"):
         return _generate_snowflake_sql_task(task, operation, params, database, warehouse)
@@ -194,45 +182,41 @@ def _generate_single_task(
 
 
 def _generate_snowflake_sql_task(
-    task: Dict[str, Any],
-    operation: str,
-    params: Dict[str, Any],
-    database: str,
-    warehouse: str
+    task: Dict[str, Any], operation: str, params: Dict[str, Any], database: str, warehouse: str
 ) -> str:
     """Generate Snowflake SQL task code."""
     task_id = task.get("taskId")
-    
+
     if operation == "create_database":
         db_name = params.get("database", "UNKNOWN_DB")
         sql = f"CREATE DATABASE IF NOT EXISTS {db_name}"
-        
+
     elif operation == "create_schema":
         schema_name = params.get("schema", "UNKNOWN_SCHEMA")
         db_name = params.get("database", database)
         sql = f"CREATE SCHEMA IF NOT EXISTS {db_name}.{schema_name}"
-        
+
     elif operation == "create_table":
         table_name = params.get("table", "UNKNOWN_TABLE")
         schema_name = params.get("schema", "PUBLIC")
         db_name = params.get("database", database)
         columns = params.get("columns", [])
-        
+
         if columns:
             cols_def = ", ".join([f"{c['name']} {c['type']}" for c in columns])
             sql = f"CREATE TABLE IF NOT EXISTS {db_name}.{schema_name}.{table_name} ({cols_def})"
         else:
             sql = f"CREATE TABLE IF NOT EXISTS {db_name}.{schema_name}.{table_name} (id INTEGER, created_at TIMESTAMP_NTZ)"
-    
+
     elif operation == "query" or operation == "run_query":
         sql = params.get("sql", params.get("query", "SELECT 1"))
-        
+
     else:
         sql = f"SELECT 'Operation: {operation}' AS result"
-    
+
     # Clean SQL for Python string
     sql_clean = sql.replace("'''", '"""')
-    
+
     return f'''{task_id} = SnowflakeOperator(
     task_id='{task_id}',
     snowflake_conn_id=SNOWFLAKE_CONN_ID,
@@ -245,40 +229,36 @@ def _generate_snowflake_sql_task(
 )'''
 
 
-def _generate_python_task(
-    task: Dict[str, Any],
-    account: str,
-    database: str
-) -> str:
+def _generate_python_task(task: Dict[str, Any], account: str, database: str) -> str:
     """Generate generic Python task."""
     task_id = task.get("taskId")
     action = task.get("action")
     params = task.get("params", {})
-    
-    return f'''{task_id} = PythonOperator(
+
+    return f"""{task_id} = PythonOperator(
     task_id='{task_id}',
     python_callable=lambda: logger.info('Action: {action}, Params: {params!r}'),
     dag=dag,
-)'''
+)"""
 
 
 def _generate_task_dependencies(tasks: List[Dict[str, Any]]) -> str:
     """Generate task dependency declarations."""
     if not tasks:
         return "# No task dependencies"
-    
+
     dep_code = "# Task dependencies\n"
-    
+
     for task in tasks:
         task_id = task.get("taskId")
         depends_on = task.get("dependsOn", [])
-        
+
         if depends_on:
             if len(depends_on) == 1:
                 dep_code += f"{depends_on[0]} >> {task_id}\n"
             else:
                 dep_code += f"[{', '.join(depends_on)}] >> {task_id}\n"
-    
+
     return dep_code.rstrip()
 
 
@@ -287,14 +267,15 @@ def _convert_schedule(schedule: str) -> str:
     schedule_lower = schedule.lower()
     if schedule_lower in ("@hourly", "@daily", "@weekly", "@monthly"):
         return schedule_lower
-    
+
     if schedule.count(" ") >= 4:
         return schedule
-    
+
     return "@daily"
 
 
 def _sanitize_dag_id(dag_id: str) -> str:
     """Sanitize DAG ID for Airflow (alphanumeric and underscores only)."""
     import re
-    return re.sub(r'[^a-zA-Z0-9_]', '_', dag_id)
+
+    return re.sub(r"[^a-zA-Z0-9_]", "_", dag_id)

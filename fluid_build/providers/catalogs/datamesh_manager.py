@@ -23,7 +23,7 @@ Wraps :class:`DataMeshManagerProvider` behind the
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from .base import BaseCatalogProvider, CatalogAsset, PublishResult
 
@@ -125,8 +125,7 @@ class DataMeshManagerCatalogProvider(BaseCatalogProvider):
             }
             if asset.location:
                 expose["location"] = (
-                    asset.location if isinstance(asset.location, str)
-                    else str(asset.location)
+                    asset.location if isinstance(asset.location, str) else str(asset.location)
                 )
             if asset.schema:
                 expose["schema"] = {"fields": asset.schema}

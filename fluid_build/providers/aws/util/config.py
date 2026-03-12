@@ -16,71 +16,70 @@
 """
 AWS configuration resolution utilities.
 """
+
 import os
 from typing import Optional, Tuple
 
 
 def resolve_account_and_region(
-    account_id: Optional[str] = None,
-    region: Optional[str] = None
+    account_id: Optional[str] = None, region: Optional[str] = None
 ) -> Tuple[str, str]:
     """
     Resolve AWS account ID and region from multiple sources.
-    
+
     Priority:
     1. Explicit parameters
     2. Environment variables (AWS_ACCOUNT_ID, AWS_DEFAULT_REGION, AWS_REGION)
     3. AWS CLI configuration
     4. Defaults (None for account, us-east-1 for region)
-    
+
     Args:
         account_id: Explicit account ID
         region: Explicit region
-        
+
     Returns:
         Tuple of (account_id, region)
     """
     # Resolve account ID
     resolved_account = account_id or os.getenv("AWS_ACCOUNT_ID")
-    
+
     if not resolved_account:
         # Try to get from STS
         try:
             import boto3
+
             sts = boto3.client("sts")
             response = sts.get_caller_identity()
             resolved_account = response.get("Account")
         except Exception:
             # If STS fails, leave as None (will be resolved at runtime)
             resolved_account = None
-    
+
     # Resolve region - prioritize environment variables
     resolved_region = region
     if not resolved_region:
         resolved_region = os.getenv("AWS_DEFAULT_REGION") or os.getenv("AWS_REGION")
     if not resolved_region:
         resolved_region = "us-east-1"
-    
+
     return resolved_account, resolved_region
 
 
 def get_boto_session(region: Optional[str] = None):
     """
     Get a boto3 session with proper configuration.
-    
+
     Args:
         region: AWS region
-        
+
     Returns:
         Configured boto3 Session
     """
     try:
         import boto3
     except ImportError:
-        raise RuntimeError(
-            "boto3 not installed. Install with: pip install boto3"
-        )
-    
+        raise RuntimeError("boto3 not installed. Install with: pip install boto3")
+
     if region:
         return boto3.Session(region_name=region)
     else:

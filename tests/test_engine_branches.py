@@ -1,12 +1,20 @@
 # Copyright 2024-2026 Agentics Transformation Ltd
-# Licensed under the Apache License, Version 2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Branch coverage tests for ForgeEngine (fluid_build/forge/core/engine.py)."""
 
-import pytest
-import json
-from pathlib import Path
-from unittest.mock import patch, MagicMock, PropertyMock
-from datetime import datetime
+from unittest.mock import MagicMock, patch
 
 
 class TestForgeEngineInit:
@@ -17,6 +25,7 @@ class TestForgeEngineInit:
     def test_init_with_console(self, mock_status, mock_init):
         mock_status.return_value = {"templates": {"count": 3}, "providers": {"count": 2}}
         from fluid_build.forge.core.engine import ForgeEngine
+
         console = MagicMock()
         engine = ForgeEngine(console=console, auto_init_registries=True)
         assert engine.console is console
@@ -27,6 +36,7 @@ class TestForgeEngineInit:
     def test_init_without_console(self, mock_status, mock_init):
         mock_status.return_value = {"templates": {"count": 3}, "providers": {"count": 2}}
         from fluid_build.forge.core.engine import ForgeEngine
+
         engine = ForgeEngine(console=None, auto_init_registries=True)
         assert engine.console is not None  # creates default Console
 
@@ -35,7 +45,8 @@ class TestForgeEngineInit:
     def test_init_no_auto_init(self, mock_status, mock_init):
         mock_status.return_value = {"templates": {"count": 0}, "providers": {"count": 0}}
         from fluid_build.forge.core.engine import ForgeEngine
-        engine = ForgeEngine(auto_init_registries=False)
+
+        ForgeEngine(auto_init_registries=False)
         mock_init.assert_not_called()
 
     @patch("fluid_build.forge.core.engine.initialize_all_registries")
@@ -43,7 +54,8 @@ class TestForgeEngineInit:
     def test_init_empty_registries(self, mock_status, mock_init):
         mock_status.return_value = {"templates": {"count": 0}, "providers": {"count": 0}}
         from fluid_build.forge.core.engine import ForgeEngine
-        engine = ForgeEngine(auto_init_registries=True)
+
+        ForgeEngine(auto_init_registries=True)
         # Should log warnings but not raise
 
 
@@ -51,9 +63,15 @@ class TestForgeEngineRun:
     """Test ForgeEngine.run() branches."""
 
     def _make_engine(self):
-        with patch("fluid_build.forge.core.engine.initialize_all_registries"), \
-             patch("fluid_build.forge.core.engine.get_registry_status", return_value={"templates": {"count": 1}, "providers": {"count": 1}}):
+        with (
+            patch("fluid_build.forge.core.engine.initialize_all_registries"),
+            patch(
+                "fluid_build.forge.core.engine.get_registry_status",
+                return_value={"templates": {"count": 1}, "providers": {"count": 1}},
+            ),
+        ):
             from fluid_build.forge.core.engine import ForgeEngine
+
             return ForgeEngine(console=MagicMock())
 
     def test_run_dry_run_branch(self):
@@ -76,7 +94,7 @@ class TestForgeEngineRun:
         engine = self._make_engine()
         engine._show_welcome = MagicMock()
         engine._run_interactive = MagicMock(return_value=True)
-        result = engine.run()
+        engine.run()
         engine._run_interactive.assert_called_once()
 
     def test_run_with_target_dir(self):
@@ -117,9 +135,15 @@ class TestForgeEngineRunWithConfig:
     """Test ForgeEngine.run_with_config() branches."""
 
     def _make_engine(self):
-        with patch("fluid_build.forge.core.engine.initialize_all_registries"), \
-             patch("fluid_build.forge.core.engine.get_registry_status", return_value={"templates": {"count": 1}, "providers": {"count": 1}}):
+        with (
+            patch("fluid_build.forge.core.engine.initialize_all_registries"),
+            patch(
+                "fluid_build.forge.core.engine.get_registry_status",
+                return_value={"templates": {"count": 1}, "providers": {"count": 1}},
+            ),
+        ):
             from fluid_build.forge.core.engine import ForgeEngine
+
             return ForgeEngine(console=MagicMock())
 
     def test_run_with_config_dry_run(self):
@@ -136,7 +160,7 @@ class TestForgeEngineRunWithConfig:
         engine._validate_configuration = MagicMock(return_value=True)
         engine._create_generation_context = MagicMock()
         engine._execute_generation = MagicMock(return_value=True)
-        result = engine.run_with_config({"name": "test"}, dry_run=False)
+        engine.run_with_config({"name": "test"}, dry_run=False)
         engine._execute_generation.assert_called_once()
 
     def test_run_with_config_validation_fails(self):
@@ -156,9 +180,15 @@ class TestRunInteractive:
     """Test _run_interactive branches."""
 
     def _make_engine(self):
-        with patch("fluid_build.forge.core.engine.initialize_all_registries"), \
-             patch("fluid_build.forge.core.engine.get_registry_status", return_value={"templates": {"count": 1}, "providers": {"count": 1}}):
+        with (
+            patch("fluid_build.forge.core.engine.initialize_all_registries"),
+            patch(
+                "fluid_build.forge.core.engine.get_registry_status",
+                return_value={"templates": {"count": 1}, "providers": {"count": 1}},
+            ),
+        ):
             from fluid_build.forge.core.engine import ForgeEngine
+
             return ForgeEngine(console=MagicMock())
 
     @patch("fluid_build.forge.core.engine.extension_registry")
@@ -196,9 +226,15 @@ class TestRunNonInteractive:
     """Test _run_non_interactive branches."""
 
     def _make_engine(self):
-        with patch("fluid_build.forge.core.engine.initialize_all_registries"), \
-             patch("fluid_build.forge.core.engine.get_registry_status", return_value={"templates": {"count": 1}, "providers": {"count": 1}}):
+        with (
+            patch("fluid_build.forge.core.engine.initialize_all_registries"),
+            patch(
+                "fluid_build.forge.core.engine.get_registry_status",
+                return_value={"templates": {"count": 1}, "providers": {"count": 1}},
+            ),
+        ):
             from fluid_build.forge.core.engine import ForgeEngine
+
             return ForgeEngine(console=MagicMock())
 
     def test_non_interactive_success(self):
@@ -228,9 +264,15 @@ class TestRunDryRun:
     """Test _run_dry_run branches."""
 
     def _make_engine(self):
-        with patch("fluid_build.forge.core.engine.initialize_all_registries"), \
-             patch("fluid_build.forge.core.engine.get_registry_status", return_value={"templates": {"count": 1}, "providers": {"count": 1}}):
+        with (
+            patch("fluid_build.forge.core.engine.initialize_all_registries"),
+            patch(
+                "fluid_build.forge.core.engine.get_registry_status",
+                return_value={"templates": {"count": 1}, "providers": {"count": 1}},
+            ),
+        ):
             from fluid_build.forge.core.engine import ForgeEngine
+
             return ForgeEngine(console=MagicMock())
 
     def test_dry_run_with_template(self):
@@ -269,9 +311,15 @@ class TestValidateConfiguration:
     """Test _validate_configuration branches."""
 
     def _make_engine(self):
-        with patch("fluid_build.forge.core.engine.initialize_all_registries"), \
-             patch("fluid_build.forge.core.engine.get_registry_status", return_value={"templates": {"count": 1}, "providers": {"count": 1}}):
+        with (
+            patch("fluid_build.forge.core.engine.initialize_all_registries"),
+            patch(
+                "fluid_build.forge.core.engine.get_registry_status",
+                return_value={"templates": {"count": 1}, "providers": {"count": 1}},
+            ),
+        ):
             from fluid_build.forge.core.engine import ForgeEngine
+
             return ForgeEngine(console=MagicMock())
 
     @patch("fluid_build.forge.core.engine.template_registry")
@@ -284,7 +332,7 @@ class TestValidateConfiguration:
             "description": "test desc",
             "template": "starter",
             "provider": "local",
-            "target_dir": "/tmp/test"
+            "target_dir": "/tmp/test",
         }
         mock_val.validate_all.return_value = []
         mock_template = MagicMock()
@@ -319,9 +367,15 @@ class TestExecuteGeneration:
     """Test _execute_generation branches."""
 
     def _make_engine(self):
-        with patch("fluid_build.forge.core.engine.initialize_all_registries"), \
-             patch("fluid_build.forge.core.engine.get_registry_status", return_value={"templates": {"count": 1}, "providers": {"count": 1}}):
+        with (
+            patch("fluid_build.forge.core.engine.initialize_all_registries"),
+            patch(
+                "fluid_build.forge.core.engine.get_registry_status",
+                return_value={"templates": {"count": 1}, "providers": {"count": 1}},
+            ),
+        ):
             from fluid_build.forge.core.engine import ForgeEngine
+
             return ForgeEngine(console=MagicMock())
 
     @patch("fluid_build.forge.core.engine.template_registry")
@@ -375,9 +429,15 @@ class TestPreviewGeneration:
     """Test _preview_generation branches."""
 
     def _make_engine(self):
-        with patch("fluid_build.forge.core.engine.initialize_all_registries"), \
-             patch("fluid_build.forge.core.engine.get_registry_status", return_value={"templates": {"count": 1}, "providers": {"count": 1}}):
+        with (
+            patch("fluid_build.forge.core.engine.initialize_all_registries"),
+            patch(
+                "fluid_build.forge.core.engine.get_registry_status",
+                return_value={"templates": {"count": 1}, "providers": {"count": 1}},
+            ),
+        ):
             from fluid_build.forge.core.engine import ForgeEngine
+
             return ForgeEngine(console=MagicMock())
 
     @patch("fluid_build.forge.core.engine.template_registry")
@@ -410,9 +470,15 @@ class TestValidateProjectName:
     """Test _validate_project_name branches."""
 
     def _make_engine(self):
-        with patch("fluid_build.forge.core.engine.initialize_all_registries"), \
-             patch("fluid_build.forge.core.engine.get_registry_status", return_value={"templates": {"count": 1}, "providers": {"count": 1}}):
+        with (
+            patch("fluid_build.forge.core.engine.initialize_all_registries"),
+            patch(
+                "fluid_build.forge.core.engine.get_registry_status",
+                return_value={"templates": {"count": 1}, "providers": {"count": 1}},
+            ),
+        ):
             from fluid_build.forge.core.engine import ForgeEngine
+
             return ForgeEngine(console=MagicMock())
 
     def test_valid_name(self):
@@ -432,9 +498,15 @@ class TestApplyIntelligentDefaults:
     """Test _apply_intelligent_defaults branches."""
 
     def _make_engine(self):
-        with patch("fluid_build.forge.core.engine.initialize_all_registries"), \
-             patch("fluid_build.forge.core.engine.get_registry_status", return_value={"templates": {"count": 1}, "providers": {"count": 1}}):
+        with (
+            patch("fluid_build.forge.core.engine.initialize_all_registries"),
+            patch(
+                "fluid_build.forge.core.engine.get_registry_status",
+                return_value={"templates": {"count": 1}, "providers": {"count": 1}},
+            ),
+        ):
             from fluid_build.forge.core.engine import ForgeEngine
+
             return ForgeEngine(console=MagicMock())
 
     def test_defaults_applied(self):
@@ -458,13 +530,20 @@ class TestGetComplexityIcon:
     """Test _get_complexity_icon branches."""
 
     def _make_engine(self):
-        with patch("fluid_build.forge.core.engine.initialize_all_registries"), \
-             patch("fluid_build.forge.core.engine.get_registry_status", return_value={"templates": {"count": 1}, "providers": {"count": 1}}):
+        with (
+            patch("fluid_build.forge.core.engine.initialize_all_registries"),
+            patch(
+                "fluid_build.forge.core.engine.get_registry_status",
+                return_value={"templates": {"count": 1}, "providers": {"count": 1}},
+            ),
+        ):
             from fluid_build.forge.core.engine import ForgeEngine
+
             return ForgeEngine(console=MagicMock())
 
     def test_all_complexity_levels(self):
         from fluid_build.forge.core.interfaces import ComplexityLevel
+
         engine = self._make_engine()
         for level in ComplexityLevel:
             icon = engine._get_complexity_icon(level)
@@ -475,9 +554,15 @@ class TestWriteContractFile:
     """Test _write_contract_file."""
 
     def _make_engine(self):
-        with patch("fluid_build.forge.core.engine.initialize_all_registries"), \
-             patch("fluid_build.forge.core.engine.get_registry_status", return_value={"templates": {"count": 1}, "providers": {"count": 1}}):
+        with (
+            patch("fluid_build.forge.core.engine.initialize_all_registries"),
+            patch(
+                "fluid_build.forge.core.engine.get_registry_status",
+                return_value={"templates": {"count": 1}, "providers": {"count": 1}},
+            ),
+        ):
             from fluid_build.forge.core.engine import ForgeEngine
+
             return ForgeEngine(console=MagicMock())
 
     def test_write_contract(self, tmp_path):
@@ -497,9 +582,15 @@ class TestGeneratePipelineFiles:
     """Test _generate_pipeline_files branches."""
 
     def _make_engine(self):
-        with patch("fluid_build.forge.core.engine.initialize_all_registries"), \
-             patch("fluid_build.forge.core.engine.get_registry_status", return_value={"templates": {"count": 1}, "providers": {"count": 1}}):
+        with (
+            patch("fluid_build.forge.core.engine.initialize_all_registries"),
+            patch(
+                "fluid_build.forge.core.engine.get_registry_status",
+                return_value={"templates": {"count": 1}, "providers": {"count": 1}},
+            ),
+        ):
             from fluid_build.forge.core.engine import ForgeEngine
+
             return ForgeEngine(console=MagicMock())
 
     def test_no_pipeline_config(self, tmp_path):
@@ -511,10 +602,7 @@ class TestGeneratePipelineFiles:
     def test_with_pipeline_config(self, tmp_path):
         engine = self._make_engine()
         engine.project_config = {
-            "pipeline_config": {
-                "provider": "github_actions",
-                "complexity": "basic"
-            }
+            "pipeline_config": {"provider": "github_actions", "complexity": "basic"}
         }
         # Should not raise even if imports fail in isolation
         try:
@@ -527,18 +615,20 @@ class TestCreateFolderStructure:
     """Test _create_folder_structure with nesting."""
 
     def _make_engine(self):
-        with patch("fluid_build.forge.core.engine.initialize_all_registries"), \
-             patch("fluid_build.forge.core.engine.get_registry_status", return_value={"templates": {"count": 1}, "providers": {"count": 1}}):
+        with (
+            patch("fluid_build.forge.core.engine.initialize_all_registries"),
+            patch(
+                "fluid_build.forge.core.engine.get_registry_status",
+                return_value={"templates": {"count": 1}, "providers": {"count": 1}},
+            ),
+        ):
             from fluid_build.forge.core.engine import ForgeEngine
+
             return ForgeEngine(console=MagicMock())
 
     def test_nested_structure(self, tmp_path):
         engine = self._make_engine()
-        structure = {
-            "src/": {"models/": {}, "utils/": {}},
-            "tests/": {},
-            "docs/": {}
-        }
+        structure = {"src/": {"models/": {}, "utils/": {}}, "tests/": {}, "docs/": {}}
         engine._create_folder_structure(tmp_path, structure)
         assert (tmp_path / "src" / "models").exists()
         assert (tmp_path / "src" / "utils").exists()
@@ -554,9 +644,15 @@ class TestGatherProjectInfo:
     """Test _gather_project_info branches (all conditional prompts)."""
 
     def _make_engine(self):
-        with patch("fluid_build.forge.core.engine.initialize_all_registries"), \
-             patch("fluid_build.forge.core.engine.get_registry_status", return_value={"templates": {"count": 1}, "providers": {"count": 1}}):
+        with (
+            patch("fluid_build.forge.core.engine.initialize_all_registries"),
+            patch(
+                "fluid_build.forge.core.engine.get_registry_status",
+                return_value={"templates": {"count": 1}, "providers": {"count": 1}},
+            ),
+        ):
             from fluid_build.forge.core.engine import ForgeEngine
+
             return ForgeEngine(console=MagicMock())
 
     @patch("fluid_build.forge.core.engine.Prompt.ask")
@@ -576,7 +672,7 @@ class TestGatherProjectInfo:
             "description": "desc",
             "domain": "analytics",
             "owner": "admin",
-            "target_dir": "/tmp"
+            "target_dir": "/tmp",
         }
         result = engine._gather_project_info()
         assert result is True

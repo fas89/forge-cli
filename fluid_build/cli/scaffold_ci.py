@@ -13,19 +13,25 @@
 # limitations under the License.
 
 from __future__ import annotations
-import argparse, logging, os
-from ._logging import info
-from ._io import atomic_write
+
+import argparse
+import logging
+import os
+
 from ._common import CLIError
+from ._io import atomic_write
+from ._logging import info
 
 COMMAND = "scaffold-ci"
+
 
 def register(subparsers: argparse._SubParsersAction):
     p = subparsers.add_parser(COMMAND, help="Generate CI pipeline (GitLab/GitHub)")
     p.add_argument("contract", help="contract.fluid.yaml")
-    p.add_argument("--system", choices=["gitlab","github"], default="gitlab", help="CI system")
+    p.add_argument("--system", choices=["gitlab", "github"], default="gitlab", help="CI system")
     p.add_argument("--out", default=".gitlab-ci.yml", help="Output path")
     p.set_defaults(cmd=COMMAND, func=run)
+
 
 GITLAB = """stages:
   - validate
@@ -74,6 +80,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: python -m fluid_build.cli --provider ${{ env.PROVIDER }} apply runtime/plan.json --yes
 """
+
 
 def run(args, logger: logging.Logger) -> int:
     try:

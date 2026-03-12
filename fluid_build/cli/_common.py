@@ -13,9 +13,13 @@
 # limitations under the License.
 
 from __future__ import annotations
-import os, json, logging
+
+import json
+import logging
+import os
 from importlib import import_module
-from typing import Any, Optional, Dict
+from typing import Any, Dict, Optional
+
 
 class CLIError(Exception):
     """Lightweight CLI error with exit code, event key, and optional context.
@@ -24,6 +28,7 @@ class CLIError(Exception):
     FluidCLIError.  Kept intentionally simple so command modules don't
     need to depend on the heavier core.py stack.
     """
+
     def __init__(self, exit_code: int, event: str, context: Dict[str, Any] | None = None):
         super().__init__(event)
         self.exit_code = exit_code
@@ -33,11 +38,15 @@ class CLIError(Exception):
         self.suggestions: list[str] = []
         self.docs_url: str | None = None
 
+
 def _imp(mod: str, attr: str | None = None):
     m = import_module(mod)
     return getattr(m, attr) if attr else m
 
-def load_contract_with_overlay(path: str, env: Optional[str], logger: logging.Logger) -> Dict[str, Any]:
+
+def load_contract_with_overlay(
+    path: str, env: Optional[str], logger: logging.Logger
+) -> Dict[str, Any]:
     try:
         loader = _imp("fluid_build.loader")
     except Exception as e:
@@ -48,6 +57,7 @@ def load_contract_with_overlay(path: str, env: Optional[str], logger: logging.Lo
         return loader.load_contract(path)
     raise CLIError(2, "loader_missing_functions", {})
 
+
 def write_json(path: str, obj: Any) -> None:
     dir_name = os.path.dirname(path)
     if dir_name:  # Only create dir if path has a directory component
@@ -55,8 +65,9 @@ def write_json(path: str, obj: Any) -> None:
     with open(path, "w", encoding="utf-8") as f:
         json.dump(obj, f, indent=2)
 
+
 def read_json(path: str) -> Any:
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -87,15 +98,23 @@ def resolve_provider_from_contract(contract: Dict[str, Any]) -> tuple[str, Dict[
     return "", {}
 
 
-def build_provider(provider_name: Optional[str], project: Optional[str], region: Optional[str], logger: logging.Logger):
+def build_provider(
+    provider_name: Optional[str],
+    project: Optional[str],
+    region: Optional[str],
+    logger: logging.Logger,
+):
     from fluid_build import providers as registry
+
     registry.discover_providers(logger)
     name = (provider_name or os.getenv("FLUID_PROVIDER") or "").strip().lower().replace("-", "_")
     if not name:
         raise CLIError(2, "provider_not_specified", {})
     prov_cls = registry.PROVIDERS.get(name)
     if not prov_cls:
-        raise CLIError(2, "provider_unknown", {"requested": name, "available": sorted(registry.PROVIDERS)})
+        raise CLIError(
+            2, "provider_unknown", {"requested": name, "available": sorted(registry.PROVIDERS)}
+        )
     try:
         return prov_cls(project=project, region=region, logger=logger)  # type: ignore
     except TypeError as exc:

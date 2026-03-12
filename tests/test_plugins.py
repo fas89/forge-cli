@@ -1,13 +1,28 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for fluid_build.cli.plugins — plugin system data structures & manager."""
+
 import json
-import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
 
 from fluid_build.cli.plugins import (
-    PluginType, PluginStatus, PluginMetadata, PluginInterface,
-    CommandPlugin, ProviderPlugin, ValidatorPlugin,
-    InstalledPlugin, PluginManager,
+    InstalledPlugin,
+    PluginManager,
+    PluginMetadata,
+    PluginStatus,
+    PluginType,
 )
 
 
@@ -31,8 +46,10 @@ class TestPluginStatus:
 class TestPluginMetadata:
     def test_defaults(self):
         meta = PluginMetadata(
-            name="my-plugin", version="1.0.0",
-            description="A plugin", author="Test",
+            name="my-plugin",
+            version="1.0.0",
+            description="A plugin",
+            author="Test",
         )
         assert meta.plugin_type == PluginType.COMMAND
         assert meta.dependencies == []
@@ -41,7 +58,10 @@ class TestPluginMetadata:
 
     def test_to_dict(self):
         meta = PluginMetadata(
-            name="p", version="1.0", description="d", author="a",
+            name="p",
+            version="1.0",
+            description="d",
+            author="a",
             homepage="https://example.com",
             plugin_type=PluginType.PROVIDER,
             dependencies=["dep1"],
@@ -86,13 +106,17 @@ class TestPluginManager:
         # Create a fake plugin source
         source = tmp_path / "my_plugin_src"
         source.mkdir()
-        (source / "plugin.json").write_text(json.dumps({
-            "name": "test-plugin",
-            "version": "1.0",
-            "description": "Test",
-            "author": "Tester",
-            "main_module": "main",
-        }))
+        (source / "plugin.json").write_text(
+            json.dumps(
+                {
+                    "name": "test-plugin",
+                    "version": "1.0",
+                    "description": "Test",
+                    "author": "Tester",
+                    "main_module": "main",
+                }
+            )
+        )
         (source / "main.py").write_text("pass")
 
         plugin_dir = tmp_path / "plugins"
@@ -115,10 +139,17 @@ class TestPluginManager:
     def test_install_already_installed_no_force(self, tmp_path):
         source = tmp_path / "p"
         source.mkdir()
-        (source / "plugin.json").write_text(json.dumps({
-            "name": "dup", "version": "1.0",
-            "description": "d", "author": "a", "main_module": "main",
-        }))
+        (source / "plugin.json").write_text(
+            json.dumps(
+                {
+                    "name": "dup",
+                    "version": "1.0",
+                    "description": "d",
+                    "author": "a",
+                    "main_module": "main",
+                }
+            )
+        )
         (source / "main.py").write_text("pass")
 
         pm = PluginManager(plugin_dir=tmp_path / "plugins")
@@ -130,10 +161,17 @@ class TestPluginManager:
     def test_install_force_overwrites(self, tmp_path):
         source = tmp_path / "p"
         source.mkdir()
-        (source / "plugin.json").write_text(json.dumps({
-            "name": "forceable", "version": "1.0",
-            "description": "d", "author": "a", "main_module": "main",
-        }))
+        (source / "plugin.json").write_text(
+            json.dumps(
+                {
+                    "name": "forceable",
+                    "version": "1.0",
+                    "description": "d",
+                    "author": "a",
+                    "main_module": "main",
+                }
+            )
+        )
         (source / "main.py").write_text("pass")
 
         pm = PluginManager(plugin_dir=tmp_path / "plugins")

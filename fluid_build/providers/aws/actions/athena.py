@@ -14,15 +14,17 @@
 
 # fluid_build/providers/aws/actions/athena.py
 """AWS Athena query execution actions."""
+
 import time
 from typing import Any, Dict
+
 from ..util.logging import duration_ms
 
 
 def ensure_workgroup(action: Dict[str, Any]) -> Dict[str, Any]:
     """Ensure Athena workgroup exists with configuration."""
     start_time = time.time()
-    
+
     try:
         import boto3
         from botocore.exceptions import ClientError
@@ -33,7 +35,7 @@ def ensure_workgroup(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     workgroup_name = action.get("name", "primary")
     output_location = action.get("output_location")
     description = action.get("description", "")
@@ -41,62 +43,60 @@ def ensure_workgroup(action: Dict[str, Any]) -> Dict[str, Any]:
     bytes_scanned_cutoff = action.get("bytes_scanned_cutoff_per_query")
     region = action.get("region", "us-east-1")
     tags = action.get("tags", {})
-    
+
     try:
         athena = boto3.client("athena", region_name=region)
-        
+
         changed = False
-        
+
         # Check if workgroup exists
         try:
             athena.get_work_group(WorkGroup=workgroup_name)
             workgroup_exists = True
-            
+
             # Skip updates for now (UpdateWorkGroup API available but complex)
-            
+
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code")
             if error_code == "InvalidRequestException":
                 workgroup_exists = False
             else:
                 raise
-        
+
         if not workgroup_exists:
             # Create workgroup
             config = {}
-            
+
             if output_location:
-                config["ResultConfigurationUpdates"] = {
-                    "OutputLocation": output_location
-                }
-                
+                config["ResultConfigurationUpdates"] = {"OutputLocation": output_location}
+
                 # Add encryption if enabled
                 if encryption:
                     config["ResultConfigurationUpdates"]["EncryptionConfiguration"] = {
                         "EncryptionOption": "SSE_S3"
                     }
-            
+
             if bytes_scanned_cutoff:
                 config["BytesScannedCutoffPerQuery"] = bytes_scanned_cutoff
-            
+
             # Enable query result reuse
             config["ResultConfigurationUpdates"] = config.get("ResultConfigurationUpdates", {})
-            
+
             create_params = {"Name": workgroup_name}
-            
+
             if config:
                 create_params["Configuration"] = config
-            
+
             if description:
                 create_params["Description"] = description
-            
+
             if tags:
                 tag_list = [{"Key": k, "Value": v} for k, v in tags.items()]
                 create_params["Tags"] = tag_list
-            
+
             athena.create_work_group(**create_params)
             changed = True
-        
+
         return {
             "status": "changed" if changed else "ok",
             "workgroup": workgroup_name,
@@ -104,7 +104,7 @@ def ensure_workgroup(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": changed,
         }
-        
+
     except Exception as e:
         return {
             "status": "error",
@@ -117,10 +117,10 @@ def ensure_workgroup(action: Dict[str, Any]) -> Dict[str, Any]:
 def ensure_table(action: Dict[str, Any]) -> Dict[str, Any]:
     """
     Create Athena external table from contract schema.
-    
+
     Generates and executes CREATE EXTERNAL TABLE DDL based on
     the table definition in the action.
-    
+
     Args:
         action: Table creation action
             Required keys:
@@ -133,12 +133,12 @@ def ensure_table(action: Dict[str, Any]) -> Dict[str, Any]:
                 partition_columns: Partition column definitions
                 description: Table description
                 region: AWS region
-        
+
     Returns:
         Action result with DDL and execution details
     """
     start_time = time.time()
-    
+
     try:
         import boto3
         from botocore.exceptions import ClientError
@@ -149,7 +149,7 @@ def ensure_table(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     database = action.get("database")
     table = action.get("table")
     columns = action.get("columns", [])
@@ -159,7 +159,7 @@ def ensure_table(action: Dict[str, Any]) -> Dict[str, Any]:
     description = action.get("description", "")
     region = action.get("region", "us-east-1")
     workgroup = action.get("workgroup", "primary")
-    
+
     if not database or not table:
         return {
             "status": "error",
@@ -167,7 +167,7 @@ def ensure_table(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     if not location:
         return {
             "status": "error",
@@ -175,17 +175,17 @@ def ensure_table(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     try:
         from ..util.ddl import generate_athena_ddl
-        
+
         athena = boto3.client("athena", region_name=region)
-        
+
         # Generate DDL
         table_properties = {}
         if description:
             table_properties["comment"] = description
-        
+
         ddl = generate_athena_ddl(
             database=database,
             table=table,
@@ -195,34 +195,32 @@ def ensure_table(action: Dict[str, Any]) -> Dict[str, Any]:
             partition_columns=partition_columns,
             table_properties=table_properties,
         )
-        
+
         # Execute DDL
         response = athena.start_query_execution(
             QueryString=ddl,
             QueryExecutionContext={"Database": database},
             WorkGroup=workgroup,
         )
-        
+
         query_execution_id = response["QueryExecutionId"]
-        
+
         # Wait for completion
         max_wait = 30  # seconds
         wait_interval = 1
         elapsed = 0
-        
+
         while elapsed < max_wait:
-            status_response = athena.get_query_execution(
-                QueryExecutionId=query_execution_id
-            )
-            
+            status_response = athena.get_query_execution(QueryExecutionId=query_execution_id)
+
             status = status_response["QueryExecution"]["Status"]["State"]
-            
+
             if status in ("SUCCEEDED", "FAILED", "CANCELLED"):
                 break
-            
+
             time.sleep(wait_interval)
             elapsed += wait_interval
-        
+
         if status == "SUCCEEDED":
             return {
                 "status": "changed",
@@ -256,7 +254,7 @@ def ensure_table(action: Dict[str, Any]) -> Dict[str, Any]:
                 "duration_ms": duration_ms(start_time),
                 "changed": False,
             }
-        
+
     except Exception as e:
         return {
             "status": "error",
@@ -271,23 +269,34 @@ def execute_query(action: Dict[str, Any]) -> Dict[str, Any]:
     start_time = time.time()
     try:
         import boto3
+
         sql = action.get("sql")
         workgroup = action.get("workgroup", "primary")
         output_location = action.get("output_location")
-        
+
         if not sql:
             return {"status": "error", "error": "'sql' required", "changed": False}
-        
+
         athena = boto3.client("athena")
         response = athena.start_query_execution(
             QueryString=sql,
             WorkGroup=workgroup,
-            ResultConfiguration={"OutputLocation": output_location} if output_location else {}
+            ResultConfiguration={"OutputLocation": output_location} if output_location else {},
         )
-        
-        return {"status": "changed", "query_id": response["QueryExecutionId"], "duration_ms": duration_ms(start_time), "changed": True}
+
+        return {
+            "status": "changed",
+            "query_id": response["QueryExecutionId"],
+            "duration_ms": duration_ms(start_time),
+            "changed": True,
+        }
     except Exception as e:
-        return {"status": "error", "error": str(e), "duration_ms": duration_ms(start_time), "changed": False}
+        return {
+            "status": "error",
+            "error": str(e),
+            "duration_ms": duration_ms(start_time),
+            "changed": False,
+        }
 
 
 def create_view(action: Dict[str, Any]) -> Dict[str, Any]:
@@ -296,10 +305,14 @@ def create_view(action: Dict[str, Any]) -> Dict[str, Any]:
     database = action.get("database")
     view = action.get("view")
     query = action.get("query")
-    
+
     if not all([database, view, query]):
-        return {"status": "error", "error": "'database', 'view', 'query' required", "changed": False}
-    
+        return {
+            "status": "error",
+            "error": "'database', 'view', 'query' required",
+            "changed": False,
+        }
+
     sql = f"CREATE OR REPLACE VIEW {database}.{view} AS {query}"
     return execute_query({"sql": sql, **action})
 
@@ -390,9 +403,7 @@ def create_iceberg_table(action: Dict[str, Any]) -> Dict[str, Any]:
         elapsed = 0
 
         while elapsed < max_wait:
-            status_response = athena.get_query_execution(
-                QueryExecutionId=query_execution_id
-            )
+            status_response = athena.get_query_execution(QueryExecutionId=query_execution_id)
             status = status_response["QueryExecution"]["Status"]["State"]
 
             if status in ("SUCCEEDED", "FAILED", "CANCELLED"):

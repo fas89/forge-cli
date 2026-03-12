@@ -1,17 +1,29 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for cli/resilience.py — enums, dataclasses, retry logic, circuit breaker, health checker."""
 
 import time
-import pytest
-from unittest.mock import MagicMock
 
 from fluid_build.cli.resilience import (
-    ErrorSeverity,
-    RetryStrategy,
-    ErrorContext,
-    RetryManager,
     CircuitBreaker,
+    ErrorContext,
+    ErrorSeverity,
     GracefulDegradation,
     HealthChecker,
+    RetryManager,
+    RetryStrategy,
 )
 
 
@@ -55,17 +67,24 @@ class TestErrorContext:
 
     def test_none_suggestions_defaulted(self):
         ctx = ErrorContext(
-            operation="op", component="c", user_message="m",
-            technical_details={}, severity=ErrorSeverity.HIGH,
-            suggestions=None, recovery_actions=None,
+            operation="op",
+            component="c",
+            user_message="m",
+            technical_details={},
+            severity=ErrorSeverity.HIGH,
+            suggestions=None,
+            recovery_actions=None,
         )
         assert ctx.suggestions == []
         assert ctx.recovery_actions == []
 
     def test_explicit_suggestions_kept(self):
         ctx = ErrorContext(
-            operation="op", component="c", user_message="m",
-            technical_details={}, severity=ErrorSeverity.LOW,
+            operation="op",
+            component="c",
+            user_message="m",
+            technical_details={},
+            severity=ErrorSeverity.LOW,
             suggestions=["try X"],
         )
         assert ctx.suggestions == ["try X"]
@@ -101,7 +120,9 @@ class TestCalculateDelay:
         assert self.rm._calculate_delay(RetryStrategy.EXPONENTIAL_BACKOFF, 3, 1.0, 60.0, 2.0) == 8.0
 
     def test_exponential_capped(self):
-        assert self.rm._calculate_delay(RetryStrategy.EXPONENTIAL_BACKOFF, 10, 1.0, 60.0, 2.0) == 60.0
+        assert (
+            self.rm._calculate_delay(RetryStrategy.EXPONENTIAL_BACKOFF, 10, 1.0, 60.0, 2.0) == 60.0
+        )
 
 
 # ── CircuitBreaker ───────────────────────────────────────────────────
@@ -190,8 +211,10 @@ class TestHealthChecker:
 
     def test_check_all_health_exception(self):
         hc = HealthChecker()
+
         def explode():
             raise ValueError("oops")
+
         hc.register_health_check("x", explode)
         results = hc.check_all_health()
         assert results["x"] is False

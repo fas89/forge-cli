@@ -24,45 +24,40 @@ Supports:
 - Deployment configurations
 """
 
-from typing import Dict, Any, List
-from datetime import datetime
 import json
-from fluid_build.cli.console import cprint, info
+from datetime import datetime
+from typing import Any, Dict, List
 
 
-def generate_prefect_flow(
-    contract: Dict[str, Any],
-    account_id: str,
-    region: str
-) -> str:
+def generate_prefect_flow(contract: Dict[str, Any], account_id: str, region: str) -> str:
     """
     Generate Prefect 2.x flow Python code from FLUID contract.
-    
+
     Args:
         contract: FLUID contract with orchestration section
         account_id: AWS account ID
         region: AWS region
-        
+
     Returns:
         Python code for Prefect flow
     """
     orchestration = contract.get("orchestration", {})
     if not orchestration:
         raise ValueError("Contract missing orchestration section")
-    
+
     tasks = orchestration.get("tasks", [])
     if not tasks:
         raise ValueError("Orchestration has no tasks")
-    
+
     # Extract configuration
     contract_id = contract.get("id", "unknown")
     contract_name = contract.get("name", contract_id)
     schedule = orchestration.get("schedule", "0 2 * * *")
     timezone = orchestration.get("timezone", "UTC")
-    
+
     # Filter provider action tasks
     provider_tasks = [t for t in tasks if t.get("type") == "provider_action"]
-    
+
     # Generate flow code
     code = _generate_header(contract_id, contract_name, account_id, region)
     code += "\n\n"
@@ -73,16 +68,11 @@ def generate_prefect_flow(
     code += _generate_flow(contract_id, contract_name, provider_tasks)
     code += "\n\n"
     code += _generate_deployment(contract_id, contract_name, schedule, timezone)
-    
+
     return code
 
 
-def _generate_header(
-    contract_id: str,
-    contract_name: str,
-    account_id: str,
-    region: str
-) -> str:
+def _generate_header(contract_id: str, contract_name: str, account_id: str, region: str) -> str:
     """Generate file header."""
     return f'''"""
 FLUID Generated Prefect Flow: {contract_name}
@@ -98,7 +88,7 @@ Generated: {datetime.utcnow().isoformat()}
 
 def _generate_imports() -> str:
     """Generate import statements."""
-    return '''from prefect import flow, task
+    return """from prefect import flow, task
 from prefect.deployments import Deployment
 from prefect.server.schemas.schedules import CronSchedule
 import boto3
@@ -106,38 +96,30 @@ import json
 import logging
 from typing import Dict, Any
 
-logger = logging.getLogger(__name__)'''
+logger = logging.getLogger(__name__)"""
 
 
-def _generate_tasks(
-    tasks: List[Dict[str, Any]],
-    account_id: str,
-    region: str
-) -> str:
+def _generate_tasks(tasks: List[Dict[str, Any]], account_id: str, region: str) -> str:
     """Generate Prefect tasks."""
     tasks_code = "# Prefect Tasks\n\n"
-    
+
     for task in tasks:
         tasks_code += _generate_single_task(task, account_id, region)
         tasks_code += "\n\n"
-    
+
     return tasks_code.rstrip()
 
 
-def _generate_single_task(
-    task: Dict[str, Any],
-    account_id: str,
-    region: str
-) -> str:
+def _generate_single_task(task: Dict[str, Any], account_id: str, region: str) -> str:
     """Generate code for a single Prefect task."""
     task_id = task.get("taskId")
     action = task.get("action")
     params = task.get("params", {})
-    
+
     # Parse action to determine service
     action_parts = action.split(".")
     service = action_parts[1] if len(action_parts) > 1 else "unknown"
-    
+
     return f'''@task(
     name="{task_id}",
     description="Execute {action}",
@@ -154,14 +136,10 @@ def {_sanitize_task_name(task_id)}() -> Dict[str, Any]:
     return {{"status": "success", "task_id": "{task_id}"}}'''
 
 
-def _generate_task_implementation(
-    action: str,
-    service: str,
-    region: str
-) -> str:
+def _generate_task_implementation(action: str, service: str, region: str) -> str:
     """Generate task implementation code."""
     if service == "s3":
-        return f'''# S3 operation
+        return f"""# S3 operation
     s3_client = boto3.client('s3', region_name='{region}')
     bucket = params.get("bucket")
     if bucket:
@@ -172,10 +150,10 @@ def _generate_task_implementation(
             )
             logger.info(f"Created S3 bucket: {{bucket}}")
         except s3_client.exceptions.BucketAlreadyOwnedByYou:
-            logger.info(f"Bucket already exists: {{bucket}}")'''
-    
+            logger.info(f"Bucket already exists: {{bucket}}")"""
+
     elif service == "glue":
-        return f'''# Glue operation
+        return f"""# Glue operation
     glue_client = boto3.client('glue', region_name='{region}')
     
     if params.get("database"):
@@ -192,10 +170,10 @@ def _generate_task_implementation(
         table = params["table"]
         database = params.get("database", "default")
         # TODO: Create table from params
-        logger.info(f"Ensuring Glue table: {{database}}.{{table}}")'''
-    
+        logger.info(f"Ensuring Glue table: {{database}}.{{table}}")"""
+
     elif service == "athena":
-        return f'''# Athena operation
+        return f"""# Athena operation
     athena_client = boto3.client('athena', region_name='{region}')
     query = params.get("query")
     database = params.get("database", "default")
@@ -219,10 +197,10 @@ def _generate_task_implementation(
             if status in ['SUCCEEDED', 'FAILED', 'CANCELLED']:
                 logger.info(f"Query {{query_id}} status: {{status}}")
                 break
-            time.sleep(2)'''
-    
+            time.sleep(2)"""
+
     elif service == "redshift":
-        return f'''# Redshift operation
+        return f"""# Redshift operation
     redshift_data = boto3.client('redshift-data', region_name='{region}')
     sql = params.get("sql")
     cluster_id = params.get("cluster")
@@ -234,10 +212,10 @@ def _generate_task_implementation(
             Database=database,
             Sql=sql
         )
-        logger.info(f"Executed Redshift SQL: {{response['Id']}}")'''
-    
+        logger.info(f"Executed Redshift SQL: {{response['Id']}}")"""
+
     elif service == "lambda":
-        return f'''# Lambda operation
+        return f"""# Lambda operation
     lambda_client = boto3.client('lambda', region_name='{region}')
     function_name = params.get("function")
     payload = params.get("payload", {{}})
@@ -250,51 +228,49 @@ def _generate_task_implementation(
         )
         logger.info(f"Invoked Lambda: {{function_name}}")
         result = json.loads(response['Payload'].read())
-        logger.info(f"Lambda result: {{result}}")'''
-    
+        logger.info(f"Lambda result: {{result}}")"""
+
     else:
-        return f'''# Generic provider action
+        return f"""# Generic provider action
     logger.info(f"Action: {action}")
     logger.info(f"Params: {{params}}")
-    # TODO: Implement provider action execution'''
+    # TODO: Implement provider action execution"""
 
 
-def _generate_flow(
-    contract_id: str,
-    contract_name: str,
-    tasks: List[Dict[str, Any]]
-) -> str:
+def _generate_flow(contract_id: str, contract_name: str, tasks: List[Dict[str, Any]]) -> str:
     """Generate Prefect flow definition."""
     # Build task execution with dependencies
     flow_body_lines = []
     task_vars = {}  # Map task_id to variable name
-    
+
     for task in tasks:
         task_id = task.get("taskId")
         depends_on = task.get("dependsOn", [])
         task_func = _sanitize_task_name(task_id)
-        
+
         # Create task call
         if depends_on:
             # Task with dependencies - use wait_for
             wait_for_tasks = [task_vars[dep] for dep in depends_on if dep in task_vars]
             if wait_for_tasks:
                 wait_for_str = ", ".join(wait_for_tasks)
-                flow_body_lines.append(f"    {task_func}_result = {task_func}(wait_for=[{wait_for_str}])")
+                flow_body_lines.append(
+                    f"    {task_func}_result = {task_func}(wait_for=[{wait_for_str}])"
+                )
             else:
                 flow_body_lines.append(f"    {task_func}_result = {task_func}()")
         else:
             # Independent task
             flow_body_lines.append(f"    {task_func}_result = {task_func}()")
-        
+
         task_vars[task_id] = f"{task_func}_result"
-    
+
     # Collect all results
     all_results = list(task_vars.values())
     flow_body_lines.append(f"\n    return [{', '.join(all_results)}]")
-    
+
     flow_body = "\n".join(flow_body_lines)
-    
+
     return f'''@flow(
     name="{contract_name}",
     description="FLUID workflow for {contract_id}",
@@ -307,17 +283,12 @@ def {_sanitize_flow_name(contract_id)}_flow():
 {flow_body}'''
 
 
-def _generate_deployment(
-    contract_id: str,
-    contract_name: str,
-    schedule: str,
-    timezone: str
-) -> str:
+def _generate_deployment(contract_id: str, contract_name: str, schedule: str, timezone: str) -> str:
     """Generate Prefect deployment configuration."""
     cron_schedule = _convert_to_cron(schedule)
     flow_name = _sanitize_flow_name(contract_id)
-    
-    return f'''# Deployment Configuration
+
+    return f"""# Deployment Configuration
 if __name__ == "__main__":
     deployment = Deployment.build_from_flow(
         flow={flow_name}_flow,
@@ -333,7 +304,7 @@ if __name__ == "__main__":
     
     deployment.apply()
     cprint(f"Deployed: {contract_name}")
-    cprint(f"Schedule: {cron_schedule} ({timezone})")'''
+    cprint(f"Schedule: {cron_schedule} ({timezone})")"""
 
 
 def _sanitize_task_name(name: str) -> str:
@@ -345,11 +316,11 @@ def _sanitize_task_name(name: str) -> str:
             sanitized += char
         else:
             sanitized += "_"
-    
+
     # Ensure doesn't start with number
     if sanitized and sanitized[0].isdigit():
         sanitized = "task_" + sanitized
-    
+
     return sanitized or "unnamed_task"
 
 
@@ -363,7 +334,7 @@ def _convert_to_cron(schedule: str) -> str:
     # If already cron, return as-is
     if schedule.count(" ") >= 4:
         return schedule
-    
+
     # Handle common presets
     presets = {
         "daily": "0 2 * * *",
@@ -371,5 +342,5 @@ def _convert_to_cron(schedule: str) -> str:
         "weekly": "0 2 * * 0",
         "monthly": "0 2 1 * *",
     }
-    
+
     return presets.get(schedule.lower(), "0 2 * * *")

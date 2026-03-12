@@ -1,7 +1,20 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for fluid_build.cli.init — should_generate_dag and detect_mode."""
-from pathlib import Path
+
 from unittest.mock import MagicMock, patch
-import pytest
 
 from fluid_build.cli.init import should_generate_dag
 
@@ -38,8 +51,12 @@ class TestDetectMode:
 
     def _args(self, **kwargs):
         defaults = dict(
-            quickstart=False, scan=False, wizard=False, blank=False,
-            template=None, name=None,
+            quickstart=False,
+            scan=False,
+            wizard=False,
+            blank=False,
+            template=None,
+            name=None,
         )
         defaults.update(kwargs)
         a = MagicMock()
@@ -49,32 +66,38 @@ class TestDetectMode:
 
     def test_explicit_quickstart(self):
         from fluid_build.cli.init import detect_mode
+
         result = detect_mode(self._args(quickstart=True), MagicMock())
         assert result == "quickstart"
 
     def test_explicit_scan(self):
         from fluid_build.cli.init import detect_mode
+
         result = detect_mode(self._args(scan=True), MagicMock())
         assert result == "scan"
 
     def test_explicit_wizard(self):
         from fluid_build.cli.init import detect_mode
+
         result = detect_mode(self._args(wizard=True), MagicMock())
         assert result == "wizard"
 
     def test_explicit_blank(self):
         from fluid_build.cli.init import detect_mode
+
         result = detect_mode(self._args(blank=True), MagicMock())
         assert result == "blank"
 
     def test_explicit_template(self):
         from fluid_build.cli.init import detect_mode
+
         result = detect_mode(self._args(template="starter"), MagicMock())
         assert result == "template"
 
     def test_existing_contract_returns_none(self, tmp_path):
         """If contract.fluid.yaml already exists, detect_mode returns None."""
         from fluid_build.cli.init import detect_mode
+
         (tmp_path / "contract.fluid.yaml").write_text("name: test")
         with patch("fluid_build.cli.init.Path") as mock_path_cls:
             mock_cwd = MagicMock()
@@ -89,6 +112,7 @@ class TestDetectMode:
     def test_first_time_user_returns_quickstart(self, tmp_path):
         """Non-existent ~/.fluid dir means first-time user → quickstart."""
         from fluid_build.cli.init import detect_mode
+
         with patch("fluid_build.cli.init.Path") as mock_path_cls:
             mock_cwd = MagicMock()
             # Nothing exists in cwd

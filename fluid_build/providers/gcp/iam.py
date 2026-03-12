@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from ..base import PlanAction, ApplyResult
+from ..base import ApplyResult, PlanAction
+
 
 def compile_policy_actions(contract: dict):
     actions = []
@@ -24,22 +25,40 @@ def compile_policy_actions(contract: dict):
             props = loc.get("properties", {})
             if fmt == "bigquery_table":
                 rid = f"{props.get('project')}:{props.get('dataset')}"
-                actions.append(PlanAction("grant", "bq.dataset.iam", rid, {"principal": g["principal"], "permissions": g["permissions"]}))
+                actions.append(
+                    PlanAction(
+                        "grant",
+                        "bq.dataset.iam",
+                        rid,
+                        {"principal": g["principal"], "permissions": g["permissions"]},
+                    )
+                )
             if fmt == "gcs_parquet_files":
                 bucket = props.get("bucket")
                 if bucket:
-                    actions.append(PlanAction("grant", "gcs.bucket.iam", bucket, {"principal": g["principal"], "permissions": g["permissions"]}))
+                    actions.append(
+                        PlanAction(
+                            "grant",
+                            "gcs.bucket.iam",
+                            bucket,
+                            {"principal": g["principal"], "permissions": g["permissions"]},
+                        )
+                    )
     return actions
+
 
 def ensure_dataset_access(project_dataset: str, principal: str, permissions):
     # Stub: to be implemented with google-cloud-bigquery IAM APIs or via set_iam_policy on dataset
     return True
 
+
 def apply_iam(actions, dry_run=False):
     results = []
     for a in actions:
         if dry_run:
-            results.append(ApplyResult(True, f"[DRY‑RUN] would grant {a.payload} on {a.resource_id}"))
+            results.append(
+                ApplyResult(True, f"[DRY‑RUN] would grant {a.payload} on {a.resource_id}")
+            )
         else:
             # In a real implementation, call GCP IAM APIs here
             results.append(ApplyResult(True, f"Granted {a.payload} on {a.resource_id}"))

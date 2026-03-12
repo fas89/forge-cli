@@ -1,21 +1,36 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Branch-coverage tests for fluid_build.cli.forge_agents"""
+
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from fluid_build.cli.forge_agents import (
+    DOMAIN_AGENTS,
     AIAgentBase,
     FinanceAgent,
     HealthcareAgent,
     RetailAgent,
-    DOMAIN_AGENTS,
     get_agent,
     list_agents,
 )
 
-
 # ===================== AIAgentBase =====================
+
 
 class TestAIAgentBase:
     def test_init_with_rich(self):
@@ -64,14 +79,18 @@ class TestAIAgentBase:
     def test_create_project_success(self, MockForge):
         agent = AIAgentBase("t", "desc", "dom")
         agent.console = None  # No Rich
-        agent.analyze_requirements = MagicMock(return_value={
-            "recommended_template": "tpl",
-            "recommended_provider": "gcp",
-            "recommended_patterns": [],
-        })
-        
-        with patch.object(agent, "_create_with_forge_engine", return_value=True), \
-             patch.object(agent, "_show_next_steps"):
+        agent.analyze_requirements = MagicMock(
+            return_value={
+                "recommended_template": "tpl",
+                "recommended_provider": "gcp",
+                "recommended_patterns": [],
+            }
+        )
+
+        with (
+            patch.object(agent, "_create_with_forge_engine", return_value=True),
+            patch.object(agent, "_show_next_steps"),
+        ):
             result = agent.create_project(Path("/tmp/test"), {"project_goal": "My Goal"})
         assert result is True
 
@@ -79,12 +98,14 @@ class TestAIAgentBase:
     def test_create_project_failure(self, MockForge):
         agent = AIAgentBase("t", "desc", "dom")
         agent.console = MagicMock()
-        agent.analyze_requirements = MagicMock(return_value={
-            "recommended_template": "tpl",
-            "recommended_provider": "gcp",
-            "recommended_patterns": [],
-        })
-        
+        agent.analyze_requirements = MagicMock(
+            return_value={
+                "recommended_template": "tpl",
+                "recommended_provider": "gcp",
+                "recommended_patterns": [],
+            }
+        )
+
         with patch.object(agent, "_create_with_forge_engine", return_value=False):
             result = agent.create_project(Path("/tmp/test"), {"project_goal": "Goal"})
         assert result is False
@@ -106,7 +127,11 @@ class TestAIAgentBase:
     def test_create_forge_config(self):
         agent = AIAgentBase("t", "desc", "dom")
         context = {"project_goal": "My Analytics"}
-        suggestions = {"recommended_template": "tpl", "recommended_provider": "gcp", "recommended_patterns": []}
+        suggestions = {
+            "recommended_template": "tpl",
+            "recommended_provider": "gcp",
+            "recommended_patterns": [],
+        }
         cfg = agent._create_forge_config(Path("/tmp"), context, suggestions)
         assert cfg["template"] == "tpl"
         assert cfg["provider"] == "gcp"
@@ -130,12 +155,22 @@ class TestAIAgentBase:
     def test_show_ai_analysis_no_console(self):
         agent = AIAgentBase("t", "d", "dom")
         agent.console = None
-        agent._show_ai_analysis({}, {"recommended_template": "t", "recommended_provider": "p", "recommended_patterns": []})
+        agent._show_ai_analysis(
+            {},
+            {"recommended_template": "t", "recommended_provider": "p", "recommended_patterns": []},
+        )
 
     def test_show_ai_analysis_with_console(self):
         agent = AIAgentBase("t", "d", "dom")
         agent.console = MagicMock()
-        agent._show_ai_analysis({}, {"recommended_template": "t", "recommended_provider": "p", "recommended_patterns": ["x"]})
+        agent._show_ai_analysis(
+            {},
+            {
+                "recommended_template": "t",
+                "recommended_provider": "p",
+                "recommended_patterns": ["x"],
+            },
+        )
         agent.console.print.assert_called()
 
     def test_show_next_steps_no_console(self):
@@ -146,7 +181,9 @@ class TestAIAgentBase:
     def test_show_next_steps_finance(self):
         agent = AIAgentBase("t", "d", "finance")
         agent.console = MagicMock()
-        agent._show_next_steps(Path("/tmp"), {}, {"recommended_provider": "gcp", "security_requirements": ["x"]})
+        agent._show_next_steps(
+            Path("/tmp"), {}, {"recommended_provider": "gcp", "security_requirements": ["x"]}
+        )
         agent.console.print.assert_called()
 
     def test_show_next_steps_healthcare(self):
@@ -161,6 +198,7 @@ class TestAIAgentBase:
 
 
 # ===================== FinanceAgent =====================
+
 
 class TestFinanceAgent:
     def test_init(self):
@@ -221,6 +259,7 @@ class TestFinanceAgent:
 
 # ===================== HealthcareAgent =====================
 
+
 class TestHealthcareAgent:
     def test_init(self):
         agent = HealthcareAgent()
@@ -257,6 +296,7 @@ class TestHealthcareAgent:
 
 
 # ===================== RetailAgent =====================
+
 
 class TestRetailAgent:
     def test_init(self):
@@ -302,6 +342,7 @@ class TestRetailAgent:
 
 
 # ===================== Registry functions =====================
+
 
 class TestRegistry:
     def test_domain_agents_keys(self):

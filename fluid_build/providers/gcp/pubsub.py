@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from ..base import PlanAction, ApplyResult
+from ..base import ApplyResult, PlanAction
+
 
 def plan_pubsub(contract: dict):
     actions = []
@@ -22,8 +23,11 @@ def plan_pubsub(contract: dict):
             props = loc.get("properties", {})
             topic = props.get("topic")
             if topic:
-                actions.append(PlanAction("create", "pubsub.topic", topic, {"labels": {"fluid": "true"}}))
+                actions.append(
+                    PlanAction("create", "pubsub.topic", topic, {"labels": {"fluid": "true"}})
+                )
     return actions
+
 
 def apply_pubsub(actions, client=None, dry_run=False):
     try:
@@ -33,7 +37,7 @@ def apply_pubsub(actions, client=None, dry_run=False):
     results = []
     client = client or pubsub_v1.PublisherClient()
     for a in actions:
-        if a.resource_type != "pubsub.topic": 
+        if a.resource_type != "pubsub.topic":
             continue
         try:
             if dry_run:

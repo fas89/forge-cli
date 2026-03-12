@@ -1,18 +1,39 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for fluid_build.cli.security — path validation, file ops, sanitization."""
-import os
-import tempfile
-import pytest
+
 from pathlib import Path
 from unittest.mock import patch
 
-from fluid_build.cli.security import (
-    SecurityContext, SecurePathValidator, SecureFileOperations,
-    InputSanitizer, ProductionLogger, ProcessManager,
-    MAX_FILE_SIZE, MAX_PATH_DEPTH, ALLOWED_FILE_EXTENSIONS, FORBIDDEN_PATHS,
-    get_security_context, set_security_context,
-    validate_input_file, validate_output_file, read_file_secure,
-)
+import pytest
+
 from fluid_build.cli.core import FluidCLIError
+from fluid_build.cli.security import (
+    ALLOWED_FILE_EXTENSIONS,
+    FORBIDDEN_PATHS,
+    MAX_FILE_SIZE,
+    MAX_PATH_DEPTH,
+    InputSanitizer,
+    ProcessManager,
+    ProductionLogger,
+    SecureFileOperations,
+    SecurePathValidator,
+    SecurityContext,
+    get_security_context,
+    set_security_context,
+)
 
 
 class TestSecurityContext:
@@ -51,7 +72,7 @@ class TestSecurePathValidator:
 
     def test_path_traversal_detected(self, tmp_path):
         # Create a path with .. in parts
-        evil = tmp_path / "sub" / ".." / "test.yaml"
+        tmp_path / "sub" / ".." / "test.yaml"
         (tmp_path / "test.yaml").write_text("hi")
         # The resolve() in the validator will remove .., but the raw parts check catches it
         # We need to test with a path object that actually has .. in parts
@@ -60,7 +81,9 @@ class TestSecurePathValidator:
         assert exc.value.event == "path_traversal_detected"
 
     def test_path_too_deep(self):
-        deep_path = Path("/a/" + "/".join(f"d{i}" for i in range(MAX_PATH_DEPTH + 5)) + "/file.yaml")
+        deep_path = Path(
+            "/a/" + "/".join(f"d{i}" for i in range(MAX_PATH_DEPTH + 5)) + "/file.yaml"
+        )
         with pytest.raises(FluidCLIError) as exc:
             self.validator._validate_path_security(deep_path, "read")
         assert exc.value.event == "path_too_deep"
@@ -99,7 +122,7 @@ class TestSecurePathValidator:
 
     def test_validate_output_creates_dir(self, tmp_path):
         out = tmp_path / "new_dir" / "output.yaml"
-        result = self.validator.validate_output_path(out)
+        self.validator.validate_output_path(out)
         assert (tmp_path / "new_dir").is_dir()
 
 
@@ -121,7 +144,7 @@ class TestSecureFileOperations:
 
 class TestInputSanitizer:
     def test_sanitize_filename_removes_dangerous(self):
-        result = InputSanitizer.sanitize_filename('my<file>:name.txt')
+        result = InputSanitizer.sanitize_filename("my<file>:name.txt")
         assert "<" not in result
         assert ">" not in result
         assert ":" not in result
@@ -151,6 +174,7 @@ class TestInputSanitizer:
 class TestProductionLogger:
     def test_sanitize_message(self):
         import logging
+
         logger = logging.getLogger("test_prod")
         pl = ProductionLogger(logger)
         sanitized = pl._sanitize_message("my password=s3cret and token=abc123")
@@ -159,6 +183,7 @@ class TestProductionLogger:
 
     def test_sanitize_kwargs(self):
         import logging
+
         logger = logging.getLogger("test_prod2")
         pl = ProductionLogger(logger)
         result = pl._sanitize_kwargs({"api_key": "secret_val", "name": "safe"})
@@ -174,6 +199,7 @@ class TestProcessManager:
 
     def test_run_with_timeout_raises_on_timeout(self):
         import time
+
         pm = ProcessManager(default_timeout=1)
         with pytest.raises(FluidCLIError) as exc:
             pm.run_with_timeout(lambda: time.sleep(5), timeout=1)

@@ -1,23 +1,38 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Branch-coverage tests for fluid_build.cli.test"""
+
 import argparse
 import json
 import logging
 import os
-import sys
-import pytest
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from fluid_build.cli.test import (
     COMMAND,
-    register,
-    run,
     _detect_provider_label,
     _output_json,
-    _output_plain,
     _output_junit,
+    _output_plain,
+    register,
+    run,
 )
 
 
@@ -28,12 +43,14 @@ def logger():
 
 # ── Module constants ────────────────────────────────────────────────
 
+
 class TestModuleConstants:
     def test_command_name(self):
         assert COMMAND == "test"
 
 
 # ── register ────────────────────────────────────────────────────────
+
 
 class TestRegister:
     def test_register_adds_parser(self):
@@ -46,13 +63,17 @@ class TestRegister:
 
 # ── _detect_provider_label ──────────────────────────────────────────
 
+
 class TestDetectProviderLabel:
-    @pytest.mark.parametrize("name,expected", [
-        ("gcp", "gcp (BigQuery)"),
-        ("snowflake", "snowflake"),
-        ("aws", "aws (Glue/Athena)"),
-        ("local", "local (DuckDB)"),
-    ])
+    @pytest.mark.parametrize(
+        "name,expected",
+        [
+            ("gcp", "gcp (BigQuery)"),
+            ("snowflake", "snowflake"),
+            ("aws", "aws (Glue/Athena)"),
+            ("local", "local (DuckDB)"),
+        ],
+    )
     def test_known_providers(self, name, expected):
         report = SimpleNamespace(provider_name=name)
         assert _detect_provider_label(report) == expected
@@ -71,6 +92,7 @@ class TestDetectProviderLabel:
 
 
 # ── Mock report factory ─────────────────────────────────────────────
+
 
 def _make_report(valid=True, errors=None, warnings=None, issues=None):
     """Create a mock report object matching ContractValidator output."""
@@ -116,6 +138,7 @@ def _make_issue(severity="error", category="schema", message="bad", suggestion=N
 
 # ── _output_json ────────────────────────────────────────────────────
 
+
 class TestOutputJson:
     def test_stdout(self, capsys):
         report = _make_report(valid=True, issues=[])
@@ -136,6 +159,7 @@ class TestOutputJson:
 
 
 # ── _output_plain ───────────────────────────────────────────────────
+
 
 class TestOutputPlain:
     @patch("fluid_build.cli.test.cprint")
@@ -170,6 +194,7 @@ class TestOutputPlain:
 
 # ── _output_junit ───────────────────────────────────────────────────
 
+
 class TestOutputJunit:
     def test_to_file(self, tmp_path):
         report = _make_report(valid=True, issues=[])
@@ -203,6 +228,7 @@ class TestOutputJunit:
 
 # ── run ─────────────────────────────────────────────────────────────
 
+
 class TestRun:
     def test_missing_contract_returns_1(self, logger):
         args = SimpleNamespace(contract="/nonexistent/contract.yaml")
@@ -218,10 +244,20 @@ class TestRun:
             mock_cls.return_value.validate.return_value = report
             args = SimpleNamespace(
                 contract=str(contract),
-                env=None, provider=None, project=None, region=None,
-                strict=False, no_data=False, cache=True,
-                cache_ttl=3600, cache_clear=False, check_drift=False,
-                server=None, output="text", output_file=None, publish=None,
+                env=None,
+                provider=None,
+                project=None,
+                region=None,
+                strict=False,
+                no_data=False,
+                cache=True,
+                cache_ttl=3600,
+                cache_clear=False,
+                check_drift=False,
+                server=None,
+                output="text",
+                output_file=None,
+                publish=None,
             )
             result = run(args, logger)
         assert result == 0
@@ -235,12 +271,22 @@ class TestRun:
             mock_cls.return_value.validate.return_value = report
             args = SimpleNamespace(
                 contract=str(contract),
-                env=None, provider=None, project=None, region=None,
-                strict=False, no_data=False, cache=True,
-                cache_ttl=3600, cache_clear=False, check_drift=False,
-                server=None, output="json", output_file=None, publish=None,
+                env=None,
+                provider=None,
+                project=None,
+                region=None,
+                strict=False,
+                no_data=False,
+                cache=True,
+                cache_ttl=3600,
+                cache_clear=False,
+                check_drift=False,
+                server=None,
+                output="json",
+                output_file=None,
+                publish=None,
             )
-            result = run(args, logger)
+            run(args, logger)
         mock_output.assert_called_once()
 
     @patch("fluid_build.cli.test._output_junit")
@@ -252,12 +298,22 @@ class TestRun:
             mock_cls.return_value.validate.return_value = report
             args = SimpleNamespace(
                 contract=str(contract),
-                env=None, provider=None, project=None, region=None,
-                strict=False, no_data=False, cache=True,
-                cache_ttl=3600, cache_clear=False, check_drift=False,
-                server=None, output="junit", output_file=None, publish=None,
+                env=None,
+                provider=None,
+                project=None,
+                region=None,
+                strict=False,
+                no_data=False,
+                cache=True,
+                cache_ttl=3600,
+                cache_clear=False,
+                check_drift=False,
+                server=None,
+                output="junit",
+                output_file=None,
+                publish=None,
             )
-            result = run(args, logger)
+            run(args, logger)
         mock_output.assert_called_once()
 
     @patch("fluid_build.cli.test._output_rich")
@@ -269,10 +325,20 @@ class TestRun:
             mock_cls.return_value.validate.return_value = report
             args = SimpleNamespace(
                 contract=str(contract),
-                env=None, provider=None, project=None, region=None,
-                strict=False, no_data=False, cache=True,
-                cache_ttl=3600, cache_clear=False, check_drift=False,
-                server=None, output="text", output_file=None, publish=None,
+                env=None,
+                provider=None,
+                project=None,
+                region=None,
+                strict=False,
+                no_data=False,
+                cache=True,
+                cache_ttl=3600,
+                cache_clear=False,
+                check_drift=False,
+                server=None,
+                output="text",
+                output_file=None,
+                publish=None,
             )
             result = run(args, logger)
         assert result == 1
@@ -287,10 +353,20 @@ class TestRun:
             mock_cls.return_value.validate.return_value = report
             args = SimpleNamespace(
                 contract=str(contract),
-                env=None, provider=None, project=None, region=None,
-                strict=True, no_data=False, cache=True,
-                cache_ttl=3600, cache_clear=False, check_drift=False,
-                server=None, output="text", output_file=None, publish=None,
+                env=None,
+                provider=None,
+                project=None,
+                region=None,
+                strict=True,
+                no_data=False,
+                cache=True,
+                cache_ttl=3600,
+                cache_clear=False,
+                check_drift=False,
+                server=None,
+                output="text",
+                output_file=None,
+                publish=None,
             )
             result = run(args, logger)
         assert result == 1
@@ -303,10 +379,20 @@ class TestRun:
             mock_cls.return_value.validate.side_effect = RuntimeError("boom")
             args = SimpleNamespace(
                 contract=str(contract),
-                env=None, provider=None, project=None, region=None,
-                strict=False, no_data=False, cache=True,
-                cache_ttl=3600, cache_clear=False, check_drift=False,
-                server=None, output="text", output_file=None, publish=None,
+                env=None,
+                provider=None,
+                project=None,
+                region=None,
+                strict=False,
+                no_data=False,
+                cache=True,
+                cache_ttl=3600,
+                cache_clear=False,
+                check_drift=False,
+                server=None,
+                output="text",
+                output_file=None,
+                publish=None,
             )
             result = run(args, logger)
         assert result == 1
@@ -314,11 +400,13 @@ class TestRun:
 
 # ── _publish_results ────────────────────────────────────────────────
 
+
 class TestPublishResults:
     @patch.dict(os.environ, {"DMM_API_KEY": ""}, clear=False)
     @patch("fluid_build.cli.test.warning")
     def test_missing_api_key_skips(self, mock_warn, logger):
         from fluid_build.cli.test import _publish_results
+
         _publish_results(MagicMock(), "http://dmm", logger)
         mock_warn.assert_called_once()
 
@@ -326,7 +414,10 @@ class TestPublishResults:
     @patch("fluid_build.cli.test.success")
     def test_publish_success(self, mock_success, logger):
         from fluid_build.cli.test import _publish_results
-        with patch("fluid_build.providers.datamesh_manager.datamesh_manager.DataMeshManagerProvider") as mock_prov:
+
+        with patch(
+            "fluid_build.providers.datamesh_manager.datamesh_manager.DataMeshManagerProvider"
+        ) as mock_prov:
             mock_prov.return_value.publish_test_results.return_value = {"status_code": 200}
             _publish_results(MagicMock(), "http://dmm", logger)
         mock_success.assert_called_once()
@@ -335,7 +426,10 @@ class TestPublishResults:
     @patch("fluid_build.cli.test.console_error")
     def test_publish_failure(self, mock_err, logger):
         from fluid_build.cli.test import _publish_results
-        with patch("fluid_build.providers.datamesh_manager.datamesh_manager.DataMeshManagerProvider") as mock_prov:
+
+        with patch(
+            "fluid_build.providers.datamesh_manager.datamesh_manager.DataMeshManagerProvider"
+        ) as mock_prov:
             mock_prov.return_value.publish_test_results.side_effect = RuntimeError("fail")
             _publish_results(MagicMock(), "http://dmm", logger)
         mock_err.assert_called_once()

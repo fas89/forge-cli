@@ -21,10 +21,10 @@ Implements idempotent Glue operations including:
 - Table creation with schema evolution
 - Crawler configuration
 """
+
 import time
 from typing import Any, Dict, List
 
-from fluid_build.providers.base import ProviderError
 from ..util.logging import duration_ms
 from ..util.names import normalize_database_name, normalize_table_name
 
@@ -32,18 +32,18 @@ from ..util.names import normalize_database_name, normalize_table_name
 def ensure_database(action: Dict[str, Any]) -> Dict[str, Any]:
     """
     Ensure Glue database exists with specified configuration.
-    
+
     Creates database if it doesn't exist, updates configuration if changed.
     Idempotent operation - safe to run multiple times.
-    
+
     Args:
         action: Database action configuration
-        
+
     Returns:
         Action result with status and details
     """
     start_time = time.time()
-    
+
     try:
         import boto3
         from botocore.exceptions import ClientError
@@ -54,12 +54,12 @@ def ensure_database(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     database = action.get("database")
     description = action.get("description", "")
     location = action.get("location")
     tags = action.get("tags", {})
-    
+
     if not database:
         return {
             "status": "error",
@@ -67,37 +67,34 @@ def ensure_database(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     try:
         glue = boto3.client("glue")
-        
+
         normalized_db = normalize_database_name(database)
         changed = False
-        
+
         # Check if database exists
         try:
             response = glue.get_database(Name=normalized_db)
             existing_db = response["Database"]
-            
+
             # Check if update needed
             update_needed = False
             database_input = {"Name": normalized_db}
-            
+
             if existing_db.get("Description") != description:
                 database_input["Description"] = description
                 update_needed = True
-            
+
             if location and existing_db.get("LocationUri") != location:
                 database_input["LocationUri"] = location
                 update_needed = True
-            
+
             if update_needed:
-                glue.update_database(
-                    Name=normalized_db,
-                    DatabaseInput=database_input
-                )
+                glue.update_database(Name=normalized_db, DatabaseInput=database_input)
                 changed = True
-            
+
             return {
                 "status": "changed" if changed else "ok",
                 "database": normalized_db,
@@ -105,23 +102,23 @@ def ensure_database(action: Dict[str, Any]) -> Dict[str, Any]:
                 "duration_ms": duration_ms(start_time),
                 "changed": changed,
             }
-            
+
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code")
             if error_code != "EntityNotFoundException":
                 raise
-        
+
         # Database doesn't exist, create it
         database_input = {"Name": normalized_db}
-        
+
         if description:
             database_input["Description"] = description
-        
+
         if location:
             database_input["LocationUri"] = location
-        
+
         glue.create_database(DatabaseInput=database_input)
-        
+
         return {
             "status": "changed",
             "database": normalized_db,
@@ -129,12 +126,12 @@ def ensure_database(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": True,
         }
-        
+
     except Exception as e:
         return {
             "status": "error",
             "error": str(e),
-            "database": database if 'database' in locals() else None,
+            "database": database if "database" in locals() else None,
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
@@ -143,18 +140,18 @@ def ensure_database(action: Dict[str, Any]) -> Dict[str, Any]:
 def ensure_table(action: Dict[str, Any]) -> Dict[str, Any]:
     """
     Ensure Glue table exists with specified schema.
-    
+
     Creates table if it doesn't exist, updates schema if changed.
     Supports schema evolution.
-    
+
     Args:
         action: Table action configuration
-        
+
     Returns:
         Action result with status and details
     """
     start_time = time.time()
-    
+
     try:
         import boto3
         from botocore.exceptions import ClientError
@@ -165,14 +162,14 @@ def ensure_table(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     database = action.get("database")
     table = action.get("table")
     columns = action.get("columns", [])
     location = action.get("location")
     input_format = action.get("input_format", "parquet")
     description = action.get("description", "")
-    
+
     if not database or not table:
         return {
             "status": "error",
@@ -180,43 +177,43 @@ def ensure_table(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     try:
         glue = boto3.client("glue")
-        
+
         normalized_table = normalize_table_name(table)
-        
+
         # Build table input
         storage_descriptor = {
             "Columns": columns,
             "Location": location or "",
             "InputFormat": _get_input_format(input_format),
             "OutputFormat": _get_output_format(input_format),
-            "SerdeInfo": {
-                "SerializationLibrary": _get_serde_lib(input_format)
-            }
+            "SerdeInfo": {"SerializationLibrary": _get_serde_lib(input_format)},
         }
-        
+
         table_input = {
             "Name": normalized_table,
             "StorageDescriptor": storage_descriptor,
             "TableType": "EXTERNAL_TABLE",
         }
-        
+
         if description:
             table_input["Description"] = description
-        
+
         # Check if table exists
         try:
             response = glue.get_table(DatabaseName=database, Name=normalized_table)
             existing_table = response["Table"]
-            
+
             # ── Schema-diff: only update if columns or location changed ──
             existing_cols = existing_table.get("StorageDescriptor", {}).get("Columns", [])
             existing_location = existing_table.get("StorageDescriptor", {}).get("Location", "")
 
             cols_match = _columns_equal(existing_cols, columns)
-            location_match = (not location) or (existing_location.rstrip("/") == (location or "").rstrip("/"))
+            location_match = (not location) or (
+                existing_location.rstrip("/") == (location or "").rstrip("/")
+            )
 
             if cols_match and location_match:
                 return {
@@ -230,11 +227,8 @@ def ensure_table(action: Dict[str, Any]) -> Dict[str, Any]:
                 }
 
             # Something changed — apply update
-            glue.update_table(
-                DatabaseName=database,
-                TableInput=table_input
-            )
-            
+            glue.update_table(DatabaseName=database, TableInput=table_input)
+
             return {
                 "status": "changed",
                 "database": database,
@@ -243,18 +237,15 @@ def ensure_table(action: Dict[str, Any]) -> Dict[str, Any]:
                 "duration_ms": duration_ms(start_time),
                 "changed": True,
             }
-            
+
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code")
             if error_code != "EntityNotFoundException":
                 raise
-        
+
         # Table doesn't exist, create it
-        glue.create_table(
-            DatabaseName=database,
-            TableInput=table_input
-        )
-        
+        glue.create_table(DatabaseName=database, TableInput=table_input)
+
         return {
             "status": "changed",
             "database": database,
@@ -264,7 +255,7 @@ def ensure_table(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": True,
         }
-        
+
     except Exception as e:
         return {
             "status": "error",
@@ -277,7 +268,7 @@ def ensure_table(action: Dict[str, Any]) -> Dict[str, Any]:
 def ensure_crawler(action: Dict[str, Any]) -> Dict[str, Any]:
     """Configure Glue crawler."""
     start_time = time.time()
-    
+
     try:
         import boto3
     except ImportError:
@@ -287,12 +278,12 @@ def ensure_crawler(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     crawler_name = action.get("name")
     database = action.get("database")
     s3_path = action.get("s3_path")
     role = action.get("role")
-    
+
     if not all([crawler_name, database, s3_path, role]):
         return {
             "status": "error",
@@ -300,10 +291,10 @@ def ensure_crawler(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     try:
         glue = boto3.client("glue")
-        
+
         # Create or update crawler
         crawler_config = {
             "Name": crawler_name,
@@ -311,7 +302,7 @@ def ensure_crawler(action: Dict[str, Any]) -> Dict[str, Any]:
             "DatabaseName": database,
             "Targets": {"S3Targets": [{"Path": s3_path}]},
         }
-        
+
         try:
             glue.get_crawler(Name=crawler_name)
             glue.update_crawler(**crawler_config)
@@ -319,7 +310,7 @@ def ensure_crawler(action: Dict[str, Any]) -> Dict[str, Any]:
         except glue.exceptions.EntityNotFoundException:
             glue.create_crawler(**crawler_config)
             changed = True
-        
+
         return {
             "status": "changed" if changed else "ok",
             "crawler": crawler_name,
@@ -338,7 +329,7 @@ def ensure_crawler(action: Dict[str, Any]) -> Dict[str, Any]:
 def run_crawler(action: Dict[str, Any]) -> Dict[str, Any]:
     """Start Glue crawler execution."""
     start_time = time.time()
-    
+
     try:
         import boto3
     except ImportError:
@@ -348,16 +339,16 @@ def run_crawler(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     crawler_name = action.get("name")
-    
+
     if not crawler_name:
         return {"status": "error", "error": "'name' required", "changed": False}
-    
+
     try:
         glue = boto3.client("glue")
         glue.start_crawler(Name=crawler_name)
-        
+
         return {
             "status": "changed",
             "crawler": crawler_name,
@@ -432,49 +423,49 @@ def _columns_equal(
 def _get_iceberg_table_parameters(iceberg_config: Dict[str, Any]) -> Dict[str, str]:
     """
     Build Glue table parameters for Iceberg tables.
-    
+
     These parameters identify the table as Iceberg and configure
     its behavior in Athena and other query engines.
-    
+
     Args:
         iceberg_config: Iceberg configuration from contract
-        
+
     Returns:
         Table parameters dict for Glue CreateTable/UpdateTable
     """
     write_version = iceberg_config.get("writeVersion", 2)
     file_format = iceberg_config.get("fileFormat", "parquet")
     properties = iceberg_config.get("properties", {})
-    
+
     params = {
         "table_type": "ICEBERG",  # Critical: Identifies as Iceberg
         "format-version": str(write_version),
         "write.format.default": file_format,
     }
-    
+
     # Add custom properties
     for key, value in properties.items():
         params[key] = str(value)
-    
+
     return params
 
 
 def ensure_iceberg_table(action: Dict[str, Any]) -> Dict[str, Any]:
     """
     Create or update Iceberg table in Glue Catalog.
-    
+
     Iceberg tables have special requirements:
     1. table_type parameter must be "ICEBERG"
     2. Uses Glue Catalog for metadata (not manual metadata files)
     3. Supports ACID operations via Athena v3 or EMR
     4. Partition transforms are hidden from users
-    
+
     Unlike standard tables, Iceberg tables:
     - Support ACID transactions
     - Enable time travel queries
     - Provide automatic compaction
     - Allow schema evolution without rewrites
-    
+
     Args:
         action: Table action with Iceberg configuration
             Required keys:
@@ -485,12 +476,12 @@ def ensure_iceberg_table(action: Dict[str, Any]) -> Dict[str, Any]:
                 location: S3 location for table data
                 icebergConfig: Iceberg-specific configuration
                 description: Table description
-        
+
     Returns:
         Action result with Iceberg table details
     """
     start_time = time.time()
-    
+
     try:
         import boto3
         from botocore.exceptions import ClientError
@@ -501,14 +492,14 @@ def ensure_iceberg_table(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     database = action.get("database")
     table = action.get("table")
     columns = action.get("columns", [])
     location = action.get("location")
     iceberg_config = action.get("icebergConfig", {})
     description = action.get("description", "")
-    
+
     if not database or not table:
         return {
             "status": "error",
@@ -516,15 +507,15 @@ def ensure_iceberg_table(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     try:
         glue = boto3.client("glue")
-        
+
         normalized_table = normalize_table_name(table)
-        
+
         # Build Iceberg table input
         file_format = iceberg_config.get("fileFormat", "parquet")
-        
+
         storage_descriptor = {
             "Columns": columns,
             "Location": location or "",
@@ -532,30 +523,28 @@ def ensure_iceberg_table(action: Dict[str, Any]) -> Dict[str, Any]:
             "OutputFormat": "org.apache.iceberg.mr.hive.HiveIcebergOutputFormat",
             "SerdeInfo": {
                 "SerializationLibrary": "org.apache.iceberg.mr.hive.HiveIcebergSerDe",
-                "Parameters": {
-                    "serialization.format": "1"
-                }
-            }
+                "Parameters": {"serialization.format": "1"},
+            },
         }
-        
+
         # Iceberg table parameters
         table_parameters = _get_iceberg_table_parameters(iceberg_config)
-        
+
         table_input = {
             "Name": normalized_table,
             "StorageDescriptor": storage_descriptor,
             "TableType": "EXTERNAL_TABLE",
             "Parameters": table_parameters,
         }
-        
+
         if description:
             table_input["Description"] = description
-        
+
         # Check if table exists
         try:
             response = glue.get_table(DatabaseName=database, Name=normalized_table)
             existing_table = response["Table"]
-            
+
             # Validate it's an Iceberg table
             existing_type = existing_table.get("Parameters", {}).get("table_type")
             if existing_type != "ICEBERG":
@@ -565,7 +554,7 @@ def ensure_iceberg_table(action: Dict[str, Any]) -> Dict[str, Any]:
                     "duration_ms": duration_ms(start_time),
                     "changed": False,
                 }
-            
+
             # Schema-diff: skip update if columns unchanged
             existing_cols = existing_table.get("StorageDescriptor", {}).get("Columns", [])
             if _columns_equal(existing_cols, columns):
@@ -578,13 +567,10 @@ def ensure_iceberg_table(action: Dict[str, Any]) -> Dict[str, Any]:
                     "duration_ms": duration_ms(start_time),
                     "changed": False,
                 }
-            
+
             # Schema evolved — apply update
-            glue.update_table(
-                DatabaseName=database,
-                TableInput=table_input
-            )
-            
+            glue.update_table(DatabaseName=database, TableInput=table_input)
+
             return {
                 "status": "changed",
                 "database": database,
@@ -596,18 +582,15 @@ def ensure_iceberg_table(action: Dict[str, Any]) -> Dict[str, Any]:
                 "duration_ms": duration_ms(start_time),
                 "changed": True,
             }
-            
+
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code")
             if error_code != "EntityNotFoundException":
                 raise
-        
+
         # Table doesn't exist, create Iceberg table
-        glue.create_table(
-            DatabaseName=database,
-            TableInput=table_input
-        )
-        
+        glue.create_table(DatabaseName=database, TableInput=table_input)
+
         return {
             "status": "changed",
             "database": database,
@@ -620,7 +603,7 @@ def ensure_iceberg_table(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": True,
         }
-        
+
     except Exception as e:
         return {
             "status": "error",

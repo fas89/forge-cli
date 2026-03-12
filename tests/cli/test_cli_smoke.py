@@ -24,19 +24,17 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 import yaml
 
 from fluid_build.cli import main
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def _clean_env(monkeypatch):
@@ -134,6 +132,7 @@ def _write_json(directory: Path, obj: dict, name: str) -> Path:
 # VALIDATE COMMAND
 # =====================================================================
 
+
 class TestValidateCommand:
     """Smoke tests for `fluid validate`."""
 
@@ -210,6 +209,7 @@ class TestValidateCommand:
 # PLAN COMMAND
 # =====================================================================
 
+
 class TestPlanCommand:
     """Smoke tests for `fluid plan`."""
 
@@ -217,11 +217,16 @@ class TestPlanCommand:
         """Plan should write a plan JSON to the specified --out path."""
         contract_file = _write_contract(tmp_path, MINIMAL_CONTRACT_071)
         out_file = tmp_path / "plan.json"
-        rc = main([
-            "plan", str(contract_file),
-            "--out", str(out_file),
-            "--provider", "local",
-        ])
+        rc = main(
+            [
+                "plan",
+                str(contract_file),
+                "--out",
+                str(out_file),
+                "--provider",
+                "local",
+            ]
+        )
         assert rc == 0
         assert out_file.exists()
         plan = json.loads(out_file.read_text())
@@ -250,12 +255,18 @@ class TestPlanCommand:
             yaml.dump({"metadata": {"layer": "Silver"}}), encoding="utf-8"
         )
         out_file = tmp_path / "plan_staging.json"
-        rc = main([
-            "plan", str(contract_file),
-            "--env", "staging",
-            "--out", str(out_file),
-            "--provider", "local",
-        ])
+        rc = main(
+            [
+                "plan",
+                str(contract_file),
+                "--env",
+                "staging",
+                "--out",
+                str(out_file),
+                "--provider",
+                "local",
+            ]
+        )
         assert rc == 0
 
     def test_plan_unknown_provider_logged(self, tmp_path, _clean_env):
@@ -263,11 +274,16 @@ class TestPlanCommand:
         contract_file = _write_contract(tmp_path, MINIMAL_CONTRACT_071)
         # The CLI may silently fall back to the built-in planner rather than
         # erroring out.  The key assertion is that it does not raise.
-        rc = main([
-            "plan", str(contract_file),
-            "--provider", "nonexistent_cloud",
-            "--out", str(tmp_path / "plan.json"),
-        ])
+        rc = main(
+            [
+                "plan",
+                str(contract_file),
+                "--provider",
+                "nonexistent_cloud",
+                "--out",
+                str(tmp_path / "plan.json"),
+            ]
+        )
         assert isinstance(rc, int)
 
     def test_plan_infers_provider_from_contract(self, tmp_path, _clean_env):
@@ -282,11 +298,16 @@ class TestPlanCommand:
         """Plan should handle 0.5.7-style contracts."""
         contract_file = _write_contract(tmp_path, MINIMAL_CONTRACT_057)
         out_file = tmp_path / "plan.json"
-        rc = main([
-            "plan", str(contract_file),
-            "--out", str(out_file),
-            "--provider", "local",
-        ])
+        rc = main(
+            [
+                "plan",
+                str(contract_file),
+                "--out",
+                str(out_file),
+                "--provider",
+                "local",
+            ]
+        )
         assert rc == 0
 
 
@@ -294,19 +315,25 @@ class TestPlanCommand:
 # APPLY COMMAND
 # =====================================================================
 
+
 class TestApplyCommand:
     """Smoke tests for `fluid apply`."""
 
     def test_apply_dry_run(self, tmp_path, _clean_env):
         """--dry-run should succeed without side effects."""
         contract_file = _write_contract(tmp_path, MINIMAL_CONTRACT_071)
-        rc = main([
-            "apply", str(contract_file),
-            "--yes",
-            "--dry-run",
-            "--provider", "local",
-            "--report", str(tmp_path / "report.html"),
-        ])
+        rc = main(
+            [
+                "apply",
+                str(contract_file),
+                "--yes",
+                "--dry-run",
+                "--provider",
+                "local",
+                "--report",
+                str(tmp_path / "report.html"),
+            ]
+        )
         assert rc == 0
 
     def test_apply_missing_contract(self, tmp_path, _clean_env):
@@ -319,12 +346,17 @@ class TestApplyCommand:
         pytest.importorskip("duckdb")
         contract_file = _write_contract(tmp_path, MINIMAL_CONTRACT_071)
         monkeypatch.chdir(tmp_path)
-        rc = main([
-            "apply", str(contract_file),
-            "--yes",
-            "--provider", "local",
-            "--report", str(tmp_path / "report.html"),
-        ])
+        rc = main(
+            [
+                "apply",
+                str(contract_file),
+                "--yes",
+                "--provider",
+                "local",
+                "--report",
+                str(tmp_path / "report.html"),
+            ]
+        )
         # local provider should work without cloud credentials
         assert rc == 0
 
@@ -332,17 +364,22 @@ class TestApplyCommand:
         """An unrecognised provider should not crash apply."""
         contract_file = _write_contract(tmp_path, MINIMAL_CONTRACT_071)
         # The CLI may silently fall back to local.  Key assertion: no crash.
-        rc = main([
-            "apply", str(contract_file),
-            "--yes",
-            "--provider", "imaginary_cloud",
-        ])
+        rc = main(
+            [
+                "apply",
+                str(contract_file),
+                "--yes",
+                "--provider",
+                "imaginary_cloud",
+            ]
+        )
         assert isinstance(rc, int)
 
 
 # =====================================================================
 # GLOBAL FLAGS
 # =====================================================================
+
 
 class TestGlobalFlags:
     """Test top-level CLI flags like --version, --help, --log-level."""
@@ -369,6 +406,7 @@ class TestGlobalFlags:
 # LOADER INTEGRATION
 # =====================================================================
 
+
 class TestLoaderIntegration:
     """Verify the contract loader works correctly through the CLI."""
 
@@ -394,20 +432,31 @@ class TestLoaderIntegration:
         (overlays_dir / "prod.yaml").write_text(yaml.dump(overlay), encoding="utf-8")
 
         out_file = tmp_path / "plan.json"
-        rc = main([
-            "plan", str(contract_file),
-            "--env", "prod",
-            "--out", str(out_file),
-            "--provider", "local",
-        ])
+        rc = main(
+            [
+                "plan",
+                str(contract_file),
+                "--env",
+                "prod",
+                "--out",
+                str(out_file),
+                "--provider",
+                "local",
+            ]
+        )
         assert rc == 0
 
     def test_missing_overlay_still_works(self, tmp_path, _clean_env):
         """If --env is specified but no overlay file exists, loading should still work."""
         contract_file = _write_contract(tmp_path, MINIMAL_CONTRACT_071)
-        rc = main([
-            "validate", str(contract_file),
-            "--env", "nonexistent_env",
-            "--offline", "--quiet",
-        ])
+        rc = main(
+            [
+                "validate",
+                str(contract_file),
+                "--env",
+                "nonexistent_env",
+                "--offline",
+                "--quiet",
+            ]
+        )
         assert rc == 0

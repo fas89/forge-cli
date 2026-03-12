@@ -1,7 +1,24 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for GraphBuilder DOT generation methods in cli/viz_graph.py."""
+
 import logging
-import pytest
 from unittest.mock import patch
+
+import pytest
+
 from fluid_build.cli.viz_graph import GraphBuilder, GraphConfig, GraphMetrics
 
 
@@ -45,27 +62,27 @@ class TestBuildProductCluster:
     def test_basic_cluster(self, builder, contract):
         lines = builder._build_product_cluster(contract, "prod_node")
         joined = "\n".join(lines)
-        assert 'subgraph cluster_product' in joined
-        assert 'prod_node' in joined
-        assert 'Bitcoin Price Tracker' in joined
+        assert "subgraph cluster_product" in joined
+        assert "prod_node" in joined
+        assert "Bitcoin Price Tracker" in joined
 
     def test_metadata_tags(self, builder, contract):
         builder.config.show_metadata = True
         lines = builder._build_product_cluster(contract, "prod_node")
         joined = "\n".join(lines)
-        assert 'Domain: finance' in joined
-        assert 'Layer: gold' in joined
+        assert "Domain: finance" in joined
+        assert "Layer: gold" in joined
 
     def test_no_metadata_tags(self, builder, contract):
         builder.config.show_metadata = False
         lines = builder._build_product_cluster(contract, "prod_node")
         joined = "\n".join(lines)
-        assert 'Domain:' not in joined
+        assert "Domain:" not in joined
 
     def test_missing_fields_defaults(self, builder):
         lines = builder._build_product_cluster({}, "node")
         joined = "\n".join(lines)
-        assert 'product' in joined  # default id
+        assert "product" in joined  # default id
 
 
 class TestBuildConsumesCluster:
@@ -77,7 +94,7 @@ class TestBuildConsumesCluster:
     def test_with_consumes(self, builder, contract):
         lines, nodes = builder._build_consumes_cluster(contract["consumes"], "prod")
         joined = "\n".join(lines)
-        assert 'subgraph cluster_consumes' in joined
+        assert "subgraph cluster_consumes" in joined
         assert len(nodes) == 2
         assert builder.metrics.node_count == 2
         assert builder.metrics.edge_count == 2
@@ -85,7 +102,7 @@ class TestBuildConsumesCluster:
     def test_collapsed_consumes(self, builder, contract):
         builder.config.collapse_consumes = True
         lines, nodes = builder._build_consumes_cluster(contract["consumes"], "prod")
-        joined = "\n".join(lines)
+        "\n".join(lines)
         assert len(nodes) == 1
         assert nodes[0][0] == "consumes_agg"
 
@@ -99,10 +116,10 @@ class TestBuildExposesCluster:
     def test_with_exposes(self, builder, contract):
         lines, nodes = builder._build_exposes_cluster(contract["exposes"], "prod")
         joined = "\n".join(lines)
-        assert 'subgraph cluster_exposes' in joined
+        assert "subgraph cluster_exposes" in joined
         assert len(nodes) == 2
-        assert 'daily_prices' in joined
-        assert 'parquet' in joined
+        assert "daily_prices" in joined
+        assert "parquet" in joined
 
     def test_collapsed_exposes(self, builder, contract):
         builder.config.collapse_exposes = True

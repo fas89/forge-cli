@@ -24,43 +24,39 @@ Supports:
 - Type-safe ops
 """
 
-from typing import Dict, Any, List
-from datetime import datetime
 import json
+from datetime import datetime
+from typing import Any, Dict, List
 
 
-def generate_dagster_pipeline(
-    contract: Dict[str, Any],
-    account_id: str,
-    region: str
-) -> str:
+def generate_dagster_pipeline(contract: Dict[str, Any], account_id: str, region: str) -> str:
     """
     Generate Dagster pipeline Python code from FLUID contract.
-    
+
     Args:
         contract: FLUID contract with orchestration section
         account_id: AWS account ID
         region: AWS region
-        
+
     Returns:
         Python code for Dagster pipeline
     """
     orchestration = contract.get("orchestration", {})
     if not orchestration:
         raise ValueError("Contract missing orchestration section")
-    
+
     tasks = orchestration.get("tasks", [])
     if not tasks:
         raise ValueError("Orchestration has no tasks")
-    
+
     # Extract configuration
     contract_id = contract.get("id", "unknown")
     contract_name = contract.get("name", contract_id)
     schedule = orchestration.get("schedule", "0 2 * * *")
-    
+
     # Filter provider action tasks
     provider_tasks = [t for t in tasks if t.get("type") == "provider_action"]
-    
+
     # Generate pipeline code
     code = _generate_header(contract_id, contract_name, account_id, region)
     code += "\n\n"
@@ -75,16 +71,11 @@ def generate_dagster_pipeline(
     code += _generate_schedule(contract_id, schedule)
     code += "\n\n"
     code += _generate_repository(contract_id)
-    
+
     return code
 
 
-def _generate_header(
-    contract_id: str,
-    contract_name: str,
-    account_id: str,
-    region: str
-) -> str:
+def _generate_header(contract_id: str, contract_name: str, account_id: str, region: str) -> str:
     """Generate file header."""
     return f'''"""
 FLUID Generated Dagster Pipeline: {contract_name}
@@ -100,7 +91,7 @@ Generated: {datetime.utcnow().isoformat()}
 
 def _generate_imports() -> str:
     """Generate import statements."""
-    return '''from dagster import (
+    return """from dagster import (
     op,
     job,
     In,
@@ -117,7 +108,7 @@ import boto3
 import json
 import logging
 
-logger = logging.getLogger(__name__)'''
+logger = logging.getLogger(__name__)"""
 
 
 def _generate_resources(account_id: str, region: str) -> str:
@@ -180,47 +171,41 @@ def aws_lambda_resource(context):
     )'''
 
 
-def _generate_ops(
-    tasks: List[Dict[str, Any]],
-    account_id: str,
-    region: str
-) -> str:
+def _generate_ops(tasks: List[Dict[str, Any]], account_id: str, region: str) -> str:
     """Generate Dagster ops for tasks."""
     ops_code = "# Task Ops\n\n"
-    
+
     for task in tasks:
         ops_code += _generate_single_op(task, account_id, region)
         ops_code += "\n\n"
-    
+
     return ops_code.rstrip()
 
 
-def _generate_single_op(
-    task: Dict[str, Any],
-    account_id: str,
-    region: str
-) -> str:
+def _generate_single_op(task: Dict[str, Any], account_id: str, region: str) -> str:
     """Generate code for a single op."""
     task_id = task.get("taskId")
     action = task.get("action")
     params = task.get("params", {})
     depends_on = task.get("dependsOn", [])
-    
+
     # Determine required resources based on action
     action_parts = action.split(".")
     service = action_parts[1] if len(action_parts) > 1 else "unknown"
-    
+
     # Build ins from dependencies
     ins_str = ""
     if depends_on:
         # Generate ins parameter as dictionary of In() objects
         ins_entries = [f'"{dep}": In()' for dep in depends_on]
         ins_str = f"    ins={{{', '.join(ins_entries)}}},"
-    
+
     # Generate op decorator and function
-    resource_name = f"aws_{service}_resource" if service in ["s3", "glue", "athena", "lambda"] else None
+    resource_name = (
+        f"aws_{service}_resource" if service in ["s3", "glue", "athena", "lambda"] else None
+    )
     required_resources = f'"{resource_name}"' if resource_name else ""
-    
+
     return f'''@op(
 {ins_str}
     required_resource_keys={{{required_resources}}},
@@ -236,31 +221,27 @@ def {_sanitize_op_name(task_id)}(context):
     return {{"status": "success", "task_id": "{task_id}"}}'''
 
 
-def _generate_op_implementation(
-    action: str,
-    params: Dict[str, Any],
-    service: str
-) -> str:
+def _generate_op_implementation(action: str, params: Dict[str, Any], service: str) -> str:
     """Generate op implementation code."""
     if service == "s3":
-        return '''s3_client = context.resources.aws_s3_resource
+        return """s3_client = context.resources.aws_s3_resource
     bucket = params.get("bucket")
     if bucket:
         s3_client.create_bucket(Bucket=bucket)
-        logger.info(f"Created S3 bucket: {bucket}")'''
-    
+        logger.info(f"Created S3 bucket: {bucket}")"""
+
     elif service == "glue":
-        return '''glue_client = context.resources.aws_glue_resource
+        return """glue_client = context.resources.aws_glue_resource
     database = params.get("database")
     if database:
         try:
             glue_client.create_database(DatabaseInput={'Name': database})
             logger.info(f"Created Glue database: {database}")
         except glue_client.exceptions.AlreadyExistsException:
-            logger.info(f"Database already exists: {database}")'''
-    
+            logger.info(f"Database already exists: {database}")"""
+
     elif service == "athena":
-        return '''athena_client = context.resources.aws_athena_resource
+        return """athena_client = context.resources.aws_athena_resource
     query = params.get("query")
     database = params.get("database", "default")
     if query:
@@ -269,10 +250,10 @@ def _generate_op_implementation(
             QueryExecutionContext={'Database': database},
             ResultConfiguration={'OutputLocation': params.get("outputLocation", "s3://athena-results/")}
         )
-        logger.info(f"Started Athena query: {response['QueryExecutionId']}")'''
-    
+        logger.info(f"Started Athena query: {response['QueryExecutionId']}")"""
+
     elif service == "lambda":
-        return '''lambda_client = context.resources.aws_lambda_resource
+        return """lambda_client = context.resources.aws_lambda_resource
     function_name = params.get("function")
     payload = params.get("payload", {})
     if function_name:
@@ -280,28 +261,24 @@ def _generate_op_implementation(
             FunctionName=function_name,
             Payload=json.dumps(payload)
         )
-        logger.info(f"Invoked Lambda: {function_name}")'''
-    
+        logger.info(f"Invoked Lambda: {function_name}")"""
+
     else:
-        return f'''# Generic provider action execution
+        return f"""# Generic provider action execution
     logger.info(f"Action: {action}")
-    logger.info(f"Params: {{params}}")'''
+    logger.info(f"Params: {{params}}")"""
 
 
-def _generate_job(
-    contract_id: str,
-    contract_name: str,
-    tasks: List[Dict[str, Any]]
-) -> str:
+def _generate_job(contract_id: str, contract_name: str, tasks: List[Dict[str, Any]]) -> str:
     """Generate Dagster job definition."""
     # Build dependency graph
     graph_calls = []
-    
+
     for task in tasks:
         task_id = task.get("taskId")
         depends_on = task.get("dependsOn", [])
         op_name = _sanitize_op_name(task_id)
-        
+
         if depends_on:
             # Op with dependencies
             args = ", ".join([_sanitize_op_name(dep) for dep in depends_on])
@@ -309,9 +286,9 @@ def _generate_job(
         else:
             # Independent op
             graph_calls.append(f"    {op_name}()")
-    
+
     graph_body = "\n".join(graph_calls)
-    
+
     return f'''@job(
     resource_defs={{
         "aws_s3_resource": aws_s3_resource,
@@ -330,18 +307,18 @@ def _generate_schedule(contract_id: str, schedule: str) -> str:
     """Generate schedule definition."""
     # Convert cron to Dagster schedule
     cron_schedule = _convert_to_cron(schedule)
-    
-    return f'''# Schedule
+
+    return f"""# Schedule
 {_sanitize_job_name(contract_id)}_schedule = ScheduleDefinition(
     job={_sanitize_job_name(contract_id)}_job,
     cron_schedule="{cron_schedule}",
-)'''
+)"""
 
 
 def _generate_repository(contract_id: str) -> str:
     """Generate Dagster repository."""
     job_name = _sanitize_job_name(contract_id)
-    
+
     return f'''# Repository
 @repository
 def {job_name}_repository():
@@ -361,11 +338,11 @@ def _sanitize_op_name(name: str) -> str:
             sanitized += char
         else:
             sanitized += "_"
-    
+
     # Ensure doesn't start with number
     if sanitized and sanitized[0].isdigit():
         sanitized = "op_" + sanitized
-    
+
     return sanitized or "unnamed_op"
 
 
@@ -379,7 +356,7 @@ def _convert_to_cron(schedule: str) -> str:
     # If already cron, return as-is
     if schedule.count(" ") >= 4:
         return schedule
-    
+
     # Handle common presets
     presets = {
         "daily": "0 2 * * *",
@@ -387,5 +364,5 @@ def _convert_to_cron(schedule: str) -> str:
         "weekly": "0 2 * * 0",
         "monthly": "0 2 1 * *",
     }
-    
+
     return presets.get(schedule.lower(), "0 2 * * *")

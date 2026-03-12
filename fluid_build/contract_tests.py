@@ -59,13 +59,16 @@ LOGGER = logging.getLogger("fluid.provider.local")
 # Helpers
 # -------------------------
 
+
 class LocalProviderError(RuntimeError):
     pass
+
 
 def _as_list(v: Union[str, List[str]]) -> List[str]:
     if isinstance(v, list):
         return v
     return [v]
+
 
 def _glob_all(paths: List[str]) -> List[str]:
     out: List[str] = []
@@ -77,8 +80,10 @@ def _glob_all(paths: List[str]) -> List[str]:
     uniq = []
     for x in out:
         if x not in seen:
-            uniq.append(x); seen.add(x)
+            uniq.append(x)
+            seen.add(x)
     return uniq
+
 
 def _require_duckdb():
     try:
@@ -89,16 +94,19 @@ def _require_duckdb():
             "Alternatively pin a compatible Python (3.9+) and DuckDB version."
         ) from e
 
+
 def _connect_duckdb():
     # Allow persistent db file for debugging/local exploration:
     # FLUID_LOCAL_DUCKDB_PATH=/tmp/fluid_local.duckdb
     _require_duckdb()
     import duckdb  # type: ignore
+
     db_path = os.environ.get("FLUID_LOCAL_DUCKDB_PATH", ":memory:")
     try:
         return duckdb.connect(db_path, read_only=False)
     except Exception as e:
         raise LocalProviderError(f"Failed to connect to duckdb at '{db_path}': {e}") from e
+
 
 def _register_input(con, alias: str, cfg: Dict[str, Any]) -> str:
     """
@@ -115,8 +123,7 @@ def _register_input(con, alias: str, cfg: Dict[str, Any]) -> str:
     files = _glob_all(paths)
     if not files:
         raise LocalProviderError(
-            f"No files found for input '{alias}'. "
-            f"Checked patterns: {paths}"
+            f"No files found for input '{alias}'. " f"Checked patterns: {paths}"
         )
 
     # Normalize to absolute paths for robust COPY/scan
@@ -132,7 +139,9 @@ def _register_input(con, alias: str, cfg: Dict[str, Any]) -> str:
             # Use read_csv_auto for robust inference, unify schema across many files
             # Create a view name bound to a UNION ALL of all files
             if len(files) == 1:
-                con.execute(f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM read_csv_auto('{files[0]}');")
+                con.execute(
+                    f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM read_csv_auto('{files[0]}');"
+                )
             else:
                 union = " UNION ALL ".join([f"SELECT * FROM read_csv_auto('{f}')" for f in files])
                 con.execute(f"CREATE OR REPLACE VIEW {name} AS {union};")
@@ -140,7 +149,9 @@ def _register_input(con, alias: str, cfg: Dict[str, Any]) -> str:
             # parquet_scan() can accept a glob. Join files to a single glob if possible.
             # If not, make a union.
             if len(files) == 1:
-                con.execute(f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM parquet_scan('{files[0]}');")
+                con.execute(
+                    f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM parquet_scan('{files[0]}');"
+                )
             else:
                 union = " UNION ALL ".join([f"SELECT * FROM parquet_scan('{f}')" for f in files])
                 con.execute(f"CREATE OR REPLACE VIEW {name} AS {union};")
@@ -150,6 +161,7 @@ def _register_input(con, alias: str, cfg: Dict[str, Any]) -> str:
         raise LocalProviderError(f"DuckDB failed to register input '{alias}': {e}") from e
 
     return name
+
 
 def _execute_sql(con, sql: str):
     """Execute SQL and return DuckDB relation."""
@@ -170,6 +182,7 @@ def _execute_sql(con, sql: str):
                 "the SQL references the correct table/view names. Error: " + msg
             ) from e
         raise LocalProviderError("SQL execution failed: " + msg) from e
+
 
 def _write_output(rel, outputs: Dict[str, Any], dry_run: bool) -> Tuple[int, Optional[str]]:
     """
@@ -211,6 +224,7 @@ def _write_output(rel, outputs: Dict[str, Any], dry_run: bool) -> Tuple[int, Opt
             # Use COPY (SELECT * FROM rel) TO 'path' (FORMAT PARQUET);
             # However duckdb.Relation doesn't expose COPY directly; use SQL.
             import duckdb  # noqa
+
             # Create a temp view and then COPY from it.
             tmp_view = "__fluid_tmp_out"
             rel.create_view(tmp_view, replace=True)
@@ -225,10 +239,12 @@ def _write_output(rel, outputs: Dict[str, Any], dry_run: bool) -> Tuple[int, Opt
                     # Fallback: read existing, union, rewrite (costly)
                     LOGGER.warning(f"COPY APPEND not supported, using fallback merge: {e}")
                     import pandas as pd
+
                     new_df = rel.to_df()
                     if abs_path.exists():
-                        import pyarrow.parquet as pq
                         import pyarrow as pa
+                        import pyarrow.parquet as pq
+
                         old_tbl = pq.read_table(abs_path)
                         old_df = old_tbl.to_pandas()
                         all_df = pd.concat([old_df, new_df], ignore_index=True)
@@ -269,6 +285,7 @@ def _write_output(rel, outputs: Dict[str, Any], dry_run: bool) -> Tuple[int, Opt
 # Public API (used by CLI)
 # -------------------------
 
+
 def apply_plan(plan: List[Dict[str, Any]], ctx) -> Dict[str, int]:
     """
     Apply a list of actions with fail-fast = False semantics.
@@ -282,11 +299,18 @@ def apply_plan(plan: List[Dict[str, Any]], ctx) -> Dict[str, int]:
             LOGGER.info(json_log("apply_action_ok", idx=idx, resource=action.get("id")))
         except LocalProviderError as e:
             failed += 1
-            LOGGER.error(json_log("apply_action_failed", idx=idx, resource=action.get("id"), error=str(e)))
+            LOGGER.error(
+                json_log("apply_action_failed", idx=idx, resource=action.get("id"), error=str(e))
+            )
         except Exception as e:
             failed += 1
-            LOGGER.exception(json_log("apply_action_unexpected", idx=idx, resource=action.get("id"), error=str(e)))
+            LOGGER.exception(
+                json_log(
+                    "apply_action_unexpected", idx=idx, resource=action.get("id"), error=str(e)
+                )
+            )
     return {"applied": applied, "failed": failed, "skipped": skipped}
+
 
 def apply_action(action: Dict[str, Any], ctx) -> None:
     """
@@ -300,12 +324,26 @@ def apply_action(action: Dict[str, Any], ctx) -> None:
 
     if rtype != "sql":
         # No-op for other resources in local provider, but keep it explicit.
-        LOGGER.info(json_log("apply_action_skip", reason="unsupported_resource_type", resource_type=rtype, resource_id=rid))
+        LOGGER.info(
+            json_log(
+                "apply_action_skip",
+                reason="unsupported_resource_type",
+                resource_type=rtype,
+                resource_id=rid,
+            )
+        )
         return
 
     # For "delete" on sql resource in local mode, do nothing (idempotent local semantics)
     if op == "delete":
-        LOGGER.info(json_log("apply_action_skip", reason="delete_noop_local", resource_type=rtype, resource_id=rid))
+        LOGGER.info(
+            json_log(
+                "apply_action_skip",
+                reason="delete_noop_local",
+                resource_type=rtype,
+                resource_id=rid,
+            )
+        )
         return
 
     # Validate action payload
@@ -337,7 +375,9 @@ def apply_action(action: Dict[str, Any], ctx) -> None:
         # Support outputs = {"targets": [ {path,format}, ... ]}
         targets = outputs.get("targets", [])
         if not isinstance(targets, list) or not targets:
-            raise LocalProviderError(f"Action '{rid}' outputs invalid (expected dict with path or targets[])")
+            raise LocalProviderError(
+                f"Action '{rid}' outputs invalid (expected dict with path or targets[])"
+            )
         total = 0
         for out in targets:
             rc, path = _write_output(rel, out, dry_run=bool(getattr(ctx, "dry_run", False)))
@@ -350,9 +390,11 @@ def apply_action(action: Dict[str, Any], ctx) -> None:
     except Exception:
         pass
 
+
 # -------------------------
 # Logging helper
 # -------------------------
+
 
 def json_log(message: str, **kwargs) -> str:
     payload = {"message": message}

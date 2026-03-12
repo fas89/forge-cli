@@ -1,30 +1,46 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Branch-coverage tests for fluid_build.cli.init"""
+
 import argparse
 import logging
-import pytest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from fluid_build.cli.init import (
     COMMAND,
-    register,
-    detect_mode,
-    should_generate_dag,
+    DbtDetector,
+    SqlFileDetector,
+    TerraformDetector,
+    _mark_first_run_complete,
+    copy_template,
     create_basic_dag,
     create_dags_readme,
-    copy_template,
-    init_local_db,
+    detect_mode,
     detect_project_type,
-    _mark_first_run_complete,
-    DbtDetector,
-    TerraformDetector,
-    SqlFileDetector,
+    generate_cloudbuild,
     generate_contracts_from_scan,
-    generate_jenkinsfile,
     generate_github_actions,
     generate_gitlab_ci,
-    generate_cloudbuild,
+    generate_jenkinsfile,
+    init_local_db,
+    register,
+    should_generate_dag,
     show_migration_summary,
 )
 
@@ -36,12 +52,14 @@ def logger():
 
 # ── Constants ────────────────────────────────────────────────────────
 
+
 class TestConstants:
     def test_command(self):
         assert COMMAND == "init"
 
 
 # ── register ─────────────────────────────────────────────────────────
+
 
 class TestRegister:
     def test_register_adds_parser(self):
@@ -54,6 +72,7 @@ class TestRegister:
 
 
 # ── _mark_first_run_complete ─────────────────────────────────────────
+
 
 class TestMarkFirstRunComplete:
     def test_creates_directory(self, tmp_path, monkeypatch):
@@ -68,66 +87,90 @@ class TestMarkFirstRunComplete:
 
 # ── detect_mode ──────────────────────────────────────────────────────
 
+
 class TestDetectMode:
     def test_explicit_quickstart(self, logger):
-        args = SimpleNamespace(quickstart=True, scan=False, wizard=False, blank=False, template=False, name=None)
+        args = SimpleNamespace(
+            quickstart=True, scan=False, wizard=False, blank=False, template=False, name=None
+        )
         assert detect_mode(args, logger) == "quickstart"
 
     def test_explicit_scan(self, logger):
-        args = SimpleNamespace(quickstart=False, scan=True, wizard=False, blank=False, template=False, name=None)
+        args = SimpleNamespace(
+            quickstart=False, scan=True, wizard=False, blank=False, template=False, name=None
+        )
         assert detect_mode(args, logger) == "scan"
 
     def test_explicit_wizard(self, logger):
-        args = SimpleNamespace(quickstart=False, scan=False, wizard=True, blank=False, template=False, name=None)
+        args = SimpleNamespace(
+            quickstart=False, scan=False, wizard=True, blank=False, template=False, name=None
+        )
         assert detect_mode(args, logger) == "wizard"
 
     def test_explicit_blank(self, logger):
-        args = SimpleNamespace(quickstart=False, scan=False, wizard=False, blank=True, template=False, name=None)
+        args = SimpleNamespace(
+            quickstart=False, scan=False, wizard=False, blank=True, template=False, name=None
+        )
         assert detect_mode(args, logger) == "blank"
 
     def test_explicit_template(self, logger):
-        args = SimpleNamespace(quickstart=False, scan=False, wizard=False, blank=False, template="x", name=None)
+        args = SimpleNamespace(
+            quickstart=False, scan=False, wizard=False, blank=False, template="x", name=None
+        )
         assert detect_mode(args, logger) == "template"
 
     def test_existing_contract_returns_none(self, logger, tmp_path, monkeypatch):
         (tmp_path / "contract.fluid.yaml").write_text("test")
         monkeypatch.chdir(tmp_path)
-        args = SimpleNamespace(quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None)
+        args = SimpleNamespace(
+            quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None
+        )
         assert detect_mode(args, logger) is None
 
     def test_dbt_project_returns_scan(self, logger, tmp_path, monkeypatch):
         (tmp_path / "dbt_project.yml").write_text("name: test")
         monkeypatch.chdir(tmp_path)
-        args = SimpleNamespace(quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None)
+        args = SimpleNamespace(
+            quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None
+        )
         assert detect_mode(args, logger) == "scan"
 
     def test_terraform_returns_scan(self, logger, tmp_path, monkeypatch):
         (tmp_path / "main.tf").write_text("resource {}")
         monkeypatch.chdir(tmp_path)
-        args = SimpleNamespace(quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None)
+        args = SimpleNamespace(
+            quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None
+        )
         assert detect_mode(args, logger) == "scan"
 
     def test_sql_files_without_name_returns_scan(self, logger, tmp_path, monkeypatch):
         (tmp_path / "query.sql").write_text("SELECT 1")
         monkeypatch.chdir(tmp_path)
-        args = SimpleNamespace(quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None)
+        args = SimpleNamespace(
+            quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None
+        )
         assert detect_mode(args, logger) == "scan"
 
     def test_first_time_user_returns_quickstart(self, logger, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(Path, "home", lambda: tmp_path / "nohome")
-        args = SimpleNamespace(quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None)
+        args = SimpleNamespace(
+            quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None
+        )
         assert detect_mode(args, logger) == "quickstart"
 
     def test_default_returns_quickstart(self, logger, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         (tmp_path / ".fluid").mkdir()
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        args = SimpleNamespace(quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None)
+        args = SimpleNamespace(
+            quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None
+        )
         assert detect_mode(args, logger) == "quickstart"
 
 
 # ── should_generate_dag ─────────────────────────────────────────────
+
 
 class TestShouldGenerateDag:
     def test_orchestration_present(self):
@@ -165,9 +208,13 @@ class TestShouldGenerateDag:
 
 # ── create_basic_dag ─────────────────────────────────────────────────
 
+
 class TestCreateBasicDag:
     def test_creates_dag_file(self, tmp_path, logger):
-        contract = {"name": "my-product", "orchestration": {"schedule": "@hourly", "retries": 2, "retry_delay": "10m"}}
+        contract = {
+            "name": "my-product",
+            "orchestration": {"schedule": "@hourly", "retries": 2, "retry_delay": "10m"},
+        }
         create_basic_dag(tmp_path, contract, logger)
         dag_file = tmp_path / "dags" / "my_product_dag.py"
         assert dag_file.exists()
@@ -186,6 +233,7 @@ class TestCreateBasicDag:
 
 # ── create_dags_readme ───────────────────────────────────────────────
 
+
 class TestCreateDagsReadme:
     def test_creates_readme(self, tmp_path):
         dag_dir = tmp_path / "dags"
@@ -199,6 +247,7 @@ class TestCreateDagsReadme:
 
 # ── copy_template ────────────────────────────────────────────────────
 
+
 class TestCopyTemplate:
     def test_template_not_found(self, tmp_path, logger):
         result = copy_template(tmp_path / "out", "nonexistent-xyz-9999", logger)
@@ -206,6 +255,7 @@ class TestCopyTemplate:
 
 
 # ── init_local_db ────────────────────────────────────────────────────
+
 
 class TestInitLocalDb:
     def test_non_local_provider_skips(self, tmp_path, logger):
@@ -216,7 +266,6 @@ class TestInitLocalDb:
     @patch("fluid_build.cli.init.duckdb", create=True)
     def test_local_provider_creates_db(self, mock_duckdb, tmp_path, logger):
         # The import is inside the function, mock it at module level after import
-        import fluid_build.cli.init as init_mod
         with patch.dict("sys.modules", {"duckdb": MagicMock()}):
             # Re-call init_local_db directly, duckdb imported lazily
             init_local_db(tmp_path, "local", logger)
@@ -229,6 +278,7 @@ class TestInitLocalDb:
 
 
 # ── detect_project_type ──────────────────────────────────────────────
+
 
 class TestDetectProjectType:
     def test_dbt_project(self, tmp_path):
@@ -265,6 +315,7 @@ class TestDetectProjectType:
 
 
 # ── DbtDetector ──────────────────────────────────────────────────────
+
 
 class TestDbtDetector:
     def test_can_detect_yes(self, tmp_path):
@@ -323,6 +374,7 @@ class TestDbtDetector:
 
 # ── TerraformDetector ────────────────────────────────────────────────
 
+
 class TestTerraformDetector:
     def test_can_detect_yes(self, tmp_path):
         (tmp_path / "main.tf").write_text("resource {}")
@@ -355,6 +407,7 @@ class TestTerraformDetector:
 
 # ── SqlFileDetector ──────────────────────────────────────────────────
 
+
 class TestSqlFileDetector:
     def test_can_detect_yes(self, tmp_path):
         (tmp_path / "query.sql").write_text("SELECT 1")
@@ -375,60 +428,71 @@ class TestSqlFileDetector:
 
 # ── run ──────────────────────────────────────────────────────────────
 
+
 class TestRun:
     @patch("fluid_build.cli.init.detect_mode", return_value=None)
     def test_none_mode_returns_1(self, mock_dm, logger):
         args = SimpleNamespace()
         from fluid_build.cli.init import run
+
         assert run(args, logger) == 1
 
     @patch("fluid_build.cli.init.quickstart_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="quickstart")
     def test_quickstart_dispatch(self, mock_dm, mock_qs, logger):
         from fluid_build.cli.init import run
+
         assert run(SimpleNamespace(), logger) == 0
 
     @patch("fluid_build.cli.init.scan_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="scan")
     def test_scan_dispatch(self, mock_dm, mock_sc, logger):
         from fluid_build.cli.init import run
+
         assert run(SimpleNamespace(), logger) == 0
 
     @patch("fluid_build.cli.init.wizard_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="wizard")
     def test_wizard_dispatch(self, mock_dm, mock_wiz, logger):
         from fluid_build.cli.init import run
+
         assert run(SimpleNamespace(), logger) == 0
 
     @patch("fluid_build.cli.init.blank_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="blank")
     def test_blank_dispatch(self, mock_dm, mock_bl, logger):
         from fluid_build.cli.init import run
+
         assert run(SimpleNamespace(), logger) == 0
 
     @patch("fluid_build.cli.init.template_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="template")
     def test_template_dispatch(self, mock_dm, mock_tm, logger):
         from fluid_build.cli.init import run
+
         assert run(SimpleNamespace(), logger) == 0
 
     @patch("fluid_build.cli.init.detect_mode", return_value="unknown_xyz")
     def test_unknown_mode_returns_1(self, mock_dm, logger):
         from fluid_build.cli.init import run
+
         assert run(SimpleNamespace(), logger) == 1
 
     @patch("fluid_build.cli.init.detect_mode", side_effect=KeyboardInterrupt)
     def test_keyboard_interrupt_returns_130(self, mock_dm, logger):
         from fluid_build.cli.init import run
+
         assert run(SimpleNamespace(), logger) == 130
 
     @patch("fluid_build.cli.init.detect_mode", side_effect=RuntimeError("boom"))
     def test_exception_returns_1(self, mock_dm, logger):
         from fluid_build.cli.init import run
+
         assert run(SimpleNamespace(), logger) == 1
 
 
 # ── generate_dag_for_project ─────────────────────────────────────────
+
 
 class TestGenerateDagForProject:
     @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
@@ -436,6 +500,7 @@ class TestGenerateDagForProject:
     @patch("fluid_build.cli.init.create_basic_dag")
     def test_subprocess_failure_creates_basic(self, mock_basic, mock_readme, tmp_path, logger):
         from fluid_build.cli.init import generate_dag_for_project
+
         contract = {"name": "test-dag"}
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=1)
@@ -447,6 +512,7 @@ class TestGenerateDagForProject:
     @patch("fluid_build.cli.init.create_dags_readme")
     def test_subprocess_success(self, mock_readme, tmp_path, logger):
         from fluid_build.cli.init import generate_dag_for_project
+
         contract = {"name": "ok-dag", "orchestration": {"schedule": "@hourly"}}
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0)
@@ -456,6 +522,7 @@ class TestGenerateDagForProject:
     @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
     def test_exception_returns_false(self, tmp_path, logger):
         from fluid_build.cli.init import generate_dag_for_project
+
         with patch("subprocess.run", side_effect=OSError("no subprocess")):
             result = generate_dag_for_project(tmp_path, {}, logger, None)
         assert result is False
@@ -463,12 +530,19 @@ class TestGenerateDagForProject:
 
 # ── generate_contracts_from_scan ─────────────────────────────────────
 
+
 class TestGenerateContractsFromScan:
     @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
     def test_dbt_basic(self, logger):
         results = {
             "project_type": "dbt",
-            "models": [{"name": "users", "columns": [{"name": "id", "type": "int"}], "raw_sql": "SELECT id FROM users"}],
+            "models": [
+                {
+                    "name": "users",
+                    "columns": [{"name": "id", "type": "int"}],
+                    "raw_sql": "SELECT id FROM users",
+                }
+            ],
             "metadata": {"project_name": "test-dbt"},
         }
         contracts = generate_contracts_from_scan(results, "local", logger)
@@ -493,7 +567,11 @@ class TestGenerateContractsFromScan:
         results = {
             "project_type": "dbt",
             "models": [],
-            "metadata": {"target_platform": "gcp", "target_database": "my-proj", "target_schema": "ds"},
+            "metadata": {
+                "target_platform": "gcp",
+                "target_database": "my-proj",
+                "target_schema": "ds",
+            },
         }
         contracts = generate_contracts_from_scan(results, "local", logger)
         assert contracts[0]["binding"]["provider"] == "gcp"
@@ -544,6 +622,7 @@ class TestGenerateContractsFromScan:
 
 # ── CI/CD generators ────────────────────────────────────────────────
 
+
 class TestCICDGenerators:
     def test_jenkinsfile(self, tmp_path, logger):
         generate_jenkinsfile(tmp_path, logger)
@@ -571,6 +650,7 @@ class TestCICDGenerators:
 
 
 # ── show_migration_summary ───────────────────────────────────────────
+
 
 class TestShowMigrationSummary:
     @patch("fluid_build.cli.init.RICH_AVAILABLE", False)

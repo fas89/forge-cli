@@ -19,6 +19,7 @@ Defines the core exception classes used across the FLUID CLI codebase.
 All FLUID-specific exceptions inherit from FluidError, enabling
 consistent error handling and reporting throughout the tool chain.
 """
+
 from __future__ import annotations
 
 from typing import Any, Dict, Optional, Type

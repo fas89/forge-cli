@@ -18,29 +18,26 @@ Dagster Pipeline Generation for Snowflake Provider.
 Generates Python pipeline code from FLUID contracts for Dagster with Snowflake.
 """
 
-from typing import Dict, Any, List
 from datetime import datetime
+from typing import Any, Dict, List
 
 
 def generate_dagster_pipeline(
-    contract: Dict[str, Any],
-    account: str,
-    database: str,
-    warehouse: str = "COMPUTE_WH"
+    contract: Dict[str, Any], account: str, database: str, warehouse: str = "COMPUTE_WH"
 ) -> str:
     """Generate Dagster pipeline from FLUID contract."""
     orchestration = contract.get("orchestration", {})
     if not orchestration:
         raise ValueError("Contract missing orchestration section")
-    
+
     tasks = orchestration.get("tasks", [])
     provider_tasks = [t for t in tasks if t.get("type") == "provider_action"]
-    
+
     contract_id = contract.get("id", "unknown")
     contract_name = contract.get("name", contract_id)
     schedule = orchestration.get("schedule", "0 2 * * *")
     timezone = orchestration.get("timezone", "UTC")
-    
+
     code = _generate_header(contract_id, contract_name, account, database, warehouse)
     code += "\n\n"
     code += _generate_imports()
@@ -50,11 +47,13 @@ def generate_dagster_pipeline(
     code += _generate_ops(provider_tasks, database, warehouse)
     code += "\n\n"
     code += _generate_job(contract_id, provider_tasks, schedule, timezone)
-    
+
     return code
 
 
-def _generate_header(contract_id: str, contract_name: str, account: str, database: str, warehouse: str) -> str:
+def _generate_header(
+    contract_id: str, contract_name: str, account: str, database: str, warehouse: str
+) -> str:
     return f'''"""
 FLUID Generated Dagster Pipeline: {contract_name}
 
@@ -69,11 +68,11 @@ Generated: {datetime.utcnow().isoformat()}Z
 
 
 def _generate_imports() -> str:
-    return '''from dagster import op, job, resource, In, Out, Nothing, ScheduleDefinition
+    return """from dagster import op, job, resource, In, Out, Nothing, ScheduleDefinition
 from snowflake.connector import connect
 import logging
 
-logger = logging.getLogger(__name__)'''
+logger = logging.getLogger(__name__)"""
 
 
 def _generate_resources(account: str, database: str, warehouse: str) -> str:
@@ -105,22 +104,22 @@ def _generate_single_op(task: Dict[str, Any], database: str, warehouse: str) -> 
     action = task.get("action", "")
     params = task.get("params", {})
     depends_on = task.get("dependsOn", [])
-    
+
     if depends_on:
-        dep_items = ', '.join(['"dep_{}": In(Nothing)'.format(d) for d in depends_on])
+        dep_items = ", ".join([f'"dep_{d}": In(Nothing)' for d in depends_on])
         ins_def = f"ins={{{dep_items}}}, "
     else:
         ins_def = ""
-    
+
     action_parts = action.split(".")
     if len(action_parts) >= 3:
         operation = action_parts[2]
-        
+
         if operation == "query" or operation == "run_query":
             sql = params.get("sql", params.get("query", "SELECT 1"))
-            # Escape for Python string  
-            sql_escaped = sql.replace('\\', '\\\\').replace('"', '\\"')
-            
+            # Escape for Python string
+            sql_escaped = sql.replace("\\", "\\\\").replace('"', '\\"')
+
             return f'''@op({ins_def}required_resource_keys={{"snowflake_conn"}})
 def {task_id}(context):
     """Execute Snowflake query"""
@@ -133,7 +132,7 @@ def {task_id}(context):
         return len(results)
     finally:
         cursor.close()'''
-    
+
     return f'''@op({ins_def})
 def {task_id}(context):
     """Generic op: {action}"""
@@ -141,7 +140,9 @@ def {task_id}(context):
     return True'''
 
 
-def _generate_job(contract_id: str, tasks: List[Dict[str, Any]], schedule: str, timezone: str) -> str:
+def _generate_job(
+    contract_id: str, tasks: List[Dict[str, Any]], schedule: str, timezone: str
+) -> str:
     op_calls = []
     for task in tasks:
         task_id = task.get("taskId")
@@ -151,11 +152,11 @@ def _generate_job(contract_id: str, tasks: List[Dict[str, Any]], schedule: str, 
             op_calls.append(f"    {task_id}_result = {task_id}({dep_args})")
         else:
             op_calls.append(f"    {task_id}_result = {task_id}()")
-    
+
     op_calls_str = "\n".join(op_calls)
     job_name = _sanitize_name(contract_id)
     cron_schedule = _convert_schedule(schedule)
-    
+
     return f'''# Job definition
 @job(
     resource_defs={{"snowflake_conn": snowflake_conn}},
@@ -190,4 +191,5 @@ def _convert_schedule(schedule: str) -> str:
 
 def _sanitize_name(name: str) -> str:
     import re
-    return re.sub(r'[^a-zA-Z0-9_]', '_', name)
+
+    return re.sub(r"[^a-zA-Z0-9_]", "_", name)

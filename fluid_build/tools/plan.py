@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from ..providers.base import PlanAction
+from ..policy.compiler import compile_policy
 from ..providers.gcp.bq import plan_bigquery
 from ..providers.gcp.gcs import plan_gcs
 from ..providers.gcp.pubsub import plan_pubsub
-from ..policy.compiler import compile_policy
+
 
 def build_plan(contract: dict, provider: str):
     actions = []
@@ -28,5 +28,6 @@ def build_plan(contract: dict, provider: str):
     else:
         # local -> interpret exposes with file targets or SQL stubs
         from ..providers.local.ducksql import plan_sql
+
         actions += plan_sql(contract)
     return [a.__dict__ for a in actions]

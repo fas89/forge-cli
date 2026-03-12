@@ -14,42 +14,39 @@
 
 # tests/providers/test_phase3_harness_scaffold.py
 """Tests for Phase 3: Test Harness + Scaffolder."""
+
 from __future__ import annotations
 
-import os
-import re
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Mapping
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Test Harness (SDK testing subpackage)
 # ---------------------------------------------------------------------------
+
 
 class TestHarnessImports:
     """Verify the testing subpackage is importable and exposes the API."""
 
     def test_import_harness(self):
         from fluid_provider_sdk.testing import ProviderTestHarness
+
         assert ProviderTestHarness is not None
 
     def test_import_fixtures(self):
         from fluid_provider_sdk.testing import (
-            LOCAL_CONTRACT,
-            GCP_CONTRACT,
-            AWS_CONTRACT,
-            SNOWFLAKE_CONTRACT,
             SAMPLE_CONTRACTS,
         )
+
         assert isinstance(SAMPLE_CONTRACTS, list)
         assert len(SAMPLE_CONTRACTS) == 4
 
     def test_fixtures_are_valid_contracts(self):
         from fluid_provider_sdk.testing import SAMPLE_CONTRACTS
+
         for contract in SAMPLE_CONTRACTS:
             assert "fluidVersion" in contract
             assert "kind" in contract
@@ -62,20 +59,24 @@ class TestHarnessFixtureContent:
 
     def test_local_contract_has_consumes(self):
         from fluid_provider_sdk.testing import LOCAL_CONTRACT
+
         assert "consumes" in LOCAL_CONTRACT
         assert len(LOCAL_CONTRACT["consumes"]) > 0
 
     def test_gcp_contract_has_labels(self):
         from fluid_provider_sdk.testing import GCP_CONTRACT
+
         assert "labels" in GCP_CONTRACT
 
     def test_aws_contract_has_retention_policy(self):
         from fluid_provider_sdk.testing import AWS_CONTRACT
+
         policies = AWS_CONTRACT.get("metadata", {}).get("policies", {})
         assert "retention_days" in policies
 
     def test_snowflake_contract_has_warehouse(self):
         from fluid_provider_sdk.testing import SNOWFLAKE_CONTRACT
+
         exposes = SNOWFLAKE_CONTRACT.get("exposes", [])
         assert len(exposes) > 0
         location = exposes[0].get("binding", {}).get("location", {})
@@ -88,13 +89,15 @@ class TestHarnessWithLocalProvider:
     @pytest.fixture(autouse=True)
     def _setup(self):
         from fluid_build.providers import clear_providers
+
         clear_providers()
         yield
         clear_providers()
 
     def _get_harness(self):
         """Create a harness-like test instance for LocalProvider."""
-        from fluid_provider_sdk.testing import ProviderTestHarness, LOCAL_CONTRACT
+        from fluid_provider_sdk.testing import LOCAL_CONTRACT, ProviderTestHarness
+
         from fluid_build.providers.local import LocalProvider
 
         class _LocalHarness(ProviderTestHarness):
@@ -163,8 +166,8 @@ class TestHarnessValidation:
 
     def test_default_name_is_reserved(self):
         """BaseProvider defaults name='unknown', which is reserved."""
-        from fluid_provider_sdk.testing import ProviderTestHarness
         from fluid_provider_sdk import BaseProvider
+        from fluid_provider_sdk.testing import ProviderTestHarness
 
         class BadProvider(BaseProvider):
             pass  # inherits name="unknown"
@@ -178,8 +181,8 @@ class TestHarnessValidation:
             h.test_name_not_reserved()
 
     def test_reserved_name_fails(self):
-        from fluid_provider_sdk.testing import ProviderTestHarness
         from fluid_provider_sdk import BaseProvider
+        from fluid_provider_sdk.testing import ProviderTestHarness
 
         class TestProvider(BaseProvider):
             name = "test"
@@ -192,8 +195,8 @@ class TestHarnessValidation:
             h.test_name_not_reserved()
 
     def test_no_contracts_skips_plan(self):
-        from fluid_provider_sdk.testing import ProviderTestHarness
         from fluid_provider_sdk import BaseProvider
+        from fluid_provider_sdk.testing import ProviderTestHarness
 
         class MinimalProvider(BaseProvider):
             name = "minprov"
@@ -212,17 +215,20 @@ class TestHarnessValidation:
 # Scaffolder (provider_init.py)
 # ---------------------------------------------------------------------------
 
+
 class TestScaffolderRegistration:
     """Verify provider-init command is registered in bootstrap."""
 
     def test_provider_init_in_bootstrap(self):
         import importlib
+
         mod = importlib.import_module("fluid_build.cli.provider_init")
         assert hasattr(mod, "register")
         assert hasattr(mod, "run")
 
     def test_register_creates_subcommand(self):
         import argparse
+
         from fluid_build.cli.provider_init import register
 
         parser = argparse.ArgumentParser()
@@ -236,18 +242,25 @@ class TestScaffolderRegistration:
 
     def test_register_accepts_all_options(self):
         import argparse
+
         from fluid_build.cli.provider_init import register
 
         parser = argparse.ArgumentParser()
         sp = parser.add_subparsers()
         register(sp)
 
-        args = parser.parse_args([
-            "provider-init", "mydb",
-            "--author", "My Corp",
-            "--description", "My DB provider",
-            "--output-dir", "/tmp/test"
-        ])
+        args = parser.parse_args(
+            [
+                "provider-init",
+                "mydb",
+                "--author",
+                "My Corp",
+                "--description",
+                "My DB provider",
+                "--output-dir",
+                "/tmp/test",
+            ]
+        )
         assert args.name == "mydb"
         assert args.author == "My Corp"
         assert args.desc == "My DB provider"
@@ -263,9 +276,16 @@ class TestScaffolderGeneration:
         yield Path(d)
         shutil.rmtree(d, ignore_errors=True)
 
-    def _run_scaffold(self, tmp_dir: Path, name: str = "testprov",
-                      author: str = "Test", desc: str = "Test provider"):
-        import argparse, logging
+    def _run_scaffold(
+        self,
+        tmp_dir: Path,
+        name: str = "testprov",
+        author: str = "Test",
+        desc: str = "Test provider",
+    ):
+        import argparse
+        import logging
+
         from fluid_build.cli.provider_init import run
 
         args = argparse.Namespace(
@@ -339,6 +359,7 @@ class TestScaffolderGeneration:
     def test_fixture_yaml_is_valid(self, tmp_dir):
         """Verify the generated YAML fixture is parseable."""
         import yaml
+
         pkg = self._run_scaffold(tmp_dir)
         with open(pkg / "tests/fixtures/basic_contract.yaml") as f:
             contract = yaml.safe_load(f)
@@ -369,9 +390,11 @@ class TestScaffolderValidation:
         shutil.rmtree(d, ignore_errors=True)
 
     def test_rejects_invalid_name(self, tmp_dir):
-        import argparse, logging
-        from fluid_build.cli.provider_init import run
+        import argparse
+        import logging
+
         from fluid_build.cli._common import CLIError
+        from fluid_build.cli.provider_init import run
 
         args = argparse.Namespace(
             name="123bad",
@@ -383,9 +406,11 @@ class TestScaffolderValidation:
             run(args, logging.getLogger("test"))
 
     def test_rejects_reserved_name(self, tmp_dir):
-        import argparse, logging
-        from fluid_build.cli.provider_init import run
+        import argparse
+        import logging
+
         from fluid_build.cli._common import CLIError
+        from fluid_build.cli.provider_init import run
 
         args = argparse.Namespace(
             name="local",
@@ -397,9 +422,11 @@ class TestScaffolderValidation:
             run(args, logging.getLogger("test"))
 
     def test_rejects_existing_directory(self, tmp_dir):
-        import argparse, logging
-        from fluid_build.cli.provider_init import run
+        import argparse
+        import logging
+
         from fluid_build.cli._common import CLIError
+        from fluid_build.cli.provider_init import run
 
         # Create the directory first
         (tmp_dir / "fluid-provider-duptest").mkdir()

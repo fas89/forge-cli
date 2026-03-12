@@ -1,26 +1,41 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Branch-coverage tests for fluid_build.cli.contract_validation"""
+
 import argparse
 import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch, mock_open
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from fluid_build.cli.contract_validation import (
+    ContractValidator,
     ValidationIssue,
     ValidationReport,
-    ContractValidator,
+    output_json_report,
+    output_plain_report,
+    output_text_report,
     register,
     run,
-    output_text_report,
-    output_plain_report,
-    output_json_report,
 )
 
-
 # ===================== ValidationIssue =====================
+
 
 class TestValidationIssue:
     def test_str_minimal(self):
@@ -34,15 +49,27 @@ class TestValidationIssue:
         assert "Path: a.b" in str(vi)
 
     def test_str_with_expected_actual(self):
-        vi = ValidationIssue(severity="info", category="schema", message="m", path="p",
-                             expected="INT", actual="STRING")
+        vi = ValidationIssue(
+            severity="info",
+            category="schema",
+            message="m",
+            path="p",
+            expected="INT",
+            actual="STRING",
+        )
         s = str(vi)
         assert "Expected: INT" in s
         assert "Actual: STRING" in s
 
     def test_str_with_suggestion_and_docs(self):
-        vi = ValidationIssue(severity="error", category="quality", message="m", path="p",
-                             suggestion="fix it", documentation_url="http://docs")
+        vi = ValidationIssue(
+            severity="error",
+            category="quality",
+            message="m",
+            path="p",
+            suggestion="fix it",
+            documentation_url="http://docs",
+        )
         s = str(vi)
         assert "Suggestion: fix it" in s
         assert "Docs: http://docs" in s
@@ -50,17 +77,29 @@ class TestValidationIssue:
 
 # ===================== ValidationReport =====================
 
+
 class TestValidationReport:
     def _make_report(self):
         return ValidationReport(
-            contract_path="test.yaml", contract_id="test-id",
-            contract_version="1.0.0", validation_time=datetime.now(), duration=1.5
+            contract_path="test.yaml",
+            contract_id="test-id",
+            contract_version="1.0.0",
+            validation_time=datetime.now(),
+            duration=1.5,
         )
 
     def test_add_issue_error(self):
         r = self._make_report()
-        r.add_issue("error", "schema", "bad field", "a.b", expected="X", actual="Y",
-                     suggestion="fix", documentation_url="http://x")
+        r.add_issue(
+            "error",
+            "schema",
+            "bad field",
+            "a.b",
+            expected="X",
+            actual="Y",
+            suggestion="fix",
+            documentation_url="http://x",
+        )
         assert r.checks_failed == 1
         assert len(r.get_errors()) == 1
         assert not r.is_valid()
@@ -89,31 +128,31 @@ class TestValidationReport:
 
 # ===================== ContractValidator =====================
 
+
 class TestContractValidator:
     def _make_contract(self, **overrides):
         base = {
             "id": "test-product",
             "version": "1.0.0",
             "metadata": {"owner": "team", "layer": "Gold", "domain": "analytics", "tags": ["a"]},
-            "exposes": [{
-                "id": "exp1",
-                "type": "table",
-                "binding": {
-                    "platform": "gcp",
-                    "location": {
-                        "format": "bigquery",
-                        "properties": {"project": "proj", "dataset": "ds", "table": "tbl"}
-                    }
-                },
-                "schema": [
-                    {"name": "id", "type": "INTEGER"},
-                    {"name": "name", "type": "VARCHAR"},
-                ]
-            }],
-            "quality": {
-                "sla": {"freshness": "1h"},
-                "tests": [{"name": "row_count"}]
-            },
+            "exposes": [
+                {
+                    "id": "exp1",
+                    "type": "table",
+                    "binding": {
+                        "platform": "gcp",
+                        "location": {
+                            "format": "bigquery",
+                            "properties": {"project": "proj", "dataset": "ds", "table": "tbl"},
+                        },
+                    },
+                    "schema": [
+                        {"name": "id", "type": "INTEGER"},
+                        {"name": "name", "type": "VARCHAR"},
+                    ],
+                }
+            ],
+            "quality": {"sla": {"freshness": "1h"}, "tests": [{"name": "row_count"}]},
         }
         base.update(overrides)
         return base
@@ -196,7 +235,7 @@ class TestContractValidator:
     def test_detect_provider_from_builds(self, MockSM, mock_load):
         contract = self._make_contract(
             exposes=[{"id": "e1", "type": "table", "binding": {}, "schema": []}],
-            builds=[{"execution": {"runtime": {"platform": "snowflake"}}}]
+            builds=[{"execution": {"runtime": {"platform": "snowflake"}}}],
         )
         mock_load.return_value = contract
         mock_sm = MockSM.return_value
@@ -281,11 +320,16 @@ class TestContractValidator:
     @patch("fluid_build.cli.contract_validation.load_contract_with_overlay")
     @patch("fluid_build.cli.contract_validation.FluidSchemaManager")
     def test_validate_binding_missing_platform(self, MockSM, mock_load):
-        contract = self._make_contract(exposes=[{
-            "id": "e1", "type": "table",
-            "binding": {"location": {"format": "x"}},
-            "schema": []
-        }])
+        contract = self._make_contract(
+            exposes=[
+                {
+                    "id": "e1",
+                    "type": "table",
+                    "binding": {"location": {"format": "x"}},
+                    "schema": [],
+                }
+            ]
+        )
         mock_load.return_value = contract
         mock_sm = MockSM.return_value
         mock_result = MagicMock(is_valid=True, errors=[], warnings=[])
@@ -298,11 +342,9 @@ class TestContractValidator:
     @patch("fluid_build.cli.contract_validation.load_contract_with_overlay")
     @patch("fluid_build.cli.contract_validation.FluidSchemaManager")
     def test_validate_binding_missing_location(self, MockSM, mock_load):
-        contract = self._make_contract(exposes=[{
-            "id": "e1", "type": "table",
-            "binding": {"platform": "gcp"},
-            "schema": []
-        }])
+        contract = self._make_contract(
+            exposes=[{"id": "e1", "type": "table", "binding": {"platform": "gcp"}, "schema": []}]
+        )
         mock_load.return_value = contract
         mock_sm = MockSM.return_value
         mock_result = MagicMock(is_valid=True, errors=[], warnings=[])
@@ -317,11 +359,20 @@ class TestContractValidator:
     @patch("fluid_build.cli.contract_validation.FluidSchemaManager")
     def test_validate_schema_nonstandard_type(self, MockSM, mock_load):
         contract = self._make_contract(
-            exposes=[{
-                "id": "e1", "type": "table",
-                "binding": {"platform": "gcp", "location": {"format": "bq", "properties": {"project": "p", "dataset": "d", "table": "t"}}},
-                "schema": [{"name": "x", "type": "WEIRD_TYPE"}]
-            }]
+            exposes=[
+                {
+                    "id": "e1",
+                    "type": "table",
+                    "binding": {
+                        "platform": "gcp",
+                        "location": {
+                            "format": "bq",
+                            "properties": {"project": "p", "dataset": "d", "table": "t"},
+                        },
+                    },
+                    "schema": [{"name": "x", "type": "WEIRD_TYPE"}],
+                }
+            ]
         )
         mock_load.return_value = contract
         mock_sm = MockSM.return_value
@@ -336,11 +387,20 @@ class TestContractValidator:
     @patch("fluid_build.cli.contract_validation.FluidSchemaManager")
     def test_validate_schema_missing_name(self, MockSM, mock_load):
         contract = self._make_contract(
-            exposes=[{
-                "id": "e1", "type": "table",
-                "binding": {"platform": "gcp", "location": {"format": "bq", "properties": {"project": "p", "dataset": "d", "table": "t"}}},
-                "schema": [{"type": "STRING"}, {"name": "y"}]
-            }]
+            exposes=[
+                {
+                    "id": "e1",
+                    "type": "table",
+                    "binding": {
+                        "platform": "gcp",
+                        "location": {
+                            "format": "bq",
+                            "properties": {"project": "p", "dataset": "d", "table": "t"},
+                        },
+                    },
+                    "schema": [{"type": "STRING"}, {"name": "y"}],
+                }
+            ]
         )
         mock_load.return_value = contract
         mock_sm = MockSM.return_value
@@ -459,39 +519,43 @@ class TestContractValidator:
     def test_cache_clear(self):
         with patch("fluid_build.cli.contract_validation.ValidationCache") as MockCache:
             mock_cache = MockCache.return_value
-            v = ContractValidator(
-                Path("test.yaml"), use_cache=True, cache_clear=True
-            )
+            ContractValidator(Path("test.yaml"), use_cache=True, cache_clear=True)
             mock_cache.clear.assert_called_once()
 
     @patch("fluid_build.cli.contract_validation.load_contract_with_overlay")
     @patch("fluid_build.cli.contract_validation.FluidSchemaManager")
     def test_build_snowflake_config(self, MockSM, mock_load):
         contract = {
-            "id": "test", "version": "1.0.0",
-            "exposes": [{
-                "id": "e1", "type": "table",
-                "binding": {
-                    "platform": "snowflake",
-                    "location": {"account": "acc", "database": "db", "schema": "sch"}
-                },
-                "schema": []
-            }],
-            "metadata": {}
+            "id": "test",
+            "version": "1.0.0",
+            "exposes": [
+                {
+                    "id": "e1",
+                    "type": "table",
+                    "binding": {
+                        "platform": "snowflake",
+                        "location": {"account": "acc", "database": "db", "schema": "sch"},
+                    },
+                    "schema": [],
+                }
+            ],
+            "metadata": {},
         }
         mock_load.return_value = contract
         mock_sm = MockSM.return_value
         mock_result = MagicMock(is_valid=True, errors=[], warnings=[])
         mock_sm.validate_contract.return_value = mock_result
 
-        with patch("fluid_build.cli.contract_validation.SNOWFLAKE_VALIDATION_AVAILABLE", True), \
-             patch("fluid_build.cli.contract_validation.SnowflakeValidationProvider") as MockSFP:
+        with (
+            patch("fluid_build.cli.contract_validation.SNOWFLAKE_VALIDATION_AVAILABLE", True),
+            patch("fluid_build.cli.contract_validation.SnowflakeValidationProvider") as MockSFP,
+        ):
             mock_sfp = MockSFP.return_value
             mock_sfp.validate_connection.return_value = True
             v = ContractValidator(
                 Path("test.yaml"), use_cache=False, check_data=False, server="override-acc"
             )
-            report = v.validate()
+            v.validate()
             # The _build_snowflake_config should have been called
             call_args = MockSFP.call_args[0][0]
             assert call_args["account"] == "override-acc"
@@ -499,14 +563,25 @@ class TestContractValidator:
 
 # ===================== run() and register() =====================
 
+
 class TestRunFunction:
     @patch("fluid_build.cli.contract_validation.ContractValidator")
     def test_run_contract_not_found(self, MockCV):
         args = argparse.Namespace(
-            contract="nonexistent.yaml", output_format="text", output_file=None,
-            strict=False, env=None, provider=None, project=None, region=None,
-            no_data=False, cache=True, cache_ttl=3600, cache_clear=False,
-            track_history=True, check_drift=False,
+            contract="nonexistent.yaml",
+            output_format="text",
+            output_file=None,
+            strict=False,
+            env=None,
+            provider=None,
+            project=None,
+            region=None,
+            no_data=False,
+            cache=True,
+            cache_ttl=3600,
+            cache_clear=False,
+            track_history=True,
+            check_drift=False,
         )
         with patch.object(Path, "exists", return_value=False):
             result = run(args, logging.getLogger())
@@ -515,15 +590,25 @@ class TestRunFunction:
     @patch("fluid_build.cli.contract_validation.ContractValidator")
     def test_run_cache_stats(self, MockCV):
         args = argparse.Namespace(
-            contract="test.yaml", output_format="text", output_file=None,
-            strict=False, cache_stats=True, cache_ttl=3600
+            contract="test.yaml",
+            output_format="text",
+            output_file=None,
+            strict=False,
+            cache_stats=True,
+            cache_ttl=3600,
         )
-        with patch.object(Path, "exists", return_value=True), \
-             patch("fluid_build.cli.contract_validation.ValidationCache") as MockCache:
+        with (
+            patch.object(Path, "exists", return_value=True),
+            patch("fluid_build.cli.contract_validation.ValidationCache") as MockCache,
+        ):
             mock_cache = MockCache.return_value
             mock_cache.get_cache_stats.return_value = {
-                "total_entries": 5, "fresh_entries": 3, "stale_entries": 2,
-                "total_size_bytes": 1024, "cache_dir": "/tmp", "ttl_seconds": 3600
+                "total_entries": 5,
+                "fresh_entries": 3,
+                "stale_entries": 2,
+                "total_size_bytes": 1024,
+                "cache_dir": "/tmp",
+                "ttl_seconds": 3600,
             }
             result = run(args, logging.getLogger())
         assert result == 0
@@ -537,10 +622,20 @@ class TestRunFunction:
         MockCV.return_value.validate.return_value = mock_report
 
         args = argparse.Namespace(
-            contract="test.yaml", output_format="json", output_file=None,
-            strict=False, env=None, provider=None, project=None, region=None,
-            no_data=False, cache=True, cache_ttl=3600, cache_clear=False,
-            track_history=True, check_drift=False,
+            contract="test.yaml",
+            output_format="json",
+            output_file=None,
+            strict=False,
+            env=None,
+            provider=None,
+            project=None,
+            region=None,
+            no_data=False,
+            cache=True,
+            cache_ttl=3600,
+            cache_clear=False,
+            track_history=True,
+            check_drift=False,
         )
         with patch.object(Path, "exists", return_value=True):
             result = run(args, logging.getLogger())
@@ -556,10 +651,20 @@ class TestRunFunction:
         MockCV.return_value.validate.return_value = mock_report
 
         args = argparse.Namespace(
-            contract="test.yaml", output_format="text", output_file=None,
-            strict=True, env=None, provider=None, project=None, region=None,
-            no_data=False, cache=True, cache_ttl=3600, cache_clear=False,
-            track_history=True, check_drift=False,
+            contract="test.yaml",
+            output_format="text",
+            output_file=None,
+            strict=True,
+            env=None,
+            provider=None,
+            project=None,
+            region=None,
+            no_data=False,
+            cache=True,
+            cache_ttl=3600,
+            cache_clear=False,
+            track_history=True,
+            check_drift=False,
         )
         with patch.object(Path, "exists", return_value=True):
             result = run(args, logging.getLogger())
@@ -569,10 +674,20 @@ class TestRunFunction:
     def test_run_validation_exception(self, MockCV):
         MockCV.return_value.validate.side_effect = RuntimeError("boom")
         args = argparse.Namespace(
-            contract="test.yaml", output_format="text", output_file=None,
-            strict=False, env=None, provider=None, project=None, region=None,
-            no_data=False, cache=True, cache_ttl=3600, cache_clear=False,
-            track_history=True, check_drift=False,
+            contract="test.yaml",
+            output_format="text",
+            output_file=None,
+            strict=False,
+            env=None,
+            provider=None,
+            project=None,
+            region=None,
+            no_data=False,
+            cache=True,
+            cache_ttl=3600,
+            cache_clear=False,
+            track_history=True,
+            check_drift=False,
         )
         with patch.object(Path, "exists", return_value=True):
             result = run(args, logging.getLogger())
@@ -586,12 +701,19 @@ class TestRunFunction:
 
 # ===================== Output functions =====================
 
+
 class TestOutputFunctions:
     def _make_report(self, valid=True):
         r = ValidationReport(
-            contract_path="test.yaml", contract_id="test-id",
-            contract_version="1.0.0", validation_time=datetime.now(), duration=1.5,
-            exposes_validated=1, consumes_validated=0, checks_passed=3, checks_failed=0
+            contract_path="test.yaml",
+            contract_id="test-id",
+            contract_version="1.0.0",
+            validation_time=datetime.now(),
+            duration=1.5,
+            exposes_validated=1,
+            consumes_validated=0,
+            checks_passed=3,
+            checks_failed=0,
         )
         if not valid:
             r.add_issue("error", "schema", "bad field", "a.b")
@@ -609,7 +731,9 @@ class TestOutputFunctions:
 
     @patch("fluid_build.cli.contract_validation.RICH_AVAILABLE", False)
     def test_output_plain_report_to_file(self, tmp_path=None):
-        import tempfile, os
+        import os
+        import tempfile
+
         r = self._make_report()
         fd, path = tempfile.mkstemp(suffix=".txt")
         os.close(fd)
@@ -625,7 +749,9 @@ class TestOutputFunctions:
         output_json_report(r)
 
     def test_output_json_report_to_file(self):
-        import tempfile, os
+        import os
+        import tempfile
+
         r = self._make_report(valid=False)
         fd, path = tempfile.mkstemp(suffix=".json")
         os.close(fd)
@@ -641,6 +767,7 @@ class TestOutputFunctions:
     @patch("fluid_build.cli.contract_validation.RICH_AVAILABLE", True)
     def test_output_rich_report(self):
         from fluid_build.cli.contract_validation import output_rich_report
+
         r = self._make_report(valid=False)
         # Just ensure it doesn't crash; Rich writes to console
         output_rich_report(r)
@@ -648,5 +775,6 @@ class TestOutputFunctions:
     @patch("fluid_build.cli.contract_validation.RICH_AVAILABLE", True)
     def test_output_rich_report_valid(self):
         from fluid_build.cli.contract_validation import output_rich_report
+
         r = self._make_report(valid=True)
         output_rich_report(r)

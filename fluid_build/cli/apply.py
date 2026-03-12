@@ -32,48 +32,57 @@ Key Responsibilities:
 """
 
 from __future__ import annotations
+
 import argparse
-import logging
-import json
-import time
-import os
-import sys
 import asyncio
-import threading
-import tempfile
+import json
+import logging
+import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
-from dataclasses import dataclass, field
-from enum import Enum
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any, Dict
+
 from fluid_build.cli.console import cprint
 
 # Rich imports for enhanced output
 try:
     from rich.console import Console
-    from rich.panel import Panel
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TaskID
-    from rich.table import Table
-    from rich.text import Text
     from rich.layout import Layout
     from rich.live import Live
+    from rich.panel import Panel
+    from rich.progress import (
+        BarColumn,
+        Progress,
+        SpinnerColumn,
+        TaskID,
+        TextColumn,
+        TimeElapsedColumn,
+    )
+    from rich.table import Table
+    from rich.text import Text
     from rich.tree import Tree
+
     RICH_AVAILABLE = True
 except ImportError:
     RICH_AVAILABLE = False
 
-from ._common import load_contract_with_overlay, build_provider, read_json, write_json, CLIError
-from ._logging import info, warn, error
-from ..structured_logging import log_operation_start, log_operation_success, log_operation_failure, log_metric
-from .core import confirm_action, ProgressManager
+from ..structured_logging import (
+    log_metric,
+    log_operation_failure,
+    log_operation_start,
+    log_operation_success,
+)
+from ._common import CLIError, build_provider, load_contract_with_overlay, read_json
+from .core import ProgressManager, confirm_action
 
 # Import orchestration engine (extracted for maintainability)
 from .orchestration import (
-    ExecutionPhase, ActionStatus, RollbackStrategy,
-    ExecutionAction, PhaseExecution, ExecutionPlan,
-    ExecutionMetrics, ExecutionContext,
-    FluidOrchestrationEngine, FluidPlanGenerator,
+    ExecutionContext,
+    ExecutionPlan,
+    FluidOrchestrationEngine,
+    FluidPlanGenerator,
+    RollbackStrategy,
 )
 
 COMMAND = "apply"
@@ -82,10 +91,11 @@ COMMAND = "apply"
 # CLI Command Registration & Execution
 # ==========================================
 
+
 def register(subparsers: argparse._SubParsersAction):
     """Register the apply command with comprehensive options"""
     p = subparsers.add_parser(
-        COMMAND, 
+        COMMAND,
         help="Apply a plan or contract against providers with full orchestration",
         epilog="""
 🌊 FLUID Apply - The Heart of Data Product Orchestration
@@ -154,152 +164,118 @@ The apply command coordinates multiple providers in the correct dependency order
 handles rollbacks on failure, provides real-time progress tracking, and ensures
 your data product is production-ready with full observability.
         """,
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    
+
     # Core arguments
-    p.add_argument(
-        "contract", 
-        help="Path to contract.fluid.yaml or execution plan JSON file"
-    )
-    p.add_argument(
-        "--env", 
-        help="Environment overlay (dev, staging, prod, etc.)"
-    )
-    
+    p.add_argument("contract", help="Path to contract.fluid.yaml or execution plan JSON file")
+    p.add_argument("--env", help="Environment overlay (dev, staging, prod, etc.)")
+
     # Execution control
     execution_group = p.add_argument_group("Execution Control")
     execution_group.add_argument(
-        "--yes", 
-        action="store_true", 
-        help="Skip confirmation prompt and proceed automatically"
+        "--yes", action="store_true", help="Skip confirmation prompt and proceed automatically"
     )
     execution_group.add_argument(
-        "--dry-run", 
-        action="store_true", 
-        help="Show what would be executed without making changes"
+        "--dry-run", action="store_true", help="Show what would be executed without making changes"
     )
     execution_group.add_argument(
-        "--timeout", 
-        type=int, 
-        default=120, 
-        help="Global timeout in minutes (default: 120)"
+        "--timeout", type=int, default=120, help="Global timeout in minutes (default: 120)"
     )
     execution_group.add_argument(
-        "--parallel-phases", 
-        action="store_true", 
-        help="Enable parallel execution of independent phases"
+        "--parallel-phases",
+        action="store_true",
+        help="Enable parallel execution of independent phases",
     )
     execution_group.add_argument(
-        "--max-workers", 
-        type=int, 
-        default=4, 
-        help="Maximum parallel workers (default: 4)"
+        "--max-workers", type=int, default=4, help="Maximum parallel workers (default: 4)"
     )
-    
+
     # Rollback and safety
     safety_group = p.add_argument_group("Safety & Rollback")
     safety_group.add_argument(
-        "--rollback-strategy", 
+        "--rollback-strategy",
         choices=["none", "immediate", "phase_complete", "full_rollback"],
         default="phase_complete",
-        help="Rollback strategy on failure (default: phase_complete)"
+        help="Rollback strategy on failure (default: phase_complete)",
     )
     safety_group.add_argument(
-        "--require-approval", 
-        action="store_true", 
-        help="Require explicit approval for destructive operations"
+        "--require-approval",
+        action="store_true",
+        help="Require explicit approval for destructive operations",
     )
     safety_group.add_argument(
-        "--backup-state", 
-        action="store_true", 
-        help="Create state backup before execution"
+        "--backup-state", action="store_true", help="Create state backup before execution"
     )
     safety_group.add_argument(
-        "--validate-dependencies", 
-        action="store_true", 
-        help="Validate all dependencies before execution"
+        "--validate-dependencies",
+        action="store_true",
+        help="Validate all dependencies before execution",
     )
-    
+
     # Reporting and monitoring
     reporting_group = p.add_argument_group("Reporting & Monitoring")
     reporting_group.add_argument(
-        "--report", 
-        default="runtime/apply_report.html", 
-        help="Output path for execution report (default: runtime/apply_report.html)"
+        "--report",
+        default="runtime/apply_report.html",
+        help="Output path for execution report (default: runtime/apply_report.html)",
     )
     reporting_group.add_argument(
-        "--report-format", 
+        "--report-format",
         choices=["html", "json", "markdown"],
         default="html",
-        help="Report format (default: html)"
+        help="Report format (default: html)",
     )
     reporting_group.add_argument(
-        "--metrics-export", 
+        "--metrics-export",
         choices=["none", "prometheus", "datadog", "cloudwatch"],
         default="none",
-        help="Export metrics to monitoring system"
+        help="Export metrics to monitoring system",
     )
     reporting_group.add_argument(
-        "--notify", 
-        help="Notification destinations (e.g., slack:channel, email:user@domain.com)"
+        "--notify", help="Notification destinations (e.g., slack:channel, email:user@domain.com)"
     )
-    
+
     # Development and debugging
     debug_group = p.add_argument_group("Development & Debugging")
     debug_group.add_argument(
-        "--verbose", 
-        action="store_true", 
-        help="Enable verbose output with detailed progress"
+        "--verbose", action="store_true", help="Enable verbose output with detailed progress"
     )
     debug_group.add_argument(
-        "--debug", 
-        action="store_true", 
-        help="Enable debug mode with full logging"
+        "--debug", action="store_true", help="Enable debug mode with full logging"
     )
     debug_group.add_argument(
-        "--keep-temp-files", 
-        action="store_true", 
-        help="Keep temporary files for debugging"
+        "--keep-temp-files", action="store_true", help="Keep temporary files for debugging"
     )
-    debug_group.add_argument(
-        "--profile", 
-        action="store_true", 
-        help="Enable performance profiling"
-    )
-    
+    debug_group.add_argument("--profile", action="store_true", help="Enable performance profiling")
+
     # Advanced options
     advanced_group = p.add_argument_group("Advanced Options")
     advanced_group.add_argument(
-        "--workspace-dir", 
+        "--workspace-dir",
         type=Path,
         default=Path("."),
-        help="Workspace directory (default: current directory)"
+        help="Workspace directory (default: current directory)",
+    )
+    advanced_group.add_argument("--state-file", type=Path, help="Custom state file location")
+    advanced_group.add_argument(
+        "--config-override", help="JSON string to override contract configuration"
     )
     advanced_group.add_argument(
-        "--state-file", 
-        type=Path,
-        help="Custom state file location"
+        "--provider-config", help="Path to provider-specific configuration file"
     )
-    advanced_group.add_argument(
-        "--config-override", 
-        help="JSON string to override contract configuration"
-    )
-    advanced_group.add_argument(
-        "--provider-config", 
-        help="Path to provider-specific configuration file"
-    )
-    
+
     p.set_defaults(cmd=COMMAND, func=run)
+
 
 def _actions_from_source(src: str, env: str | None, provider, logger: logging.Logger):
     """
     Extract actions from source (supports 0.7.1 provider actions).
-    
+
     For providers with a plan() method (like AwsProvider, GcpProvider), delegate
     to the provider's planner which generates service-level actions the provider
     can dispatch (e.g. s3.ensure_bucket, glue.ensure_table).
-    
+
     For other providers or when no planner is available, fall back to the 0.7.1
     ProviderActionParser which infers high-level actions (provisionDataset, etc.).
     """
@@ -307,10 +283,10 @@ def _actions_from_source(src: str, env: str | None, provider, logger: logging.Lo
         # Load pre-generated execution plan
         data = read_json(src)
         return data.get("actions", [])
-    
+
     # Load contract
     contract = load_contract_with_overlay(src, env, logger)
-    
+
     # Prefer provider.plan() when available — it generates service-level
     # actions (s3.*, glue.*, athena.*) that the provider's apply() can dispatch.
     if hasattr(provider, "plan") and callable(getattr(provider, "plan", None)):
@@ -321,14 +297,14 @@ def _actions_from_source(src: str, env: str | None, provider, logger: logging.Lo
                 return actions
         except Exception as e:
             logger.warning(f"Provider planner failed ({e}), falling back to action parser")
-    
+
     # Fallback: use 0.7.1 ProviderActionParser (high-level actions)
     try:
         from ..forge.core.provider_actions import ProviderActionParser
-        
+
         parser = ProviderActionParser(logger)
         provider_actions = parser.parse(contract)
-        
+
         if provider_actions:
             logger.info(f"Parsed {len(provider_actions)} provider actions from 0.7.1 contract")
             return [
@@ -338,32 +314,27 @@ def _actions_from_source(src: str, env: str | None, provider, logger: logging.Lo
                     "provider": action.provider,
                     "params": action.params,
                     "depends_on": action.depends_on,
-                    "metadata": {
-                        "type": "provider_action",
-                        "version": "0.7.1"
-                    }
+                    "metadata": {"type": "provider_action", "version": "0.7.1"},
                 }
                 for action in provider_actions
             ]
     except ImportError:
         logger.debug("Provider action parser not available")
-    
+
     # Final fallback
-    return [
-        {"op": "ensure_dataset"}, 
-        {"op": "ensure_table"}
-    ]
+    return [{"op": "ensure_dataset"}, {"op": "ensure_table"}]
+
 
 def run(args, logger: logging.Logger) -> int:
     """
     Main execution function for the apply command
-    
+
     This is the heart of the FLUID platform - the orchestration engine that
     transforms declarative contracts into deployed data products.
     """
     start_time = time.time()
     execution_id = f"fluid_apply_{int(time.time())}_{os.getpid()}"
-    
+
     # Log operation start
     log_operation_start(
         logger,
@@ -371,32 +342,42 @@ def run(args, logger: logging.Logger) -> int:
         execution_id=execution_id,
         source=args.contract,
         env=args.env,
-        dry_run=args.dry_run
+        dry_run=args.dry_run,
     )
-    
+
     try:
         # Load contract or execution plan
-        if args.contract.endswith('.json'):
+        if args.contract.endswith(".json"):
             # Load pre-generated execution plan
             logger.info("Loading pre-generated execution plan")
             plan_data = read_json(args.contract)
-            contract = plan_data.get('contract', {})
-            plan = ExecutionPlan(**plan_data.get('plan', {}))
+            contract = plan_data.get("contract", {})
+            plan = ExecutionPlan(**plan_data.get("plan", {}))
             use_simple_mode = False
         else:
             # Load contract
             logger.info(f"Loading FLUID contract: {args.contract}")
             contract = load_contract_with_overlay(args.contract, args.env, logger)
-            
+
             # Determine if this is a simple local execution (no orchestration engine needed)
-            has_complex_config = any(key in contract for key in [
-                'infrastructure', 'terraform', 'sources', 'ingestion',
-                'monitoring', 'governance_policies', 'quality_expectations',
-                'catalog', 'service_registry', 'notifications'
-            ])
-            
+            has_complex_config = any(
+                key in contract
+                for key in [
+                    "infrastructure",
+                    "terraform",
+                    "sources",
+                    "ingestion",
+                    "monitoring",
+                    "governance_policies",
+                    "quality_expectations",
+                    "catalog",
+                    "service_registry",
+                    "notifications",
+                ]
+            )
+
             use_simple_mode = not has_complex_config
-            
+
             if use_simple_mode:
                 # Simple mode - direct provider execution
                 logger.info("Using simple execution mode (local provider)")
@@ -409,72 +390,72 @@ def run(args, logger: logging.Logger) -> int:
                 plan.dry_run = args.dry_run
                 plan.parallel_phases = args.parallel_phases
                 plan.rollback_strategy = RollbackStrategy(args.rollback_strategy)
-        
+
         # Apply configuration overrides
         if args.config_override:
             override_config = json.loads(args.config_override)
             contract.update(override_config)
-        
+
         # Simple mode execution
         if use_simple_mode:
             logger.info("🚀 Executing data product build (simple mode)")
-            
+
             # Detect provider and project from contract (check builds and exposes)
-            provider_name = 'local'  # default
+            provider_name = "local"  # default
             project = None
-            region = contract.get('region', 'local')
-            
+            region = contract.get("region", "local")
+
             # First try to get provider and project from exposes (most specific)
-            for expose in contract.get('exposes', []):
-                binding = expose.get('binding', {})
-                if 'platform' in binding:
-                    provider_name = binding['platform']
+            for expose in contract.get("exposes", []):
+                binding = expose.get("binding", {})
+                if "platform" in binding:
+                    provider_name = binding["platform"]
                     # Get project from binding location
-                    location = binding.get('location', {})
-                    if 'project' in location and not project:
-                        project = location['project']
-            
+                    location = binding.get("location", {})
+                    if "project" in location and not project:
+                        project = location["project"]
+
             # Then check builds if not found
-            if provider_name == 'local':
-                for build in contract.get('builds', []):
-                    runtime = build.get('execution', {}).get('runtime', {})
-                    if 'platform' in runtime:
-                        provider_name = runtime['platform']
+            if provider_name == "local":
+                for build in contract.get("builds", []):
+                    runtime = build.get("execution", {}).get("runtime", {})
+                    if "platform" in runtime:
+                        provider_name = runtime["platform"]
                         break
-            
+
             # For AWS, extract region from binding.location or env vars and let
             # resolve_account_and_region() discover the account via STS.
-            if provider_name == 'aws':
-                if not project or project == contract.get('id'):
+            if provider_name == "aws":
+                if not project or project == contract.get("id"):
                     project = None  # Let AwsProvider resolve from STS
-                if region == 'local':
+                if region == "local":
                     # Try binding.location.region first
-                    for expose in contract.get('exposes', []):
-                        loc_region = expose.get('binding', {}).get('location', {}).get('region')
-                        if loc_region and not loc_region.startswith('{{'):
+                    for expose in contract.get("exposes", []):
+                        loc_region = expose.get("binding", {}).get("location", {}).get("region")
+                        if loc_region and not loc_region.startswith("{{"):
                             region = loc_region
                             break
                     else:
                         region = None  # Let AwsProvider resolve from env/defaults
-            
+
             # Fallback to contract-level project or ID (GCP and others)
-            if not project and provider_name != 'aws':
-                project = contract.get('project') or contract.get('id', 'local-project')
-            
+            if not project and provider_name != "aws":
+                project = contract.get("project") or contract.get("id", "local-project")
+
             # Set appropriate default region for provider
-            if provider_name == 'gcp' and region == 'local':
-                region = 'US'  # Default BigQuery location
-            
+            if provider_name == "gcp" and region == "local":
+                region = "US"  # Default BigQuery location
+
             logger.info(f"Detected provider: {provider_name}, project: {project}")
             provider = build_provider(provider_name, project, region, logger)
-            
+
             # Get actions from contract
             actions = _actions_from_source(args.contract, args.env, provider, logger)
-            
+
             if not actions:
                 logger.warning("No actions to execute")
                 return 0
-            
+
             # Show execution preview and get confirmation (unless --yes flag)
             if not args.yes and not args.dry_run and os.isatty(0):
                 if RICH_AVAILABLE:
@@ -483,61 +464,65 @@ def run(args, logger: logging.Logger) -> int:
                     console.print(f"Provider: [yellow]{provider_name}[/yellow]")
                     console.print(f"Project: [yellow]{project}[/yellow]")
                     console.print(f"Actions: [yellow]{len(actions)}[/yellow]")
-                    
+
                     # Show action breakdown
                     action_types = {}
                     for action in actions:
                         op = action.get("op", "unknown")
                         action_types[op] = action_types.get(op, 0) + 1
-                    
+
                     if action_types:
                         console.print("\nAction breakdown:")
                         for op, count in sorted(action_types.items()):
                             console.print(f"  • {op}: {count}")
-                    
+
                     # Safety warnings for destructive operations
                     destructive_ops = ["drop_table", "delete_data", "truncate_table"]
                     destructive_actions = [a for a in actions if a.get("op") in destructive_ops]
-                    
+
                     if destructive_actions:
-                        console.print(f"\n[red]⚠️  Warning: {len(destructive_actions)} potentially destructive actions![/red]")
-                    
-                    if not confirm_action("\nProceed with execution?", default=False, console=console):
+                        console.print(
+                            f"\n[red]⚠️  Warning: {len(destructive_actions)} potentially destructive actions![/red]"
+                        )
+
+                    if not confirm_action(
+                        "\nProceed with execution?", default=False, console=console
+                    ):
                         console.print("[yellow]Operation cancelled[/yellow]")
                         return 0
                 else:
                     logger.info(f"About to execute {len(actions)} actions")
                     response = input("Proceed? [y/N]: ").strip().lower()
-                    if response not in ['y', 'yes']:
+                    if response not in ["y", "yes"]:
                         logger.info("Operation cancelled")
                         return 0
-            
+
             # Dry run mode
             if args.dry_run:
                 logger.info("🔍 Dry run mode - showing execution plan")
                 if RICH_AVAILABLE:
                     console = Console()
-                    console.print(Panel("🔍 Dry Run - No changes will be made", border_style="yellow"))
+                    console.print(
+                        Panel("🔍 Dry Run - No changes will be made", border_style="yellow")
+                    )
                     table = Table(title="📋 Planned Actions")
                     table.add_column("Operation", style="cyan")
                     table.add_column("Details", style="white")
                     for action in actions:
-                        table.add_row(
-                            action.get('op', 'unknown'),
-                            str(action.get('metadata', {}))
-                        )
+                        table.add_row(action.get("op", "unknown"), str(action.get("metadata", {})))
                     console.print(table)
                 else:
                     logger.info(f"Would execute {len(actions)} actions:")
                     for action in actions:
                         logger.info(f"  - {action.get('op')}: {action.get('metadata', {})}")
                 return 0
-            
+
             # Execute with provider
             logger.info(f"Executing {len(actions)} actions...")
 
             # --- Lifecycle hooks: pre_apply ---
-            from fluid_build.cli.hooks import run_pre_apply, run_post_apply, run_on_error
+            from fluid_build.cli.hooks import run_on_error, run_post_apply, run_pre_apply
+
             actions = run_pre_apply(provider, actions, logger)
 
             try:
@@ -556,85 +541,91 @@ def run(args, logger: logging.Logger) -> int:
 
             # --- Lifecycle hooks: post_apply ---
             run_post_apply(provider, result, logger)
-            
+
             # Check for success (local provider uses 'failed' field, others use 'status')
-            success = result.get('failed', 1) == 0 or result.get('status') == 'success'
-            
+            success = result.get("failed", 1) == 0 or result.get("status") == "success"
+
             # Show results
             if RICH_AVAILABLE:
                 console = Console()
                 if success:
                     # Success panel
                     console.print("\n[green]✅ Data product deployed successfully[/green]")
-                    
+
                     # Summary table
                     summary_table = Table(show_header=False, box=None)
                     summary_table.add_column("Metric", style="cyan")
                     summary_table.add_column("Value", style="white")
-                    
-                    if 'applied' in result:
-                        summary_table.add_row("Actions Applied", str(result['applied']))
-                    
+
+                    if "applied" in result:
+                        summary_table.add_row("Actions Applied", str(result["applied"]))
+
                     total_time = time.time() - start_time
                     summary_table.add_row("Duration", f"{total_time:.2f}s")
-                    
-                    if 'results' in result:
+
+                    if "results" in result:
                         # Count output files
-                        output_count = sum(len(r.get('written', [])) for r in result['results'] if r.get('status') == 'ok')
+                        output_count = sum(
+                            len(r.get("written", []))
+                            for r in result["results"]
+                            if r.get("status") == "ok"
+                        )
                         if output_count > 0:
                             summary_table.add_row("Files Generated", str(output_count))
-                    
+
                     console.print(summary_table)
-                    
+
                     # Show output files
-                    if 'results' in result:
+                    if "results" in result:
                         files_shown = 0
-                        for r in result['results']:
-                            if r.get('status') == 'ok' and 'written' in r:
-                                for path in r['written']:
+                        for r in result["results"]:
+                            if r.get("status") == "ok" and "written" in r:
+                                for path in r["written"]:
                                     console.print(f"  📁 [cyan]{path}[/cyan]")
                                     files_shown += 1
-                        
+
                         if files_shown == 0:
                             console.print("  [dim]No output files generated[/dim]")
                 else:
-                    error_msg = result.get('error', 'Unknown error')
+                    error_msg = result.get("error", "Unknown error")
                     console.print(f"\n[red]❌ Deployment failed: {error_msg}[/red]")
-                    
+
                     # Show individual action errors
-                    if 'results' in result:
+                    if "results" in result:
                         console.print("\n[bold]Action Errors:[/bold]")
-                        for i, r in enumerate(result['results']):
-                            if r.get('status') == 'error':
-                                console.print(f"  {i+1}. [red]✗[/red] {r.get('op', 'unknown')}: {r.get('error', 'no details')}")
+                        for i, r in enumerate(result["results"]):
+                            if r.get("status") == "error":
+                                console.print(
+                                    f"  {i+1}. [red]✗[/red] {r.get('op', 'unknown')}: {r.get('error', 'no details')}"
+                                )
             else:
                 if success:
                     logger.info("✅ Data product deployed successfully")
-                    if 'applied' in result:
+                    if "applied" in result:
                         logger.info(f"Applied {result['applied']} action(s)")
                 else:
-                    error_msg = result.get('error', 'Unknown error')
+                    error_msg = result.get("error", "Unknown error")
                     logger.error(f"❌ Deployment failed: {error_msg}")
-            
+
             total_time = time.time() - start_time
             logger.info(f"✅ Execution completed in {total_time:.2f}s")
-            
+
             # Log metrics and completion
             log_metric(logger, "apply_duration", total_time, unit="seconds")
-            log_metric(logger, "actions_executed", result.get('applied', 0), unit="count")
-            
+            log_metric(logger, "actions_executed", result.get("applied", 0), unit="count")
+
             # Generate report if requested (simple mode)
-            if hasattr(args, 'report') and args.report:
+            if hasattr(args, "report") and args.report:
                 try:
                     report_path = Path(args.report)
                     report_path.parent.mkdir(parents=True, exist_ok=True)
-                    
-                    report_format = getattr(args, 'report_format', 'html')
-                    contract_name = contract.get('name') or contract.get('id') or 'Unknown'
-                    applied_count = result.get('applied', 0)
-                    failed_count = result.get('failed', 0)
-                    
-                    if report_format == 'html':
+
+                    report_format = getattr(args, "report_format", "html")
+                    contract_name = contract.get("name") or contract.get("id") or "Unknown"
+                    applied_count = result.get("applied", 0)
+                    failed_count = result.get("failed", 0)
+
+                    if report_format == "html":
                         html_content = f"""<!DOCTYPE html>
 <html>
 <head>
@@ -661,54 +652,61 @@ def run(args, logger: logging.Logger) -> int:
     </div>
 </body>
 </html>"""
-                        with open(report_path, 'w') as f:
+                        with open(report_path, "w") as f:
                             f.write(html_content)
-                    elif report_format == 'json':
+                    elif report_format == "json":
                         import json as json_mod
-                        with open(report_path, 'w') as f:
-                            json_mod.dump({
-                                "execution_id": execution_id,
-                                "contract": contract_name,
-                                "success": success,
-                                "applied": applied_count,
-                                "failed": failed_count,
-                                "duration_seconds": round(total_time, 2),
-                                "mode": "simple"
-                            }, f, indent=2)
-                    
+
+                        with open(report_path, "w") as f:
+                            json_mod.dump(
+                                {
+                                    "execution_id": execution_id,
+                                    "contract": contract_name,
+                                    "success": success,
+                                    "applied": applied_count,
+                                    "failed": failed_count,
+                                    "duration_seconds": round(total_time, 2),
+                                    "mode": "simple",
+                                },
+                                f,
+                                indent=2,
+                            )
+
                     logger.info(f"📄 Execution report generated: {report_path}")
                 except Exception as e:
                     logger.warning(f"Failed to generate report: {e}")
-            
+
             if success:
                 log_operation_success(
                     logger,
                     "apply_contract",
                     duration=total_time,
                     execution_id=execution_id,
-                    mode="simple"
+                    mode="simple",
                 )
             else:
                 log_operation_failure(
                     logger,
                     "apply_contract",
-                    error=result.get('error', 'Unknown error'),
-                    duration=total_time
+                    error=result.get("error", "Unknown error"),
+                    duration=total_time,
                 )
-            
+
             return 0 if success else 1
-        
+
         # Complex orchestration mode (original code)
         # Initialize console for rich output
         console = None
         if RICH_AVAILABLE and not args.debug:
             console = Console()
-            console.print(Panel(
-                "🌊 FLUID Apply - Data Product Orchestration Engine",
-                subtitle=f"Execution ID: {execution_id}",
-                border_style="blue"
-            ))
-        
+            console.print(
+                Panel(
+                    "🌊 FLUID Apply - Data Product Orchestration Engine",
+                    subtitle=f"Execution ID: {execution_id}",
+                    border_style="blue",
+                )
+            )
+
         # Create execution context
         context = ExecutionContext(
             execution_id=execution_id,
@@ -717,104 +715,102 @@ def run(args, logger: logging.Logger) -> int:
             workspace_dir=args.workspace_dir,
             state_file=args.state_file or Path("runtime/apply_state.json"),
             console=console,
-            logger=logger
+            logger=logger,
         )
-        
+
         # Setup artifacts directory
         context.artifacts_dir = context.workspace_dir / "runtime" / "artifacts" / execution_id
         context.logs_dir = context.workspace_dir / "runtime" / "logs" / execution_id
-        
+
         # Show execution plan summary
         _display_execution_plan(plan, console, logger)
-        
+
         # Confirmation prompt (unless --yes or dry-run)
         if not args.yes and not args.dry_run and os.isatty(0):
             if not _confirm_execution(plan, console):
                 logger.info("Execution cancelled by user")
                 return 0
-        
+
         # Initialize orchestration engine
         engine = FluidOrchestrationEngine(context)
-        
+
         if args.dry_run:
             logger.info("🔍 Dry run mode - showing execution plan without making changes")
             _display_dry_run_summary(plan, console, logger)
             return 0
-        
+
         # Execute the plan
         logger.info("🚀 Starting data product deployment orchestration")
-        
+
         if asyncio.get_event_loop().is_running():
             # If we're already in an async context, create a new loop
             import threading
+
             result = {}
             exception = {}
-            
+
             def run_in_thread():
                 try:
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
-                    result['value'] = loop.run_until_complete(engine.execute_plan())
+                    result["value"] = loop.run_until_complete(engine.execute_plan())
                 except Exception as e:
-                    exception['value'] = e
+                    exception["value"] = e
                 finally:
                     loop.close()
-            
+
             thread = threading.Thread(target=run_in_thread)
             thread.start()
             thread.join()
-            
-            if 'value' in exception:
-                raise exception['value']
-            
-            execution_result = result['value']
+
+            if "value" in exception:
+                raise exception["value"]
+
+            execution_result = result["value"]
         else:
             # Normal async execution
             execution_result = asyncio.run(engine.execute_plan())
-        
+
         # Generate final report
         _generate_final_report(execution_result, args, context, logger)
-        
+
         # Send notifications
         if args.notify:
             _send_notifications(execution_result, args.notify, logger)
-        
+
         # Export metrics
         if args.metrics_export != "none":
             _export_metrics(execution_result, args.metrics_export, logger)
-        
+
         # Determine exit code
-        if execution_result.get('success', False):
+        if execution_result.get("success", False):
             total_time = time.time() - start_time
             logger.info(f"✅ Data product deployment completed successfully in {total_time:.2f}s")
-            
+
             # Log metrics and success
             log_metric(logger, "apply_duration", total_time, unit="seconds")
-            log_metric(logger, "phases_executed", execution_result.get('phases_executed', 0), unit="count")
+            log_metric(
+                logger, "phases_executed", execution_result.get("phases_executed", 0), unit="count"
+            )
             log_operation_success(
                 logger,
                 "apply_contract",
                 duration=total_time,
                 execution_id=execution_id,
-                mode="orchestrated"
+                mode="orchestrated",
             )
-            
+
             return 0
         else:
             total_time = time.time() - start_time
-            error_msg = execution_result.get('error', 'Unknown error')
+            error_msg = execution_result.get("error", "Unknown error")
             logger.error(f"❌ Data product deployment failed: {error_msg}")
-            
+
             # Log failure
-            log_operation_failure(
-                logger,
-                "apply_contract",
-                error=error_msg,
-                duration=total_time
-            )
-            
+            log_operation_failure(logger, "apply_contract", error=error_msg, duration=total_time)
+
             return 1
-    
+
     except CLIError:
         duration = time.time() - start_time
         log_operation_failure(logger, "apply_contract", error="CLI error", duration=duration)
@@ -828,46 +824,52 @@ def run(args, logger: logging.Logger) -> int:
         logger.error(f"💥 Unexpected error during execution: {e}")
         if args.debug:
             import traceback
+
             logger.error(traceback.format_exc())
         raise CLIError(1, "apply_execution_failed", {"error": str(e)})
+
 
 def _display_execution_plan(plan: ExecutionPlan, console, logger: logging.Logger):
     """Display execution plan summary"""
     total_actions = sum(len(phase.actions) for phase in plan.phases)
-    
+
     if console and RICH_AVAILABLE:
         table = Table(title="📋 Execution Plan Summary")
         table.add_column("Phase", style="cyan")
         table.add_column("Actions", justify="right", style="magenta")
         table.add_column("Parallel", justify="center", style="green")
         table.add_column("Strategy", style="yellow")
-        
+
         for phase in plan.phases:
             table.add_row(
                 phase.phase.value.title(),
                 str(len(phase.actions)),
                 "✅" if phase.parallel_execution else "❌",
-                phase.rollback_strategy.value
+                phase.rollback_strategy.value,
             )
-        
+
         console.print(table)
         console.print(f"\n📊 Total Actions: {total_actions}")
         console.print(f"⏱️  Estimated Duration: {plan.global_timeout_minutes} minutes")
     else:
         logger.info(f"📋 Execution Plan: {len(plan.phases)} phases, {total_actions} total actions")
 
+
 def _confirm_execution(plan: ExecutionPlan, console) -> bool:
     """Get user confirmation for execution"""
     total_actions = sum(len(phase.actions) for phase in plan.phases)
-    
+
     if console and RICH_AVAILABLE:
-        console.print(f"\n⚠️  This will execute {total_actions} actions across {len(plan.phases)} phases.")
+        console.print(
+            f"\n⚠️  This will execute {total_actions} actions across {len(plan.phases)} phases."
+        )
         console.print("Some operations may be irreversible. Continue? [y/N] ", end="")
     else:
         cprint(f"This will execute {total_actions} actions. Continue? [y/N] ", end="", flush=True)
-    
+
     answer = (input() or "n").strip().lower()
     return answer in ("y", "yes")
+
 
 def _display_dry_run_summary(plan: ExecutionPlan, console, logger: logging.Logger):
     """Display dry run summary"""
@@ -884,24 +886,30 @@ def _display_dry_run_summary(plan: ExecutionPlan, console, logger: logging.Logge
             for action in phase.actions:
                 logger.info(f"  - {action.description}")
 
-def _generate_final_report(execution_result: Dict[str, Any], args, context: ExecutionContext, logger: logging.Logger):
+
+def _generate_final_report(
+    execution_result: Dict[str, Any], args, context: ExecutionContext, logger: logging.Logger
+):
     """Generate comprehensive final report"""
     try:
         report_path = Path(args.report)
         report_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         if args.report_format == "html":
             _generate_html_report(execution_result, report_path, context)
         elif args.report_format == "json":
             _generate_json_report(execution_result, report_path, context)
         elif args.report_format == "markdown":
             _generate_markdown_report(execution_result, report_path, context)
-        
+
         logger.info(f"📄 Execution report generated: {report_path}")
     except Exception as e:
         logger.warning(f"Failed to generate report: {e}")
 
-def _generate_html_report(execution_result: Dict[str, Any], report_path: Path, context: ExecutionContext):
+
+def _generate_html_report(
+    execution_result: Dict[str, Any], report_path: Path, context: ExecutionContext
+):
     """Generate HTML execution report"""
     html_content = f"""
     <!DOCTYPE html>
@@ -946,9 +954,9 @@ def _generate_html_report(execution_result: Dict[str, Any], report_path: Path, c
         
         <h2>Phase Details</h2>
     """
-    
-    for phase in execution_result.get('phases', []):
-        status_class = "success" if phase.get('status') == 'success' else "failed"
+
+    for phase in execution_result.get("phases", []):
+        status_class = "success" if phase.get("status") == "success" else "failed"
         html_content += f"""
         <div class="phase {status_class}">
             <h3>{phase.get('phase', 'Unknown').title()}</h3>
@@ -957,32 +965,38 @@ def _generate_html_report(execution_result: Dict[str, Any], report_path: Path, c
             <p>Duration: {phase.get('duration', 0):.2f}s</p>
         </div>
         """
-    
+
     html_content += """
     </body>
     </html>
     """
-    
-    with open(report_path, 'w') as f:
+
+    with open(report_path, "w") as f:
         f.write(html_content)
 
-def _generate_json_report(execution_result: Dict[str, Any], report_path: Path, context: ExecutionContext):
+
+def _generate_json_report(
+    execution_result: Dict[str, Any], report_path: Path, context: ExecutionContext
+):
     """Generate JSON execution report"""
     report_data = {
         "execution_id": context.execution_id,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "contract_path": context.plan.contract_path,
         "environment": context.plan.environment,
-        "result": execution_result
+        "result": execution_result,
     }
-    
-    with open(report_path, 'w') as f:
+
+    with open(report_path, "w") as f:
         json.dump(report_data, f, indent=2)
 
-def _generate_markdown_report(execution_result: Dict[str, Any], report_path: Path, context: ExecutionContext):
+
+def _generate_markdown_report(
+    execution_result: Dict[str, Any], report_path: Path, context: ExecutionContext
+):
     """Generate Markdown execution report"""
-    status_icon = "✅" if execution_result.get('success') else "❌"
-    
+    status_icon = "✅" if execution_result.get("success") else "❌"
+
     markdown_content = f"""# 🌊 FLUID Apply Execution Report
 
 ## Summary
@@ -1002,44 +1016,48 @@ def _generate_markdown_report(execution_result: Dict[str, Any], report_path: Pat
 
 ## Phase Details
 """
-    
-    for phase in execution_result.get('phases', []):
-        phase_icon = "✅" if phase.get('status') == 'success' else "❌"
+
+    for phase in execution_result.get("phases", []):
+        phase_icon = "✅" if phase.get("status") == "success" else "❌"
         markdown_content += f"""
 ### {phase_icon} {phase.get('phase', 'Unknown').title()}
 - **Status**: {phase.get('status', 'unknown')}
 - **Actions**: {phase.get('action_count', 0)}
 - **Duration**: {phase.get('duration', 0):.2f}s
 """
-    
-    with open(report_path, 'w') as f:
+
+    with open(report_path, "w") as f:
         f.write(markdown_content)
 
-def _send_notifications(execution_result: Dict[str, Any], notify_config: str, logger: logging.Logger):
+
+def _send_notifications(
+    execution_result: Dict[str, Any], notify_config: str, logger: logging.Logger
+):
     """Send execution notifications"""
     try:
         # Parse notification configuration
         # Format: "slack:channel" or "email:user@domain.com"
-        notify_type, notify_target = notify_config.split(':', 1)
-        
-        status = "✅ Success" if execution_result.get('success') else "❌ Failed"
+        notify_type, notify_target = notify_config.split(":", 1)
+
+        status = "✅ Success" if execution_result.get("success") else "❌ Failed"
         f"FLUID Apply {status} - {execution_result.get('execution_id')}"
-        
+
         if notify_type == "slack":
             # Would integrate with Slack API
             logger.info(f"Notification sent to Slack: {notify_target}")
         elif notify_type == "email":
             # Would integrate with email service
             logger.info(f"Notification sent to email: {notify_target}")
-        
+
     except Exception as e:
         logger.warning(f"Failed to send notification: {e}")
+
 
 def _export_metrics(execution_result: Dict[str, Any], metrics_system: str, logger: logging.Logger):
     """Export metrics to monitoring system"""
     try:
-        execution_result.get('metrics', {})
-        
+        execution_result.get("metrics", {})
+
         if metrics_system == "prometheus":
             # Would export to Prometheus
             logger.info("Metrics exported to Prometheus")
@@ -1049,6 +1067,6 @@ def _export_metrics(execution_result: Dict[str, Any], metrics_system: str, logge
         elif metrics_system == "cloudwatch":
             # Would export to CloudWatch
             logger.info("Metrics exported to CloudWatch")
-            
+
     except Exception as e:
         logger.warning(f"Failed to export metrics: {e}")

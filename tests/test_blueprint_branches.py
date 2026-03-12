@@ -1,22 +1,38 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Branch-coverage tests for fluid_build.cli.blueprint"""
+
 import argparse
 import logging
-import pytest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch, MagicMock, PropertyMock
+from unittest.mock import MagicMock, patch
 
+import pytest
+
+from fluid_build.blueprints.base import BlueprintCategory, BlueprintComplexity
 from fluid_build.cli.blueprint import (
     COMMAND,
+    create_project,
+    describe_blueprint,
+    list_blueprints,
     register,
     run,
-    list_blueprints,
-    describe_blueprint,
-    create_project,
     search_blueprints,
     validate_blueprints,
 )
-from fluid_build.blueprints.base import BlueprintCategory, BlueprintComplexity
 
 
 @pytest.fixture
@@ -58,12 +74,14 @@ def _make_blueprint(**overrides):
 
 # ── Constants ────────────────────────────────────────────────────────
 
+
 class TestConstants:
     def test_command(self):
         assert COMMAND == "blueprint"
 
 
 # ── register ─────────────────────────────────────────────────────────
+
 
 class TestRegister:
     def test_register_creates_subparser(self):
@@ -84,6 +102,7 @@ class TestRegister:
 
 # ── run dispatch ─────────────────────────────────────────────────────
 
+
 class TestRun:
     def test_no_action_returns_1(self, logger):
         args = SimpleNamespace(blueprint_action=None)
@@ -103,28 +122,28 @@ class TestRun:
     @patch("fluid_build.cli.blueprint.blueprint_registry")
     def test_describe_dispatch(self, mock_reg, mock_desc, logger):
         args = SimpleNamespace(blueprint_action="describe")
-        result = run(args, logger)
+        run(args, logger)
         mock_desc.assert_called_once()
 
     @patch("fluid_build.cli.blueprint.create_project", return_value=0)
     @patch("fluid_build.cli.blueprint.blueprint_registry")
     def test_create_dispatch(self, mock_reg, mock_create, logger):
         args = SimpleNamespace(blueprint_action="create")
-        result = run(args, logger)
+        run(args, logger)
         mock_create.assert_called_once()
 
     @patch("fluid_build.cli.blueprint.search_blueprints", return_value=0)
     @patch("fluid_build.cli.blueprint.blueprint_registry")
     def test_search_dispatch(self, mock_reg, mock_search, logger):
         args = SimpleNamespace(blueprint_action="search")
-        result = run(args, logger)
+        run(args, logger)
         mock_search.assert_called_once()
 
     @patch("fluid_build.cli.blueprint.validate_blueprints", return_value=0)
     @patch("fluid_build.cli.blueprint.blueprint_registry")
     def test_validate_dispatch(self, mock_reg, mock_val, logger):
         args = SimpleNamespace(blueprint_action="validate")
-        result = run(args, logger)
+        run(args, logger)
         mock_val.assert_called_once()
 
     def test_unknown_action_returns_1(self, logger):
@@ -149,6 +168,7 @@ class TestRun:
 
 
 # ── list_blueprints ──────────────────────────────────────────────────
+
 
 class TestListBlueprints:
     @patch("fluid_build.cli.blueprint.blueprint_registry")
@@ -204,6 +224,7 @@ class TestListBlueprints:
 
 # ── describe_blueprint ───────────────────────────────────────────────
 
+
 class TestDescribeBlueprint:
     @patch("fluid_build.cli.blueprint.blueprint_registry")
     def test_not_found(self, mock_reg, logger):
@@ -214,8 +235,14 @@ class TestDescribeBlueprint:
     @patch("fluid_build.cli.blueprint.blueprint_registry")
     def test_found_minimal(self, mock_reg, logger):
         bp = _make_blueprint(
-            use_cases=[], best_practices=[], tags=[], dependencies=[],
-            has_sample_data=False, has_tests=False, has_docs=False, has_cicd=False,
+            use_cases=[],
+            best_practices=[],
+            tags=[],
+            dependencies=[],
+            has_sample_data=False,
+            has_tests=False,
+            has_docs=False,
+            has_cicd=False,
             updated_at=None,
         )
         mock_reg.get_blueprint.return_value = bp
@@ -229,9 +256,15 @@ class TestDescribeBlueprint:
         dep.version = "2.0"
         dep.required = True
         bp = _make_blueprint(
-            has_sample_data=True, has_tests=True, has_docs=True, has_cicd=True,
-            use_cases=["analytics"], best_practices=["test first"],
-            tags=["data"], dependencies=[dep], updated_at="2024-06-01",
+            has_sample_data=True,
+            has_tests=True,
+            has_docs=True,
+            has_cicd=True,
+            use_cases=["analytics"],
+            best_practices=["test first"],
+            tags=["data"],
+            dependencies=[dep],
+            updated_at="2024-06-01",
         )
         mock_reg.get_blueprint.return_value = bp
         args = SimpleNamespace(name="test-bp")
@@ -250,6 +283,7 @@ class TestDescribeBlueprint:
 
 
 # ── create_project ───────────────────────────────────────────────────
+
 
 class TestCreateProject:
     @patch("fluid_build.cli.blueprint.blueprint_registry")
@@ -295,7 +329,9 @@ class TestCreateProject:
         target = tmp_path / "existing"
         target.mkdir()
         (target / "file.txt").write_text("exists")
-        args = SimpleNamespace(name="test-bp", target_dir=str(target), quickstart=True, dry_run=False)
+        args = SimpleNamespace(
+            name="test-bp", target_dir=str(target), quickstart=True, dry_run=False
+        )
         assert create_project(args, logger) == 1
 
     @patch("builtins.input", return_value="n")
@@ -306,7 +342,9 @@ class TestCreateProject:
         target = tmp_path / "existing"
         target.mkdir()
         (target / "file.txt").write_text("exists")
-        args = SimpleNamespace(name="test-bp", target_dir=str(target), quickstart=False, dry_run=False)
+        args = SimpleNamespace(
+            name="test-bp", target_dir=str(target), quickstart=False, dry_run=False
+        )
         assert create_project(args, logger) == 1
 
     @patch("builtins.input", return_value="y")
@@ -317,7 +355,9 @@ class TestCreateProject:
         target = tmp_path / "existing"
         target.mkdir()
         (target / "file.txt").write_text("exists")
-        args = SimpleNamespace(name="test-bp", target_dir=str(target), quickstart=False, dry_run=False)
+        args = SimpleNamespace(
+            name="test-bp", target_dir=str(target), quickstart=False, dry_run=False
+        )
         # Will fail because validate() returns [] (ok) but then hits second input prompt
         # Need to handle the second prompt too
         mock_input.side_effect = ["y", "Y"]
@@ -342,6 +382,7 @@ class TestCreateProject:
 
 # ── search_blueprints ────────────────────────────────────────────────
 
+
 class TestSearchBlueprints:
     @patch("fluid_build.cli.blueprint.blueprint_registry")
     def test_no_results(self, mock_reg, logger):
@@ -365,6 +406,7 @@ class TestSearchBlueprints:
 
 
 # ── validate_blueprints ─────────────────────────────────────────────
+
 
 class TestValidateBlueprints:
     @patch("fluid_build.cli.blueprint.blueprint_registry")

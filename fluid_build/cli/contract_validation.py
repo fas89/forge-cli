@@ -28,16 +28,18 @@ and validates that they match what's declared in the FLUID contract.
 """
 
 from __future__ import annotations
+
 import argparse
-import logging
 import json
+import logging
 import time
-import sys
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from datetime import datetime
-from fluid_build.cli.console import cprint, error as console_error, info, success, warning
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from fluid_build.cli.console import cprint, success
+from fluid_build.cli.console import error as console_error
 
 # Rich imports for enhanced output
 try:
@@ -45,17 +47,19 @@ try:
     from rich.panel import Panel
     from rich.table import Table
     from rich.text import Text
+
     RICH_AVAILABLE = True
 except ImportError:
     RICH_AVAILABLE = False
 
-from ._common import load_contract_with_overlay, CLIError
-from ..schema_manager import FluidSchemaManager
-from ..providers.validation_provider import ValidationProvider, ValidationResult, ValidationIssue as ProviderValidationIssue
 from ..providers.validation_cache import ValidationCache, ValidationResultHistory
+from ..providers.validation_provider import ValidationProvider
+from ..schema_manager import FluidSchemaManager
+from ._common import load_contract_with_overlay
 
 try:
     from ..providers.bigquery_validation import BigQueryValidationProvider
+
     BIGQUERY_AVAILABLE = True
 except ImportError:
     BigQueryValidationProvider = None  # type: ignore[assignment,misc]
@@ -63,6 +67,7 @@ except ImportError:
 
 try:
     from ..providers.snowflake_validation import SnowflakeValidationProvider
+
     SNOWFLAKE_VALIDATION_AVAILABLE = True
 except ImportError:
     SnowflakeValidationProvider = None  # type: ignore[assignment,misc]
@@ -70,6 +75,7 @@ except ImportError:
 
 try:
     from ..providers.aws_validation import AWSValidationProvider
+
     AWS_VALIDATION_AVAILABLE = True
 except ImportError:
     AWSValidationProvider = None  # type: ignore[assignment,misc]
@@ -77,6 +83,7 @@ except ImportError:
 
 try:
     from ..providers.local_validation import LocalValidationProvider
+
     LOCAL_VALIDATION_AVAILABLE = True
 except ImportError:
     LocalValidationProvider = None  # type: ignore[assignment,misc]
@@ -89,6 +96,7 @@ COMMAND = "contract-validation"
 @dataclass
 class ValidationIssue:
     """Represents a validation issue found during contract validation."""
+
     severity: str  # 'error', 'warning', 'info'
     category: str  # 'schema', 'binding', 'quality', 'metadata'
     message: str
@@ -97,7 +105,7 @@ class ValidationIssue:
     actual: Optional[Any] = None
     suggestion: Optional[str] = None
     documentation_url: Optional[str] = None
-    
+
     def __str__(self) -> str:
         result = f"[{self.severity.upper()}] {self.category}: {self.message}"
         if self.path:
@@ -116,6 +124,7 @@ class ValidationIssue:
 @dataclass
 class ValidationReport:
     """Complete validation report for a FLUID contract."""
+
     contract_path: str
     contract_id: str
     contract_version: str
@@ -127,10 +136,18 @@ class ValidationReport:
     checks_passed: int = 0
     checks_failed: int = 0
     provider_name: Optional[str] = None
-    
-    def add_issue(self, severity: str, category: str, message: str, 
-                  path: str = "", expected: Any = None, actual: Any = None,
-                  suggestion: Optional[str] = None, documentation_url: Optional[str] = None) -> None:
+
+    def add_issue(
+        self,
+        severity: str,
+        category: str,
+        message: str,
+        path: str = "",
+        expected: Any = None,
+        actual: Any = None,
+        suggestion: Optional[str] = None,
+        documentation_url: Optional[str] = None,
+    ) -> None:
         """Add a validation issue to the report."""
         issue = ValidationIssue(
             severity=severity,
@@ -140,29 +157,29 @@ class ValidationReport:
             expected=expected,
             actual=actual,
             suggestion=suggestion,
-            documentation_url=documentation_url
+            documentation_url=documentation_url,
         )
         self.issues.append(issue)
-        if severity == 'error':
+        if severity == "error":
             self.checks_failed += 1
         else:
             self.checks_passed += 1
-    
+
     def get_errors(self) -> List[ValidationIssue]:
-        return [i for i in self.issues if i.severity == 'error']
-    
+        return [i for i in self.issues if i.severity == "error"]
+
     def get_warnings(self) -> List[ValidationIssue]:
-        return [i for i in self.issues if i.severity == 'warning']
-    
+        return [i for i in self.issues if i.severity == "warning"]
+
     def is_valid(self) -> bool:
         return len(self.get_errors()) == 0
-    
+
     def get_summary(self) -> str:
         """Get a human-readable summary of the validation."""
         status = "✅ VALID" if self.is_valid() else "❌ INVALID"
         errors = len(self.get_errors())
         warnings = len(self.get_warnings())
-        
+
         summary = f"{status}: {self.contract_id} v{self.contract_version}\n"
         summary += f"Validated {self.exposes_validated} exposed data product(s)\n"
         summary += f"Validated {self.consumes_validated} consumed data product(s)\n"
@@ -174,20 +191,24 @@ class ValidationReport:
 
 class ContractValidator:
     """Validates FLUID contracts against actual deployed resources."""
-    
-    def __init__(self, contract_path: Path, env: Optional[str] = None, 
-                 provider_name: Optional[str] = None,
-                 project: Optional[str] = None,
-                 region: Optional[str] = None,
-                 strict: bool = False,
-                 check_data: bool = True,
-                 use_cache: bool = True,
-                 cache_ttl: int = 3600,
-                 cache_clear: bool = False,
-                 track_history: bool = True,
-                 check_drift: bool = False,
-                 server: Optional[str] = None,
-                 logger: Optional[logging.Logger] = None):
+
+    def __init__(
+        self,
+        contract_path: Path,
+        env: Optional[str] = None,
+        provider_name: Optional[str] = None,
+        project: Optional[str] = None,
+        region: Optional[str] = None,
+        strict: bool = False,
+        check_data: bool = True,
+        use_cache: bool = True,
+        cache_ttl: int = 3600,
+        cache_clear: bool = False,
+        track_history: bool = True,
+        check_drift: bool = False,
+        server: Optional[str] = None,
+        logger: Optional[logging.Logger] = None,
+    ):
         self.contract_path = contract_path
         self.env = env
         self.provider_name = provider_name
@@ -199,303 +220,333 @@ class ContractValidator:
         self.logger = logger or LOG
         self.contract: Optional[Dict[str, Any]] = None
         self.report: Optional[ValidationReport] = None
-        
+
         # Initialize caching
         self.use_cache = use_cache
         self.cache = ValidationCache(ttl=cache_ttl) if use_cache else None
         if cache_clear and self.cache:
             self.cache.clear()
             self.logger.info("Cache cleared")
-        
+
         # Initialize history tracking
         self.track_history = track_history
         self.check_drift = check_drift
         self.history = ValidationResultHistory() if track_history else None
-        
+
         # Provider instance
         self.validation_provider: Optional[ValidationProvider] = None
-        
+
     def validate(self) -> ValidationReport:
         """Execute comprehensive contract validation."""
         start_time = time.time()
-        
+
         # Load contract
         try:
-            self.contract = load_contract_with_overlay(str(self.contract_path), self.env, self.logger)
+            self.contract = load_contract_with_overlay(
+                str(self.contract_path), self.env, self.logger
+            )
         except FileNotFoundError:
             from .core import ContractNotFoundError
+
             raise ContractNotFoundError(str(self.contract_path))
         except Exception as e:
             LOG.error(f"Failed to load contract: {e}")
             from .core import ContractLoadError
+
             raise ContractLoadError(str(self.contract_path), str(e))
-        
+
         # Initialize report
-        contract_id = self.contract.get('id', 'unknown')
-        contract_version = self.contract.get('version', '0.0.0')
-        
+        contract_id = self.contract.get("id", "unknown")
+        contract_version = self.contract.get("version", "0.0.0")
+
         self.report = ValidationReport(
             contract_path=str(self.contract_path),
             contract_id=contract_id,
             contract_version=contract_version,
             validation_time=datetime.now(),
-            duration=0.0
+            duration=0.0,
         )
-        
+
         # Step 1: Validate contract syntax against schema
         self._validate_contract_schema()
-        
+
         # Step 2: Detect and validate provider
         self._detect_and_validate_provider()
-        
+
         # Step 3: Validate exposed data products
         self._validate_exposes()
-        
+
         # Step 4: Validate consumed data products (references)
         self._validate_consumes()
-        
+
         # Step 5: Validate quality metrics and SLAs
         self._validate_quality_specs()
-        
+
         # Step 6: Validate metadata and governance
         self._validate_metadata()
-        
+
         # Finalize report
         self.report.duration = time.time() - start_time
-        
+
         return self.report
-    
+
     def _validate_contract_schema(self) -> None:
         """Validate contract against FLUID schema."""
         LOG.info("Validating contract against FLUID schema...")
-        
+
         try:
             schema_manager = FluidSchemaManager()
             result = schema_manager.validate_contract(self.contract)
-            
+
             if not result.is_valid:
                 for err in result.errors:
-                    self.report.add_issue('error', 'schema', err, '')
-            
+                    self.report.add_issue("error", "schema", err, "")
+
             for warn in result.warnings:
-                self.report.add_issue('warning', 'schema', warn, '')
-                
+                self.report.add_issue("warning", "schema", warn, "")
+
         except Exception as e:
-            self.report.add_issue('error', 'schema', f"Schema validation failed: {e}", '')
-    
+            self.report.add_issue("error", "schema", f"Schema validation failed: {e}", "")
+
     def _detect_and_validate_provider(self) -> None:
         """Detect provider from contract and validate configuration."""
         LOG.info("Detecting and validating provider configuration...")
-        
+
         # Try to detect provider from exposes
         detected_provider = None
         detected_project = None
-        
-        for expose in self.contract.get('exposes', []):
-            binding = expose.get('binding', {})
-            if 'platform' in binding:
-                detected_provider = binding['platform']
-                location = binding.get('location', {})
-                detected_project = location.get('project') or location.get('properties', {}).get('project')
+
+        for expose in self.contract.get("exposes", []):
+            binding = expose.get("binding", {})
+            if "platform" in binding:
+                detected_provider = binding["platform"]
+                location = binding.get("location", {})
+                detected_project = location.get("project") or location.get("properties", {}).get(
+                    "project"
+                )
                 break
-        
+
         # Fallback to builds section
         if not detected_provider:
-            for build in self.contract.get('builds', []):
-                execution = build.get('execution', {})
-                runtime = execution.get('runtime', {})
-                if 'platform' in runtime:
-                    detected_provider = runtime['platform']
+            for build in self.contract.get("builds", []):
+                execution = build.get("execution", {})
+                runtime = execution.get("runtime", {})
+                if "platform" in runtime:
+                    detected_provider = runtime["platform"]
                     break
-        
+
         if not detected_provider:
             self.report.add_issue(
-                'warning', 'binding', 
-                'No provider platform detected in contract', 
-                'exposes[].binding.platform or builds[].execution.runtime.platform'
+                "warning",
+                "binding",
+                "No provider platform detected in contract",
+                "exposes[].binding.platform or builds[].execution.runtime.platform",
             )
             return
-        
+
         # Use detected or override with CLI args
         self.provider_name = self.provider_name or detected_provider
         self.project = self.project or detected_project
-        
+
         LOG.info(f"Detected provider: {self.provider_name}, project: {self.project}")
         self.report.provider_name = self.provider_name
-        
+
         # Instantiate the appropriate validation provider
-        provider_config = {
-            'project_id': self.project,
-            'region': self.region
-        }
-        
-        if self.provider_name == 'gcp':
+        provider_config = {"project_id": self.project, "region": self.region}
+
+        if self.provider_name == "gcp":
             if not BIGQUERY_AVAILABLE:
                 self.report.add_issue(
-                    'error', 'binding',
+                    "error",
+                    "binding",
                     "google-cloud-bigquery package is required for GCP validation",
-                    'binding.platform',
-                    suggestion="Install it with: pip install google-cloud-bigquery"
+                    "binding.platform",
+                    suggestion="Install it with: pip install google-cloud-bigquery",
                 )
                 return
             # --server can override the GCP project
             if self.server:
-                provider_config['project_id'] = self.server
+                provider_config["project_id"] = self.server
             self.validation_provider = BigQueryValidationProvider(provider_config)
-        elif self.provider_name == 'snowflake':
+        elif self.provider_name == "snowflake":
             if not SNOWFLAKE_VALIDATION_AVAILABLE:
                 self.report.add_issue(
-                    'error', 'binding',
+                    "error",
+                    "binding",
                     "snowflake-connector-python package is required for Snowflake validation",
-                    'binding.platform',
-                    suggestion="Install it with: pip install snowflake-connector-python"
+                    "binding.platform",
+                    suggestion="Install it with: pip install snowflake-connector-python",
                 )
                 return
             # Build Snowflake config from contract bindings + CLI overrides
             sf_config = self._build_snowflake_config()
             self.validation_provider = SnowflakeValidationProvider(sf_config)
-        elif self.provider_name == 'aws':
+        elif self.provider_name == "aws":
             if not AWS_VALIDATION_AVAILABLE:
                 self.report.add_issue(
-                    'error', 'binding',
+                    "error",
+                    "binding",
                     "boto3 package is required for AWS validation",
-                    'binding.platform',
-                    suggestion="Install it with: pip install boto3"
+                    "binding.platform",
+                    suggestion="Install it with: pip install boto3",
                 )
                 return
-            aws_config = {'region': self.region or 'us-east-1'}
+            aws_config = {"region": self.region or "us-east-1"}
             self.validation_provider = AWSValidationProvider(aws_config)
-        elif self.provider_name == 'local':
+        elif self.provider_name == "local":
             if not LOCAL_VALIDATION_AVAILABLE:
                 self.report.add_issue(
-                    'error', 'binding',
+                    "error",
+                    "binding",
                     "duckdb package is required for local validation",
-                    'binding.platform',
-                    suggestion="Install it with: pip install duckdb"
+                    "binding.platform",
+                    suggestion="Install it with: pip install duckdb",
                 )
                 return
-            base_dir = str(self.contract_path.parent) if self.contract_path else '.'
-            self.validation_provider = LocalValidationProvider({'base_dir': base_dir})
-        elif self.provider_name in ['databricks', 'azure']:
+            base_dir = str(self.contract_path.parent) if self.contract_path else "."
+            self.validation_provider = LocalValidationProvider({"base_dir": base_dir})
+        elif self.provider_name in ["databricks", "azure"]:
             self.report.add_issue(
-                'warning', 'binding',
-                "Provider '{}' validation not yet implemented".format(self.provider_name),
-                'binding.platform',
-                suggestion="Supported providers: gcp, snowflake, aws, local. Others coming soon."
+                "warning",
+                "binding",
+                f"Provider '{self.provider_name}' validation not yet implemented",
+                "binding.platform",
+                suggestion="Supported providers: gcp, snowflake, aws, local. Others coming soon.",
             )
             return
         else:
-            supported = ['gcp', 'snowflake', 'aws', 'local', 'databricks', 'azure']
+            supported = ["gcp", "snowflake", "aws", "local", "databricks", "azure"]
             self.report.add_issue(
-                'error', 'binding',
+                "error",
+                "binding",
                 f"Unknown provider '{self.provider_name}'",
-                'binding.platform',
+                "binding.platform",
                 suggestion=f"Valid providers are: {', '.join(supported)}",
-                documentation_url="https://docs.fluid.io/providers"
+                documentation_url="https://docs.fluid.io/providers",
             )
             return
-        
+
         # Test provider connection
         try:
             if not self.validation_provider.validate_connection():
                 self.report.add_issue(
-                    'error', 'connection',
+                    "error",
+                    "connection",
                     f"Failed to connect to {self.provider_name}",
-                    'binding.platform',
+                    "binding.platform",
                     suggestion="Check your credentials and network connectivity. For GCP, ensure GOOGLE_APPLICATION_CREDENTIALS is set or run 'gcloud auth application-default login'",
-                    documentation_url="https://docs.fluid.io/validation/authentication"
+                    documentation_url="https://docs.fluid.io/validation/authentication",
                 )
         except Exception as e:
             self.report.add_issue(
-                'error', 'connection',
+                "error",
+                "connection",
                 f"Error connecting to {self.provider_name}: {str(e)}",
-                'binding.platform',
+                "binding.platform",
                 suggestion="Verify provider credentials are configured correctly and you have necessary permissions",
-                documentation_url="https://docs.fluid.io/validation/troubleshooting"
+                documentation_url="https://docs.fluid.io/validation/troubleshooting",
             )
-    
+
     def _validate_exposes(self) -> None:
         """Validate all exposed data products against actual resources."""
         LOG.info("Validating exposed data products...")
-        
-        exposes = self.contract.get('exposes', [])
+
+        exposes = self.contract.get("exposes", [])
         if not exposes:
-            self.report.add_issue('warning', 'metadata', 'No data products exposed in contract', 'exposes')
+            self.report.add_issue(
+                "warning", "metadata", "No data products exposed in contract", "exposes"
+            )
             return
-        
+
         for idx, expose in enumerate(exposes):
             self._validate_single_expose(expose, idx)
             self.report.exposes_validated += 1
-    
+
     def _validate_single_expose(self, expose: Dict[str, Any], idx: int) -> None:
         """Validate a single exposed data product."""
-        expose_id = expose.get('id', f'expose_{idx}')
+        expose_id = expose.get("id", f"expose_{idx}")
         path_prefix = f"exposes[{idx}]"
-        
+
         LOG.debug(f"Validating expose: {expose_id}")
-        
+
         # Validate required fields
-        required_fields = ['id', 'type', 'binding', 'schema']
+        required_fields = ["id", "type", "binding", "schema"]
         for field in required_fields:
             if field not in expose:
                 self.report.add_issue(
-                    'error', 'schema',
+                    "error",
+                    "schema",
                     f"Missing required field '{field}' in exposed data product",
-                    f"{path_prefix}.{field}"
+                    f"{path_prefix}.{field}",
                 )
-        
+
         # Validate binding
-        binding = expose.get('binding', {})
+        binding = expose.get("binding", {})
         if binding:
             self._validate_binding(binding, f"{path_prefix}.binding", expose_id)
-        
+
         # Validate schema definition
-        schema = expose.get('schema', [])
+        schema = expose.get("schema", [])
         if schema:
             self._validate_schema_definition(schema, f"{path_prefix}.schema", expose_id)
-        
+
         # Run data-quality checks if DQ rules defined and provider available
-        dq_rules = expose.get('dq', {}).get('rules', [])
+        dq_rules = expose.get("dq", {}).get("rules", [])
         # Also check nested contract.dq.rules pattern
         if not dq_rules:
-            dq_rules = expose.get('contract', {}).get('dq', {}).get('rules', [])
+            dq_rules = expose.get("contract", {}).get("dq", {}).get("rules", [])
         if dq_rules and self.validation_provider and self.check_data:
             self._run_expose_quality_checks(expose, dq_rules, path_prefix)
-        
+
         # Validate against actual resource (if provider available)
         if self.check_data and self.provider_name:
             self._validate_against_actual_resource(expose, path_prefix)
-    
+
     def _validate_binding(self, binding: Dict[str, Any], path: str, expose_id: str) -> None:
         """Validate binding configuration."""
         # Check required binding fields
-        if 'platform' not in binding:
-            self.report.add_issue('error', 'binding', f"Missing 'platform' in binding for {expose_id}", path)
-        
-        if 'location' not in binding:
-            self.report.add_issue('error', 'binding', f"Missing 'location' in binding for {expose_id}", path)
+        if "platform" not in binding:
+            self.report.add_issue(
+                "error", "binding", f"Missing 'platform' in binding for {expose_id}", path
+            )
+
+        if "location" not in binding:
+            self.report.add_issue(
+                "error", "binding", f"Missing 'location' in binding for {expose_id}", path
+            )
         else:
-            location = binding['location']
-            
+            location = binding["location"]
+
             # Validate location has required fields
-            if 'format' not in location:
-                self.report.add_issue('warning', 'binding', f"Missing 'format' in location for {expose_id}", f"{path}.location")
-            
-            if 'properties' not in location:
-                self.report.add_issue('warning', 'binding', f"Missing 'properties' in location for {expose_id}", f"{path}.location")
+            if "format" not in location:
+                self.report.add_issue(
+                    "warning",
+                    "binding",
+                    f"Missing 'format' in location for {expose_id}",
+                    f"{path}.location",
+                )
+
+            if "properties" not in location:
+                self.report.add_issue(
+                    "warning",
+                    "binding",
+                    f"Missing 'properties' in location for {expose_id}",
+                    f"{path}.location",
+                )
             else:
-                props = location['properties']
+                props = location["properties"]
                 # Provider-specific validation
-                if self.provider_name == 'gcp':
-                    required_props = ['project', 'dataset', 'table']
+                if self.provider_name == "gcp":
+                    required_props = ["project", "dataset", "table"]
                     for prop in required_props:
                         if prop not in props:
                             self.report.add_issue(
-                                'error', 'binding',
+                                "error",
+                                "binding",
                                 f"Missing required property '{prop}' for GCP binding",
-                                f"{path}.location.properties.{prop}"
+                                f"{path}.location.properties.{prop}",
                             )
-    
+
     def _run_expose_quality_checks(
         self,
         expose: Dict[str, Any],
@@ -503,106 +554,136 @@ class ContractValidator:
         path_prefix: str,
     ) -> None:
         """Execute data-quality rules against the live resource via the provider."""
-        expose_id = expose.get('id', 'unknown')
+        expose_id = expose.get("id", "unknown")
         LOG.debug("Running %d quality checks for %s", len(rules), expose_id)
         try:
             issues = self.validation_provider.run_quality_checks(expose, rules)
             for issue in issues:
                 # Prefix the issue path with the expose path
-                issue_path = "{}.dq.{}".format(path_prefix, issue.path) if issue.path else "{}.dq".format(path_prefix)
+                issue_path = f"{path_prefix}.dq.{issue.path}" if issue.path else f"{path_prefix}.dq"
                 self.report.add_issue(issue.severity, issue.category, issue.message, issue_path)
         except Exception as exc:
             LOG.warning("Quality check execution failed for %s: %s", expose_id, exc)
             self.report.add_issue(
-                'warning', 'quality',
-                "Quality check execution failed: {}".format(exc),
-                "{}.dq".format(path_prefix),
+                "warning",
+                "quality",
+                f"Quality check execution failed: {exc}",
+                f"{path_prefix}.dq",
             )
 
-    def _validate_schema_definition(self, schema: List[Dict[str, Any]], path: str, expose_id: str) -> None:
+    def _validate_schema_definition(
+        self, schema: List[Dict[str, Any]], path: str, expose_id: str
+    ) -> None:
         """Validate schema definition structure."""
         if not schema:
-            self.report.add_issue('warning', 'schema', f"Empty schema for {expose_id}", path)
+            self.report.add_issue("warning", "schema", f"Empty schema for {expose_id}", path)
             return
-        
+
         for idx, column in enumerate(schema):
             col_path = f"{path}[{idx}]"
-            
+
             # Validate column has required fields
-            if 'name' not in column:
-                self.report.add_issue('error', 'schema', f"Missing 'name' in column definition", col_path)
-            
-            if 'type' not in column:
-                self.report.add_issue('error', 'schema', f"Missing 'type' in column definition", col_path)
-            
+            if "name" not in column:
+                self.report.add_issue(
+                    "error", "schema", "Missing 'name' in column definition", col_path
+                )
+
+            if "type" not in column:
+                self.report.add_issue(
+                    "error", "schema", "Missing 'type' in column definition", col_path
+                )
+
             # Validate column type is valid
             valid_types = [
-                'VARCHAR', 'STRING', 'TEXT',
-                'INT', 'INTEGER', 'BIGINT', 'SMALLINT',
-                'FLOAT', 'DOUBLE', 'DECIMAL', 'NUMERIC',
-                'BOOL', 'BOOLEAN',
-                'DATE', 'DATETIME', 'TIMESTAMP', 'TIME',
-                'JSON', 'JSONB', 'ARRAY', 'STRUCT',
-                'BYTES', 'BINARY'
+                "VARCHAR",
+                "STRING",
+                "TEXT",
+                "INT",
+                "INTEGER",
+                "BIGINT",
+                "SMALLINT",
+                "FLOAT",
+                "DOUBLE",
+                "DECIMAL",
+                "NUMERIC",
+                "BOOL",
+                "BOOLEAN",
+                "DATE",
+                "DATETIME",
+                "TIMESTAMP",
+                "TIME",
+                "JSON",
+                "JSONB",
+                "ARRAY",
+                "STRUCT",
+                "BYTES",
+                "BINARY",
             ]
-            
-            col_type = column.get('type', '').upper()
+
+            col_type = column.get("type", "").upper()
             if col_type and col_type not in valid_types:
                 self.report.add_issue(
-                    'warning', 'schema',
+                    "warning",
+                    "schema",
                     f"Non-standard column type '{col_type}' in {expose_id}",
-                    f"{col_path}.type"
+                    f"{col_path}.type",
                 )
-    
+
     def _validate_against_actual_resource(self, expose: Dict[str, Any], path: str) -> None:
         """Validate contract schema against actual deployed resource."""
-        expose_id = expose.get('id') or expose.get('exposeId') or 'unknown'
-        
+        expose_id = expose.get("id") or expose.get("exposeId") or "unknown"
+
         LOG.debug("Validating actual resource for %s", expose_id)
-        
+
         # Provider-specific validation
-        if self.provider_name == 'gcp':
-            binding = expose.get('binding', {})
-            location = binding.get('location', {})
-            props = location.get('properties', {})
+        if self.provider_name == "gcp":
+            binding = expose.get("binding", {})
+            location = binding.get("location", {})
+            props = location.get("properties", {})
             self._validate_bigquery_resource(expose, path, props)
-        elif self.provider_name in ('snowflake', 'aws', 'local'):
+        elif self.provider_name in ("snowflake", "aws", "local"):
             self._validate_generic_resource(expose, path)
         else:
             LOG.debug("Provider '%s' resource validation not yet implemented", self.provider_name)
-    
-    def _validate_bigquery_resource(self, expose: Dict[str, Any], path: str, 
-                                   props: Dict[str, Any]) -> None:
+
+    def _validate_bigquery_resource(
+        self, expose: Dict[str, Any], path: str, props: Dict[str, Any]
+    ) -> None:
         """Validate against actual BigQuery table using provider abstraction."""
         if not self.validation_provider:
             self.report.add_issue(
-                'warning', 'binding',
-                'No validation provider initialized, skipping resource validation',
-                path
+                "warning",
+                "binding",
+                "No validation provider initialized, skipping resource validation",
+                path,
             )
             return
-        
-        project = props.get('project', self.project)
-        dataset = props.get('dataset')
-        table = props.get('table')
-        
+
+        project = props.get("project", self.project)
+        dataset = props.get("dataset")
+        table = props.get("table")
+
         if not all([project, dataset, table]):
             missing = []
-            if not project: missing.append('project')
-            if not dataset: missing.append('dataset')
-            if not table: missing.append('table')
-            
+            if not project:
+                missing.append("project")
+            if not dataset:
+                missing.append("dataset")
+            if not table:
+                missing.append("table")
+
             self.report.add_issue(
-                'error', 'binding',
+                "error",
+                "binding",
                 f"Incomplete BigQuery location: missing {', '.join(missing)}",
                 f"{path}.binding.location.properties",
                 suggestion=f"Add the following properties to binding.location.properties: {', '.join(missing)}",
-                documentation_url="https://docs.fluid.io/contracts/bindings/bigquery"
+                documentation_url="https://docs.fluid.io/contracts/bindings/bigquery",
             )
             return
-        
+
         table_fqn = f"{project}.{dataset}.{table}"
-        
+
         try:
             # Try to get schema from cache first
             actual_schema = None
@@ -610,18 +691,18 @@ class ContractValidator:
                 actual_schema = self.cache.get_schema(table_fqn, self.provider_name)
                 if actual_schema:
                     LOG.info(f"✨ Using cached schema for {table_fqn}")
-            
+
             # If not cached, fetch from provider
             if actual_schema is None:
                 actual_schema = self.validation_provider.get_resource_schema(expose)
-                
+
                 # Cache the result if caching is enabled
                 if self.cache and actual_schema:
                     self.cache.set_schema(table_fqn, self.provider_name, actual_schema)
-            
+
             # Validate the resource using the provider
             result = self.validation_provider.validate_resource(expose, actual_schema)
-            
+
             # Convert provider validation issues to report issues
             for issue in result.issues:
                 # Enhanced error messages with suggestions and documentation
@@ -633,84 +714,86 @@ class ContractValidator:
                     expected=issue.expected,
                     actual=issue.actual,
                     suggestion=issue.suggestion,
-                    documentation_url=issue.documentation_url
+                    documentation_url=issue.documentation_url,
                 )
-            
+
             # Track history if enabled
             if self.history:
                 try:
                     self.history.record_validation(
                         contract_path=str(self.contract_path),
                         result=result,
-                        provider=self.provider_name
+                        provider=self.provider_name,
                     )
                 except Exception as e:
                     LOG.warning(f"Failed to record validation history: {e}")
-            
+
             # Check for drift if requested
             if self.check_drift and self.history:
-                resource_name = expose.get('id') or expose.get('name') or table
+                resource_name = expose.get("id") or expose.get("name") or table
                 try:
                     drift_result = self.history.detect_drift(
-                        contract_path=str(self.contract_path),
-                        resource_name=resource_name
+                        contract_path=str(self.contract_path), resource_name=resource_name
                     )
-                    
-                    if drift_result['drift_detected']:
-                        drift_type = drift_result.get('type', 'unknown')
-                        drift_msg = drift_result['message']
-                        
+
+                    if drift_result["drift_detected"]:
+                        drift_type = drift_result.get("type", "unknown")
+                        drift_msg = drift_result["message"]
+
                         # Add detailed drift information
-                        if drift_type == 'degradation':
+                        if drift_type == "degradation":
                             suggestion = f"Investigate why error count increased from {drift_result.get('previous_errors', 0)} to {drift_result.get('current_errors', 0)}"
-                        elif drift_type == 'new_issues':
-                            new_cats = drift_result.get('new_categories', [])
+                        elif drift_type == "new_issues":
+                            new_cats = drift_result.get("new_categories", [])
                             suggestion = f"New issue categories detected: {', '.join(new_cats)}. Review recent schema changes."
                         else:
                             suggestion = "Review validation history to understand the drift"
-                        
+
                         self.report.add_issue(
-                            'warning', 'drift',
+                            "warning",
+                            "drift",
                             f"Validation drift detected: {drift_msg}",
                             path,
                             suggestion=suggestion,
-                            documentation_url="https://docs.fluid.io/validation/drift-detection"
+                            documentation_url="https://docs.fluid.io/validation/drift-detection",
                         )
                         LOG.warning(f"⚠️  Drift detected for {resource_name}: {drift_msg}")
                 except Exception as e:
                     LOG.warning(f"Failed to check drift: {e}")
-            
+
             # Log success
             if result.success:
                 LOG.info(f"✅ Resource '{table_fqn}' validated successfully")
             else:
                 LOG.warning(f"⚠️  Resource '{table_fqn}' validation found issues")
-                
+
         except Exception as e:
             self.report.add_issue(
-                'error', 'binding',
+                "error",
+                "binding",
                 f"Failed to validate resource: {str(e)}",
                 path,
                 suggestion="Check provider credentials and network connectivity",
-                documentation_url="https://docs.fluid.io/validation/troubleshooting"
+                documentation_url="https://docs.fluid.io/validation/troubleshooting",
             )
-    
+
     def _validate_generic_resource(self, expose: Dict[str, Any], path: str) -> None:
         """Validate a resource using the active validation provider (Snowflake, AWS, local)."""
         if not self.validation_provider:
             self.report.add_issue(
-                'warning', 'binding',
-                'No validation provider initialized, skipping resource validation',
-                path
+                "warning",
+                "binding",
+                "No validation provider initialized, skipping resource validation",
+                path,
             )
             return
 
-        expose_id = expose.get('id') or expose.get('exposeId') or 'unknown'
+        expose_id = expose.get("id") or expose.get("exposeId") or "unknown"
 
         try:
             # Cache lookup
             actual_schema = None
-            cache_key = "{}:{}".format(self.provider_name, expose_id)
+            cache_key = f"{self.provider_name}:{expose_id}"
             if self.cache:
                 actual_schema = self.cache.get_schema(cache_key, self.provider_name)
                 if actual_schema:
@@ -750,16 +833,17 @@ class ContractValidator:
 
             # Drift detection
             if self.check_drift and self.history:
-                resource_name = expose.get('id') or expose.get('name') or expose_id
+                resource_name = expose.get("id") or expose.get("name") or expose_id
                 try:
                     drift_result = self.history.detect_drift(
                         contract_path=str(self.contract_path),
                         resource_name=resource_name,
                     )
-                    if drift_result['drift_detected']:
+                    if drift_result["drift_detected"]:
                         self.report.add_issue(
-                            'warning', 'drift',
-                            "Validation drift detected: {}".format(drift_result['message']),
+                            "warning",
+                            "drift",
+                            "Validation drift detected: {}".format(drift_result["message"]),
                             path,
                             suggestion="Review validation history to understand the drift",
                             documentation_url="https://docs.fluid.io/validation/drift-detection",
@@ -774,8 +858,9 @@ class ContractValidator:
 
         except Exception as e:
             self.report.add_issue(
-                'error', 'binding',
-                "Failed to validate resource: {}".format(str(e)),
+                "error",
+                "binding",
+                f"Failed to validate resource: {str(e)}",
                 path,
                 suggestion="Check provider credentials and connectivity",
             )
@@ -783,125 +868,123 @@ class ContractValidator:
     def _build_snowflake_config(self) -> Dict[str, Any]:
         """Build Snowflake provider config from contract bindings + env vars."""
         import os
+
         config: Dict[str, Any] = {}
         # Extract from first expose binding
-        for expose in self.contract.get('exposes', []):
-            binding = expose.get('binding', {})
-            location = binding.get('location', {})
-            if binding.get('platform') == 'snowflake':
-                config['account'] = location.get('account', '')
-                config['database'] = location.get('database', '')
-                config['schema'] = location.get('schema', '')
+        for expose in self.contract.get("exposes", []):
+            binding = expose.get("binding", {})
+            location = binding.get("location", {})
+            if binding.get("platform") == "snowflake":
+                config["account"] = location.get("account", "")
+                config["database"] = location.get("database", "")
+                config["schema"] = location.get("schema", "")
                 break
         # Override from env vars (standard Snowflake env vars)
-        config['account'] = os.environ.get('SNOWFLAKE_ACCOUNT', config.get('account', ''))
-        config['user'] = os.environ.get('SNOWFLAKE_USER', '')
-        config['password'] = os.environ.get('SNOWFLAKE_PASSWORD')
-        config['warehouse'] = os.environ.get('SNOWFLAKE_WAREHOUSE', config.get('warehouse'))
-        config['role'] = os.environ.get('SNOWFLAKE_ROLE', config.get('role'))
-        config['private_key_path'] = os.environ.get('SNOWFLAKE_PRIVATE_KEY_PATH')
-        config['authenticator'] = os.environ.get('SNOWFLAKE_AUTHENTICATOR')
+        config["account"] = os.environ.get("SNOWFLAKE_ACCOUNT", config.get("account", ""))
+        config["user"] = os.environ.get("SNOWFLAKE_USER", "")
+        config["password"] = os.environ.get("SNOWFLAKE_PASSWORD")
+        config["warehouse"] = os.environ.get("SNOWFLAKE_WAREHOUSE", config.get("warehouse"))
+        config["role"] = os.environ.get("SNOWFLAKE_ROLE", config.get("role"))
+        config["private_key_path"] = os.environ.get("SNOWFLAKE_PRIVATE_KEY_PATH")
+        config["authenticator"] = os.environ.get("SNOWFLAKE_AUTHENTICATOR")
         # CLI --server flag overrides account
         if self.server:
-            config['account'] = self.server
+            config["account"] = self.server
         return config
-    
+
     def _validate_consumes(self) -> None:
         """Validate consumed data products (dependencies)."""
         LOG.info("Validating consumed data products...")
-        
-        consumes = self.contract.get('consumes', [])
+
+        consumes = self.contract.get("consumes", [])
         if not consumes:
             LOG.debug("No consumed data products declared")
             return
-        
+
         for idx, consume in enumerate(consumes):
-            consume_id = consume.get('id', f'consume_{idx}')
-            consume_ref = consume.get('ref')
-            
+            consume_id = consume.get("id", f"consume_{idx}")
+            consume_ref = consume.get("ref")
+
             path = f"consumes[{idx}]"
-            
+
             if not consume_ref:
                 self.report.add_issue(
-                    'error', 'metadata',
+                    "error",
+                    "metadata",
                     f"Missing 'ref' for consumed data product '{consume_id}'",
-                    f"{path}.ref"
+                    f"{path}.ref",
                 )
             else:
                 # Could validate that ref is resolvable, but that requires catalog access
                 LOG.debug(f"Consume {consume_id} references: {consume_ref}")
-            
+
             self.report.consumes_validated += 1
-    
+
     def _validate_quality_specs(self) -> None:
         """Validate quality specifications and SLAs."""
         LOG.info("Validating quality specifications...")
-        
-        quality = self.contract.get('quality', {})
-        
+
+        quality = self.contract.get("quality", {})
+
         if not quality:
-            self.report.add_issue(
-                'info', 'quality',
-                'No quality specifications defined',
-                'quality'
-            )
+            self.report.add_issue("info", "quality", "No quality specifications defined", "quality")
             return
-        
+
         # Validate SLA if present
-        sla = quality.get('sla', {})
+        sla = quality.get("sla", {})
         if sla:
-            if 'freshness' in sla:
-                freshness = sla['freshness']
+            if "freshness" in sla:
+                freshness = sla["freshness"]
                 if not isinstance(freshness, str):
                     self.report.add_issue(
-                        'warning', 'quality',
-                        f"SLA freshness should be a string (e.g., '1h', '1d')",
-                        'quality.sla.freshness'
+                        "warning",
+                        "quality",
+                        "SLA freshness should be a string (e.g., '1h', '1d')",
+                        "quality.sla.freshness",
                     )
-        
+
         # Validate tests if present
-        tests = quality.get('tests', [])
+        tests = quality.get("tests", [])
         for idx, test in enumerate(tests):
-            if 'name' not in test:
+            if "name" not in test:
                 self.report.add_issue(
-                    'warning', 'quality',
+                    "warning",
+                    "quality",
                     f"Test at index {idx} missing 'name'",
-                    f'quality.tests[{idx}]'
+                    f"quality.tests[{idx}]",
                 )
-    
+
     def _validate_metadata(self) -> None:
         """Validate metadata and governance fields."""
         LOG.info("Validating metadata and governance...")
-        
-        metadata = self.contract.get('metadata', {})
-        
+
+        metadata = self.contract.get("metadata", {})
+
         if not metadata:
-            self.report.add_issue(
-                'warning', 'metadata',
-                'No metadata section defined',
-                'metadata'
-            )
+            self.report.add_issue("warning", "metadata", "No metadata section defined", "metadata")
             return
-        
+
         # Check recommended metadata fields
-        recommended_fields = ['owner', 'layer', 'domain', 'tags']
+        recommended_fields = ["owner", "layer", "domain", "tags"]
         for field in recommended_fields:
             if field not in metadata:
                 self.report.add_issue(
-                    'info', 'metadata',
+                    "info",
+                    "metadata",
                     f"Recommended metadata field '{field}' not present",
-                    f'metadata.{field}'
+                    f"metadata.{field}",
                 )
-        
+
         # Validate layer if present
-        layer = metadata.get('layer')
+        layer = metadata.get("layer")
         if layer:
-            valid_layers = ['Bronze', 'Silver', 'Gold', 'Platinum']
+            valid_layers = ["Bronze", "Silver", "Gold", "Platinum"]
             if layer not in valid_layers:
                 self.report.add_issue(
-                    'warning', 'metadata',
+                    "warning",
+                    "metadata",
                     f"Layer '{layer}' not in standard set: {valid_layers}",
-                    'metadata.layer'
+                    "metadata.layer",
                 )
 
 
@@ -944,123 +1027,91 @@ Examples:
   # Output report as JSON
   fluid contract-validation contract.fluid.yaml --output-format json
         """,
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    
+
     # Required arguments
-    p.add_argument(
-        "contract",
-        help="Path to contract.fluid.(yaml|json)"
-    )
-    
+    p.add_argument("contract", help="Path to contract.fluid.(yaml|json)")
+
     # Optional arguments
+    p.add_argument("--env", help="Environment overlay (dev/test/prod)")
+
     p.add_argument(
-        "--env",
-        help="Environment overlay (dev/test/prod)"
+        "--provider", help="Override provider platform (gcp, snowflake, databricks, aws, azure)"
     )
-    
-    p.add_argument(
-        "--provider",
-        help="Override provider platform (gcp, snowflake, databricks, aws, azure)"
-    )
-    
-    p.add_argument(
-        "--project",
-        help="Override project/account ID"
-    )
-    
-    p.add_argument(
-        "--region",
-        help="Override region/location"
-    )
-    
-    p.add_argument(
-        "--strict",
-        action="store_true",
-        default=False,
-        help="Treat warnings as errors"
-    )
-    
+
+    p.add_argument("--project", help="Override project/account ID")
+
+    p.add_argument("--region", help="Override region/location")
+
+    p.add_argument("--strict", action="store_true", default=False, help="Treat warnings as errors")
+
     p.add_argument(
         "--no-data",
         action="store_true",
         default=False,
-        help="Skip data validation checks (structure only)"
+        help="Skip data validation checks (structure only)",
     )
-    
+
     p.add_argument(
         "--output-format",
-        choices=['text', 'json'],
-        default='text',
-        help="Output format for validation report"
+        choices=["text", "json"],
+        default="text",
+        help="Output format for validation report",
     )
-    
-    p.add_argument(
-        "--output-file",
-        help="Write validation report to file"
-    )
-    
+
+    p.add_argument("--output-file", help="Write validation report to file")
+
     # Caching arguments
     p.add_argument(
         "--cache",
         action="store_true",
         default=True,
-        help="Enable result caching (default: enabled)"
+        help="Enable result caching (default: enabled)",
     )
-    
-    p.add_argument(
-        "--no-cache",
-        dest="cache",
-        action="store_false",
-        help="Disable result caching"
-    )
-    
+
+    p.add_argument("--no-cache", dest="cache", action="store_false", help="Disable result caching")
+
     p.add_argument(
         "--cache-ttl",
         type=int,
         default=3600,
-        help="Cache time-to-live in seconds (default: 3600 = 1 hour)"
+        help="Cache time-to-live in seconds (default: 3600 = 1 hour)",
     )
-    
+
     p.add_argument(
-        "--cache-clear",
-        action="store_true",
-        help="Clear validation cache before running"
+        "--cache-clear", action="store_true", help="Clear validation cache before running"
     )
-    
-    p.add_argument(
-        "--cache-stats",
-        action="store_true",
-        help="Show cache statistics"
-    )
-    
+
+    p.add_argument("--cache-stats", action="store_true", help="Show cache statistics")
+
     # History and drift detection
     p.add_argument(
         "--track-history",
         action="store_true",
         default=True,
-        help="Track validation history for drift detection (default: enabled)"
+        help="Track validation history for drift detection (default: enabled)",
     )
-    
+
     p.add_argument(
         "--check-drift",
         action="store_true",
-        help="Check for validation drift compared to historical results"
+        help="Check for validation drift compared to historical results",
     )
-    
+
     p.set_defaults(cmd=COMMAND, func=run)
 
 
 def run(args: argparse.Namespace, logger: logging.Logger) -> int:
     """Execute the contract-validation command."""
     contract_path = Path(args.contract)
-    
+
     if not contract_path.exists():
         console_error(f"Contract file not found: {contract_path}")
         return 1
-    
+
     # Handle cache stats request
-    if hasattr(args, 'cache_stats') and args.cache_stats:
+    if hasattr(args, "cache_stats") and args.cache_stats:
         cache = ValidationCache(ttl=args.cache_ttl)
         stats = cache.get_cache_stats()
         cprint("\n📊 Cache Statistics")
@@ -1072,26 +1123,26 @@ def run(args: argparse.Namespace, logger: logging.Logger) -> int:
         cprint(f"Cache directory: {stats['cache_dir']}")
         cprint(f"TTL: {stats['ttl_seconds']} seconds")
         return 0
-    
+
     cprint(f"Validating FLUID contract: {contract_path}")
-    
+
     # Create validator
     validator = ContractValidator(
         contract_path=contract_path,
-        env=getattr(args, 'env', None),
-        provider_name=getattr(args, 'provider', None),
-        project=getattr(args, 'project', None),
-        region=getattr(args, 'region', None),
-        strict=getattr(args, 'strict', False),
-        check_data=not getattr(args, 'no_data', False),
-        use_cache=getattr(args, 'cache', True),
-        cache_ttl=getattr(args, 'cache_ttl', 3600),
-        cache_clear=getattr(args, 'cache_clear', False),
-        track_history=getattr(args, 'track_history', True),
-        check_drift=getattr(args, 'check_drift', False),
-        logger=logger
+        env=getattr(args, "env", None),
+        provider_name=getattr(args, "provider", None),
+        project=getattr(args, "project", None),
+        region=getattr(args, "region", None),
+        strict=getattr(args, "strict", False),
+        check_data=not getattr(args, "no_data", False),
+        use_cache=getattr(args, "cache", True),
+        cache_ttl=getattr(args, "cache_ttl", 3600),
+        cache_clear=getattr(args, "cache_clear", False),
+        track_history=getattr(args, "track_history", True),
+        check_drift=getattr(args, "check_drift", False),
+        logger=logger,
     )
-    
+
     # Execute validation
     try:
         report = validator.validate()
@@ -1099,21 +1150,21 @@ def run(args: argparse.Namespace, logger: logging.Logger) -> int:
         console_error(f"Validation failed: {e}")
         LOG.exception("Validation error")
         return 1
-    
+
     # Output report
-    if args.output_format == 'json':
+    if args.output_format == "json":
         output_json_report(report, args.output_file)
     else:
         output_text_report(report, args.output_file)
-    
+
     # Return exit code
     if not report.is_valid():
         return 1
-    
+
     if args.strict and report.get_warnings():
         console_error("Validation failed: warnings treated as errors (--strict mode)")
         return 1
-    
+
     return 0
 
 
@@ -1128,19 +1179,19 @@ def output_text_report(report: ValidationReport, output_file: Optional[str] = No
 def output_rich_report(report: ValidationReport, output_file: Optional[str] = None) -> None:
     """Output validation report using Rich formatting."""
     console = Console()
-    
+
     # Summary panel
     status_color = "green" if report.is_valid() else "red"
     status_icon = "✅" if report.is_valid() else "❌"
-    
+
     summary_text = f"""[bold]{status_icon} Contract Validation: {report.contract_id}[/bold]
 Version: {report.contract_version}
 Validated: {report.exposes_validated} exposed, {report.consumes_validated} consumed
 Results: {report.checks_passed} passed, {report.checks_failed} failed
 Duration: {report.duration:.2f}s"""
-    
+
     console.print(Panel(summary_text, title="Validation Summary", border_style=status_color))
-    
+
     # Issues table
     if report.issues:
         table = Table(title="Validation Issues", show_header=True)
@@ -1148,28 +1199,23 @@ Duration: {report.duration:.2f}s"""
         table.add_column("Category")
         table.add_column("Message", overflow="fold")
         table.add_column("Path", style="dim")
-        
+
         for issue in report.issues:
             severity_style = {
-                'error': '[red]ERROR[/red]',
-                'warning': '[yellow]WARNING[/yellow]',
-                'info': '[blue]INFO[/blue]'
+                "error": "[red]ERROR[/red]",
+                "warning": "[yellow]WARNING[/yellow]",
+                "info": "[blue]INFO[/blue]",
             }.get(issue.severity, issue.severity.upper())
-            
-            table.add_row(
-                severity_style,
-                issue.category,
-                issue.message,
-                issue.path
-            )
-        
+
+            table.add_row(severity_style, issue.category, issue.message, issue.path)
+
         console.print(table)
     else:
         console.print("[green]✅ No issues found - contract is valid![/green]")
-    
+
     # Save to file if requested
     if output_file:
-        with open(output_file, 'w') as f:
+        with open(output_file, "w") as f:
             f.write(report.get_summary())
             f.write("\n\n")
             for issue in report.issues:
@@ -1185,7 +1231,7 @@ def output_plain_report(report: ValidationReport, output_file: Optional[str] = N
     output.append(report.get_summary())
     output.append("=" * 60)
     output.append("")
-    
+
     if report.issues:
         output.append("Issues:")
         output.append("-" * 60)
@@ -1194,11 +1240,11 @@ def output_plain_report(report: ValidationReport, output_file: Optional[str] = N
             output.append("")
     else:
         output.append("✅ No issues found - contract is valid!")
-    
+
     report_text = "\n".join(output)
-    
+
     if output_file:
-        with open(output_file, 'w') as f:
+        with open(output_file, "w") as f:
             f.write(report_text)
         success(f"Report saved to: {output_file}")
     else:
@@ -1229,16 +1275,16 @@ def output_json_report(report: ValidationReport, output_file: Optional[str] = No
                 "expected": issue.expected,
                 "actual": issue.actual,
                 "suggestion": issue.suggestion,
-                "documentation_url": issue.documentation_url
+                "documentation_url": issue.documentation_url,
             }
             for issue in report.issues
-        ]
+        ],
     }
-    
+
     json_output = json.dumps(report_dict, indent=2)
-    
+
     if output_file:
-        with open(output_file, 'w') as f:
+        with open(output_file, "w") as f:
             f.write(json_output)
         success(f"Report saved to: {output_file}")
     else:

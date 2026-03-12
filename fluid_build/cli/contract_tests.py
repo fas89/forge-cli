@@ -13,12 +13,18 @@
 # limitations under the License.
 
 from __future__ import annotations
-import argparse, logging
-from ._common import load_contract_with_overlay, CLIError
+
+import argparse
+import logging
+
+from fluid_build.cli.console import cprint, success
+from fluid_build.cli.console import error as console_error
+
+from ._common import CLIError, load_contract_with_overlay
 from ._logging import info
-from fluid_build.cli.console import cprint, error as console_error, success
 
 COMMAND = "contract-tests"
+
 
 def register(subparsers: argparse._SubParsersAction):
     p = subparsers.add_parser(COMMAND, help="Run schema compatibility & consumer-impact tests")
@@ -27,17 +33,20 @@ def register(subparsers: argparse._SubParsersAction):
     p.add_argument("--baseline", help="baseline schema signature JSON")
     p.set_defaults(cmd=COMMAND, func=run)
 
+
 def run(args, logger: logging.Logger) -> int:
     try:
         contract = load_contract_with_overlay(args.contract, getattr(args, "env", None), logger)
         try:
             from fluid_build.contract_tests import run_tests
         except Exception:
+
             def run_tests(contract, baseline_path=None):
                 return {"compatible": True, "reasons": []}
+
         result = run_tests(contract, getattr(args, "baseline", None))
         info(logger, "contract_tests", **result)
-        
+
         # Human-friendly output
         if result.get("compatible"):
             success("Contract tests passed")
@@ -46,7 +55,7 @@ def run(args, logger: logging.Logger) -> int:
             console_error(f"Contract tests failed — {len(reasons)} incompatibility(ies) found")
             for r in reasons:
                 cprint(f"   • {r}")
-        
+
         return 0 if result.get("compatible") else 2
     except CLIError:
         raise

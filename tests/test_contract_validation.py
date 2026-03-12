@@ -1,18 +1,33 @@
-"""Tests for fluid_build.cli.contract_validation — data classes and validation logic."""
-import pytest
-from datetime import datetime
-from pathlib import Path
-from unittest.mock import MagicMock, patch
-from fluid_build.cli.contract_validation import ValidationIssue, ValidationReport, ContractValidator
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
+"""Tests for fluid_build.cli.contract_validation — data classes and validation logic."""
+
+from datetime import datetime
+
+from fluid_build.cli.contract_validation import ContractValidator, ValidationIssue, ValidationReport
 
 # ── ValidationIssue ──
+
 
 class TestValidationIssue:
     def test_basic_str(self):
         vi = ValidationIssue(
-            severity="error", category="schema",
-            message="Missing field", path="exposes[0].id",
+            severity="error",
+            category="schema",
+            message="Missing field",
+            path="exposes[0].id",
         )
         s = str(vi)
         assert "[ERROR]" in s
@@ -22,9 +37,12 @@ class TestValidationIssue:
 
     def test_str_with_expected_actual(self):
         vi = ValidationIssue(
-            severity="warning", category="binding",
-            message="Type mismatch", path="x",
-            expected="STRING", actual="INT64",
+            severity="warning",
+            category="binding",
+            message="Type mismatch",
+            path="x",
+            expected="STRING",
+            actual="INT64",
         )
         s = str(vi)
         assert "Expected: STRING" in s
@@ -32,8 +50,10 @@ class TestValidationIssue:
 
     def test_str_with_suggestion_and_docs(self):
         vi = ValidationIssue(
-            severity="info", category="quality",
-            message="Consider SLA", path="",
+            severity="info",
+            category="quality",
+            message="Consider SLA",
+            path="",
             suggestion="Add SLA block",
             documentation_url="https://docs.example.com",
         )
@@ -49,6 +69,7 @@ class TestValidationIssue:
 
 
 # ── ValidationReport ──
+
 
 class TestValidationReport:
     def _make_report(self, **overrides):
@@ -115,9 +136,12 @@ class TestValidationReport:
     def test_add_issue_all_fields(self):
         r = self._make_report()
         r.add_issue(
-            severity="error", category="schema",
-            message="mismatch", path="p",
-            expected="A", actual="B",
+            severity="error",
+            category="schema",
+            message="mismatch",
+            path="p",
+            expected="A",
+            actual="B",
             suggestion="fix it",
             documentation_url="https://example.com",
         )
@@ -139,6 +163,7 @@ class TestValidationReport:
 
 # ── ContractValidator private method tests ──
 
+
 class TestValidateBinding:
     """Test _validate_binding — pure dict validation."""
 
@@ -146,8 +171,11 @@ class TestValidateBinding:
         v = ContractValidator.__new__(ContractValidator)
         v.provider_name = provider_name
         v.report = ValidationReport(
-            contract_path="/tmp/c.yaml", contract_id="test",
-            contract_version="1.0.0", validation_time=datetime.now(), duration=0,
+            contract_path="/tmp/c.yaml",
+            contract_id="test",
+            contract_version="1.0.0",
+            validation_time=datetime.now(),
+            duration=0,
         )
         return v
 
@@ -167,7 +195,8 @@ class TestValidateBinding:
         v = self._make_validator()
         v._validate_binding(
             {"platform": "gcp", "location": {"properties": {}}},
-            "path", "e1",
+            "path",
+            "e1",
         )
         warnings = v.report.get_warnings()
         assert any("format" in w.message for w in warnings)
@@ -176,7 +205,8 @@ class TestValidateBinding:
         v = self._make_validator("gcp")
         v._validate_binding(
             {"platform": "gcp", "location": {"format": "table", "properties": {}}},
-            "path", "e1",
+            "path",
+            "e1",
         )
         errors = v.report.get_errors()
         # Should flag missing project, dataset, table
@@ -186,7 +216,8 @@ class TestValidateBinding:
         v = self._make_validator("aws")
         v._validate_binding(
             {"platform": "aws", "location": {"format": "table", "properties": {"bucket": "x"}}},
-            "path", "e1",
+            "path",
+            "e1",
         )
         assert len(v.report.get_errors()) == 0
 
@@ -196,8 +227,11 @@ class TestValidateSchemaDefinition:
         v = ContractValidator.__new__(ContractValidator)
         v.provider_name = "gcp"
         v.report = ValidationReport(
-            contract_path="/tmp/c.yaml", contract_id="test",
-            contract_version="1.0.0", validation_time=datetime.now(), duration=0,
+            contract_path="/tmp/c.yaml",
+            contract_id="test",
+            contract_version="1.0.0",
+            validation_time=datetime.now(),
+            duration=0,
         )
         return v
 
@@ -222,14 +256,17 @@ class TestValidateSchemaDefinition:
         v = self._make_validator()
         v._validate_schema_definition(
             [{"name": "id", "type": "INTEGER"}, {"name": "name", "type": "STRING"}],
-            "path", "e1",
+            "path",
+            "e1",
         )
         assert len(v.report.get_errors()) == 0
 
     def test_nonstandard_type_warning(self):
         v = self._make_validator()
         v._validate_schema_definition(
-            [{"name": "x", "type": "SUPERTYPE"}], "path", "e1",
+            [{"name": "x", "type": "SUPERTYPE"}],
+            "path",
+            "e1",
         )
         warnings = v.report.get_warnings()
         assert any("Non-standard" in w.message for w in warnings)

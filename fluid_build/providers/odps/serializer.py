@@ -14,9 +14,11 @@
 
 # fluid_build/providers/odps/serializer.py
 from __future__ import annotations
-from typing import Any, Dict, List, Tuple
-import json
+
 import hashlib
+import json
+from typing import Any, Dict, List, Tuple
+
 
 def _owner_from_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
     owner = metadata.get("owner", {}) if isinstance(metadata, dict) else {}
@@ -32,49 +34,63 @@ def _owner_from_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
         out["name"] = owner
     return out
 
+
 def _interfaces_from_fluid(contract: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
     """Extract interfaces supporting both 0.4.0 and 0.5.7 field names."""
     inputs: List[Dict[str, Any]] = []
-    for c in (contract.get("consumes") or []):
+    for c in contract.get("consumes") or []:
         # Support both 0.5.7 (productId) and 0.4.0 (ref)
         ref = c.get("productId") or c.get("ref")
-        inputs.append({
-            "id": c.get("id") or c.get("alias") or "input",
-            "ref": ref,
-            "description": c.get("description"),
-            "type": "reference",
-            "x-fluid": {k: v for k, v in c.items() if k not in {"id", "ref", "productId", "description"}}
-        })
+        inputs.append(
+            {
+                "id": c.get("id") or c.get("alias") or "input",
+                "ref": ref,
+                "description": c.get("description"),
+                "type": "reference",
+                "x-fluid": {
+                    k: v for k, v in c.items() if k not in {"id", "ref", "productId", "description"}
+                },
+            }
+        )
 
     outputs: List[Dict[str, Any]] = []
-    for e in (contract.get("exposes") or []):
+    for e in contract.get("exposes") or []:
         # Support both 0.5.7 (exposeId, kind, binding) and 0.4.0 (id, type, location)
         expose_id = e.get("exposeId") or e.get("id") or "output"
         expose_type = e.get("kind") or e.get("type") or "dataset"
-        location = e.get("binding", {}).get("location") if isinstance(e.get("binding"), dict) else e.get("location")
-        
-        outputs.append({
-            "id": expose_id,
-            "type": expose_type,
-            "description": e.get("description"),
-            "location": location,
-            "schema": e.get("schema") or e.get("contract", {}).get("schema"),
-            "privacy": e.get("privacy"),
-            "quality": e.get("quality") or e.get("contract", {}).get("dq"),
-            "semantics": e.get("semantics"),
-            "x-fluid": {
-                "mappings": e.get("mappings"),
-                "tags": e.get("tags"),
+        location = (
+            e.get("binding", {}).get("location")
+            if isinstance(e.get("binding"), dict)
+            else e.get("location")
+        )
+
+        outputs.append(
+            {
+                "id": expose_id,
+                "type": expose_type,
+                "description": e.get("description"),
+                "location": location,
+                "schema": e.get("schema") or e.get("contract", {}).get("schema"),
+                "privacy": e.get("privacy"),
+                "quality": e.get("quality") or e.get("contract", {}).get("dq"),
+                "semantics": e.get("semantics"),
+                "x-fluid": {
+                    "mappings": e.get("mappings"),
+                    "tags": e.get("tags"),
+                },
             }
-        })
+        )
 
     return {"inputs": inputs, "outputs": outputs}
+
 
 def _slo_from_fluid(contract: Dict[str, Any]) -> Dict[str, Any]:
     return contract.get("slo") or contract.get("operations", {}).get("sla") or {}
 
+
 def _policies_from_fluid(contract: Dict[str, Any]) -> Dict[str, Any]:
     return contract.get("accessPolicy") or {}
+
 
 def _build_from_fluid(contract: Dict[str, Any]) -> Dict[str, Any]:
     """Extract build information supporting both 0.4.0 and 0.5.7 formats."""
@@ -84,7 +100,7 @@ def _build_from_fluid(contract: Dict[str, Any]) -> Dict[str, Any]:
         b = builds[0]
     else:
         b = contract.get("build") or {}
-    
+
     t = b.get("transformation", {}) if isinstance(b, dict) else {}
     return {
         "pattern": t.get("pattern"),
@@ -92,6 +108,7 @@ def _build_from_fluid(contract: Dict[str, Any]) -> Dict[str, Any]:
         "properties": t.get("properties"),
         "execution": b.get("execution"),
     }
+
 
 def fluid_to_odps_document(contract: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -111,12 +128,12 @@ def fluid_to_odps_document(contract: Dict[str, Any]) -> Dict[str, Any]:
 
     doc: Dict[str, Any] = {
         # "$schema": "https://opendataproducts.org/spec/odps-1.0.json",  # optional
-        "odpsVersion": "1.0.0",   # conservative placeholder
+        "odpsVersion": "1.0.0",  # conservative placeholder
         "info": {
             "title": product_name,
             "version": fluid_version,
             "description": description,
-            "owner": owner
+            "owner": owner,
         },
         "product": {
             "id": product_id,
@@ -137,15 +154,17 @@ def fluid_to_odps_document(contract: Dict[str, Any]) -> Dict[str, Any]:
             "security": contract.get("security"),
             "lineage": contract.get("lineage"),
             "detailed_specifications": contract.get("detailed_specifications"),
-        }
+        },
     }
     return doc
 
+
 # ---------- Signatures for plan diffs & contract tests ----------
+
 
 def _schema_signature(schema: List[Dict[str, Any]]) -> Tuple[Tuple[str, str, bool], ...]:
     cols: List[Tuple[str, str, bool]] = []
-    for col in (schema or []):
+    for col in schema or []:
         name = str(col.get("name"))
         typ = str(col.get("type"))
         nullable = bool(col.get("nullable", True))
@@ -153,12 +172,15 @@ def _schema_signature(schema: List[Dict[str, Any]]) -> Tuple[Tuple[str, str, boo
     cols.sort(key=lambda x: x[0])  # stable order
     return tuple(cols)
 
+
 def json_dumps_min(obj: Any) -> str:
     return json.dumps(obj, separators=(",", ":"), ensure_ascii=False)
+
 
 def hashlib_sha256(obj: Any) -> str:
     payload = json_dumps_min(obj).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
 
 def build_interface_signatures(odps_doc: Dict[str, Any]) -> Dict[str, Any]:
     out = {}

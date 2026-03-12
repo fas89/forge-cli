@@ -12,22 +12,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json, sys
+import json
+
 
 def schema_signature(contract: dict):
     out = []
     for exp in contract.get("exposes", []):
-        cols = [(c.get("name"), c.get("type"), bool(c.get("nullable", True))) for c in exp.get("schema", [])]
+        cols = [
+            (c.get("name"), c.get("type"), bool(c.get("nullable", True)))
+            for c in exp.get("schema", [])
+        ]
         out.append((exp.get("id"), tuple(cols)))
     return tuple(out)
 
+
 def check_compat(new_contract: dict, baseline_path: str) -> dict:
-    with open(baseline_path, "r", encoding="utf-8") as f:
+    with open(baseline_path, encoding="utf-8") as f:
         baseline = json.load(f)
     new_sig = schema_signature(new_contract)
     if str(new_sig) != baseline.get("signature"):
         return {"compatible": False, "reason": "schema_signature_differs", "new": str(new_sig)}
     return {"compatible": True}
+
 
 def write_baseline(contract: dict, out: str):
     obj = {"signature": str(schema_signature(contract))}

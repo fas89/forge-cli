@@ -1,21 +1,36 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for Snowflake naming utilities and type definitions."""
 
 import pytest
-from fluid_build.providers.snowflake.util.names import (
-    normalize_database_name,
-    normalize_schema_name,
-    normalize_table_name,
-    normalize_column_name,
-    quote_identifier,
-    build_qualified_name,
-)
+
 from fluid_build.providers.snowflake.types import (
     AuthenticationType,
     DeploymentStrategy,
+    OperationResult,
     SnowflakeIdentifier,
     TableColumn,
     ValidationResult,
-    OperationResult,
+)
+from fluid_build.providers.snowflake.util.names import (
+    build_qualified_name,
+    normalize_column_name,
+    normalize_database_name,
+    normalize_schema_name,
+    normalize_table_name,
+    quote_identifier,
 )
 
 
@@ -160,9 +175,12 @@ class TestTableColumn:
 
     def test_full_ddl(self):
         col = TableColumn(
-            name="price", type="DECIMAL(10,2)", nullable=False,
-            default_value="0.00", check_constraint="price >= 0",
-            comment="Product price"
+            name="price",
+            type="DECIMAL(10,2)",
+            nullable=False,
+            default_value="0.00",
+            check_constraint="price >= 0",
+            comment="Product price",
         )
         ddl = col.to_ddl_fragment()
         assert '"price" DECIMAL(10,2)' in ddl

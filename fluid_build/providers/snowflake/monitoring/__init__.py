@@ -15,7 +15,7 @@
 # fluid_build/providers/snowflake/monitoring/__init__.py
 """Snowflake monitoring and performance tracking."""
 
-from .performance import PerformanceMonitor, QueryMetrics, PerformanceReport
+from .performance import PerformanceMonitor, PerformanceReport, QueryMetrics
 
 __all__ = [
     "PerformanceMonitor",

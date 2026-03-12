@@ -30,253 +30,216 @@ This template follows FLUID 0.5.7 specification and provides a solid
 foundation that can be extended as projects mature.
 """
 
-from typing import Dict, List, Optional, Any
 from pathlib import Path
+from typing import Any, Dict, List
 
 from ..core.interfaces import (
-    ProjectTemplate, 
-    TemplateMetadata, 
-    ComplexityLevel, 
+    ComplexityLevel,
     GenerationContext,
-    ValidationResult
+    ProjectTemplate,
+    TemplateMetadata,
+    ValidationResult,
 )
 
 
 class StarterTemplate(ProjectTemplate):
     """
     Starter template for basic FLUID data products
-    
+
     This template creates a minimal but complete data product structure
     suitable for learning FLUID concepts and rapid prototyping.
     """
-    
+
     def get_metadata(self) -> TemplateMetadata:
         """Return starter template metadata"""
         return TemplateMetadata(
             name="Starter Data Product",
             description="Simple MVP template for quick setup with minimal configuration",
             complexity=ComplexityLevel.BEGINNER,
-            provider_support=['local', 'gcp', 'snowflake', 'bigquery'],
+            provider_support=["local", "gcp", "snowflake", "bigquery"],
             use_cases=[
-                'Quick prototyping and experimentation',
-                'Learning FLUID concepts',
-                'Simple data processing tasks',
-                'Getting started with data products'
+                "Quick prototyping and experimentation",
+                "Learning FLUID concepts",
+                "Simple data processing tasks",
+                "Getting started with data products",
             ],
-            technologies=['SQL', 'YAML', 'Python'],
-            estimated_time='5-10 minutes',
-            tags=['starter', 'mvp', 'basic', 'beginner'],
-            category='foundation',
-            version='1.0.0',
-            author='FLUID Build Team',
-            license='MIT'
+            technologies=["SQL", "YAML", "Python"],
+            estimated_time="5-10 minutes",
+            tags=["starter", "mvp", "basic", "beginner"],
+            category="foundation",
+            version="1.0.0",
+            author="FLUID Build Team",
+            license="MIT",
         )
-    
+
     def generate_structure(self, context: GenerationContext) -> Dict[str, Any]:
         """Generate basic project folder structure"""
         return {
-            'sql/': {
-                'queries/': {},
-                'transforms/': {}
-            },
-            'data/': {
-                'raw/': {},
-                'processed/': {}
-            },
-            'docs/': {},
-            'tests/': {
-                'unit/': {},
-                'integration/': {}
-            },
-            'config/': {
-                'environments/': {}
-            },
-            'scripts/': {},
-            '.github/': {
-                'workflows/': {}
-            }
+            "sql/": {"queries/": {}, "transforms/": {}},
+            "data/": {"raw/": {}, "processed/": {}},
+            "docs/": {},
+            "tests/": {"unit/": {}, "integration/": {}},
+            "config/": {"environments/": {}},
+            "scripts/": {},
+            ".github/": {"workflows/": {}},
         }
-    
+
     def generate_contract(self, context: GenerationContext) -> Dict[str, Any]:
         """Generate FLUID 0.5.7 compliant contract"""
         project_config = context.project_config
-        
+
         # Extract configuration values
-        project_name = project_config.get('name', 'starter-product')
-        description = project_config.get('description', 'A starter data product')
-        domain = project_config.get('domain', 'analytics')
-        owner = project_config.get('owner', 'data-team')
-        provider = project_config.get('provider', 'local')
-        
+        project_name = project_config.get("name", "starter-product")
+        description = project_config.get("description", "A starter data product")
+        domain = project_config.get("domain", "analytics")
+        owner = project_config.get("owner", "data-team")
+        provider = project_config.get("provider", "local")
+
         # Generate contract based on FLUID 0.5.7 specification
         contract = {
-            'fluidVersion': '0.5.7',
-            'kind': 'DataProduct',
-            'id': project_name.replace('-', '_').replace(' ', '_'),
-            'name': project_name,
-            'description': description,
-            'domain': domain,
-            'metadata': {
-                'layer': 'Bronze',
-                'owner': {
-                    'team': owner,
-                    'email': f'{owner}@company.com'
-                }
+            "fluidVersion": "0.5.7",
+            "kind": "DataProduct",
+            "id": project_name.replace("-", "_").replace(" ", "_"),
+            "name": project_name,
+            "description": description,
+            "domain": domain,
+            "metadata": {
+                "layer": "Bronze",
+                "owner": {"team": owner, "email": f"{owner}@company.com"},
             },
-            'consumes': [
+            "consumes": [
                 {
-                    'productId': 'sample_data_product',
-                    'exposeId': 'sample_data',
-                    'purpose': 'Sample input data for getting started'
+                    "productId": "sample_data_product",
+                    "exposeId": "sample_data",
+                    "purpose": "Sample input data for getting started",
                 }
             ],
-            'builds': [
+            "builds": [
                 {
-                    'id': 'main_build',
-                    'description': 'Main data processing pipeline',
-                    'pattern': 'embedded-logic',
-                    'engine': 'sql',
-                    'properties': {
-                        'sql': 'SELECT * FROM sample_data WHERE created_at >= CURRENT_DATE - INTERVAL 1 DAY',
-                        'language': 'sql'
+                    "id": "main_build",
+                    "description": "Main data processing pipeline",
+                    "pattern": "embedded-logic",
+                    "engine": "sql",
+                    "properties": {
+                        "sql": "SELECT * FROM sample_data WHERE created_at >= CURRENT_DATE - INTERVAL 1 DAY",
+                        "language": "sql",
                     },
-                    'execution': {
-                        'trigger': {
-                            'type': 'schedule',
-                            'cron': '0 6 * * *'
+                    "execution": {
+                        "trigger": {"type": "schedule", "cron": "0 6 * * *"},
+                        "runtime": {
+                            "platform": provider,
+                            "resources": {"cpu": "1", "memory": "2GB"},
                         },
-                        'runtime': {
-                            'platform': provider,
-                            'resources': {
-                                'cpu': '1',
-                                'memory': '2GB'
-                            }
-                        }
-                    }
+                    },
                 }
             ],
-            'exposes': [
+            "exposes": [
                 {
-                    'exposeId': 'clean_data',
-                    'kind': 'table',
-                    'binding': {
-                        'platform': provider,
-                        'format': 'parquet',
-                        'location': {
-                            'path': 'data/processed/clean_data.parquet'
-                        }
+                    "exposeId": "clean_data",
+                    "kind": "table",
+                    "binding": {
+                        "platform": provider,
+                        "format": "parquet",
+                        "location": {"path": "data/processed/clean_data.parquet"},
                     },
-                    'contract': {
-                        'schema': [
-                            {
-                                'name': 'id',
-                                'type': 'string',
-                                'required': True
-                            },
-                            {
-                                'name': 'value',
-                                'type': 'string',
-                                'required': False
-                            },
-                            {
-                                'name': 'created_at',
-                                'type': 'timestamp',
-                                'required': True
-                            }
+                    "contract": {
+                        "schema": [
+                            {"name": "id", "type": "string", "required": True},
+                            {"name": "value", "type": "string", "required": False},
+                            {"name": "created_at", "type": "timestamp", "required": True},
                         ],
-                        'dq': {
-                            'rules': [
+                        "dq": {
+                            "rules": [
                                 {
-                                    'id': 'id_not_null',
-                                    'type': 'completeness',
-                                    'selector': 'id',
-                                    'threshold': 1.0,
-                                    'operator': '>=',
-                                    'severity': 'error'
+                                    "id": "id_not_null",
+                                    "type": "completeness",
+                                    "selector": "id",
+                                    "threshold": 1.0,
+                                    "operator": ">=",
+                                    "severity": "error",
                                 }
                             ]
-                        }
+                        },
                     },
-                    'qos': {
-                        'availability': '99.0%',
-                        'freshnessSLO': 'PT24H'
-                    }
+                    "qos": {"availability": "99.0%", "freshnessSLO": "PT24H"},
                 }
-            ]
+            ],
         }
-        
+
         return contract
-    
+
     def validate_configuration(self, config: Dict[str, Any]) -> ValidationResult:
         """Validate starter template configuration"""
         errors = []
-        
+
         # Basic validation
-        if not config.get('name'):
+        if not config.get("name"):
             errors.append("Project name is required")
-        
-        if not config.get('description'):
+
+        if not config.get("description"):
             errors.append("Project description is required")
-        
+
         # Validate project name format
-        name = config.get('name', '')
-        if name and not name.replace('-', '').replace('_', '').isalnum():
-            errors.append("Project name must contain only letters, numbers, hyphens, and underscores")
-        
+        name = config.get("name", "")
+        if name and not name.replace("-", "").replace("_", "").isalnum():
+            errors.append(
+                "Project name must contain only letters, numbers, hyphens, and underscores"
+            )
+
         return len(errors) == 0, errors
-    
+
     def get_recommended_providers(self) -> List[str]:
         """Get recommended providers for starter template"""
         # Local is best for getting started
-        return ['local', 'gcp', 'snowflake']
-    
+        return ["local", "gcp", "snowflake"]
+
     def get_customization_prompts(self) -> List[Dict[str, Any]]:
         """Return additional customization prompts"""
         return [
             {
-                'name': 'include_examples',
-                'type': 'confirm',
-                'message': 'Include sample data and queries?',
-                'default': True
+                "name": "include_examples",
+                "type": "confirm",
+                "message": "Include sample data and queries?",
+                "default": True,
             },
             {
-                'name': 'setup_git',
-                'type': 'confirm', 
-                'message': 'Initialize Git repository?',
-                'default': True
+                "name": "setup_git",
+                "type": "confirm",
+                "message": "Initialize Git repository?",
+                "default": True,
             },
             {
-                'name': 'create_readme',
-                'type': 'confirm',
-                'message': 'Generate comprehensive README?',
-                'default': True
-            }
+                "name": "create_readme",
+                "type": "confirm",
+                "message": "Generate comprehensive README?",
+                "default": True,
+            },
         ]
-    
+
     def post_generation_hooks(self, context: GenerationContext) -> None:
         """Execute post-generation setup"""
         project_dir = context.target_dir
         user_selections = context.user_selections
-        
+
         # Create sample files if requested
-        if user_selections.get('include_examples', True):
+        if user_selections.get("include_examples", True):
             self._create_sample_files(project_dir)
-        
+
         # Initialize Git repository if requested
-        if user_selections.get('setup_git', True):
+        if user_selections.get("setup_git", True):
             self._initialize_git_repo(project_dir)
-        
+
         # Create README if requested
-        if user_selections.get('create_readme', True):
+        if user_selections.get("create_readme", True):
             self._create_readme(project_dir, context)
-    
+
     def _create_sample_files(self, project_dir: Path) -> None:
         """Create sample data and query files"""
-        
+
         # Sample SQL query
-        sql_dir = project_dir / 'sql' / 'queries'
+        sql_dir = project_dir / "sql" / "queries"
         sql_dir.mkdir(parents=True, exist_ok=True)
-        
+
         sample_query = """-- Sample query for starter template
 -- This demonstrates basic data transformation patterns
 
@@ -290,13 +253,13 @@ WHERE created_at >= CURRENT_DATE - INTERVAL 7 DAY
     AND value IS NOT NULL
 ORDER BY created_at DESC
 """
-        
-        (sql_dir / 'sample_query.sql').write_text(sample_query)
-        
+
+        (sql_dir / "sample_query.sql").write_text(sample_query)
+
         # Sample data transformation
-        transforms_dir = project_dir / 'sql' / 'transforms'
+        transforms_dir = project_dir / "sql" / "transforms"
         transforms_dir.mkdir(parents=True, exist_ok=True)
-        
+
         transform_sql = """-- Data transformation for starter template
 -- Clean and standardize input data
 
@@ -322,13 +285,13 @@ SELECT
     END as value_category
 FROM cleaned_data
 """
-        
-        (transforms_dir / 'clean_data.sql').write_text(transform_sql)
-        
+
+        (transforms_dir / "clean_data.sql").write_text(transform_sql)
+
         # Sample test
-        test_dir = project_dir / 'tests' / 'unit'
+        test_dir = project_dir / "tests" / "unit"
         test_dir.mkdir(parents=True, exist_ok=True)
-        
+
         test_sql = """-- Unit test for data transformation
 -- Validates that transformation logic works correctly
 
@@ -358,17 +321,17 @@ FROM (
 GROUP BY value_category
 -- Expect: categories should match business rules
 """
-        
-        (test_dir / 'test_transformations.sql').write_text(test_sql)
-    
+
+        (test_dir / "test_transformations.sql").write_text(test_sql)
+
     def _initialize_git_repo(self, project_dir: Path) -> None:
         """Initialize Git repository with basic setup"""
         import subprocess
-        
+
         try:
             # Initialize Git repo
-            subprocess.run(['git', 'init'], cwd=project_dir, check=True, capture_output=True)
-            
+            subprocess.run(["git", "init"], cwd=project_dir, check=True, capture_output=True)
+
             # Create .gitignore
             gitignore_content = """# Python
 __pycache__/
@@ -412,26 +375,30 @@ Thumbs.db
 tmp/
 temp/
 """
-            
-            (project_dir / '.gitignore').write_text(gitignore_content)
-            
+
+            (project_dir / ".gitignore").write_text(gitignore_content)
+
             # Create initial commit
-            subprocess.run(['git', 'add', '.'], cwd=project_dir, check=True, capture_output=True)
-            subprocess.run(['git', 'commit', '-m', 'Initial commit: FLUID starter template'], 
-                         cwd=project_dir, check=True, capture_output=True)
-            
+            subprocess.run(["git", "add", "."], cwd=project_dir, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "commit", "-m", "Initial commit: FLUID starter template"],
+                cwd=project_dir,
+                check=True,
+                capture_output=True,
+            )
+
         except subprocess.CalledProcessError:
             # Git setup failed, but don't fail the entire process
             pass
-    
+
     def _create_readme(self, project_dir: Path, context: GenerationContext) -> None:
         """Create comprehensive README file"""
         project_config = context.project_config
-        project_name = project_config.get('name', 'Starter Data Product')
-        description = project_config.get('description', 'A FLUID data product')
-        owner = project_config.get('owner', 'data-team')
-        provider = project_config.get('provider', 'local')
-        
+        project_name = project_config.get("name", "Starter Data Product")
+        description = project_config.get("description", "A FLUID data product")
+        owner = project_config.get("owner", "data-team")
+        provider = project_config.get("provider", "local")
+
         readme_content = f"""# {project_name}
 
 {description}
@@ -591,5 +558,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 *Generated by FLUID Forge v{context.forge_version} using the starter template*
 """
-        
-        (project_dir / 'README.md').write_text(readme_content, encoding='utf-8')
+
+        (project_dir / "README.md").write_text(readme_content, encoding="utf-8")

@@ -25,27 +25,27 @@ except Exception:
 
 # Registry of available catalog providers
 CATALOG_PROVIDERS = {
-    'fluid-command-center': FluidCommandCenterProvider,
-    'fluid_cc': FluidCommandCenterProvider,
+    "fluid-command-center": FluidCommandCenterProvider,
+    "fluid_cc": FluidCommandCenterProvider,
 }
 
 # Register optional backends only when their import succeeded
 if DataMeshManagerCatalogProvider is not None:
-    CATALOG_PROVIDERS['datamesh-manager'] = DataMeshManagerCatalogProvider
-    CATALOG_PROVIDERS['entropy-data'] = DataMeshManagerCatalogProvider
-    CATALOG_PROVIDERS['dmm'] = DataMeshManagerCatalogProvider
+    CATALOG_PROVIDERS["datamesh-manager"] = DataMeshManagerCatalogProvider
+    CATALOG_PROVIDERS["entropy-data"] = DataMeshManagerCatalogProvider
+    CATALOG_PROVIDERS["dmm"] = DataMeshManagerCatalogProvider
 
 
 def get_catalog_provider(catalog_type: str, config: dict) -> BaseCatalogProvider:
     """Get catalog provider instance by type
-    
+
     Args:
         catalog_type: Type of catalog ('fluid-command-center', 'collibra', etc.)
         config: Configuration dictionary for the provider
-    
+
     Returns:
         Instantiated catalog provider
-    
+
     Raises:
         ValueError: If catalog type is not supported
     """
@@ -55,15 +55,15 @@ def get_catalog_provider(catalog_type: str, config: dict) -> BaseCatalogProvider
             f"Unsupported catalog type: {catalog_type}. "
             f"Available: {', '.join(CATALOG_PROVIDERS.keys())}"
         )
-    
+
     return provider_class(config)
 
 
 __all__ = [
-    'BaseCatalogProvider',
-    'CatalogAsset',
-    'PublishResult',
-    'FluidCommandCenterProvider',
-    'CATALOG_PROVIDERS',
-    'get_catalog_provider'
+    "BaseCatalogProvider",
+    "CatalogAsset",
+    "PublishResult",
+    "FluidCommandCenterProvider",
+    "CATALOG_PROVIDERS",
+    "get_catalog_provider",
 ]

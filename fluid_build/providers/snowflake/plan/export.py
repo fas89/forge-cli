@@ -14,30 +14,28 @@
 
 # fluid_build/providers/snowflake/plan/export.py
 """Export FLUID contracts to external formats (OPDS, DOT)."""
+
 from __future__ import annotations
 
-from typing import Any, Dict, List, Mapping
+from collections.abc import Mapping
+from typing import Any, Dict, List
 
 
 def export_opds(src: Mapping[str, Any] | List[Mapping[str, Any]]) -> Dict[str, Any]:
     """
     Export FLUID contract to Open Platform Data Specification (OPDS).
-    
+
     OPDS provides a cloud-agnostic representation of data platforms.
     """
     contracts = [src] if isinstance(src, Mapping) else src
-    
-    opds_doc = {
-        "version": "1.0",
-        "platform": "snowflake",
-        "resources": []
-    }
-    
+
+    opds_doc = {"version": "1.0", "platform": "snowflake", "resources": []}
+
     for contract in contracts:
         metadata = contract.get("metadata", {})
         binding = contract.get("binding", {})
         location = binding.get("location", {})
-        
+
         resource = {
             "id": metadata.get("name", "unknown"),
             "type": "dataset",
@@ -47,65 +45,58 @@ def export_opds(src: Mapping[str, Any] | List[Mapping[str, Any]]) -> Dict[str, A
                 "account": location.get("account"),
                 "database": location.get("database"),
                 "schema": location.get("schema"),
-                "table": location.get("table")
+                "table": location.get("table"),
             },
             "schema": contract.get("schema", {}),
-            "tags": metadata.get("tags", [])
+            "tags": metadata.get("tags", []),
         }
-        
+
         opds_doc["resources"].append(resource)
-    
+
     return opds_doc
 
 
 def export_dot_graph(src: Mapping[str, Any] | List[Mapping[str, Any]]) -> Dict[str, Any]:
     """
     Export FLUID contract dependencies as DOT graph format.
-    
+
     Useful for visualization with Graphviz.
     """
     contracts = [src] if isinstance(src, Mapping) else src
-    
+
     nodes = []
     edges = []
-    
+
     for contract in contracts:
         metadata = contract.get("metadata", {})
         name = metadata.get("name", "unknown")
-        
+
         # Add contract node
-        nodes.append({
-            "id": name,
-            "label": name,
-            "type": "dataset",
-            "description": metadata.get("description")
-        })
-        
+        nodes.append(
+            {
+                "id": name,
+                "label": name,
+                "type": "dataset",
+                "description": metadata.get("description"),
+            }
+        )
+
         # Add dependency edges
         dependencies = contract.get("dependencies", [])
         for dep in dependencies:
-            edges.append({
-                "from": dep,
-                "to": name,
-                "type": "depends_on"
-            })
-    
+            edges.append({"from": dep, "to": name, "type": "depends_on"})
+
     # Generate DOT syntax
     dot_lines = ["digraph FLUID {"]
-    dot_lines.append('  rankdir=LR;')
-    dot_lines.append('  node [shape=box];')
-    
+    dot_lines.append("  rankdir=LR;")
+    dot_lines.append("  node [shape=box];")
+
     for node in nodes:
         dot_lines.append(f'  "{node["id"]}" [label="{node["label"]}"];')
-    
+
     for edge in edges:
         dot_lines.append(f'  "{edge["from"]}" -> "{edge["to"]}";')
-    
+
     dot_lines.append("}")
-    
-    return {
-        "format": "dot",
-        "graph": "\n".join(dot_lines),
-        "nodes": nodes,
-        "edges": edges
-    }
+
+    return {"format": "dot", "graph": "\n".join(dot_lines), "nodes": nodes, "edges": edges}

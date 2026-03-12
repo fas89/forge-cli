@@ -26,8 +26,7 @@ permissions:
 
 env:
   PYTHON_VERSION: "3.12"
-  # GitHub repo for fluid-provider-sdk (update org/repo once mirrored to GitHub)
-  SDK_REPO: agentics-rising/fluid-provider-sdk
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   # ──────────────────────────────────────────────────────────────
@@ -52,8 +51,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install "fluid-provider-sdk @ git+https://github.com/${{ env.SDK_REPO }}.git"
-          pip install -e ".[dev,local]" pytest-cov pytest-json-report
+          pip install -e ".[dev,local]" pytest-cov pytest-json-report || pip install -e ".[dev]" pytest-cov pytest-json-report
 
       - name: Run tests with coverage
         id: test-run
@@ -125,7 +123,6 @@ jobs:
       - name: Build alpha wheel
         run: |
           pip install --upgrade pip build
-          pip install "fluid-provider-sdk @ git+https://github.com/${{ env.SDK_REPO }}.git"
           FLUID_BUILD_PROFILE=alpha python -m build
           echo "=== Built packages ==="
           ls -lh dist/
@@ -155,7 +152,6 @@ jobs:
       - name: Build beta wheel
         run: |
           pip install --upgrade pip build
-          pip install "fluid-provider-sdk @ git+https://github.com/${{ env.SDK_REPO }}.git"
           FLUID_BUILD_PROFILE=beta python -m build
           echo "=== Built packages ==="
           ls -lh dist/
@@ -189,7 +185,6 @@ jobs:
       - name: Build stable wheel
         run: |
           pip install --upgrade pip build twine
-          pip install "fluid-provider-sdk @ git+https://github.com/${{ env.SDK_REPO }}.git"
           FLUID_BUILD_PROFILE=stable python -m build
           twine check dist/*
           echo "=== Built packages ==="

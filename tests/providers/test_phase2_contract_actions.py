@@ -14,10 +14,8 @@
 
 # tests/providers/test_phase2_contract_actions.py
 """Tests for Phase 2: ContractHelper, ProviderAction, validate_actions."""
+
 from __future__ import annotations
-
-import pytest
-
 
 # ── Sample contracts ──────────────────────────────────────────────────
 
@@ -35,9 +33,7 @@ SAMPLE_071 = {
     "tags": ["crypto", "real-time"],
     "labels": {"cost_center": "CC-123"},
     "sovereignty": {"jurisdiction": "EU"},
-    "accessPolicy": {
-        "grants": [{"principal": "group:analysts", "permissions": ["read"]}]
-    },
+    "accessPolicy": {"grants": [{"principal": "group:analysts", "permissions": ["read"]}]},
     "builds": [
         {
             "id": "ingest",
@@ -46,9 +42,7 @@ SAMPLE_071 = {
             "properties": {"sql": "SELECT * FROM raw"},
         }
     ],
-    "consumes": [
-        {"id": "raw_feed", "path": "/data/feed.csv", "format": "csv"}
-    ],
+    "consumes": [{"id": "raw_feed", "path": "/data/feed.csv", "format": "csv"}],
     "exposes": [
         {
             "exposeId": "btc_table",
@@ -70,7 +64,12 @@ SAMPLE_071 = {
             "labels": {"sensitivity": "internal"},
             "contract": {
                 "schema": [
-                    {"name": "price_usd", "type": "numeric", "required": True, "description": "BTC/USD"},
+                    {
+                        "name": "price_usd",
+                        "type": "numeric",
+                        "required": True,
+                        "description": "BTC/USD",
+                    },
                     {"name": "ts", "type": "timestamp", "required": True},
                 ]
             },
@@ -88,9 +87,7 @@ SAMPLE_057_OLD = {
         "engine": "sql",
         "transformation": {"properties": {"model": "models/main.sql"}},
     },
-    "consumes": [
-        {"name": "input_table", "location": {"path": "/data/input.parquet"}}
-    ],
+    "consumes": [{"name": "input_table", "location": {"path": "/data/input.parquet"}}],
     "exposes": [
         {
             "id": "output",
@@ -119,12 +116,8 @@ SAMPLE_SNOWFLAKE = {
         "location": {"database": "PROD_DB", "schema": "PUBLIC"},
     },
     "security": {
-        "access_control": {
-            "grants": [{"role": "ANALYST", "privilege": "SELECT"}]
-        },
-        "row_level_security": [
-            {"table": "orders", "role": "ANALYST", "condition": "region='US'"}
-        ],
+        "access_control": {"grants": [{"role": "ANALYST", "privilege": "SELECT"}]},
+        "row_level_security": [{"table": "orders", "role": "ANALYST", "condition": "region='US'"}],
     },
     "build": {
         "procedures": [{"name": "refresh_data", "language": "SQL"}],
@@ -154,6 +147,7 @@ SAMPLE_SNOWFLAKE = {
 # ═══════════════════════════════════════════════════════════════════
 # ContractHelper
 # ═══════════════════════════════════════════════════════════════════
+
 
 class TestContractHelperIdentity:
     def test_basic_properties(self):
@@ -417,6 +411,7 @@ class TestContractHelperDictCompat:
 # ProviderAction + validate_actions
 # ═══════════════════════════════════════════════════════════════════
 
+
 class TestProviderAction:
     def test_creation(self):
         from fluid_provider_sdk import ProviderAction
@@ -546,6 +541,7 @@ class TestValidateActions:
 # ColumnSpec
 # ═══════════════════════════════════════════════════════════════════
 
+
 class TestColumnSpec:
     def test_from_dict(self):
         from fluid_provider_sdk.contract import ColumnSpec
@@ -582,14 +578,16 @@ class TestColumnSpec:
 # Local planner integration (uses ContractHelper when SDK present)
 # ═══════════════════════════════════════════════════════════════════
 
+
 class TestLocalPlannerWithContractHelper:
     def test_plan_uses_contract_helper(self):
-        from fluid_build.providers.local.planner import plan_actions, _HAS_SDK_CONTRACT
+        from fluid_build.providers.local.planner import _HAS_SDK_CONTRACT
 
         assert _HAS_SDK_CONTRACT is True
 
     def test_plan_produces_correct_actions(self):
         import logging
+
         from fluid_build.providers.local.planner import plan_actions
 
         contract = {
@@ -620,6 +618,7 @@ class TestLocalPlannerWithContractHelper:
 
     def test_plan_empty_contract(self):
         import logging
+
         from fluid_build.providers.local.planner import plan_actions
 
         actions = plan_actions({"id": "empty"}, logger=logging.getLogger("test"))

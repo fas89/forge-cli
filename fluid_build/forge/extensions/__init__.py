@@ -27,30 +27,33 @@ Built-in extensions:
 Teams can create custom extensions by implementing the Extension interface.
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
+
 from ..core.interfaces import Extension
 from ..core.registry import ExtensionRegistry
+from .ai_assistant import AIAssistantExtension
+from .environment_validator import EnvironmentValidatorExtension
 
 # Import built-in extensions
 from .project_history import ProjectHistoryExtension
-from .environment_validator import EnvironmentValidatorExtension
-from .ai_assistant import AIAssistantExtension
+
 
 def register_extensions(registry: ExtensionRegistry) -> None:
     """Register all built-in extensions with the registry"""
-    
+
     extensions = [
-        ('project_history', ProjectHistoryExtension),
-        ('environment_validator', EnvironmentValidatorExtension),
-        ('ai_assistant', AIAssistantExtension)
+        ("project_history", ProjectHistoryExtension),
+        ("environment_validator", EnvironmentValidatorExtension),
+        ("ai_assistant", AIAssistantExtension),
     ]
-    
+
     for name, extension_class in extensions:
-        registry.register(name, extension_class, source='builtin')
+        registry.register(name, extension_class, source="builtin")
+
 
 __all__ = [
-    'ProjectHistoryExtension',
-    'EnvironmentValidatorExtension', 
-    'AIAssistantExtension',
-    'register_extensions'
+    "ProjectHistoryExtension",
+    "EnvironmentValidatorExtension",
+    "AIAssistantExtension",
+    "register_extensions",
 ]

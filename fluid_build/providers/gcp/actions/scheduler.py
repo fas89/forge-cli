@@ -21,26 +21,25 @@ Implements idempotent Cloud Scheduler operations including:
 - Schedule configuration
 - Target configuration (HTTP, Pub/Sub, App Engine)
 """
+
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
-from fluid_build.providers.base import ProviderError
-
-from ..util.logging import format_event, duration_ms
+from ..util.logging import duration_ms
 
 
 def ensure_job(action: Dict[str, Any]) -> Dict[str, Any]:
     """
     Ensure Cloud Scheduler job exists with specified configuration.
-    
+
     Args:
         action: Scheduler job configuration
-        
+
     Returns:
         Action result with status and details
     """
     start_time = time.time()
-    
+
     try:
         from google.cloud import scheduler_v1
     except ImportError:
@@ -50,14 +49,14 @@ def ensure_job(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     project = action.get("project")
     region = action.get("region", "us-central1")
     job_name = action.get("job_name")
     schedule = action.get("schedule")  # Cron format
     target = action.get("target", {})
     timezone = action.get("timezone", "UTC")
-    
+
     if not all([project, job_name, schedule]):
         return {
             "status": "error",
@@ -65,27 +64,27 @@ def ensure_job(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     try:
         client = scheduler_v1.CloudSchedulerClient()
         parent = f"projects/{project}/locations/{region}"
         job_path = f"{parent}/jobs/{job_name}"
-        
+
         changed = False
-        
+
         try:
             # Check if job exists
             existing_job = client.get_job(name=job_path)
-            
+
             # Compare configuration and update if needed
             update_needed = False
-            
+
             if existing_job.schedule != schedule:
                 update_needed = True
-            
+
             if existing_job.time_zone != timezone:
                 update_needed = True
-            
+
             if update_needed:
                 # Update job
                 job = _build_scheduler_job(job_path, schedule, target, timezone)
@@ -94,19 +93,19 @@ def ensure_job(action: Dict[str, Any]) -> Dict[str, Any]:
                 action_taken = "updated"
             else:
                 action_taken = "exists"
-        
+
         except Exception:
             # Job doesn't exist, create it
             job = _build_scheduler_job(job_path, schedule, target, timezone)
-            
+
             client.create_job(
                 parent=parent,
                 job=job,
             )
-            
+
             changed = True
             action_taken = "created"
-        
+
         return {
             "status": "changed" if changed else "ok",
             "op": "scheduler.ensure_job",
@@ -116,7 +115,7 @@ def ensure_job(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": changed,
         }
-    
+
     except Exception as e:
         return {
             "status": "error",
@@ -129,15 +128,15 @@ def ensure_job(action: Dict[str, Any]) -> Dict[str, Any]:
 def pause_job(action: Dict[str, Any]) -> Dict[str, Any]:
     """
     Pause a Cloud Scheduler job.
-    
+
     Args:
         action: Job configuration
-        
+
     Returns:
         Action result with status and details
     """
     start_time = time.time()
-    
+
     try:
         from google.cloud import scheduler_v1
     except ImportError:
@@ -147,11 +146,11 @@ def pause_job(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     project = action.get("project")
     region = action.get("region", "us-central1")
     job_name = action.get("job_name")
-    
+
     if not all([project, job_name]):
         return {
             "status": "error",
@@ -159,14 +158,14 @@ def pause_job(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     try:
         client = scheduler_v1.CloudSchedulerClient()
         parent = f"projects/{project}/locations/{region}"
         job_path = f"{parent}/jobs/{job_name}"
-        
+
         client.pause_job(name=job_path)
-        
+
         return {
             "status": "changed",
             "op": "scheduler.pause_job",
@@ -175,7 +174,7 @@ def pause_job(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": True,
         }
-    
+
     except Exception as e:
         return {
             "status": "error",
@@ -188,15 +187,15 @@ def pause_job(action: Dict[str, Any]) -> Dict[str, Any]:
 def resume_job(action: Dict[str, Any]) -> Dict[str, Any]:
     """
     Resume a paused Cloud Scheduler job.
-    
+
     Args:
         action: Job configuration
-        
+
     Returns:
         Action result with status and details
     """
     start_time = time.time()
-    
+
     try:
         from google.cloud import scheduler_v1
     except ImportError:
@@ -206,11 +205,11 @@ def resume_job(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     project = action.get("project")
     region = action.get("region", "us-central1")
     job_name = action.get("job_name")
-    
+
     if not all([project, job_name]):
         return {
             "status": "error",
@@ -218,14 +217,14 @@ def resume_job(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     try:
         client = scheduler_v1.CloudSchedulerClient()
         parent = f"projects/{project}/locations/{region}"
         job_path = f"{parent}/jobs/{job_name}"
-        
+
         client.resume_job(name=job_path)
-        
+
         return {
             "status": "changed",
             "op": "scheduler.resume_job",
@@ -234,7 +233,7 @@ def resume_job(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": True,
         }
-    
+
     except Exception as e:
         return {
             "status": "error",
@@ -247,16 +246,16 @@ def resume_job(action: Dict[str, Any]) -> Dict[str, Any]:
 def _build_scheduler_job(name: str, schedule: str, target: Dict[str, Any], timezone: str):
     """Build Cloud Scheduler job object."""
     from google.cloud import scheduler_v1
-    
+
     job = scheduler_v1.Job(
         name=name,
         schedule=schedule,
         time_zone=timezone,
     )
-    
+
     # Configure target based on type
     target_type = target.get("type", "http")
-    
+
     if target_type == "http":
         job.http_target = scheduler_v1.HttpTarget(
             uri=target.get("uri"),
@@ -272,5 +271,5 @@ def _build_scheduler_job(name: str, schedule: str, target: Dict[str, Any], timez
             relative_uri=target.get("relative_uri", "/"),
             http_method=target.get("method", "POST"),
         )
-    
+
     return job

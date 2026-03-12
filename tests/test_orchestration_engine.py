@@ -1,19 +1,30 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for cli/orchestration.py — enums, dataclasses, plan generator, engine helpers."""
 
-import pytest
-from datetime import datetime, timezone
-
 from fluid_build.cli.orchestration import (
-    ExecutionPhase,
     ActionStatus,
-    RollbackStrategy,
     ExecutionAction,
-    PhaseExecution,
-    ExecutionPlan,
-    ExecutionMetrics,
     ExecutionContext,
+    ExecutionMetrics,
+    ExecutionPhase,
+    ExecutionPlan,
     FluidOrchestrationEngine,
     FluidPlanGenerator,
+    PhaseExecution,
+    RollbackStrategy,
 )
 
 
@@ -42,9 +53,13 @@ class TestRollbackStrategy:
 # ── Dataclasses ──────────────────────────────────────────────────────
 class TestExecutionAction:
     def test_defaults(self):
-        a = ExecutionAction(id="a1", phase=ExecutionPhase.VALIDATION,
-                            provider="local", operation="validate",
-                            description="desc")
+        a = ExecutionAction(
+            id="a1",
+            phase=ExecutionPhase.VALIDATION,
+            provider="local",
+            operation="validate",
+            description="desc",
+        )
         assert a.dependencies == []
         assert a.timeout_seconds == 300
         assert a.retry_count == 3
@@ -95,10 +110,12 @@ class TestExecutionContext:
 # ── Engine helper methods ────────────────────────────────────────────
 class TestShouldContinueExecution:
     """Test _should_continue_execution via the engine."""
+
     def _make_engine(self):
         plan = ExecutionPlan(contract_path="c.yaml", environment=None, phases=[])
         ctx = ExecutionContext(execution_id="x1", contract={}, plan=plan)
         import logging
+
         ctx.logger = logging.getLogger("test")
         return FluidOrchestrationEngine(ctx)
 
@@ -110,15 +127,13 @@ class TestShouldContinueExecution:
 
     def test_failed_no_continue(self):
         engine = self._make_engine()
-        phase = PhaseExecution(phase=ExecutionPhase.VALIDATION, actions=[],
-                               continue_on_error=False)
+        phase = PhaseExecution(phase=ExecutionPhase.VALIDATION, actions=[], continue_on_error=False)
         phase.status = ActionStatus.FAILED
         assert engine._should_continue_execution(phase) is False
 
     def test_failed_continue_on_error(self):
         engine = self._make_engine()
-        phase = PhaseExecution(phase=ExecutionPhase.VALIDATION, actions=[],
-                               continue_on_error=True)
+        phase = PhaseExecution(phase=ExecutionPhase.VALIDATION, actions=[], continue_on_error=True)
         phase.status = ActionStatus.FAILED
         assert engine._should_continue_execution(phase) is True
 
@@ -128,13 +143,19 @@ class TestUpdateActionMetrics:
         plan = ExecutionPlan(contract_path="c.yaml", environment=None, phases=[])
         ctx = ExecutionContext(execution_id="x1", contract={}, plan=plan)
         import logging
+
         ctx.logger = logging.getLogger("test")
         return FluidOrchestrationEngine(ctx)
 
     def test_success(self):
         engine = self._make_engine()
-        a = ExecutionAction(id="a", phase=ExecutionPhase.VALIDATION,
-                            provider="local", operation="op", description="d")
+        a = ExecutionAction(
+            id="a",
+            phase=ExecutionPhase.VALIDATION,
+            provider="local",
+            operation="op",
+            description="d",
+        )
         a.status = ActionStatus.SUCCESS
         engine._update_action_metrics(a)
         assert engine.context.metrics.successful_actions == 1
@@ -142,16 +163,26 @@ class TestUpdateActionMetrics:
 
     def test_failed(self):
         engine = self._make_engine()
-        a = ExecutionAction(id="a", phase=ExecutionPhase.VALIDATION,
-                            provider="local", operation="op", description="d")
+        a = ExecutionAction(
+            id="a",
+            phase=ExecutionPhase.VALIDATION,
+            provider="local",
+            operation="op",
+            description="d",
+        )
         a.status = ActionStatus.FAILED
         engine._update_action_metrics(a)
         assert engine.context.metrics.failed_actions == 1
 
     def test_skipped(self):
         engine = self._make_engine()
-        a = ExecutionAction(id="a", phase=ExecutionPhase.VALIDATION,
-                            provider="local", operation="op", description="d")
+        a = ExecutionAction(
+            id="a",
+            phase=ExecutionPhase.VALIDATION,
+            provider="local",
+            operation="op",
+            description="d",
+        )
         a.status = ActionStatus.SKIPPED
         engine._update_action_metrics(a)
         assert engine.context.metrics.skipped_actions == 1
@@ -162,16 +193,27 @@ class TestBuildDependencyGraph:
         plan = ExecutionPlan(contract_path="c.yaml", environment=None, phases=[])
         ctx = ExecutionContext(execution_id="x1", contract={}, plan=plan)
         import logging
+
         ctx.logger = logging.getLogger("test")
         return FluidOrchestrationEngine(ctx)
 
     def test_basic(self):
         engine = self._make_engine()
-        a1 = ExecutionAction(id="a1", phase=ExecutionPhase.VALIDATION,
-                              provider="local", operation="op", description="d")
-        a2 = ExecutionAction(id="a2", phase=ExecutionPhase.VALIDATION,
-                              provider="local", operation="op", description="d",
-                              dependencies=["a1"])
+        a1 = ExecutionAction(
+            id="a1",
+            phase=ExecutionPhase.VALIDATION,
+            provider="local",
+            operation="op",
+            description="d",
+        )
+        a2 = ExecutionAction(
+            id="a2",
+            phase=ExecutionPhase.VALIDATION,
+            provider="local",
+            operation="op",
+            description="d",
+            dependencies=["a1"],
+        )
         graph = engine._build_dependency_graph([a1, a2])
         assert graph == {"a1": [], "a2": ["a1"]}
 
@@ -181,6 +223,7 @@ class TestBuildExecutionSummary:
         plan = ExecutionPlan(contract_path="c.yaml", environment=None, phases=[])
         ctx = ExecutionContext(execution_id="x1", contract={}, plan=plan)
         import logging
+
         ctx.logger = logging.getLogger("test")
         return FluidOrchestrationEngine(ctx)
 
@@ -294,8 +337,9 @@ class TestFluidPlanGenerator:
         assert gen._determine_rollback_strategy() is RollbackStrategy.PHASE_COMPLETE
 
     def test_generate_plan_metadata(self):
-        gen = FluidPlanGenerator({"version": "1.0", "sources": [{"name": "s1"}]},
-                                  environment="staging")
+        gen = FluidPlanGenerator(
+            {"version": "1.0", "sources": [{"name": "s1"}]}, environment="staging"
+        )
         gen._analyze_contract()
         meta = gen._generate_plan_metadata()
         assert meta["contract_version"] == "1.0"
@@ -304,11 +348,13 @@ class TestFluidPlanGenerator:
         assert meta["resource_count"] > 0
 
     def test_extract_required_resources(self):
-        gen = FluidPlanGenerator({
-            "infrastructure": {"resources": ["vpc", "subnet"]},
-            "sources": [{"name": "pg"}, {"name": "mysql"}],
-            "destinations": [{"name": "bq"}],
-        })
+        gen = FluidPlanGenerator(
+            {
+                "infrastructure": {"resources": ["vpc", "subnet"]},
+                "sources": [{"name": "pg"}, {"name": "mysql"}],
+                "destinations": [{"name": "bq"}],
+            }
+        )
         resources = gen._extract_required_resources()
         assert "vpc" in resources
         assert "source:pg" in resources
@@ -328,6 +374,10 @@ class TestFluidPlanGenerator:
         plan = gen.generate_execution_plan("c.yaml")
         phase_names = {p.phase.value for p in plan.phases}
         assert phase_names == {
-            "infrastructure", "data_ingestion", "transformation",
-            "quality_gates", "governance", "monitoring",
+            "infrastructure",
+            "data_ingestion",
+            "transformation",
+            "quality_gates",
+            "governance",
+            "monitoring",
         }

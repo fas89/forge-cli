@@ -25,9 +25,10 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from fluid_build.cli.console import error as console_error
+
 # Import shared utilities
-from ._common import load_contract_with_overlay, build_provider, read_json as _read_json
-from fluid_build.cli.console import error as console_error, info, warning
+from ._common import build_provider, load_contract_with_overlay
 
 LOG = logging.getLogger("fluid.cli")
 
@@ -38,21 +39,37 @@ LOG = logging.getLogger("fluid.cli")
 # "experimental" (default) enables everything – no behaviour change.
 # "stable" restricts to the curated command set.
 
-_STABLE_COMMANDS = frozenset({
-    "init", "validate", "plan", "apply", "graph", "execute", "verify",
-    "export", "docs", "doctor", "providers", "version", "test",
-})
+_STABLE_COMMANDS = frozenset(
+    {
+        "init",
+        "validate",
+        "plan",
+        "apply",
+        "graph",
+        "execute",
+        "verify",
+        "export",
+        "docs",
+        "doctor",
+        "providers",
+        "version",
+        "test",
+    }
+)
+
 
 def _active_profile() -> str:
     """Return the active build profile (default: experimental = all-on)."""
     return os.environ.get("FLUID_BUILD_PROFILE", "experimental").lower()
 
+
 def is_command_enabled(name: str) -> bool:
     """Check whether *name* should be registered under the active profile."""
     profile = _active_profile()
     if profile == "experimental":
-        return True                       # everything on – no breaking change
-    return name in _STABLE_COMMANDS       # curated set
+        return True  # everything on – no breaking change
+    return name in _STABLE_COMMANDS  # curated set
+
 
 # -------------------------
 # Command Center Reporter (Global)
@@ -66,6 +83,7 @@ def get_reporter():
     if _REPORTER is None:
         try:
             from ..observability import CommandCenterConfig, CommandCenterReporter
+
             config = CommandCenterConfig.from_environment()
             _REPORTER = CommandCenterReporter(config)
             _REPORTER.start()
@@ -79,6 +97,7 @@ def get_reporter():
             LOG.debug(f"Command Center reporter initialization failed: {e}")
             _REPORTER = None
     return _REPORTER
+
 
 # -------------------------
 # Helpers: dynamic imports
@@ -127,7 +146,7 @@ def plan_contract(contract: Dict[str, Any], provider_name: Optional[str]) -> Dic
     # Fallback: simple, deterministic actions
     exposes = contract.get("exposes", []) or []
     target = exposes[0] if exposes else {}
-    location = (target.get("location") or {})
+    location = target.get("location") or {}
     fmt = (location.get("format") if isinstance(location, dict) else None) or ""
 
     actions: List[Dict[str, Any]] = []
@@ -138,18 +157,27 @@ def plan_contract(contract: Dict[str, Any], provider_name: Optional[str]) -> Dic
     if dataset:
         actions.append({"op": "ensure_dataset", "name": dataset})
     if table:
-        actions.append({"op": "ensure_table", "dataset": dataset, "table": table, "schema": target.get("schema")})
+        actions.append(
+            {
+                "op": "ensure_table",
+                "dataset": dataset,
+                "table": table,
+                "schema": target.get("schema"),
+            }
+        )
 
     # If local/file, add a demo artifact copy to show something tangible
     if fmt in ("file", "local_file"):
         out_dir = Path("runtime/out")
         out_dir.mkdir(parents=True, exist_ok=True)
-        actions.append({
-            "op": "copy",
-            "src": "demo_artifact.csv",
-            "dst": str(out_dir / "demo_artifact.csv"),
-            "optional": True
-        })
+        actions.append(
+            {
+                "op": "copy",
+                "src": "demo_artifact.csv",
+                "dst": str(out_dir / "demo_artifact.csv"),
+                "optional": True,
+            }
+        )
 
     return {"actions": actions, "provider": (provider_name or "unknown")}
 
@@ -167,6 +195,7 @@ def _print_json(obj: Any) -> None:
     try:
         # Rich pretty JSON if available (stderr console kept by main)
         from rich.console import Console  # type: ignore
+
         Console().print_json(data=obj)
     except Exception:
         sys.stdout.write(json.dumps(obj, indent=2) + "\n")
@@ -202,7 +231,10 @@ def cmd_plan_run(args: argparse.Namespace, logger: logging.Logger) -> int:
     contract = load_contract_with_overlay(args.contract, getattr(args, "env", None), logger)
     plan = plan_contract(contract, getattr(args, "provider", None))
     if not plan or not isinstance(plan, dict):
-        logger.warning("planner_fallback_stub", extra={"actions": len(plan.get("actions", [])) if isinstance(plan, dict) else 0})
+        logger.warning(
+            "planner_fallback_stub",
+            extra={"actions": len(plan.get("actions", [])) if isinstance(plan, dict) else 0},
+        )
     _write_json(args.out, plan)
     logger.info("plan_ok", extra={"out": args.out, "actions": len(plan.get("actions", []))})
     return 0
@@ -214,7 +246,12 @@ def cmd_apply_run(args: argparse.Namespace, logger: logging.Logger) -> int:
     Otherwise: plan → provider.apply(actions). Print to stdout when --out -.
     """
     contract = load_contract_with_overlay(args.contract, getattr(args, "env", None), logger)
-    provider = build_provider(getattr(args, "provider", None), getattr(args, "project", None), getattr(args, "region", None), logger)
+    provider = build_provider(
+        getattr(args, "provider", None),
+        getattr(args, "project", None),
+        getattr(args, "region", None),
+        logger,
+    )
 
     # Exporter path (e.g., odps/opds)
     if _provider_supports_render(provider):
@@ -256,7 +293,12 @@ def cmd_apply_run(args: argparse.Namespace, logger: logging.Logger) -> int:
                     applied += 1
                 except Exception as e:
                     logger.error("local_copy_failed", extra={"i": i, "error": str(e)})
-        payload = {"provider": getattr(provider, "name", "local"), "applied": applied, "failed": len(actions) - applied, "results": []}
+        payload = {
+            "provider": getattr(provider, "name", "local"),
+            "applied": applied,
+            "failed": len(actions) - applied,
+            "results": [],
+        }
 
     out = getattr(args, "out", None)
     if out and out != "-":
@@ -286,7 +328,7 @@ def cmd_graph_run(args: argparse.Namespace, logger: logging.Logger) -> int:
         logger.warning("graph_helper_missing", extra={"error": str(e)})
 
     # fallback DOT
-    dot = "digraph G { rankdir=LR; \"contract\" -> \"expose\"; }"
+    dot = 'digraph G { rankdir=LR; "contract" -> "expose"; }'
     if args.out == "-":
         sys.stdout.write(dot)
     else:
@@ -302,6 +344,7 @@ def cmd_visualize_plan_run(args: argparse.Namespace, logger: logging.Logger) -> 
     """
     try:
         import graphviz  # noqa: F401
+
         has_dot = True
     except Exception as e:
         logger.warning("graphviz_missing", extra={"error": str(e)})
@@ -315,12 +358,12 @@ def cmd_visualize_plan_run(args: argparse.Namespace, logger: logging.Logger) -> 
     # Emit DOT
     dot_lines = [
         "digraph plan {",
-        '  rankdir=LR;',
+        "  rankdir=LR;",
         '  node [shape=box, style="rounded,filled", fillcolor="#eef2ff"];',
     ]
     for i, a in enumerate(actions):
         label = a.get("op", "op")
-        dot_lines.append(f'  n{i} [label={json.dumps(label)} tooltip={json.dumps(json.dumps(a))}];')
+        dot_lines.append(f"  n{i} [label={json.dumps(label)} tooltip={json.dumps(json.dumps(a))}];")
         if i > 0:
             dot_lines.append(f"  n{i-1} -> n{i};")
     dot_lines.append("}")
@@ -332,13 +375,20 @@ def cmd_visualize_plan_run(args: argparse.Namespace, logger: logging.Logger) -> 
 
     if has_dot:
         try:
-            from subprocess import run, PIPE
+            from subprocess import PIPE, run
+
             png = out_dir / "plan.png"
-            run(["dot", "-Tpng", str(out_dir / "plan.dot"), "-o", str(png)], check=True, stdout=PIPE, stderr=PIPE)
+            run(
+                ["dot", "-Tpng", str(out_dir / "plan.dot"), "-o", str(png)],
+                check=True,
+                stdout=PIPE,
+                stderr=PIPE,
+            )
             html = out_dir / "index.html"
             html.write_text(
                 "<!doctype html><meta charset='utf-8'><title>FLUID Plan</title>"
-                "<h1>Plan</h1><p><img src='plan.png' alt='plan graph'></p>", encoding="utf-8"
+                "<h1>Plan</h1><p><img src='plan.png' alt='plan graph'></p>",
+                encoding="utf-8",
             )
             logger.info("visualize_plan_ok", extra={"out": str(out_dir)})
             return 0
@@ -349,7 +399,8 @@ def cmd_visualize_plan_run(args: argparse.Namespace, logger: logging.Logger) -> 
     # Minimal HTML fallback
     (out_dir / "index.html").write_text(
         "<!doctype html><meta charset='utf-8'><title>FLUID Plan</title>"
-        "<h1>Plan DOT</h1><pre>" + dot_src + "</pre>", encoding="utf-8"
+        "<h1>Plan DOT</h1><pre>" + dot_src + "</pre>",
+        encoding="utf-8",
     )
     logger.info("visualize_plan_ok_fallback", extra={"out": str(out_dir)})
     return 0
@@ -359,8 +410,10 @@ def cmd_visualize_plan_run(args: argparse.Namespace, logger: logging.Logger) -> 
 # Parser wiring
 # -------------------------
 
-def _try_register(sp: argparse._SubParsersAction, module_name: str,
-                  profile_name: str, *, method: str = "register") -> bool:
+
+def _try_register(
+    sp: argparse._SubParsersAction, module_name: str, profile_name: str, *, method: str = "register"
+) -> bool:
     """Import *module_name* from the cli package and call its register().
 
     Returns True on success. Respects build profiles and swallows ImportError.
@@ -386,6 +439,7 @@ def register_core_commands(sp: argparse._SubParsersAction) -> None:
     if is_command_enabled("validate"):
         try:
             from . import validate
+
             validate.register(sp)
         except ImportError as e:
             LOG.debug("enhanced_validate_unavailable_using_fallback: %s", e)
@@ -398,6 +452,7 @@ def register_core_commands(sp: argparse._SubParsersAction) -> None:
     if is_command_enabled("plan"):
         try:
             from . import plan
+
             plan.register(sp)
         except ImportError as e:
             LOG.debug("enhanced_plan_unavailable_using_fallback: %s", e)
@@ -411,10 +466,13 @@ def register_core_commands(sp: argparse._SubParsersAction) -> None:
     if is_command_enabled("apply"):
         try:
             from . import apply
+
             apply.register(sp)
         except ImportError as e:
             LOG.debug("enhanced_apply_unavailable_using_fallback: %s", e)
-            ap = sp.add_parser("apply", help="Apply a contract (or export if provider supports render)")
+            ap = sp.add_parser(
+                "apply", help="Apply a contract (or export if provider supports render)"
+            )
             ap.add_argument("contract")
             ap.add_argument("--env")
             ap.add_argument("--out", default="-")
@@ -424,6 +482,7 @@ def register_core_commands(sp: argparse._SubParsersAction) -> None:
     if is_command_enabled("graph"):
         try:
             from . import viz_graph
+
             viz_graph.register(sp)
         except ImportError as e:
             LOG.debug("enhanced_viz_graph_unavailable_using_fallback: %s", e)
@@ -434,42 +493,42 @@ def register_core_commands(sp: argparse._SubParsersAction) -> None:
             gr.set_defaults(func=cmd_graph_run)
 
     # --- Simple registrations (profile-gated via _try_register) ---
-    _try_register(sp, "execute",            "execute")
-    _try_register(sp, "verify",             "verify")
-    _try_register(sp, "viz_plan",           "viz-plan")
-    _try_register(sp, "contract_tests",     "contract-tests")
-    _try_register(sp, "contract_validation","contract-validation")
-    _try_register(sp, "test",               "test")
-    _try_register(sp, "scaffold_ci",        "scaffold-ci")
-    _try_register(sp, "scaffold_composer",  "scaffold-composer")
-    _try_register(sp, "generate_airflow",   "generate-airflow")
-    _try_register(sp, "export",             "export")
-    _try_register(sp, "docs_build",         "docs")
-    _try_register(sp, "doctor",             "doctor")
-    _try_register(sp, "provider_cmds",      "providers")
-    _try_register(sp, "provider_init",       "provider-init")
-    _try_register(sp, "version_cmd",        "version")
-    _try_register(sp, "export_opds",        "export-opds")
-    _try_register(sp, "opds",              "opds")
-    _try_register(sp, "odps_standard",      "odps-standard")
-    _try_register(sp, "odcs",              "odcs")
-    _try_register(sp, "datamesh_manager",   "datamesh-manager", method="add_parser")
-    _try_register(sp, "forge",             "forge")
-    _try_register(sp, "blueprint",         "blueprint")
-    _try_register(sp, "market",            "market")
-    _try_register(sp, "policy_check",      "policy-check")
-    _try_register(sp, "policy_compile",    "policy-compile")
-    _try_register(sp, "policy_apply",      "policy-apply")
-    _try_register(sp, "product_new",       "product-new")
-    _try_register(sp, "auth",              "auth")
-    _try_register(sp, "marketplace",       "marketplace")
-    _try_register(sp, "publish",           "publish")
-    _try_register(sp, "preview",           "preview")
-    _try_register(sp, "diff",              "diff")
-    _try_register(sp, "context",           "context")
-    _try_register(sp, "wizard",            "wizard")
-    _try_register(sp, "product_add",       "product-add")
-    _try_register(sp, "pipeline_generator","generate-pipeline")
-    _try_register(sp, "copilot",           "copilot")
-    _try_register(sp, "ide",               "ide")
-    _try_register(sp, "workspace",         "workspace")
+    _try_register(sp, "execute", "execute")
+    _try_register(sp, "verify", "verify")
+    _try_register(sp, "viz_plan", "viz-plan")
+    _try_register(sp, "contract_tests", "contract-tests")
+    _try_register(sp, "contract_validation", "contract-validation")
+    _try_register(sp, "test", "test")
+    _try_register(sp, "scaffold_ci", "scaffold-ci")
+    _try_register(sp, "scaffold_composer", "scaffold-composer")
+    _try_register(sp, "generate_airflow", "generate-airflow")
+    _try_register(sp, "export", "export")
+    _try_register(sp, "docs_build", "docs")
+    _try_register(sp, "doctor", "doctor")
+    _try_register(sp, "provider_cmds", "providers")
+    _try_register(sp, "provider_init", "provider-init")
+    _try_register(sp, "version_cmd", "version")
+    _try_register(sp, "export_opds", "export-opds")
+    _try_register(sp, "opds", "opds")
+    _try_register(sp, "odps_standard", "odps-standard")
+    _try_register(sp, "odcs", "odcs")
+    _try_register(sp, "datamesh_manager", "datamesh-manager", method="add_parser")
+    _try_register(sp, "forge", "forge")
+    _try_register(sp, "blueprint", "blueprint")
+    _try_register(sp, "market", "market")
+    _try_register(sp, "policy_check", "policy-check")
+    _try_register(sp, "policy_compile", "policy-compile")
+    _try_register(sp, "policy_apply", "policy-apply")
+    _try_register(sp, "product_new", "product-new")
+    _try_register(sp, "auth", "auth")
+    _try_register(sp, "marketplace", "marketplace")
+    _try_register(sp, "publish", "publish")
+    _try_register(sp, "preview", "preview")
+    _try_register(sp, "diff", "diff")
+    _try_register(sp, "context", "context")
+    _try_register(sp, "wizard", "wizard")
+    _try_register(sp, "product_add", "product-add")
+    _try_register(sp, "pipeline_generator", "generate-pipeline")
+    _try_register(sp, "copilot", "copilot")
+    _try_register(sp, "ide", "ide")
+    _try_register(sp, "workspace", "workspace")

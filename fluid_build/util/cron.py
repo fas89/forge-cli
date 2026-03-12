@@ -14,9 +14,11 @@
 
 import logging
 from typing import Optional
+
 from .contract import get_primary_build
 
 LOGGER = logging.getLogger("fluid.util.cron")
+
 
 def get_cron(contract: dict) -> Optional[str]:
     """Extract cron schedule from contract (supports both 0.4.0 and 0.5.7)."""

@@ -15,4 +15,14 @@
 # fluid_build/providers/aws/actions/__init__.py
 """AWS action modules."""
 
-__all__ = ["s3", "glue", "athena", "redshift", "lambda_fn", "events", "iam", "kinesis", "stepfunctions"]
+__all__ = [
+    "s3",
+    "glue",
+    "athena",
+    "redshift",
+    "lambda_fn",
+    "events",
+    "iam",
+    "kinesis",
+    "stepfunctions",
+]

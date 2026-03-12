@@ -23,39 +23,41 @@ Includes:
 - Comprehensive error handling
 """
 
-import httpx
 import asyncio
 import time
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
+
+import httpx
+
+from ...common import CircuitBreaker, get_auth_headers, metrics_collector
 from ..base import BaseCatalogProvider, CatalogAsset, PublishResult
-from ...common import CircuitBreaker, retry_with_backoff, get_auth_headers, metrics_collector
 
 
 class FluidCommandCenterProvider(BaseCatalogProvider):
     """Native integration with FLUID Command Center
-    
+
     Leverages patterns from market.py:
     - Circuit breaker for publish failures
     - Retry with exponential backoff
     - Health checking before operations
     - Metrics collection
     """
-    
+
     name = "fluid_cc"
-    
+
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
-        
+
         # Initialize circuit breaker
         self.circuit_breaker = CircuitBreaker(
-            failure_threshold=config.get('circuit_breaker_threshold', 3),
-            recovery_timeout=config.get('circuit_breaker_timeout', 60),
-            expected_exception=httpx.HTTPError
+            failure_threshold=config.get("circuit_breaker_threshold", 3),
+            recovery_timeout=config.get("circuit_breaker_timeout", 60),
+            expected_exception=httpx.HTTPError,
         )
-    
+
     async def publish(self, asset: CatalogAsset) -> PublishResult:
         """Publish to FLUID Command Center API with retry logic and upsert
-        
+
         Workflow:
         1. Pre-publish health check
         2. Validate asset
@@ -66,18 +68,18 @@ class FluidCommandCenterProvider(BaseCatalogProvider):
         """
         start_time = time.time()
         metrics_collector.record_publish_request(self.name)
-        
+
         # Pre-publish health check
         if not await self.health_check():
             result = PublishResult(
                 success=False,
                 catalog_id=self.name,
                 asset_id=asset.id,
-                error="Catalog health check failed - endpoint not accessible"
+                error="Catalog health check failed - endpoint not accessible",
             )
             metrics_collector.record_publish_failure(self.name, "health_check_failed")
             return result
-        
+
         # Validate asset
         is_valid, error_msg = self.validate_asset(asset)
         if not is_valid:
@@ -85,43 +87,40 @@ class FluidCommandCenterProvider(BaseCatalogProvider):
                 success=False,
                 catalog_id=self.name,
                 asset_id=asset.id,
-                error=f"Validation failed: {error_msg}"
+                error=f"Validation failed: {error_msg}",
             )
             metrics_collector.record_validation_error(error_msg)
             return result
-        
+
         # Retry with exponential backoff
         for attempt in range(self.max_retries):
             try:
-                result = await self.circuit_breaker.call(
-                    self._publish_impl,
-                    asset
-                )
-                
+                result = await self.circuit_breaker.call(self._publish_impl, asset)
+
                 latency = time.time() - start_time
                 metrics_collector.record_publish_success(self.name, latency)
-                
+
                 # Update circuit breaker stats
                 cb_state = self.circuit_breaker.get_state()
                 metrics_collector.update_circuit_breaker_stats(
                     self.name,
-                    cb_state['state'],
-                    cb_state['failure_count'],
-                    cb_state['success_count']
+                    cb_state["state"],
+                    cb_state["failure_count"],
+                    cb_state["success_count"],
                 )
-                
+
                 self.logger.info(
                     f"✅ Published {asset.name} to Command Center "
                     f"(attempt {attempt + 1}/{self.max_retries}, {latency:.2f}s)"
                 )
                 return result
-                
+
             except Exception as e:
                 if attempt < self.max_retries - 1:
-                    delay = self.config.get('retry_delay', 1.0) * (2 ** attempt)
+                    delay = self.config.get("retry_delay", 1.0) * (2**attempt)
                     # Log more details for debugging
                     error_details = str(e)
-                    if hasattr(e, 'response'):
+                    if hasattr(e, "response"):
                         try:
                             error_details = f"{e} - Response: {e.response.text}"
                         except Exception:
@@ -133,7 +132,7 @@ class FluidCommandCenterProvider(BaseCatalogProvider):
                     await asyncio.sleep(delay)
                 else:
                     error_msg = str(e)
-                    if hasattr(e, 'response'):
+                    if hasattr(e, "response"):
                         try:
                             error_msg = f"{e} - Response: {e.response.text}"
                         except Exception:
@@ -143,15 +142,12 @@ class FluidCommandCenterProvider(BaseCatalogProvider):
                     )
                     metrics_collector.record_publish_failure(self.name, str(type(e).__name__))
                     return PublishResult(
-                        success=False,
-                        catalog_id=self.name,
-                        asset_id=asset.id,
-                        error=error_msg
+                        success=False, catalog_id=self.name, asset_id=asset.id, error=error_msg
                     )
-    
+
     async def _publish_impl(self, asset: CatalogAsset) -> PublishResult:
         """Internal publish implementation (wrapped by circuit breaker)"""
-        
+
         # Map CatalogAsset to Command Center API format
         # Note: owner_id will be overridden by the backend from authenticated user
         # but it's required by the Pydantic model, so we send a placeholder
@@ -162,7 +158,7 @@ class FluidCommandCenterProvider(BaseCatalogProvider):
             "owner_id": "placeholder",  # Will be replaced by backend from auth token
             "tags": asset.tags,
             "version": asset.version,
-            "is_public": asset.sensitivity in ['public', 'internal'],
+            "is_public": asset.sensitivity in ["public", "internal"],
             "metadata": {
                 "fluid_contract_id": asset.id,  # Track contract ID for upsert
                 "domain": asset.domain,
@@ -173,60 +169,60 @@ class FluidCommandCenterProvider(BaseCatalogProvider):
                 "owner": asset.owner,
                 "owner_email": asset.owner_email,
                 "sensitivity": asset.sensitivity,
-            }
+            },
         }
-        
+
         headers = get_auth_headers(self.endpoint, self.auth)
-        
+
         # Debug: Log what we're sending
         import json as json_lib
-        self.logger.info(f"Sending asset_data with {len(asset_data.get('metadata', {}))} metadata keys")
+
+        self.logger.info(
+            f"Sending asset_data with {len(asset_data.get('metadata', {}))} metadata keys"
+        )
         self.logger.debug(f"Full asset_data: {json_lib.dumps(asset_data, indent=2, default=str)}")
-        
+
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             # Check if asset already exists (by contract ID in metadata)
             existing = await self._find_by_contract_id(client, headers, asset.id)
-            
+
             if existing:
                 # Update existing asset (PATCH)
-                self.logger.info(f"Updating existing asset: {existing['id']} for contract {asset.id}")
+                self.logger.info(
+                    f"Updating existing asset: {existing['id']} for contract {asset.id}"
+                )
                 response = await client.patch(
                     f"{self.endpoint}/api/v1/assets/{existing['id']}",
                     json=asset_data,
-                    headers=headers
+                    headers=headers,
                 )
             else:
                 # Create new asset (POST)
                 self.logger.info(f"Creating new asset for contract: {asset.id}")
                 response = await client.post(
-                    f"{self.endpoint}/api/v1/assets",
-                    json=asset_data,
-                    headers=headers
+                    f"{self.endpoint}/api/v1/assets", json=asset_data, headers=headers
                 )
-            
+
             response.raise_for_status()
             result_data = response.json()
-            
+
             return PublishResult(
                 success=True,
                 catalog_id=self.name,
-                asset_id=result_data['id'],
+                asset_id=result_data["id"],
                 catalog_url=f"{self.endpoint}/assets/{result_data['id']}",
                 details={
-                    'operation': 'update' if existing else 'create',
-                    'api_asset_id': result_data['id'],
-                    'contract_id': asset.id
-                }
+                    "operation": "update" if existing else "create",
+                    "api_asset_id": result_data["id"],
+                    "contract_id": asset.id,
+                },
             )
-    
+
     async def _find_by_contract_id(
-        self, 
-        client: httpx.AsyncClient, 
-        headers: Dict[str, str], 
-        contract_id: str
+        self, client: httpx.AsyncClient, headers: Dict[str, str], contract_id: str
     ) -> Optional[Dict[str, Any]]:
         """Find asset by fluid_contract_id in metadata
-        
+
         This enables upsert behavior - we can update existing assets
         rather than creating duplicates.
         """
@@ -236,29 +232,29 @@ class FluidCommandCenterProvider(BaseCatalogProvider):
                 f"{self.endpoint}/api/v1/assets",
                 params={"q": contract_id, "limit": 10},
                 headers=headers,
-                timeout=10.0
+                timeout=10.0,
             )
             response.raise_for_status()
-            
+
             results = response.json()
-            assets = results.get('items', results.get('assets', []))
-            
+            assets = results.get("items", results.get("assets", []))
+
             # Find exact match in metadata
             for asset in assets:
-                metadata = asset.get('metadata', {})
-                if metadata.get('fluid_contract_id') == contract_id:
+                metadata = asset.get("metadata", {})
+                if metadata.get("fluid_contract_id") == contract_id:
                     return asset
-            
+
             return None
-            
+
         except Exception as e:
             self.logger.warning(f"Error searching for existing asset: {e}")
             return None
-    
+
     async def update(self, asset: CatalogAsset) -> PublishResult:
         """Update existing asset (delegates to publish for upsert logic)"""
         return await self.publish(asset)
-    
+
     async def verify(self, asset_id: str) -> bool:
         """Verify asset exists in catalog"""
         try:
@@ -270,7 +266,7 @@ class FluidCommandCenterProvider(BaseCatalogProvider):
         except Exception as e:
             self.logger.error(f"Verification failed: {e}")
             return False
-    
+
     async def health_check(self) -> bool:
         """Check if Command Center API is accessible"""
         try:
@@ -278,9 +274,7 @@ class FluidCommandCenterProvider(BaseCatalogProvider):
             async with httpx.AsyncClient(timeout=5.0) as client:
                 # Try to ping the API (GET /api/v1/assets with limit=1)
                 response = await client.get(
-                    f"{self.endpoint}/api/v1/assets",
-                    params={"limit": 1},
-                    headers=headers
+                    f"{self.endpoint}/api/v1/assets", params={"limit": 1}, headers=headers
                 )
                 return response.status_code == 200
         except Exception as e:

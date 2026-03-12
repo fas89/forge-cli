@@ -18,21 +18,24 @@ FLUID 0.7.1 Sovereignty Validator
 Validates data sovereignty constraints against infrastructure bindings.
 Prevents deployment of contracts that violate jurisdiction requirements.
 """
-from typing import Dict, List, Any, Optional, Tuple
+
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Dict, List, Optional, Tuple
 
 
 class EnforcementMode(Enum):
     """Sovereignty enforcement modes."""
-    STRICT = "strict"      # Block deployment on violation
+
+    STRICT = "strict"  # Block deployment on violation
     ADVISORY = "advisory"  # Warn only, allow deployment
-    AUDIT = "audit"        # Log for compliance tracking
+    AUDIT = "audit"  # Log for compliance tracking
 
 
 @dataclass
 class SovereigntyViolation:
     """Represents a sovereignty constraint violation."""
+
     severity: str  # "error", "warning", "info"
     message: str
     expose_id: Optional[str] = None
@@ -43,7 +46,7 @@ class SovereigntyViolation:
 
 class SovereigntyValidator:
     """Validates sovereignty constraints in FLUID 0.7.1 contracts."""
-    
+
     # Region → Jurisdiction mapping (extensible)
     REGION_JURISDICTION_MAP = {
         # AWS regions
@@ -81,74 +84,80 @@ class SovereigntyValidator:
         "northeurope": "EU",
         "canadacentral": "CA",
     }
-    
+
     def validate(self, contract: Dict[str, Any]) -> Tuple[bool, List[SovereigntyViolation]]:
         """
         Validate sovereignty constraints.
-        
+
         Returns:
             (is_valid, violations) - is_valid=False means BLOCK deployment in strict mode
         """
         violations = []
-        
+
         # Extract sovereignty config (optional in 0.7.1)
         sovereignty = contract.get("sovereignty")
         if not sovereignty:
             return True, []  # No sovereignty constraints = always valid
-        
+
         enforcement_mode = EnforcementMode(sovereignty.get("enforcementMode", "advisory"))
         allowed_regions = sovereignty.get("allowedRegions", [])
         denied_regions = sovereignty.get("deniedRegions", [])
         jurisdiction = sovereignty.get("jurisdiction")
         data_residency = sovereignty.get("dataResidency", False)
         cross_border_transfer = sovereignty.get("crossBorderTransfer", True)
-        
+
         # Validate each expose's binding location
         for expose in contract.get("exposes", []):
             binding = expose.get("binding", {})
             location = binding.get("location", {})
             region = location.get("region")
-            
+
             if not region:
                 continue  # No region specified, skip validation
-            
+
             expose_id = expose.get("exposeId", "unknown")
-            
+
             # Check 1: Denied regions (always enforced regardless of mode)
             if region in denied_regions:
-                violations.append(SovereigntyViolation(
-                    severity="error",
-                    message=f"Region '{region}' is explicitly denied by sovereignty policy",
-                    expose_id=expose_id,
-                    region_found=region,
-                    region_expected=allowed_regions,
-                    suggestion=f"Use one of the allowed regions: {', '.join(allowed_regions) if allowed_regions else 'none specified'}"
-                ))
-            
+                violations.append(
+                    SovereigntyViolation(
+                        severity="error",
+                        message=f"Region '{region}' is explicitly denied by sovereignty policy",
+                        expose_id=expose_id,
+                        region_found=region,
+                        region_expected=allowed_regions,
+                        suggestion=f"Use one of the allowed regions: {', '.join(allowed_regions) if allowed_regions else 'none specified'}",
+                    )
+                )
+
             # Check 2: Allowed regions (if specified)
             if allowed_regions and region not in allowed_regions:
                 severity = "error" if enforcement_mode == EnforcementMode.STRICT else "warning"
-                violations.append(SovereigntyViolation(
-                    severity=severity,
-                    message=f"Region '{region}' not in allowed regions list",
-                    expose_id=expose_id,
-                    region_found=region,
-                    region_expected=allowed_regions,
-                    suggestion=f"Allowed regions: {', '.join(allowed_regions)}"
-                ))
-            
+                violations.append(
+                    SovereigntyViolation(
+                        severity=severity,
+                        message=f"Region '{region}' not in allowed regions list",
+                        expose_id=expose_id,
+                        region_found=region,
+                        region_expected=allowed_regions,
+                        suggestion=f"Allowed regions: {', '.join(allowed_regions)}",
+                    )
+                )
+
             # Check 3: Jurisdiction match
             if jurisdiction and jurisdiction != "Global":
                 region_jurisdiction = self.REGION_JURISDICTION_MAP.get(region, "Unknown")
                 if region_jurisdiction != jurisdiction and region_jurisdiction != "Global":
-                    violations.append(SovereigntyViolation(
-                        severity="warning",
-                        message=f"Region '{region}' (jurisdiction: {region_jurisdiction}) "
-                                f"does not match required jurisdiction: {jurisdiction}",
-                        expose_id=expose_id,
-                        suggestion=f"Consider using regions in {jurisdiction} jurisdiction"
-                    ))
-            
+                    violations.append(
+                        SovereigntyViolation(
+                            severity="warning",
+                            message=f"Region '{region}' (jurisdiction: {region_jurisdiction}) "
+                            f"does not match required jurisdiction: {jurisdiction}",
+                            expose_id=expose_id,
+                            suggestion=f"Consider using regions in {jurisdiction} jurisdiction",
+                        )
+                    )
+
             # Check 4: Data residency and cross-border transfer
             if data_residency and not cross_border_transfer:
                 # All regions must be in same jurisdiction
@@ -160,37 +169,39 @@ class SovereigntyValidator:
                         if first_region_jurisdiction is None:
                             first_region_jurisdiction = exp_jurisdiction
                         elif exp_jurisdiction != first_region_jurisdiction:
-                            violations.append(SovereigntyViolation(
-                                severity="error",
-                                message="Cross-border data transfer prohibited but multiple jurisdictions detected",
-                                expose_id=expose_id,
-                                suggestion="Ensure all regions are within the same jurisdiction when crossBorderTransfer=false"
-                            ))
+                            violations.append(
+                                SovereigntyViolation(
+                                    severity="error",
+                                    message="Cross-border data transfer prohibited but multiple jurisdictions detected",
+                                    expose_id=expose_id,
+                                    suggestion="Ensure all regions are within the same jurisdiction when crossBorderTransfer=false",
+                                )
+                            )
                             break
-        
+
         # Determine final validity based on enforcement mode
         has_errors = any(v.severity == "error" for v in violations)
-        
+
         if enforcement_mode == EnforcementMode.STRICT:
             is_valid = not has_errors
         elif enforcement_mode == EnforcementMode.ADVISORY:
             is_valid = True  # Warnings only, allow deployment
         else:  # AUDIT
             is_valid = True  # Log only, allow deployment
-        
+
         return is_valid, violations
 
 
 def validate_sovereignty(contract: Dict[str, Any]) -> Tuple[bool, List[str]]:
     """
     Convenience function for CLI integration.
-    
+
     Returns:
         (is_valid, error_messages)
     """
     validator = SovereigntyValidator()
     is_valid, violations = validator.validate(contract)
-    
+
     messages = []
     for v in violations:
         prefix = "❌" if v.severity == "error" else "⚠️" if v.severity == "warning" else "ℹ️"
@@ -198,17 +209,17 @@ def validate_sovereignty(contract: Dict[str, Any]) -> Tuple[bool, List[str]]:
         if v.suggestion:
             msg += f"\n   💡 {v.suggestion}"
         messages.append(msg)
-    
+
     return is_valid, messages
 
 
 def get_region_jurisdiction(region: str) -> str:
     """
     Get jurisdiction for a region.
-    
+
     Args:
         region: Cloud region identifier
-        
+
     Returns:
         Jurisdiction code (EU, US, etc.) or "Unknown"
     """

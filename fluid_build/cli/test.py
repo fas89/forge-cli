@@ -42,13 +42,12 @@ import json
 import logging
 import os
 import sys
-import time
 import xml.etree.ElementTree as ET
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
-from fluid_build.cli.console import cprint, error as console_error, info, success, warning
+from fluid_build.cli.console import cprint, success, warning
+from fluid_build.cli.console import error as console_error
 
 # Rich imports (optional)
 try:
@@ -56,6 +55,7 @@ try:
     from rich.panel import Panel
     from rich.table import Table
     from rich.text import Text
+
     RICH_AVAILABLE = True
 except ImportError:
     RICH_AVAILABLE = False
@@ -67,6 +67,7 @@ COMMAND = "test"
 # ======================================================================
 # Registration
 # ======================================================================
+
 
 def register(subparsers: argparse._SubParsersAction) -> None:
     """Register the ``fluid test`` command."""
@@ -156,16 +157,22 @@ Examples:
     )
 
     # --- caching ---
-    p.add_argument("--no-cache", dest="cache", action="store_false", default=True,
-                    help="Disable schema caching")
-    p.add_argument("--cache-ttl", type=int, default=3600,
-                    help="Cache TTL in seconds (default: 3600)")
-    p.add_argument("--cache-clear", action="store_true",
-                    help="Clear cache before running")
+    p.add_argument(
+        "--no-cache",
+        dest="cache",
+        action="store_false",
+        default=True,
+        help="Disable schema caching",
+    )
+    p.add_argument(
+        "--cache-ttl", type=int, default=3600, help="Cache TTL in seconds (default: 3600)"
+    )
+    p.add_argument("--cache-clear", action="store_true", help="Clear cache before running")
 
     # --- drift ---
-    p.add_argument("--check-drift", action="store_true",
-                    help="Detect validation drift vs. historical results")
+    p.add_argument(
+        "--check-drift", action="store_true", help="Detect validation drift vs. historical results"
+    )
 
     # --- publish test results ---
     p.add_argument(
@@ -185,11 +192,12 @@ Examples:
 # Entry point
 # ======================================================================
 
+
 def run(args: argparse.Namespace, logger: logging.Logger) -> int:
     """Execute ``fluid test``."""
     contract_path = Path(args.contract)
     if not contract_path.exists():
-        console_error("Contract file not found: {}".format(contract_path))
+        console_error(f"Contract file not found: {contract_path}")
         return 1
 
     # Import ContractValidator lazily to avoid circular deps
@@ -215,7 +223,7 @@ def run(args: argparse.Namespace, logger: logging.Logger) -> int:
     try:
         report = validator.validate()
     except Exception as e:
-        console_error("Test failed: {}".format(e))
+        console_error(f"Test failed: {e}")
         LOG.exception("test_error")
         return 1
 
@@ -248,6 +256,7 @@ def run(args: argparse.Namespace, logger: logging.Logger) -> int:
 # Output – Rich table (inspired by DCCLI)
 # ======================================================================
 
+
 def _output_rich(report, output_file: Optional[str] = None) -> None:
     """Render a Data-Contract-CLI-style test results table."""
     if not RICH_AVAILABLE:
@@ -262,11 +271,8 @@ def _output_rich(report, output_file: Optional[str] = None) -> None:
     border = "green" if passed else "red"
 
     header_lines = [
-        "[bold]{icon} Data Contract Test: {cid}[/bold]".format(icon=icon, cid=report.contract_id),
-        "Version {ver}  |  Provider: {prov}".format(
-            ver=report.contract_version,
-            prov=_detect_provider_label(report),
-        ),
+        f"[bold]{icon} Data Contract Test: {report.contract_id}[/bold]",
+        f"Version {report.contract_version}  |  Provider: {_detect_provider_label(report)}",
         "Duration: {dur:.2f}s  |  {dt}".format(
             dur=report.duration,
             dt=report.validation_time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -288,8 +294,12 @@ def _output_rich(report, output_file: Optional[str] = None) -> None:
     check_no += 1
     schema_errors = [i for i in report.issues if i.category == "schema" and i.severity == "error"]
     if schema_errors:
-        table.add_row(str(check_no), "[red]\u274c[/red]", "Schema syntax",
-                       "; ".join(e.message for e in schema_errors))
+        table.add_row(
+            str(check_no),
+            "[red]\u274c[/red]",
+            "Schema syntax",
+            "; ".join(e.message for e in schema_errors),
+        )
     else:
         table.add_row(str(check_no), "[green]\u2705[/green]", "Schema syntax", "Valid")
 
@@ -297,8 +307,12 @@ def _output_rich(report, output_file: Optional[str] = None) -> None:
     check_no += 1
     conn_errors = [i for i in report.issues if i.category == "connection"]
     if conn_errors:
-        table.add_row(str(check_no), "[red]\u274c[/red]", "Provider connection",
-                       "; ".join(e.message for e in conn_errors))
+        table.add_row(
+            str(check_no),
+            "[red]\u274c[/red]",
+            "Provider connection",
+            "; ".join(e.message for e in conn_errors),
+        )
     else:
         table.add_row(str(check_no), "[green]\u2705[/green]", "Provider connection", "OK")
 
@@ -307,11 +321,19 @@ def _output_rich(report, output_file: Optional[str] = None) -> None:
     bind_errors = [i for i in report.issues if i.category == "binding" and i.severity == "error"]
     bind_warns = [i for i in report.issues if i.category == "binding" and i.severity == "warning"]
     if bind_errors:
-        table.add_row(str(check_no), "[red]\u274c[/red]", "Binding configuration",
-                       "; ".join(e.message for e in bind_errors))
+        table.add_row(
+            str(check_no),
+            "[red]\u274c[/red]",
+            "Binding configuration",
+            "; ".join(e.message for e in bind_errors),
+        )
     elif bind_warns:
-        table.add_row(str(check_no), "[yellow]\u26a0\ufe0f[/yellow]", "Binding configuration",
-                       "; ".join(e.message for e in bind_warns))
+        table.add_row(
+            str(check_no),
+            "[yellow]\u26a0\ufe0f[/yellow]",
+            "Binding configuration",
+            "; ".join(e.message for e in bind_warns),
+        )
     else:
         table.add_row(str(check_no), "[green]\u2705[/green]", "Binding configuration", "OK")
 
@@ -319,42 +341,70 @@ def _output_rich(report, output_file: Optional[str] = None) -> None:
     check_no += 1
     missing = [i for i in report.issues if i.category == "missing_resource"]
     if missing:
-        table.add_row(str(check_no), "[red]\u274c[/red]", "Resource exists",
-                       "; ".join(e.message for e in missing))
+        table.add_row(
+            str(check_no),
+            "[red]\u274c[/red]",
+            "Resource exists",
+            "; ".join(e.message for e in missing),
+        )
     else:
-        table.add_row(str(check_no), "[green]\u2705[/green]", "Resource exists",
-                       "{n} exposed resource(s) found".format(n=max(report.exposes_validated, 1)))
+        table.add_row(
+            str(check_no),
+            "[green]\u2705[/green]",
+            "Resource exists",
+            f"{max(report.exposes_validated, 1)} exposed resource(s) found",
+        )
 
     # Field-level issues
     check_no += 1
-    field_issues = [i for i in report.issues
-                    if i.category in ("missing_field", "type_mismatch", "mode_mismatch", "extra_field")]
+    field_issues = [
+        i
+        for i in report.issues
+        if i.category in ("missing_field", "type_mismatch", "mode_mismatch", "extra_field")
+    ]
     field_errors = [i for i in field_issues if i.severity == "error"]
     field_warns = [i for i in field_issues if i.severity in ("warning", "info")]
     if field_errors:
-        table.add_row(str(check_no), "[red]\u274c[/red]", "Schema fields",
-                       "{n} error(s): {msgs}".format(
-                           n=len(field_errors),
-                           msgs="; ".join(e.message for e in field_errors[:3]),
-                       ))
+        table.add_row(
+            str(check_no),
+            "[red]\u274c[/red]",
+            "Schema fields",
+            "{n} error(s): {msgs}".format(
+                n=len(field_errors),
+                msgs="; ".join(e.message for e in field_errors[:3]),
+            ),
+        )
     elif field_warns:
-        table.add_row(str(check_no), "[yellow]\u26a0\ufe0f[/yellow]", "Schema fields",
-                       "{n} warning(s)".format(n=len(field_warns)))
+        table.add_row(
+            str(check_no),
+            "[yellow]\u26a0\ufe0f[/yellow]",
+            "Schema fields",
+            f"{len(field_warns)} warning(s)",
+        )
     else:
         table.add_row(str(check_no), "[green]\u2705[/green]", "Schema fields", "All fields match")
 
     # Empty-table / row-count
     check_no += 1
-    row_issues = [i for i in report.issues
-                  if i.category in ("empty_table", "row_count_below_threshold")]
+    row_issues = [
+        i for i in report.issues if i.category in ("empty_table", "row_count_below_threshold")
+    ]
     row_errors = [i for i in row_issues if i.severity == "error"]
     row_warns = [i for i in row_issues if i.severity == "warning"]
     if row_errors:
-        table.add_row(str(check_no), "[red]\u274c[/red]", "Row count / SLA",
-                       "; ".join(e.message for e in row_errors))
+        table.add_row(
+            str(check_no),
+            "[red]\u274c[/red]",
+            "Row count / SLA",
+            "; ".join(e.message for e in row_errors),
+        )
     elif row_warns:
-        table.add_row(str(check_no), "[yellow]\u26a0\ufe0f[/yellow]", "Row count / SLA",
-                       "; ".join(e.message for e in row_warns))
+        table.add_row(
+            str(check_no),
+            "[yellow]\u26a0\ufe0f[/yellow]",
+            "Row count / SLA",
+            "; ".join(e.message for e in row_warns),
+        )
     else:
         table.add_row(str(check_no), "[green]\u2705[/green]", "Row count / SLA", "OK")
 
@@ -363,11 +413,19 @@ def _output_rich(report, output_file: Optional[str] = None) -> None:
     quality_issues = [i for i in report.issues if i.category == "quality"]
     q_errors = [i for i in quality_issues if i.severity == "error"]
     if q_errors:
-        table.add_row(str(check_no), "[red]\u274c[/red]", "Quality tests",
-                       "; ".join(e.message for e in q_errors))
+        table.add_row(
+            str(check_no),
+            "[red]\u274c[/red]",
+            "Quality tests",
+            "; ".join(e.message for e in q_errors),
+        )
     elif quality_issues:
-        table.add_row(str(check_no), "[yellow]\u26a0\ufe0f[/yellow]", "Quality tests",
-                       "; ".join(e.message for e in quality_issues))
+        table.add_row(
+            str(check_no),
+            "[yellow]\u26a0\ufe0f[/yellow]",
+            "Quality tests",
+            "; ".join(e.message for e in quality_issues),
+        )
     else:
         table.add_row(str(check_no), "[green]\u2705[/green]", "Quality tests", "Passed")
 
@@ -376,11 +434,19 @@ def _output_rich(report, output_file: Optional[str] = None) -> None:
     meta_issues = [i for i in report.issues if i.category == "metadata"]
     m_errors = [i for i in meta_issues if i.severity == "error"]
     if m_errors:
-        table.add_row(str(check_no), "[red]\u274c[/red]", "Metadata / governance",
-                       "; ".join(e.message for e in m_errors))
+        table.add_row(
+            str(check_no),
+            "[red]\u274c[/red]",
+            "Metadata / governance",
+            "; ".join(e.message for e in m_errors),
+        )
     elif meta_issues:
-        table.add_row(str(check_no), "[yellow]\u26a0\ufe0f[/yellow]", "Metadata / governance",
-                       "{n} info/warning(s)".format(n=len(meta_issues)))
+        table.add_row(
+            str(check_no),
+            "[yellow]\u26a0\ufe0f[/yellow]",
+            "Metadata / governance",
+            f"{len(meta_issues)} info/warning(s)",
+        )
     else:
         table.add_row(str(check_no), "[green]\u2705[/green]", "Metadata / governance", "Complete")
 
@@ -388,8 +454,12 @@ def _output_rich(report, output_file: Optional[str] = None) -> None:
     drift_issues = [i for i in report.issues if i.category == "drift"]
     if drift_issues:
         check_no += 1
-        table.add_row(str(check_no), "[yellow]\u26a0\ufe0f[/yellow]", "Drift detection",
-                       "; ".join(e.message for e in drift_issues))
+        table.add_row(
+            str(check_no),
+            "[yellow]\u26a0\ufe0f[/yellow]",
+            "Drift detection",
+            "; ".join(e.message for e in drift_issues),
+        )
 
     console.print(table)
 
@@ -398,22 +468,17 @@ def _output_rich(report, output_file: Optional[str] = None) -> None:
     total_warnings = len(report.get_warnings())
     if passed:
         console.print(
-            "\n[bold green]\u2705 {n} check(s) passed[/bold green]"
-            "  |  {w} warning(s)  |  {d:.2f}s".format(
-                n=check_no - total_errors, w=total_warnings, d=report.duration,
-            )
+            f"\n[bold green]\u2705 {check_no - total_errors} check(s) passed[/bold green]"
+            f"  |  {total_warnings} warning(s)  |  {report.duration:.2f}s"
         )
     else:
         console.print(
-            "\n[bold red]\u274c {e} error(s)[/bold red]"
-            "  |  {w} warning(s)  |  {p} passed  |  {d:.2f}s".format(
-                e=total_errors, w=total_warnings,
-                p=check_no - total_errors, d=report.duration,
-            )
+            f"\n[bold red]\u274c {total_errors} error(s)[/bold red]"
+            f"  |  {total_warnings} warning(s)  |  {check_no - total_errors} passed  |  {report.duration:.2f}s"
         )
 
     if output_file:
-        cprint("Report saved to: {}".format(output_file))
+        cprint(f"Report saved to: {output_file}")
 
 
 def _output_plain(report, output_file: Optional[str] = None) -> None:
@@ -423,26 +488,26 @@ def _output_plain(report, output_file: Optional[str] = None) -> None:
     icon = "PASS" if passed else "FAIL"
 
     lines.append("=" * 60)
-    lines.append("fluid test  |  {}  |  {}".format(icon, report.contract_id))
-    lines.append("Version {}  |  Duration: {:.2f}s".format(
-        report.contract_version, report.duration))
+    lines.append(f"fluid test  |  {icon}  |  {report.contract_id}")
+    lines.append(f"Version {report.contract_version}  |  Duration: {report.duration:.2f}s")
     lines.append("=" * 60)
 
     for idx, issue in enumerate(report.issues, 1):
         sev = issue.severity.upper()
-        lines.append("  [{sev}] {cat}: {msg}".format(sev=sev, cat=issue.category, msg=issue.message))
+        lines.append(f"  [{sev}] {issue.category}: {issue.message}")
         if issue.suggestion:
-            lines.append("         -> {}".format(issue.suggestion))
+            lines.append(f"         -> {issue.suggestion}")
 
     lines.append("-" * 60)
-    lines.append("{} error(s), {} warning(s), {:.2f}s".format(
-        len(report.get_errors()), len(report.get_warnings()), report.duration))
+    lines.append(
+        f"{len(report.get_errors())} error(s), {len(report.get_warnings())} warning(s), {report.duration:.2f}s"
+    )
 
     text = "\n".join(lines)
     if output_file:
         with open(output_file, "w") as f:
             f.write(text)
-        cprint("Report saved to: {}".format(output_file))
+        cprint(f"Report saved to: {output_file}")
     else:
         cprint(text)
 
@@ -450,6 +515,7 @@ def _output_plain(report, output_file: Optional[str] = None) -> None:
 # ======================================================================
 # Output – JSON
 # ======================================================================
+
 
 def _output_json(report, output_file: Optional[str] = None) -> None:
     """Emit machine-readable JSON report."""
@@ -485,7 +551,7 @@ def _output_json(report, output_file: Optional[str] = None) -> None:
     if output_file:
         with open(output_file, "w") as f:
             f.write(text)
-        cprint("Report saved to: {}".format(output_file))
+        cprint(f"Report saved to: {output_file}")
     else:
         # Print raw so it's pipe-friendly
         sys.stdout.write(text + "\n")
@@ -495,14 +561,15 @@ def _output_json(report, output_file: Optional[str] = None) -> None:
 # Output – JUnit XML
 # ======================================================================
 
+
 def _output_junit(report, output_file: Optional[str] = None) -> None:
     """Emit JUnit XML for CI/CD systems (Jenkins, GitHub Actions, etc.)."""
     ts = ET.Element("testsuite")
-    ts.set("name", "fluid-test:{}".format(report.contract_id))
+    ts.set("name", f"fluid-test:{report.contract_id}")
     ts.set("tests", str(report.checks_passed + report.checks_failed))
     ts.set("failures", str(report.checks_failed))
     ts.set("errors", "0")
-    ts.set("time", "{:.3f}".format(report.duration))
+    ts.set("time", f"{report.duration:.3f}")
     ts.set("timestamp", report.validation_time.isoformat())
 
     # Group issues by category for test-case granularity
@@ -512,16 +579,25 @@ def _output_junit(report, output_file: Optional[str] = None) -> None:
 
     # Emit one <testcase> per category
     all_categories = [
-        "schema", "connection", "binding", "missing_resource",
-        "missing_field", "type_mismatch", "mode_mismatch", "extra_field",
-        "empty_table", "row_count_below_threshold",
-        "quality", "metadata", "drift",
+        "schema",
+        "connection",
+        "binding",
+        "missing_resource",
+        "missing_field",
+        "type_mismatch",
+        "mode_mismatch",
+        "extra_field",
+        "empty_table",
+        "row_count_below_threshold",
+        "quality",
+        "metadata",
+        "drift",
     ]
     for cat in all_categories:
         tc = ET.SubElement(ts, "testcase")
-        tc.set("classname", "fluid.test.{}".format(report.contract_id))
+        tc.set("classname", f"fluid.test.{report.contract_id}")
         tc.set("name", cat)
-        tc.set("time", "{:.3f}".format(report.duration / max(len(all_categories), 1)))
+        tc.set("time", f"{report.duration / max(len(all_categories), 1):.3f}")
 
         issues_in_cat = categories_seen.get(cat, [])
         errors_in_cat = [i for i in issues_in_cat if i.severity == "error"]
@@ -533,26 +609,24 @@ def _output_junit(report, output_file: Optional[str] = None) -> None:
             fail.set("type", "AssertionError")
             body_lines = []
             for i in errors_in_cat:
-                body_lines.append("[ERROR] {}".format(i.message))
+                body_lines.append(f"[ERROR] {i.message}")
                 if i.expected is not None:
-                    body_lines.append("  expected: {}".format(i.expected))
+                    body_lines.append(f"  expected: {i.expected}")
                 if i.actual is not None:
-                    body_lines.append("  actual:   {}".format(i.actual))
+                    body_lines.append(f"  actual:   {i.actual}")
                 if i.suggestion:
-                    body_lines.append("  hint:     {}".format(i.suggestion))
+                    body_lines.append(f"  hint:     {i.suggestion}")
             fail.text = "\n".join(body_lines)
         elif warns_in_cat:
             # JUnit doesn't have "warning" — emit as system-out
             so = ET.SubElement(tc, "system-out")
-            so.text = "\n".join(
-                "[WARN] {}".format(i.message) for i in warns_in_cat
-            )
+            so.text = "\n".join(f"[WARN] {i.message}" for i in warns_in_cat)
 
     # Also add any categories we haven't covered
     for cat, issues_list in categories_seen.items():
         if cat not in all_categories:
             tc = ET.SubElement(ts, "testcase")
-            tc.set("classname", "fluid.test.{}".format(report.contract_id))
+            tc.set("classname", f"fluid.test.{report.contract_id}")
             tc.set("name", cat)
             errors_in_cat = [i for i in issues_list if i.severity == "error"]
             if errors_in_cat:
@@ -564,7 +638,7 @@ def _output_junit(report, output_file: Optional[str] = None) -> None:
 
     if output_file:
         tree.write(output_file, encoding="unicode", xml_declaration=True)
-        cprint("JUnit XML saved to: {}".format(output_file))
+        cprint(f"JUnit XML saved to: {output_file}")
     else:
         ET.indent(ts)
         xml_str = ET.tostring(ts, encoding="unicode")
@@ -574,6 +648,7 @@ def _output_junit(report, output_file: Optional[str] = None) -> None:
 # ======================================================================
 # Helpers
 # ======================================================================
+
 
 def _detect_provider_label(report) -> str:
     """Best-effort provider label from report metadata."""
@@ -593,6 +668,7 @@ def _detect_provider_label(report) -> str:
 # Publish – Data Mesh Manager / Entropy Data
 # ======================================================================
 
+
 def _publish_results(
     report,
     publish_url: str,
@@ -609,7 +685,7 @@ def _publish_results(
 
     api_key = os.getenv("DMM_API_KEY", "")
     if not api_key:
-        warning("DMM_API_KEY not set — skipping publish to {}".format(publish_url))
+        warning(f"DMM_API_KEY not set — skipping publish to {publish_url}")
         return
 
     try:
@@ -621,5 +697,5 @@ def _publish_results(
             )
         )
     except Exception as exc:
-        console_error("Failed to publish test results: {}".format(exc))
+        console_error(f"Failed to publish test results: {exc}")
         LOG.exception("publish_test_results_error")

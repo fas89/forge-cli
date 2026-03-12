@@ -20,52 +20,50 @@ Generates Python DAG files from FLUID contracts for deployment to MWAA
 
 Supports:
 - Provider action tasks
-- Task dependencies  
+- Task dependencies
 - Schedule configuration
 - AWS-specific operators (S3, Glue, Athena, Redshift, Lambda)
 """
 
-from typing import Dict, Any, List, Optional
-from datetime import datetime
 import json
+from datetime import datetime
+from typing import Any, Dict, List
 
 
-def generate_airflow_dag(
-    contract: Dict[str, Any],
-    account_id: str,
-    region: str
-) -> str:
+def generate_airflow_dag(contract: Dict[str, Any], account_id: str, region: str) -> str:
     """
     Generate Airflow DAG Python code from FLUID contract.
-    
+
     Args:
         contract: FLUID contract with orchestration section
         account_id: AWS account ID
         region: AWS region
-        
+
     Returns:
         Python code for Airflow DAG
     """
     orchestration = contract.get("orchestration", {})
     if not orchestration:
         raise ValueError("Contract missing orchestration section")
-    
+
     tasks = orchestration.get("tasks", [])
     if not tasks:
         raise ValueError("Orchestration has no tasks")
-    
+
     # Extract configuration
     contract_id = contract.get("id", "unknown")
     contract_name = contract.get("name", contract_id)
     schedule = orchestration.get("schedule", "0 2 * * *")
     timezone = orchestration.get("timezone", "UTC")
     orchestration.get("engine", "airflow")
-    
+
     # Filter provider action tasks
     provider_tasks = [t for t in tasks if t.get("type") == "provider_action"]
-    
+
     # Generate DAG code
-    dag_code = _generate_dag_header(contract_id, contract_name, schedule, timezone, account_id, region)
+    dag_code = _generate_dag_header(
+        contract_id, contract_name, schedule, timezone, account_id, region
+    )
     dag_code += "\n\n"
     dag_code += _generate_dag_imports()
     dag_code += "\n\n"
@@ -74,17 +72,12 @@ def generate_airflow_dag(
     dag_code += _generate_task_definitions(provider_tasks, account_id, region)
     dag_code += "\n\n"
     dag_code += _generate_task_dependencies(provider_tasks)
-    
+
     return dag_code
 
 
 def _generate_dag_header(
-    contract_id: str,
-    contract_name: str,
-    schedule: str,
-    timezone: str,
-    account_id: str,
-    region: str
+    contract_id: str, contract_name: str, schedule: str, timezone: str, account_id: str, region: str
 ) -> str:
     """Generate DAG file header with metadata."""
     return f'''"""
@@ -103,7 +96,7 @@ Generated: {datetime.utcnow().isoformat()}
 
 def _generate_dag_imports() -> str:
     """Generate import statements."""
-    return '''from datetime import datetime, timedelta
+    return """from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.providers.amazon.aws.operators.s3 import S3CreateBucketOperator
@@ -114,20 +107,17 @@ from airflow.providers.amazon.aws.operators.lambda_function import LambdaInvokeF
 import json
 import logging
 
-logger = logging.getLogger(__name__)'''
+logger = logging.getLogger(__name__)"""
 
 
 def _generate_dag_definition(
-    contract_id: str,
-    contract_name: str,
-    schedule: str,
-    timezone: str
+    contract_id: str, contract_name: str, schedule: str, timezone: str
 ) -> str:
     """Generate DAG definition with default arguments."""
     # Convert cron to Airflow schedule
     airflow_schedule = _convert_schedule(schedule)
-    
-    return f'''# Default DAG arguments
+
+    return f"""# Default DAG arguments
 default_args = {{
     'owner': 'fluid-forge',
     'depends_on_past': False,
@@ -147,43 +137,35 @@ dag = DAG(
     start_date=datetime(2026, 1, 1, tzinfo=ZoneInfo('{timezone}')),
     catchup=False,
     tags=['fluid', 'auto-generated', '{contract_id}'],
-)'''
+)"""
 
 
-def _generate_task_definitions(
-    tasks: List[Dict[str, Any]],
-    account_id: str,
-    region: str
-) -> str:
+def _generate_task_definitions(tasks: List[Dict[str, Any]], account_id: str, region: str) -> str:
     """Generate task definitions."""
     task_code = "# Task definitions\n"
-    
+
     for task in tasks:
         task_code += _generate_single_task(task, account_id, region)
         task_code += "\n\n"
-    
+
     return task_code.rstrip()
 
 
-def _generate_single_task(
-    task: Dict[str, Any],
-    account_id: str,
-    region: str
-) -> str:
+def _generate_single_task(task: Dict[str, Any], account_id: str, region: str) -> str:
     """Generate code for a single task."""
     task.get("taskId")
     action = task.get("action")
     params = task.get("params", {})
-    
+
     # Parse action (e.g., "aws.s3.ensure_bucket")
     action_parts = action.split(".")
     if len(action_parts) < 3:
         # Fallback to PythonOperator
         return _generate_python_task(task, account_id, region)
-    
+
     service = action_parts[1]
     operation = action_parts[2]
-    
+
     # Map to appropriate Airflow operator
     if service == "s3":
         return _generate_s3_task(task, operation, params, account_id, region)
@@ -201,54 +183,46 @@ def _generate_single_task(
 
 
 def _generate_s3_task(
-    task: Dict[str, Any],
-    operation: str,
-    params: Dict[str, Any],
-    account_id: str,
-    region: str
+    task: Dict[str, Any], operation: str, params: Dict[str, Any], account_id: str, region: str
 ) -> str:
     """Generate S3 task code."""
     task_id = task.get("taskId")
-    
+
     if operation == "ensure_bucket":
         bucket_name = params.get("bucket")
-        return f'''{_sanitize_task_id(task_id)} = S3CreateBucketOperator(
+        return f"""{_sanitize_task_id(task_id)} = S3CreateBucketOperator(
     task_id='{_sanitize_task_id(task_id)}',
     bucket_name='{bucket_name}',
     region_name='{params.get("region", region)}',
     aws_conn_id='aws_default',
     dag=dag,
-)'''
+)"""
     else:
         # Generic S3 operation via Python
         return _generate_python_task(task, account_id, region)
 
 
 def _generate_glue_task(
-    task: Dict[str, Any],
-    operation: str,
-    params: Dict[str, Any],
-    account_id: str,
-    region: str
+    task: Dict[str, Any], operation: str, params: Dict[str, Any], account_id: str, region: str
 ) -> str:
     """Generate Glue task code."""
     task_id = task.get("taskId")
-    
+
     if operation == "ensure_database":
         database = params.get("database")
-        return f'''{_sanitize_task_id(task_id)} = PythonOperator(
+        return f"""{_sanitize_task_id(task_id)} = PythonOperator(
     task_id='{_sanitize_task_id(task_id)}',
     python_callable=lambda: _ensure_glue_database(
         database='{database}',
         region='{region}'
     ),
     dag=dag,
-)'''
-    
+)"""
+
     elif operation == "ensure_table":
         database = params.get("database")
         table = params.get("table")
-        return f'''{_sanitize_task_id(task_id)} = PythonOperator(
+        return f"""{_sanitize_task_id(task_id)} = PythonOperator(
     task_id='{_sanitize_task_id(task_id)}',
     python_callable=lambda: _ensure_glue_table(
         database='{database}',
@@ -257,105 +231,91 @@ def _generate_glue_task(
         region='{region}'
     ),
     dag=dag,
-)'''
-    
+)"""
+
     else:
         return _generate_python_task(task, account_id, region)
 
 
 def _generate_athena_task(
-    task: Dict[str, Any],
-    operation: str,
-    params: Dict[str, Any],
-    account_id: str,
-    region: str
+    task: Dict[str, Any], operation: str, params: Dict[str, Any], account_id: str, region: str
 ) -> str:
     """Generate Athena task code."""
     task_id = task.get("taskId")
-    
+
     if operation == "execute_query":
         query = params.get("query", "")
         database = params.get("database", "default")
-        output_location = params.get("outputLocation", f"s3://aws-athena-query-results-{account_id}-{region}/")
-        
-        return f'''{_sanitize_task_id(task_id)} = AthenaOperator(
+        output_location = params.get(
+            "outputLocation", f"s3://aws-athena-query-results-{account_id}-{region}/"
+        )
+
+        return f"""{_sanitize_task_id(task_id)} = AthenaOperator(
     task_id='{_sanitize_task_id(task_id)}',
     query='{query}',
     database='{database}',
     output_location='{output_location}',
     aws_conn_id='aws_default',
     dag=dag,
-)'''
-    
+)"""
+
     else:
         return _generate_python_task(task, account_id, region)
 
 
 def _generate_redshift_task(
-    task: Dict[str, Any],
-    operation: str,
-    params: Dict[str, Any],
-    account_id: str,
-    region: str
+    task: Dict[str, Any], operation: str, params: Dict[str, Any], account_id: str, region: str
 ) -> str:
     """Generate Redshift task code."""
     task_id = task.get("taskId")
-    
+
     if operation == "execute_sql":
         sql = params.get("sql", "")
         cluster_id = params.get("cluster", "")
         database = params.get("database", "dev")
-        
-        return f'''{_sanitize_task_id(task_id)} = RedshiftDataOperator(
+
+        return f"""{_sanitize_task_id(task_id)} = RedshiftDataOperator(
     task_id='{_sanitize_task_id(task_id)}',
     sql='{sql}',
     cluster_identifier='{cluster_id}',
     database='{database}',
     aws_conn_id='aws_default',
     dag=dag,
-)'''
-    
+)"""
+
     else:
         return _generate_python_task(task, account_id, region)
 
 
 def _generate_lambda_task(
-    task: Dict[str, Any],
-    operation: str,
-    params: Dict[str, Any],
-    account_id: str,
-    region: str
+    task: Dict[str, Any], operation: str, params: Dict[str, Any], account_id: str, region: str
 ) -> str:
     """Generate Lambda task code."""
     task_id = task.get("taskId")
-    
+
     if operation == "invoke":
         function_name = params.get("function")
         payload = params.get("payload", {})
-        
-        return f'''{_sanitize_task_id(task_id)} = LambdaInvokeFunctionOperator(
+
+        return f"""{_sanitize_task_id(task_id)} = LambdaInvokeFunctionOperator(
     task_id='{_sanitize_task_id(task_id)}',
     function_name='{function_name}',
     payload=json.dumps({json.dumps(payload)}),
     aws_conn_id='aws_default',
     dag=dag,
-)'''
-    
+)"""
+
     else:
         return _generate_python_task(task, account_id, region)
 
 
-def _generate_python_task(
-    task: Dict[str, Any],
-    account_id: str,
-    region: str
-) -> str:
+def _generate_python_task(task: Dict[str, Any], account_id: str, region: str) -> str:
     """Generate generic Python task (fallback)."""
     task_id = task.get("taskId")
     action = task.get("action")
     params = task.get("params", {})
-    
-    return f'''{_sanitize_task_id(task_id)} = PythonOperator(
+
+    return f"""{_sanitize_task_id(task_id)} = PythonOperator(
     task_id='{_sanitize_task_id(task_id)}',
     python_callable=lambda: _execute_provider_action(
         action='{action}',
@@ -364,26 +324,26 @@ def _generate_python_task(
         region='{region}'
     ),
     dag=dag,
-)'''
+)"""
 
 
 def _generate_task_dependencies(tasks: List[Dict[str, Any]]) -> str:
     """Generate task dependency declarations."""
     dep_code = "# Task dependencies\n"
-    
+
     for task in tasks:
         task_id = task.get("taskId")
         depends_on = task.get("dependsOn", [])
-        
+
         if depends_on:
             sanitized_id = _sanitize_task_id(task_id)
             for dep in depends_on:
                 sanitized_dep = _sanitize_task_id(dep)
                 dep_code += f"{sanitized_dep} >> {sanitized_id}\n"
-    
+
     if dep_code == "# Task dependencies\n":
         dep_code += "# No dependencies defined\n"
-    
+
     return dep_code
 
 
@@ -513,7 +473,7 @@ def _convert_schedule(schedule: str) -> str:
     # If already cron, return as-is
     if schedule.count(" ") >= 4:
         return schedule
-    
+
     # Handle common presets
     presets = {
         "daily": "0 2 * * *",
@@ -521,11 +481,12 @@ def _convert_schedule(schedule: str) -> str:
         "weekly": "0 2 * * 0",
         "monthly": "0 2 1 * *",
     }
-    
+
     return presets.get(schedule.lower(), schedule)
 
 
 # ── Airflow 2.x TaskFlow API Generation ──────────────────────────────
+
 
 def generate_airflow_dag_taskflow(
     contract: Dict[str, Any],
@@ -568,15 +529,20 @@ def generate_airflow_dag_taskflow(
     code += _generate_taskflow_imports()
     code += "\n\n"
     code += _generate_taskflow_dag(
-        contract_id, contract_name, schedule, timezone,
-        provider_tasks, account_id, region,
+        contract_id,
+        contract_name,
+        schedule,
+        timezone,
+        provider_tasks,
+        account_id,
+        region,
     )
     return code
 
 
 def _generate_taskflow_imports() -> str:
     """Generate import statements for TaskFlow API."""
-    return '''from datetime import datetime, timedelta
+    return """from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from airflow.decorators import dag, task
 from airflow.providers.amazon.aws.operators.s3 import S3CreateBucketOperator
@@ -586,7 +552,7 @@ from airflow.providers.amazon.aws.operators.lambda_function import LambdaInvokeF
 import json
 import logging
 
-logger = logging.getLogger(__name__)'''
+logger = logging.getLogger(__name__)"""
 
 
 def _generate_taskflow_dag(
@@ -603,19 +569,19 @@ def _generate_taskflow_dag(
     airflow_schedule = _convert_schedule(schedule)
 
     lines: List[str] = []
-    lines.append(f"@dag(")
+    lines.append("@dag(")
     lines.append(f"    dag_id='{dag_id}',")
     lines.append(f"    description='{contract_name}',")
     lines.append(f"    schedule='{airflow_schedule}',")
     lines.append(f"    start_date=datetime(2026, 1, 1, tzinfo=ZoneInfo('{timezone}')),")
-    lines.append(f"    catchup=False,")
-    lines.append(f"    default_args={{")
-    lines.append(f"        'owner': 'fluid-forge',")
-    lines.append(f"        'retries': 3,")
-    lines.append(f"        'retry_delay': timedelta(minutes=5),")
-    lines.append(f"    }},")
+    lines.append("    catchup=False,")
+    lines.append("    default_args={")
+    lines.append("        'owner': 'fluid-forge',")
+    lines.append("        'retries': 3,")
+    lines.append("        'retry_delay': timedelta(minutes=5),")
+    lines.append("    },")
     lines.append(f"    tags=['fluid', 'auto-generated', '{contract_id}'],")
-    lines.append(f")")
+    lines.append(")")
     lines.append(f"def {dag_id.replace('-', '_').replace('.', '_')}():")
 
     # Build per-task variable names for dependency wiring
@@ -635,28 +601,30 @@ def _generate_taskflow_dag(
 
         if service == "s3" and operation == "ensure_bucket":
             bucket = params.get("bucket", "")
-            lines.append(f"")
+            lines.append("")
             lines.append(f"    {var} = S3CreateBucketOperator(")
             lines.append(f"        task_id='{var}',")
             lines.append(f"        bucket_name='{bucket}',")
             lines.append(f"        region_name='{params.get('region', region)}',")
-            lines.append(f"        aws_conn_id='aws_default',")
-            lines.append(f"    )")
+            lines.append("        aws_conn_id='aws_default',")
+            lines.append("    )")
         elif service == "athena" and operation == "execute_query":
             query = params.get("query", "")
             db = params.get("database", "default")
-            out = params.get("outputLocation", f"s3://aws-athena-query-results-{account_id}-{region}/")
-            lines.append(f"")
+            out = params.get(
+                "outputLocation", f"s3://aws-athena-query-results-{account_id}-{region}/"
+            )
+            lines.append("")
             lines.append(f"    {var} = AthenaOperator(")
             lines.append(f"        task_id='{var}',")
             lines.append(f"        query='{query}',")
             lines.append(f"        database='{db}',")
             lines.append(f"        output_location='{out}',")
-            lines.append(f"        aws_conn_id='aws_default',")
-            lines.append(f"    )")
+            lines.append("        aws_conn_id='aws_default',")
+            lines.append("    )")
         elif service == "glue":
             # Glue operations use @task decorators
-            lines.append(f"")
+            lines.append("")
             lines.append(f"    @task(task_id='{var}')")
             lines.append(f"    def {var}():")
             if operation == "ensure_database":
@@ -665,16 +633,22 @@ def _generate_taskflow_dag(
             elif operation == "ensure_table":
                 db = params.get("database", "")
                 tbl = params.get("table", "")
-                lines.append(f"        _ensure_glue_table('{db}', '{tbl}', {json.dumps(params)}, '{region}')")
+                lines.append(
+                    f"        _ensure_glue_table('{db}', '{tbl}', {json.dumps(params)}, '{region}')"
+                )
             else:
-                lines.append(f"        _execute_provider_action('{action}', {json.dumps(params)}, '{account_id}', '{region}')")
+                lines.append(
+                    f"        _execute_provider_action('{action}', {json.dumps(params)}, '{account_id}', '{region}')"
+                )
             lines.append(f"    {var}_result = {var}()")
         else:
             # Generic @task fallback
-            lines.append(f"")
+            lines.append("")
             lines.append(f"    @task(task_id='{var}')")
             lines.append(f"    def {var}():")
-            lines.append(f"        _execute_provider_action('{action}', {json.dumps(params)}, '{account_id}', '{region}')")
+            lines.append(
+                f"        _execute_provider_action('{action}', {json.dumps(params)}, '{account_id}', '{region}')"
+            )
             lines.append(f"    {var}_result = {var}()")
 
     # Dependencies
@@ -687,8 +661,8 @@ def _generate_taskflow_dag(
                 dep_var = task_vars.get(dep, _sanitize_task_id(dep))
                 lines.append(f"    {dep_var} >> {var}")
 
-    lines.append(f"")
-    lines.append(f"")
+    lines.append("")
+    lines.append("")
     lines.append(f"{dag_id.replace('-', '_').replace('.', '_')}()")
 
     return "\n".join(lines)

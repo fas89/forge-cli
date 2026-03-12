@@ -1,42 +1,69 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for GCP codegen: dagster.py and prefect.py — pure code generators."""
 
 import pytest
 
 from fluid_build.providers.gcp.codegen.dagster import (
-    _sanitize_name as dagster_sanitize,
     _convert_schedule as dagster_schedule,
+)
+from fluid_build.providers.gcp.codegen.dagster import (
     _generate_header as dagster_header,
+)
+from fluid_build.providers.gcp.codegen.dagster import (
     _generate_imports as dagster_imports,
-    _generate_resources as dagster_resources,
-    _generate_single_op,
-    _generate_generic_op,
-    _generate_bigquery_op,
-    _generate_gcs_op,
-    _generate_pubsub_op,
+)
+from fluid_build.providers.gcp.codegen.dagster import (
     _generate_job as dagster_job,
+)
+from fluid_build.providers.gcp.codegen.dagster import (
+    _generate_resources as dagster_resources,
+)
+from fluid_build.providers.gcp.codegen.dagster import (
+    _generate_single_op,
     generate_dagster_pipeline,
 )
-
+from fluid_build.providers.gcp.codegen.dagster import (
+    _sanitize_name as dagster_sanitize,
+)
 from fluid_build.providers.gcp.codegen.prefect import (
-    _sanitize_name as prefect_sanitize,
     _convert_schedule as prefect_schedule,
-    _generate_header as prefect_header,
-    _generate_imports as prefect_imports,
+)
+from fluid_build.providers.gcp.codegen.prefect import (
     _generate_config,
-    _generate_single_task,
-    _generate_generic_task,
-    _generate_bigquery_task,
-    _generate_gcs_task,
-    _generate_pubsub_task,
-    _generate_flow as prefect_flow,
     _generate_deployment,
+    _generate_single_task,
     generate_prefect_flow,
 )
-
+from fluid_build.providers.gcp.codegen.prefect import (
+    _generate_flow as prefect_flow,
+)
+from fluid_build.providers.gcp.codegen.prefect import (
+    _generate_header as prefect_header,
+)
+from fluid_build.providers.gcp.codegen.prefect import (
+    _generate_imports as prefect_imports,
+)
+from fluid_build.providers.gcp.codegen.prefect import (
+    _sanitize_name as prefect_sanitize,
+)
 
 # ═══════════════════════════════════════════════════════════════════
 # Dagster codegen
 # ═══════════════════════════════════════════════════════════════════
+
 
 class TestDagsterSanitizeName:
     def test_clean(self):
@@ -96,21 +123,30 @@ class TestDagsterResources:
 
 class TestGenerateSingleOp:
     def test_bigquery_create_dataset(self):
-        task = {"taskId": "create_ds", "action": "gcp.bigquery.create_dataset",
-                "params": {"dataset_id": "analytics"}}
+        task = {
+            "taskId": "create_ds",
+            "action": "gcp.bigquery.create_dataset",
+            "params": {"dataset_id": "analytics"},
+        }
         result = _generate_single_op(task, "proj", "us-c1")
         assert "analytics" in result
         assert "bigquery_client" in result
 
     def test_gcs_create_bucket(self):
-        task = {"taskId": "make_bucket", "action": "gcp.gcs.create_bucket",
-                "params": {"bucket": "my-bucket"}}
+        task = {
+            "taskId": "make_bucket",
+            "action": "gcp.gcs.create_bucket",
+            "params": {"bucket": "my-bucket"},
+        }
         result = _generate_single_op(task, "proj", "us-c1")
         assert "my-bucket" in result
 
     def test_pubsub_create_topic(self):
-        task = {"taskId": "make_topic", "action": "gcp.pubsub.create_topic",
-                "params": {"topic": "events"}}
+        task = {
+            "taskId": "make_topic",
+            "action": "gcp.pubsub.create_topic",
+            "params": {"topic": "events"},
+        }
         result = _generate_single_op(task, "proj", "us-c1")
         assert "events" in result
 
@@ -125,8 +161,12 @@ class TestGenerateSingleOp:
         assert "Generic op" in result
 
     def test_dependencies_in_ins(self):
-        task = {"taskId": "t2", "action": "gcp.bigquery.create_dataset",
-                "params": {"dataset_id": "ds"}, "dependsOn": ["t1"]}
+        task = {
+            "taskId": "t2",
+            "action": "gcp.bigquery.create_dataset",
+            "params": {"dataset_id": "ds"},
+            "dependsOn": ["t1"],
+        }
         result = _generate_single_op(task, "proj", "us-c1")
         assert "dep_t1" in result
 
@@ -155,9 +195,12 @@ class TestGenerateDagsterPipeline:
             "orchestration": {
                 "schedule": "@daily",
                 "tasks": [
-                    {"taskId": "ds", "type": "provider_action",
-                     "action": "gcp.bigquery.create_dataset",
-                     "params": {"dataset_id": "analytics"}},
+                    {
+                        "taskId": "ds",
+                        "type": "provider_action",
+                        "action": "gcp.bigquery.create_dataset",
+                        "params": {"dataset_id": "analytics"},
+                    },
                 ],
             },
         }
@@ -169,6 +212,7 @@ class TestGenerateDagsterPipeline:
 # ═══════════════════════════════════════════════════════════════════
 # Prefect codegen
 # ═══════════════════════════════════════════════════════════════════
+
 
 class TestPrefectSanitizeName:
     def test_clean(self):
@@ -214,21 +258,30 @@ class TestPrefectConfig:
 
 class TestGenerateSingleTask:
     def test_bigquery_task(self):
-        task = {"taskId": "create_ds", "action": "gcp.bigquery.create_dataset",
-                "params": {"dataset_id": "analytics"}}
+        task = {
+            "taskId": "create_ds",
+            "action": "gcp.bigquery.create_dataset",
+            "params": {"dataset_id": "analytics"},
+        }
         result = _generate_single_task(task, "proj", "us-c1")
         assert "analytics" in result
         assert "@task" in result
 
     def test_gcs_task(self):
-        task = {"taskId": "make_bucket", "action": "gcp.gcs.ensure_bucket",
-                "params": {"bucket": "my-bucket"}}
+        task = {
+            "taskId": "make_bucket",
+            "action": "gcp.gcs.ensure_bucket",
+            "params": {"bucket": "my-bucket"},
+        }
         result = _generate_single_task(task, "proj", "us-c1")
         assert "my-bucket" in result
 
     def test_pubsub_task(self):
-        task = {"taskId": "make_topic", "action": "gcp.pubsub.create_topic",
-                "params": {"topic": "events"}}
+        task = {
+            "taskId": "make_topic",
+            "action": "gcp.pubsub.create_topic",
+            "params": {"topic": "events"},
+        }
         result = _generate_single_task(task, "proj", "us-c1")
         assert "events" in result
 
@@ -265,9 +318,12 @@ class TestGeneratePrefectFlow:
             "orchestration": {
                 "schedule": "@daily",
                 "tasks": [
-                    {"taskId": "ds", "type": "provider_action",
-                     "action": "gcp.bigquery.create_dataset",
-                     "params": {"dataset_id": "analytics"}},
+                    {
+                        "taskId": "ds",
+                        "type": "provider_action",
+                        "action": "gcp.bigquery.create_dataset",
+                        "params": {"dataset_id": "analytics"},
+                    },
                 ],
             },
         }

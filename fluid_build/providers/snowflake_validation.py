@@ -22,23 +22,24 @@ against actual Snowflake resources via INFORMATION_SCHEMA queries.
 from __future__ import annotations
 
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional
 
-from fluid_build.providers.validation_provider import (
-    ValidationProvider,
-    ResourceSchema,
-    FieldSchema,
-    ResourceType,
-    ValidationResult,
-    ValidationIssue,
-)
 from fluid_build.providers.quality_engine import (
     execute_quality_checks,
     quality_results_to_issues,
 )
+from fluid_build.providers.validation_provider import (
+    FieldSchema,
+    ResourceSchema,
+    ResourceType,
+    ValidationIssue,
+    ValidationProvider,
+    ValidationResult,
+)
 
 try:
     from fluid_build.providers.snowflake.connection import SnowflakeConnection
+
     SNOWFLAKE_AVAILABLE = True
 except ImportError:
     SNOWFLAKE_AVAILABLE = False
@@ -53,10 +54,23 @@ class SnowflakeValidationProvider(ValidationProvider):
     # Snowflake type → standard type mapping
     TYPE_MAPPINGS: Dict[str, List[str]] = {
         "STRING": ["VARCHAR", "CHAR", "CHARACTER", "TEXT", "STRING"],
-        "NUMBER": ["NUMBER", "DECIMAL", "NUMERIC", "INT", "INTEGER",
-                    "BIGINT", "SMALLINT", "TINYINT", "BYTEINT",
-                    "FLOAT", "FLOAT4", "FLOAT8", "DOUBLE",
-                    "DOUBLE PRECISION", "REAL"],
+        "NUMBER": [
+            "NUMBER",
+            "DECIMAL",
+            "NUMERIC",
+            "INT",
+            "INTEGER",
+            "BIGINT",
+            "SMALLINT",
+            "TINYINT",
+            "BYTEINT",
+            "FLOAT",
+            "FLOAT4",
+            "FLOAT8",
+            "DOUBLE",
+            "DOUBLE PRECISION",
+            "REAL",
+        ],
         "BOOLEAN": ["BOOLEAN", "BOOL"],
         "DATE": ["DATE"],
         "TIMESTAMP_NTZ": ["TIMESTAMP_NTZ", "DATETIME", "TIMESTAMP WITHOUT TIME ZONE"],
@@ -87,7 +101,7 @@ class SnowflakeValidationProvider(ValidationProvider):
     def provider_name(self) -> str:
         return "snowflake"
 
-    def _connect(self) -> "SnowflakeConnection":
+    def _connect(self) -> SnowflakeConnection:
         """Create a SnowflakeConnection context manager."""
         return SnowflakeConnection(
             account=self.account,
@@ -125,9 +139,9 @@ class SnowflakeValidationProvider(ValidationProvider):
                 # Query column metadata
                 rows = conn.execute(
                     "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COMMENT "
-                    "FROM {db}.INFORMATION_SCHEMA.COLUMNS "
+                    f"FROM {db}.INFORMATION_SCHEMA.COLUMNS "
                     "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s "
-                    "ORDER BY ORDINAL_POSITION".format(db=db),
+                    "ORDER BY ORDINAL_POSITION",
                     [sch, tbl],
                 )
 
@@ -137,29 +151,30 @@ class SnowflakeValidationProvider(ValidationProvider):
                 fields: List[FieldSchema] = []
                 for row in rows:
                     col_name, data_type, is_nullable, comment = (
-                        row[0], row[1], row[2], row[3] if len(row) > 3 else None,
+                        row[0],
+                        row[1],
+                        row[2],
+                        row[3] if len(row) > 3 else None,
                     )
                     mode = "NULLABLE" if is_nullable == "YES" else "REQUIRED"
-                    fields.append(FieldSchema(
-                        name=col_name,
-                        type=data_type,
-                        mode=mode,
-                        description=comment,
-                    ))
+                    fields.append(
+                        FieldSchema(
+                            name=col_name,
+                            type=data_type,
+                            mode=mode,
+                            description=comment,
+                        )
+                    )
 
                 # Fetch row count
-                count_rows = conn.execute(
-                    'SELECT COUNT(*) FROM "{db}"."{sch}"."{tbl}"'.format(
-                        db=db, sch=sch, tbl=tbl
-                    )
-                )
+                count_rows = conn.execute(f'SELECT COUNT(*) FROM "{db}"."{sch}"."{tbl}"')
                 row_count = count_rows[0][0] if count_rows else None
 
                 # Fetch table metadata
                 meta_rows = conn.execute(
                     "SELECT TABLE_TYPE, BYTES, LAST_ALTERED, COMMENT "
-                    "FROM {db}.INFORMATION_SCHEMA.TABLES "
-                    "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s".format(db=db),
+                    f"FROM {db}.INFORMATION_SCHEMA.TABLES "
+                    "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
                     [sch, tbl],
                 )
                 metadata: Dict[str, Any] = {}
@@ -176,7 +191,7 @@ class SnowflakeValidationProvider(ValidationProvider):
                     metadata["table_type"] = table_type
                     metadata["comment"] = mr[3] if len(mr) > 3 else None
 
-                fqn_str = '"{0}"."{1}"."{2}"'.format(db, sch, tbl)
+                fqn_str = f'"{db}"."{sch}"."{tbl}"'
                 return ResourceSchema(
                     resource_type=resource_type,
                     fully_qualified_name=fqn_str,
@@ -188,7 +203,7 @@ class SnowflakeValidationProvider(ValidationProvider):
                 )
 
         except Exception as e:
-            raise Exception("Error retrieving Snowflake schema: {}".format(str(e))) from e
+            raise Exception(f"Error retrieving Snowflake schema: {str(e)}") from e
 
     def validate_resource(
         self,
@@ -202,18 +217,22 @@ class SnowflakeValidationProvider(ValidationProvider):
         if actual_schema is None:
             fqn = self._extract_fqn(contract_spec)
             fqn_str = '"{0}"."{1}"."{2}"'.format(*fqn) if fqn else "unknown"
-            issues.append(ValidationIssue(
-                severity="error",
-                category="missing_resource",
-                message="Table '{}' does not exist in Snowflake".format(fqn_str),
-                path="exposes[].binding.location",
-                expected=fqn_str,
-                actual=None,
-                suggestion="Create the table or verify the database/schema/table names",
-            ))
+            issues.append(
+                ValidationIssue(
+                    severity="error",
+                    category="missing_resource",
+                    message=f"Table '{fqn_str}' does not exist in Snowflake",
+                    path="exposes[].binding.location",
+                    expected=fqn_str,
+                    actual=None,
+                    suggestion="Create the table or verify the database/schema/table names",
+                )
+            )
             return ValidationResult(
-                resource_name=resource_name, success=False,
-                issues=issues, schema=None,
+                resource_name=resource_name,
+                success=False,
+                issues=issues,
+                schema=None,
             )
 
         # Compare schemas
@@ -224,32 +243,34 @@ class SnowflakeValidationProvider(ValidationProvider):
 
         # Warn on empty table
         if actual_schema.row_count == 0:
-            issues.append(ValidationIssue(
-                severity="warning",
-                category="empty_table",
-                message="Table '{}' has no rows".format(actual_schema.fully_qualified_name),
-                path="exposes[].binding.location",
-                expected="> 0 rows",
-                actual="0 rows",
-                suggestion="Verify data has been loaded",
-            ))
+            issues.append(
+                ValidationIssue(
+                    severity="warning",
+                    category="empty_table",
+                    message=f"Table '{actual_schema.fully_qualified_name}' has no rows",
+                    path="exposes[].binding.location",
+                    expected="> 0 rows",
+                    actual="0 rows",
+                    suggestion="Verify data has been loaded",
+                )
+            )
 
         # Check SLA thresholds
         sla = contract_spec.get("sla", {})
         if "row_count_min" in sla and actual_schema.row_count is not None:
             min_rows = sla["row_count_min"]
             if actual_schema.row_count < min_rows:
-                issues.append(ValidationIssue(
-                    severity="error",
-                    category="row_count_below_threshold",
-                    message="Table has {} rows, below minimum of {}".format(
-                        actual_schema.row_count, min_rows
-                    ),
-                    path="exposes[].sla.row_count_min",
-                    expected=">= {} rows".format(min_rows),
-                    actual="{} rows".format(actual_schema.row_count),
-                    suggestion="Check data pipeline for issues",
-                ))
+                issues.append(
+                    ValidationIssue(
+                        severity="error",
+                        category="row_count_below_threshold",
+                        message=f"Table has {actual_schema.row_count} rows, below minimum of {min_rows}",
+                        path="exposes[].sla.row_count_min",
+                        expected=f">= {min_rows} rows",
+                        actual=f"{actual_schema.row_count} rows",
+                        suggestion="Check data pipeline for issues",
+                    )
+                )
 
         return ValidationResult(
             resource_name=resource_name,
@@ -271,7 +292,8 @@ class SnowflakeValidationProvider(ValidationProvider):
     # ------------------------------------------------------------------
 
     def _extract_fqn(
-        self, resource_spec: Dict[str, Any],
+        self,
+        resource_spec: Dict[str, Any],
     ) -> Optional[tuple]:
         """Return (database, schema, table) from a resource spec, or None."""
         binding = resource_spec.get("binding", {})
@@ -308,12 +330,14 @@ class SnowflakeValidationProvider(ValidationProvider):
                     mode = "REQUIRED" if f["required"] else "NULLABLE"
                 elif "nullable" in f:
                     mode = "NULLABLE" if f["nullable"] else "REQUIRED"
-                fields.append(FieldSchema(
-                    name=f.get("name", ""),
-                    type=f.get("type", "STRING"),
-                    mode=mode,
-                    description=f.get("description"),
-                ))
+                fields.append(
+                    FieldSchema(
+                        name=f.get("name", ""),
+                        type=f.get("type", "STRING"),
+                        mode=mode,
+                        description=f.get("description"),
+                    )
+                )
         return fields
 
     def run_quality_checks(
@@ -324,11 +348,14 @@ class SnowflakeValidationProvider(ValidationProvider):
         """Execute DQ rules against Snowflake via SQL."""
         fqn = self._extract_fqn(resource_spec)
         if not fqn:
-            return [ValidationIssue(
-                severity="warning", category="quality",
-                message="Cannot run quality checks: unable to resolve table reference",
-                path="contract.dq.rules",
-            )]
+            return [
+                ValidationIssue(
+                    severity="warning",
+                    category="quality",
+                    message="Cannot run quality checks: unable to resolve table reference",
+                    path="contract.dq.rules",
+                )
+            ]
         table_ref = '"{}"."{}"."{}"'.format(*fqn)
         with self._connect() as conn:
             results = execute_quality_checks(

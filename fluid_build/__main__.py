@@ -13,8 +13,9 @@
 # limitations under the License.
 
 # fluid_build/__main__.py
-from fluid_build.cli import main
 import sys
+
+from fluid_build.cli import main
 
 if __name__ == "__main__":
     sys.exit(main())

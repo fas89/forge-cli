@@ -1,25 +1,39 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for fluid_build.cli.forge — exceptions, ForgeMode, CopilotAgent pure methods."""
+
 from pathlib import Path
-from unittest.mock import patch
 
 from fluid_build.cli.forge import (
-    ForgeError,
-    TemplateNotFoundError,
     BlueprintNotFoundError,
+    ContextValidationError,
+    CopilotAgent,
+    ForgeError,
+    ForgeMode,
     InvalidProjectNameError,
     ProjectGenerationError,
-    ContextValidationError,
-    ForgeMode,
-    CopilotAgent,
+    TemplateNotFoundError,
 )
-
 
 # ── Custom exceptions ──
 
+
 class TestForgeExceptions:
     def test_template_not_found(self):
-        # ForgeError inherits CLIError(exit_code, event, context) 
-        # but forge.py __init__ passes a single message string — 
+        # ForgeError inherits CLIError(exit_code, event, context)
+        # but forge.py __init__ passes a single message string —
         # so we test the attributes that are set correctly.
         try:
             TemplateNotFoundError("foo", ["bar", "baz"])
@@ -43,6 +57,7 @@ class TestForgeExceptions:
 
 # ── ForgeMode ──
 
+
 class TestForgeMode:
     def test_values(self):
         assert ForgeMode.TEMPLATE.value == "template"
@@ -52,6 +67,7 @@ class TestForgeMode:
 
 
 # ── CopilotAgent.analyze_requirements ──
+
 
 class TestCopilotAgentAnalyze:
     def _agent(self):
@@ -66,7 +82,10 @@ class TestCopilotAgentAnalyze:
     def test_ml_use_case(self):
         agent = self._agent()
         s = agent.analyze_requirements({"use_case": "ml_pipeline"})
-        assert "ml" in s["recommended_template"].lower() or "pipeline" in s["recommended_template"].lower()
+        assert (
+            "ml" in s["recommended_template"].lower()
+            or "pipeline" in s["recommended_template"].lower()
+        )
 
     def test_streaming_use_case(self):
         agent = self._agent()
@@ -81,12 +100,18 @@ class TestCopilotAgentAnalyze:
     def test_bigquery_provider(self):
         agent = self._agent()
         s = agent.analyze_requirements({"data_sources": "BigQuery tables"})
-        assert "gcp" in s["recommended_provider"].lower() or "google" in s["recommended_provider"].lower()
+        assert (
+            "gcp" in s["recommended_provider"].lower()
+            or "google" in s["recommended_provider"].lower()
+        )
 
     def test_snowflake_provider(self):
         agent = self._agent()
         s = agent.analyze_requirements({"data_sources": "Snowflake warehouse"})
-        assert "snowflake" in s["recommended_provider"].lower() or "snow" in s["recommended_provider"].lower()
+        assert (
+            "snowflake" in s["recommended_provider"].lower()
+            or "snow" in s["recommended_provider"].lower()
+        )
 
     def test_aws_provider(self):
         agent = self._agent()
@@ -110,6 +135,7 @@ class TestCopilotAgentAnalyze:
 
 
 # ── CopilotAgent._analyze_requirements (private deeper analysis) ──
+
 
 class TestCopilotAgentDeepAnalyze:
     def _agent(self):
@@ -146,6 +172,7 @@ class TestCopilotAgentDeepAnalyze:
 
 # ── CopilotAgent._create_forge_config ──
 
+
 class TestCopilotAgentForgeConfig:
     def _agent(self):
         return CopilotAgent()
@@ -154,7 +181,9 @@ class TestCopilotAgentForgeConfig:
         agent = self._agent()
         suggestions = agent.analyze_requirements({"use_case": "analytics"})
         config = agent._create_forge_config(
-            Path("/tmp/test"), {"project_goal": "Test Product"}, suggestions,
+            Path("/tmp/test"),
+            {"project_goal": "Test Product"},
+            suggestions,
         )
         assert "name" in config
         assert config["template"] == suggestions["recommended_template"]
@@ -165,7 +194,9 @@ class TestCopilotAgentForgeConfig:
         agent = self._agent()
         suggestions = agent.analyze_requirements({})
         config = agent._create_forge_config(
-            Path("/tmp"), {"project_goal": "My #Awesome! Project"}, suggestions,
+            Path("/tmp"),
+            {"project_goal": "My #Awesome! Project"},
+            suggestions,
         )
         # name should be lowercase, no special chars
         assert config["name"].islower() or config["name"] == "my-data-product"

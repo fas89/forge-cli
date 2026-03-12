@@ -13,16 +13,25 @@
 # limitations under the License.
 
 from __future__ import annotations
-import argparse, logging, json, os, traceback
-from ._common import build_provider, CLIError
+
+import argparse
+import json
+import logging
+import os
+import traceback
+
+from ._common import CLIError, build_provider
 from ._logging import info
 
 COMMAND = "policy-apply"
 
+
 def register(subparsers: argparse._SubParsersAction):
     p = subparsers.add_parser(COMMAND, help="Apply compiled IAM bindings")
     p.add_argument("bindings", help="runtime/policy/bindings.json")
-    p.add_argument("--mode", choices=["check","enforce"], default="check", help="dry-run or enforce")
+    p.add_argument(
+        "--mode", choices=["check", "enforce"], default="check", help="dry-run or enforce"
+    )
     p.set_defaults(cmd=COMMAND, func=run)
 
 
@@ -48,28 +57,35 @@ def _resolve_from_bindings(data: dict) -> tuple[str, str]:
 
 def run(args, logger: logging.Logger) -> int:
     try:
-        with open(args.bindings, "r", encoding="utf-8") as f:
+        with open(args.bindings, encoding="utf-8") as f:
             data = json.load(f)
 
         # Provider and project come from the bindings file (set by policy-compile
         # from the contract schema).  CLI flags and env vars are overrides only.
         bindings_provider, bindings_project = _resolve_from_bindings(data)
 
-        provider_name = getattr(args, "provider", None) or bindings_provider or os.getenv("FLUID_PROVIDER") or ""
+        provider_name = (
+            getattr(args, "provider", None)
+            or bindings_provider
+            or os.getenv("FLUID_PROVIDER")
+            or ""
+        )
         project_name = getattr(args, "project", None) or bindings_project or None
 
         if provider_name:
             source = "contract" if provider_name == bindings_provider else "flag/env"
             logger.info(f"Provider: {provider_name} (from {source})")
 
-        provider = build_provider(provider_name or None, project_name, getattr(args, "region", None), logger)
+        provider = build_provider(
+            provider_name or None, project_name, getattr(args, "region", None), logger
+        )
 
         if hasattr(provider, "apply_policy"):
             res = provider.apply_policy(data, mode=args.mode)
         else:
-            res = {"status":"noop","note":"provider has no policy applier"}
+            res = {"status": "noop", "note": "provider has no policy applier"}
         info(logger, "policy_apply_result", **res)
-        return 0 if res.get("status") in ("ok","noop") else 1
+        return 0 if res.get("status") in ("ok", "noop") else 1
     except CLIError:
         raise
     except Exception as e:

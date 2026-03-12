@@ -1,22 +1,30 @@
 # Copyright 2024-2026 Agentics Transformation Ltd
-# Licensed under the Apache License, Version 2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Branch coverage tests for workspace.py (fluid_build/cli/workspace.py)."""
 
-import pytest
-import json
-import sqlite3
-import uuid
 import logging
-from pathlib import Path
-from datetime import datetime, timedelta
-from unittest.mock import patch, MagicMock, PropertyMock
-
+from datetime import datetime
+from unittest.mock import MagicMock, patch
 
 # ---- Enums ----
+
 
 class TestWorkspaceEnums:
     def test_workspace_role_values(self):
         from fluid_build.cli.workspace import WorkspaceRole
+
         assert WorkspaceRole.OWNER.value == "owner"
         assert WorkspaceRole.ADMIN.value == "admin"
         assert WorkspaceRole.DEVELOPER.value == "developer"
@@ -24,6 +32,7 @@ class TestWorkspaceEnums:
 
     def test_contract_status_values(self):
         from fluid_build.cli.workspace import ContractStatus
+
         assert ContractStatus.DRAFT.value == "draft"
         assert ContractStatus.IN_REVIEW.value == "in_review"
         assert ContractStatus.APPROVED.value == "approved"
@@ -32,6 +41,7 @@ class TestWorkspaceEnums:
 
     def test_change_request_status_values(self):
         from fluid_build.cli.workspace import ChangeRequestStatus
+
         assert ChangeRequestStatus.OPEN.value == "open"
         assert ChangeRequestStatus.IN_REVIEW.value == "in_review"
         assert ChangeRequestStatus.APPROVED.value == "approved"
@@ -41,13 +51,19 @@ class TestWorkspaceEnums:
 
 # ---- Dataclasses ----
 
+
 class TestTeamMember:
     def test_to_dict(self):
         from fluid_build.cli.workspace import TeamMember, WorkspaceRole
+
         member = TeamMember(
-            id="m1", name="Alice", email="alice@example.com",
-            role=WorkspaceRole.DEVELOPER, joined_at=datetime(2025, 1, 1),
-            last_active=datetime(2025, 6, 1), permissions={"read", "write"}
+            id="m1",
+            name="Alice",
+            email="alice@example.com",
+            role=WorkspaceRole.DEVELOPER,
+            joined_at=datetime(2025, 1, 1),
+            last_active=datetime(2025, 6, 1),
+            permissions={"read", "write"},
         )
         d = member.to_dict()
         assert d["name"] == "Alice"
@@ -56,9 +72,13 @@ class TestTeamMember:
 
     def test_defaults(self):
         from fluid_build.cli.workspace import TeamMember, WorkspaceRole
+
         member = TeamMember(
-            id="m2", name="Bob", email="bob@test.com",
-            role=WorkspaceRole.VIEWER, joined_at=datetime.now()
+            id="m2",
+            name="Bob",
+            email="bob@test.com",
+            role=WorkspaceRole.VIEWER,
+            joined_at=datetime.now(),
         )
         assert member.last_active is None
         assert member.permissions == set()
@@ -66,12 +86,19 @@ class TestTeamMember:
 
 class TestContractVersion:
     def test_to_dict(self):
-        from fluid_build.cli.workspace import ContractVersion, ContractStatus
+        from fluid_build.cli.workspace import ContractStatus, ContractVersion
+
         version = ContractVersion(
-            id="v1", contract_path="/contracts/main.yaml",
-            version="v1.1.0", author="alice", status=ContractStatus.DRAFT,
-            created_at=datetime(2025, 1, 1), message="Initial version",
-            changes=["Added field X"], reviewers=["bob"], approvals=[]
+            id="v1",
+            contract_path="/contracts/main.yaml",
+            version="v1.1.0",
+            author="alice",
+            status=ContractStatus.DRAFT,
+            created_at=datetime(2025, 1, 1),
+            message="Initial version",
+            changes=["Added field X"],
+            reviewers=["bob"],
+            approvals=[],
         )
         d = version.to_dict()
         assert d["version"] == "v1.1.0"
@@ -82,13 +109,19 @@ class TestContractVersion:
 class TestChangeRequest:
     def test_to_dict(self):
         from fluid_build.cli.workspace import ChangeRequest, ChangeRequestStatus
+
         cr = ChangeRequest(
-            id="cr1", title="Add new field", description="Adding X field",
-            author="alice", target_contract="/contracts/main.yaml",
+            id="cr1",
+            title="Add new field",
+            description="Adding X field",
+            author="alice",
+            target_contract="/contracts/main.yaml",
             status=ChangeRequestStatus.OPEN,
-            created_at=datetime(2025, 1, 1), updated_at=datetime(2025, 1, 2),
-            changes={"added": ["field_x"]}, reviewers=["bob"],
-            comments=[{"user": "bob", "text": "LGTM"}]
+            created_at=datetime(2025, 1, 1),
+            updated_at=datetime(2025, 1, 2),
+            changes={"added": ["field_x"]},
+            reviewers=["bob"],
+            comments=[{"user": "bob", "text": "LGTM"}],
         )
         d = cr.to_dict()
         assert d["title"] == "Add new field"
@@ -98,11 +131,14 @@ class TestChangeRequest:
 class TestWorkspaceConfig:
     def test_to_dict(self):
         from fluid_build.cli.workspace import WorkspaceConfig
+
         config = WorkspaceConfig(
-            name="test-workspace", description="A test workspace",
-            owner="admin", created_at=datetime(2025, 1, 1),
+            name="test-workspace",
+            description="A test workspace",
+            owner="admin",
+            created_at=datetime(2025, 1, 1),
             settings={"auto_approve": True},
-            integrations={"slack": {"channel": "#data"}}
+            integrations={"slack": {"channel": "#data"}},
         )
         d = config.to_dict()
         assert d["name"] == "test-workspace"
@@ -111,9 +147,11 @@ class TestWorkspaceConfig:
 
 # ---- WorkspaceManager ----
 
+
 class TestWorkspaceManager:
     def _make_manager(self, tmp_path):
         from fluid_build.cli.workspace import WorkspaceManager
+
         with patch.object(WorkspaceManager, "_ensure_git_repo"):
             return WorkspaceManager(workspace_dir=tmp_path / ".fluid-workspace")
 
@@ -141,10 +179,14 @@ class TestWorkspaceManager:
 
     def test_add_team_member(self, tmp_path):
         from fluid_build.cli.workspace import TeamMember, WorkspaceRole
+
         mgr = self._make_manager(tmp_path)
         member = TeamMember(
-            id="m1", name="Alice", email="alice@test.com",
-            role=WorkspaceRole.DEVELOPER, joined_at=datetime.now()
+            id="m1",
+            name="Alice",
+            email="alice@test.com",
+            role=WorkspaceRole.DEVELOPER,
+            joined_at=datetime.now(),
         )
         result = mgr.add_team_member(member)
         assert result is True
@@ -156,10 +198,14 @@ class TestWorkspaceManager:
 
     def test_get_team_members_after_add(self, tmp_path):
         from fluid_build.cli.workspace import TeamMember, WorkspaceRole
+
         mgr = self._make_manager(tmp_path)
         member = TeamMember(
-            id="m1", name="Alice", email="alice@test.com",
-            role=WorkspaceRole.DEVELOPER, joined_at=datetime.now()
+            id="m1",
+            name="Alice",
+            email="alice@test.com",
+            role=WorkspaceRole.DEVELOPER,
+            joined_at=datetime.now(),
         )
         mgr.add_team_member(member)
         members = mgr.get_team_members()
@@ -172,7 +218,7 @@ class TestWorkspaceManager:
             contract_path="/contracts/main.yaml",
             author="alice",
             message="Initial version",
-            changes=["Created field X"]
+            changes=["Created field X"],
         )
         assert version_id is not None
 
@@ -199,7 +245,7 @@ class TestWorkspaceManager:
             description="Adding new field X",
             author="alice",
             target_contract="/contracts/main.yaml",
-            changes={"added": ["field_x"]}
+            changes={"added": ["field_x"]},
         )
         assert request_id is not None
 
@@ -210,6 +256,7 @@ class TestWorkspaceManager:
 
     def test_get_change_requests_filtered_by_status(self, tmp_path):
         from fluid_build.cli.workspace import ChangeRequestStatus
+
         mgr = self._make_manager(tmp_path)
         mgr.create_change_request("CR1", "desc", "alice", "/a.yaml", {})
         requests = mgr.get_change_requests(status=ChangeRequestStatus.OPEN)
@@ -240,24 +287,28 @@ class TestWorkspaceManager:
 
     def test_ensure_git_repo_no_git(self, tmp_path):
         from fluid_build.cli.workspace import WorkspaceManager
+
         with patch("fluid_build.cli.workspace.GIT_AVAILABLE", False):
-            mgr = WorkspaceManager(workspace_dir=tmp_path / ".fluid-ws2")
+            WorkspaceManager(workspace_dir=tmp_path / ".fluid-ws2")
             # Should not raise even without git
 
     def test_initialize_workspace_exception(self, tmp_path):
         mgr = self._make_manager(tmp_path)
         with patch.object(mgr, "_log_activity", side_effect=RuntimeError):
             # Initialize should still succeed since _log_activity failures are silent
-            result = mgr.initialize_workspace("test", "desc", "admin")
+            mgr.initialize_workspace("test", "desc", "admin")
             # Depends on implementation — may or may not fail
 
 
 # ---- CLI integration functions ----
 
+
 class TestWorkspaceCLI:
     def test_register(self):
         import argparse
+
         from fluid_build.cli.workspace import register
+
         parser = argparse.ArgumentParser()
         sub = parser.add_subparsers()
         register(sub)
@@ -266,6 +317,7 @@ class TestWorkspaceCLI:
     @patch("fluid_build.cli.workspace.WorkspaceManager")
     def test_run_init(self, mock_ws_cls, tmp_path):
         from fluid_build.cli.workspace import run
+
         mock_ws = MagicMock()
         mock_ws.initialize_workspace.return_value = True
         mock_ws_cls.return_value = mock_ws
@@ -281,6 +333,7 @@ class TestWorkspaceCLI:
     @patch("fluid_build.cli.workspace.WorkspaceManager")
     def test_run_info_no_workspace(self, mock_ws_cls):
         from fluid_build.cli.workspace import run
+
         mock_ws = MagicMock()
         mock_ws.get_workspace_config.return_value = None
         mock_ws_cls.return_value = mock_ws
@@ -293,6 +346,7 @@ class TestWorkspaceCLI:
     @patch("fluid_build.cli.workspace.WorkspaceManager")
     def test_run_team_list(self, mock_ws_cls):
         from fluid_build.cli.workspace import run
+
         mock_ws = MagicMock()
         mock_ws.get_team_members.return_value = []
         mock_ws_cls.return_value = mock_ws
@@ -306,6 +360,7 @@ class TestWorkspaceCLI:
     @patch("fluid_build.cli.workspace.WorkspaceManager")
     def test_run_version_list(self, mock_ws_cls):
         from fluid_build.cli.workspace import run
+
         mock_ws = MagicMock()
         mock_ws.get_contract_versions.return_value = []
         mock_ws_cls.return_value = mock_ws
@@ -320,6 +375,7 @@ class TestWorkspaceCLI:
     @patch("fluid_build.cli.workspace.WorkspaceManager")
     def test_run_activity(self, mock_ws_cls):
         from fluid_build.cli.workspace import run
+
         mock_ws = MagicMock()
         mock_ws.get_activity_log.return_value = []
         mock_ws_cls.return_value = mock_ws
@@ -333,6 +389,7 @@ class TestWorkspaceCLI:
     @patch("fluid_build.cli.workspace.WorkspaceManager")
     def test_run_unknown_action(self, mock_ws_cls):
         from fluid_build.cli.workspace import run
+
         mock_ws_cls.return_value = MagicMock()
         args = MagicMock()
         args.workspace_action = "nonexistent"
@@ -343,6 +400,7 @@ class TestWorkspaceCLI:
     @patch("fluid_build.cli.workspace.WorkspaceManager")
     def test_run_exception(self, mock_ws_cls):
         from fluid_build.cli.workspace import run
+
         mock_ws_cls.side_effect = RuntimeError("fail")
         args = MagicMock()
         args.workspace_action = "init"
@@ -353,10 +411,12 @@ class TestWorkspaceCLI:
 
 # ---- handle_ functions ----
 
+
 class TestHandleFunctions:
     @patch("fluid_build.cli.workspace.WorkspaceManager")
     def test_handle_init_success(self, mock_ws_cls):
         from fluid_build.cli.workspace import handle_init_workspace
+
         mock_ws = MagicMock()
         mock_ws.initialize_workspace.return_value = True
         args = MagicMock()
@@ -370,6 +430,7 @@ class TestHandleFunctions:
     @patch("fluid_build.cli.workspace.WorkspaceManager")
     def test_handle_init_failure(self, mock_ws_cls):
         from fluid_build.cli.workspace import handle_init_workspace
+
         mock_ws = MagicMock()
         mock_ws.initialize_workspace.return_value = False
         args = MagicMock()
@@ -381,11 +442,11 @@ class TestHandleFunctions:
         assert result == 1
 
     def test_handle_workspace_info_with_config(self):
-        from fluid_build.cli.workspace import handle_workspace_info, WorkspaceConfig
+        from fluid_build.cli.workspace import WorkspaceConfig, handle_workspace_info
+
         mock_ws = MagicMock()
         mock_ws.get_workspace_config.return_value = WorkspaceConfig(
-            name="test", description="desc", owner="admin",
-            created_at=datetime.now()
+            name="test", description="desc", owner="admin", created_at=datetime.now()
         )
         mock_ws.get_team_members.return_value = []
         mock_ws.get_contract_versions.return_value = []
@@ -397,6 +458,7 @@ class TestHandleFunctions:
 
     def test_handle_team_add(self):
         from fluid_build.cli.workspace import handle_team_management
+
         mock_ws = MagicMock()
         mock_ws.add_team_member.return_value = True
         args = MagicMock()
@@ -410,6 +472,7 @@ class TestHandleFunctions:
 
     def test_handle_version_create(self):
         from fluid_build.cli.workspace import handle_version_management
+
         mock_ws = MagicMock()
         mock_ws.create_contract_version.return_value = "v1"
         args = MagicMock()
@@ -424,6 +487,7 @@ class TestHandleFunctions:
 
     def test_handle_changes_create(self):
         from fluid_build.cli.workspace import handle_change_management
+
         mock_ws = MagicMock()
         mock_ws.create_change_request.return_value = "cr1"
         args = MagicMock()
@@ -439,6 +503,7 @@ class TestHandleFunctions:
 
     def test_handle_changes_approve(self):
         from fluid_build.cli.workspace import handle_change_management
+
         mock_ws = MagicMock()
         mock_ws.approve_change_request.return_value = True
         args = MagicMock()
@@ -451,9 +516,17 @@ class TestHandleFunctions:
 
     def test_handle_activity_with_data(self):
         from fluid_build.cli.workspace import handle_activity_log
+
         mock_ws = MagicMock()
         mock_ws.get_activity_log.return_value = [
-            {"timestamp": "2025-01-01", "user_id": "admin", "action": "init", "target_type": "workspace", "target_id": "12345678-abcd", "details": {}}
+            {
+                "timestamp": "2025-01-01",
+                "user_id": "admin",
+                "action": "init",
+                "target_type": "workspace",
+                "target_id": "12345678-abcd",
+                "details": {},
+            }
         ]
         args = MagicMock()
         args.limit = 50

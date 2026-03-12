@@ -17,8 +17,9 @@
 Pytest configuration and shared fixtures for FLUID tests.
 """
 
+from unittest.mock import MagicMock, Mock, patch
+
 import pytest
-from unittest.mock import Mock, MagicMock, patch
 
 
 @pytest.fixture
@@ -50,16 +51,16 @@ def sample_contract():
                     "properties": {
                         "project": "test-project",
                         "dataset": "analytics",
-                        "table": "customers"
-                    }
+                        "table": "customers",
+                    },
                 },
                 "schema": {
                     "columns": [
                         {"name": "customer_id", "type": "STRING"},
                         {"name": "email", "type": "STRING"},
-                        {"name": "created_at", "type": "TIMESTAMP"}
+                        {"name": "created_at", "type": "TIMESTAMP"},
                     ]
-                }
+                },
             }
         ],
         "consumes": [],
@@ -67,10 +68,10 @@ def sample_contract():
             "rules": [
                 {
                     "role": "roles/bigquery.dataViewer",
-                    "members": ["group:analytics-team@example.com"]
+                    "members": ["group:analytics-team@example.com"],
                 }
             ]
-        }
+        },
     }
 
 
@@ -86,13 +87,10 @@ def sample_aws_contract():
                 "id": "raw-data",
                 "location": {
                     "format": "s3",
-                    "properties": {
-                        "bucket": "my-data-bucket",
-                        "prefix": "raw/"
-                    }
-                }
+                    "properties": {"bucket": "my-data-bucket", "prefix": "raw/"},
+                },
             }
-        ]
+        ],
     }
 
 
@@ -106,27 +104,27 @@ def sample_plan():
                 "id": "action_1",
                 "op": "bigquery.ensure_dataset",
                 "dataset": "analytics",
-                "location": "us"
+                "location": "us",
             },
             {
                 "id": "action_2",
                 "op": "bigquery.ensure_table",
                 "dataset": "analytics",
-                "table": "customers"
-            }
-        ]
+                "table": "customers",
+            },
+        ],
     }
 
 
 @pytest.fixture
 def mock_boto3_client():
     """Provide a mock boto3 client."""
-    with patch('boto3.client') as mock_client:
+    with patch("boto3.client") as mock_client:
         yield mock_client
 
 
 @pytest.fixture
 def mock_bigquery_client():
     """Provide a mock BigQuery client."""
-    with patch('google.cloud.bigquery.Client') as mock_client:
+    with patch("google.cloud.bigquery.Client") as mock_client:
         yield mock_client

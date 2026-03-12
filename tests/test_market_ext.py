@@ -1,19 +1,31 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for market.py helpers: _merge_config, _load_env_config, build_search_filters, format_json_output."""
+
 import json
-import os
-import pytest
-from unittest.mock import MagicMock
 from datetime import datetime
+from unittest.mock import MagicMock
 
 from fluid_build.cli.market import (
-    _merge_config,
+    DataProductLayer,
+    DataProductMetadata,
+    DataProductStatus,
     _load_env_config,
+    _merge_config,
     build_search_filters,
     format_json_output,
-    SearchFilters,
-    DataProductMetadata,
-    DataProductLayer,
-    DataProductStatus,
 )
 
 
@@ -51,12 +63,21 @@ class TestMergeConfig:
 
 class TestLoadEnvConfig:
     def test_empty_env(self, monkeypatch):
-        for var in ["GCP_PROJECT_ID", "AWS_REGION", "AZURE_PURVIEW_ACCOUNT",
-                     "DATAHUB_SERVER_URL", "ATLAS_BASE_URL",
-                     "CONFLUENT_SCHEMA_REGISTRY_URL", "COLLIBRA_BASE_URL",
-                     "ALATION_BASE_URL", "CUSTOM_CATALOG_URL",
-                     "FLUID_MARKET_DEFAULT_LIMIT", "FLUID_MARKET_MIN_QUALITY",
-                     "FLUID_MARKET_TIMEOUT", "FLUID_MARKET_CACHE_TTL"]:
+        for var in [
+            "GCP_PROJECT_ID",
+            "AWS_REGION",
+            "AZURE_PURVIEW_ACCOUNT",
+            "DATAHUB_SERVER_URL",
+            "ATLAS_BASE_URL",
+            "CONFLUENT_SCHEMA_REGISTRY_URL",
+            "COLLIBRA_BASE_URL",
+            "ALATION_BASE_URL",
+            "CUSTOM_CATALOG_URL",
+            "FLUID_MARKET_DEFAULT_LIMIT",
+            "FLUID_MARKET_MIN_QUALITY",
+            "FLUID_MARKET_TIMEOUT",
+            "FLUID_MARKET_CACHE_TTL",
+        ]:
             monkeypatch.delenv(var, raising=False)
         config = _load_env_config()
         assert config == {}
@@ -65,11 +86,20 @@ class TestLoadEnvConfig:
         monkeypatch.setenv("GCP_PROJECT_ID", "my-project")
         monkeypatch.setenv("GCP_LOCATION", "europe-west1")
         # Clear other vars
-        for var in ["AWS_REGION", "AZURE_PURVIEW_ACCOUNT", "DATAHUB_SERVER_URL",
-                     "ATLAS_BASE_URL", "CONFLUENT_SCHEMA_REGISTRY_URL",
-                     "COLLIBRA_BASE_URL", "ALATION_BASE_URL", "CUSTOM_CATALOG_URL",
-                     "FLUID_MARKET_DEFAULT_LIMIT", "FLUID_MARKET_MIN_QUALITY",
-                     "FLUID_MARKET_TIMEOUT", "FLUID_MARKET_CACHE_TTL"]:
+        for var in [
+            "AWS_REGION",
+            "AZURE_PURVIEW_ACCOUNT",
+            "DATAHUB_SERVER_URL",
+            "ATLAS_BASE_URL",
+            "CONFLUENT_SCHEMA_REGISTRY_URL",
+            "COLLIBRA_BASE_URL",
+            "ALATION_BASE_URL",
+            "CUSTOM_CATALOG_URL",
+            "FLUID_MARKET_DEFAULT_LIMIT",
+            "FLUID_MARKET_MIN_QUALITY",
+            "FLUID_MARKET_TIMEOUT",
+            "FLUID_MARKET_CACHE_TTL",
+        ]:
             monkeypatch.delenv(var, raising=False)
         config = _load_env_config()
         assert config["google_cloud_data_catalog"]["project_id"] == "my-project"
@@ -79,22 +109,39 @@ class TestLoadEnvConfig:
         monkeypatch.delenv("GCP_PROJECT_ID", raising=False)
         monkeypatch.setenv("AWS_REGION", "us-east-1")
         monkeypatch.setenv("AWS_PROFILE", "default")
-        for var in ["AZURE_PURVIEW_ACCOUNT", "DATAHUB_SERVER_URL",
-                     "ATLAS_BASE_URL", "CONFLUENT_SCHEMA_REGISTRY_URL",
-                     "COLLIBRA_BASE_URL", "ALATION_BASE_URL", "CUSTOM_CATALOG_URL",
-                     "FLUID_MARKET_DEFAULT_LIMIT", "FLUID_MARKET_MIN_QUALITY",
-                     "FLUID_MARKET_TIMEOUT", "FLUID_MARKET_CACHE_TTL"]:
+        for var in [
+            "AZURE_PURVIEW_ACCOUNT",
+            "DATAHUB_SERVER_URL",
+            "ATLAS_BASE_URL",
+            "CONFLUENT_SCHEMA_REGISTRY_URL",
+            "COLLIBRA_BASE_URL",
+            "ALATION_BASE_URL",
+            "CUSTOM_CATALOG_URL",
+            "FLUID_MARKET_DEFAULT_LIMIT",
+            "FLUID_MARKET_MIN_QUALITY",
+            "FLUID_MARKET_TIMEOUT",
+            "FLUID_MARKET_CACHE_TTL",
+        ]:
             monkeypatch.delenv(var, raising=False)
         config = _load_env_config()
         assert config["aws_glue_data_catalog"]["region"] == "us-east-1"
         assert config["aws_glue_data_catalog"]["profile"] == "default"
 
     def test_datahub_config(self, monkeypatch):
-        for var in ["GCP_PROJECT_ID", "AWS_REGION", "AZURE_PURVIEW_ACCOUNT",
-                     "ATLAS_BASE_URL", "CONFLUENT_SCHEMA_REGISTRY_URL",
-                     "COLLIBRA_BASE_URL", "ALATION_BASE_URL", "CUSTOM_CATALOG_URL",
-                     "FLUID_MARKET_DEFAULT_LIMIT", "FLUID_MARKET_MIN_QUALITY",
-                     "FLUID_MARKET_TIMEOUT", "FLUID_MARKET_CACHE_TTL"]:
+        for var in [
+            "GCP_PROJECT_ID",
+            "AWS_REGION",
+            "AZURE_PURVIEW_ACCOUNT",
+            "ATLAS_BASE_URL",
+            "CONFLUENT_SCHEMA_REGISTRY_URL",
+            "COLLIBRA_BASE_URL",
+            "ALATION_BASE_URL",
+            "CUSTOM_CATALOG_URL",
+            "FLUID_MARKET_DEFAULT_LIMIT",
+            "FLUID_MARKET_MIN_QUALITY",
+            "FLUID_MARKET_TIMEOUT",
+            "FLUID_MARKET_CACHE_TTL",
+        ]:
             monkeypatch.delenv(var, raising=False)
         monkeypatch.setenv("DATAHUB_SERVER_URL", "http://localhost:8080")
         monkeypatch.setenv("DATAHUB_TOKEN", "tok123")
@@ -103,11 +150,18 @@ class TestLoadEnvConfig:
         assert config["datahub"]["token"] == "tok123"
 
     def test_global_defaults(self, monkeypatch):
-        for var in ["GCP_PROJECT_ID", "AWS_REGION", "AZURE_PURVIEW_ACCOUNT",
-                     "DATAHUB_SERVER_URL", "ATLAS_BASE_URL",
-                     "CONFLUENT_SCHEMA_REGISTRY_URL", "COLLIBRA_BASE_URL",
-                     "ALATION_BASE_URL", "CUSTOM_CATALOG_URL",
-                     "FLUID_MARKET_CACHE_TTL"]:
+        for var in [
+            "GCP_PROJECT_ID",
+            "AWS_REGION",
+            "AZURE_PURVIEW_ACCOUNT",
+            "DATAHUB_SERVER_URL",
+            "ATLAS_BASE_URL",
+            "CONFLUENT_SCHEMA_REGISTRY_URL",
+            "COLLIBRA_BASE_URL",
+            "ALATION_BASE_URL",
+            "CUSTOM_CATALOG_URL",
+            "FLUID_MARKET_CACHE_TTL",
+        ]:
             monkeypatch.delenv(var, raising=False)
         monkeypatch.setenv("FLUID_MARKET_DEFAULT_LIMIT", "50")
         monkeypatch.setenv("FLUID_MARKET_MIN_QUALITY", "0.8")
@@ -121,10 +175,17 @@ class TestLoadEnvConfig:
 class TestBuildSearchFilters:
     def _make_args(self, **kwargs):
         defaults = {
-            "search": None, "domain": None, "owner": None, "layer": None,
-            "status": None, "tags": None, "min_quality": None,
-            "created_after": None, "created_before": None,
-            "limit": 20, "offset": 0,
+            "search": None,
+            "domain": None,
+            "owner": None,
+            "layer": None,
+            "status": None,
+            "tags": None,
+            "min_quality": None,
+            "created_after": None,
+            "created_before": None,
+            "limit": 20,
+            "offset": 0,
         }
         defaults.update(kwargs)
         args = MagicMock()
@@ -189,16 +250,23 @@ class TestBuildSearchFilters:
 class TestFormatJsonOutput:
     def _make_product(self, **overrides):
         defaults = {
-            "id": "p1", "name": "Test Product", "description": "desc",
-            "domain": "finance", "owner": "team-a",
-            "layer": DataProductLayer.GOLD, "status": DataProductStatus.ACTIVE,
+            "id": "p1",
+            "name": "Test Product",
+            "description": "desc",
+            "domain": "finance",
+            "owner": "team-a",
+            "layer": DataProductLayer.GOLD,
+            "status": DataProductStatus.ACTIVE,
             "version": "1.0.0",
             "created_at": datetime(2024, 1, 1),
             "updated_at": datetime(2024, 6, 1),
-            "tags": ["tag1"], "schema_url": None,
-            "documentation_url": None, "api_endpoint": None,
+            "tags": ["tag1"],
+            "schema_url": None,
+            "documentation_url": None,
+            "api_endpoint": None,
             "quality_score": 0.95,
-            "catalog_source": "local", "catalog_type": "custom",
+            "catalog_source": "local",
+            "catalog_type": "custom",
         }
         defaults.update(overrides)
         return DataProductMetadata(**defaults)

@@ -1,17 +1,31 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for fluid_build.cli.viz_graph — pure helpers, GraphMetrics, themes."""
+
 import time
-from dataclasses import FrozenInstanceError
 
 from fluid_build.cli.viz_graph import (
-    _safe_id,
+    THEMES,
+    GraphMetrics,
     _escape_label,
     _get_theme_value,
-    GraphMetrics,
-    THEMES,
+    _safe_id,
 )
 
-
 # ── _safe_id ──
+
 
 class TestSafeId:
     def test_hyphens(self):
@@ -41,6 +55,7 @@ class TestSafeId:
 
 # ── _escape_label ──
 
+
 class TestEscapeLabel:
     def test_quotes(self):
         assert _escape_label('say "hello"') == 'say \\"hello\\"'
@@ -69,6 +84,7 @@ class TestEscapeLabel:
 
 # ── _get_theme_value ──
 
+
 class TestGetThemeValue:
     def test_dark_theme(self):
         assert _get_theme_value("dark", "bg") == "#0B1020"
@@ -91,6 +107,7 @@ class TestGetThemeValue:
 
 # ── THEMES ──
 
+
 class TestThemes:
     def test_all_themes_have_required_keys(self):
         required_keys = {"bg", "fg", "edge", "font", "product_fill", "product_border"}
@@ -106,6 +123,7 @@ class TestThemes:
 
 
 # ── GraphMetrics ──
+
 
 class TestGraphMetrics:
     def test_defaults(self):

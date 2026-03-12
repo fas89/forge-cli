@@ -1,26 +1,37 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for cli/plugins.py — plugin system enums, dataclasses, manager, CLI handlers."""
 
-import json
 import logging
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from fluid_build.cli.plugins import (
-    PluginType,
-    PluginStatus,
-    PluginMetadata,
-    InstalledPlugin,
-    PluginManager,
-    PluginInterface,
     CommandPlugin,
+    InstalledPlugin,
+    PluginInterface,
+    PluginManager,
+    PluginMetadata,
+    PluginStatus,
+    PluginType,
     ProviderPlugin,
     ValidatorPlugin,
-    get_plugin_manager,
+    handle_disable_plugin,
+    handle_enable_plugin,
     handle_install_plugin,
     handle_uninstall_plugin,
-    handle_enable_plugin,
-    handle_disable_plugin,
     run,
 )
 
@@ -144,7 +155,9 @@ class TestPluginManager:
         pm = PluginManager(plugin_dir=tmp_path / "p")
         meta = PluginMetadata("x", "1", "d", "a")
         mock_instance = MagicMock(spec=PluginInterface)
-        ip = InstalledPlugin(metadata=meta, path=tmp_path, status=PluginStatus.ACTIVE, instance=mock_instance)
+        ip = InstalledPlugin(
+            metadata=meta, path=tmp_path, status=PluginStatus.ACTIVE, instance=mock_instance
+        )
         pm.installed_plugins["x"] = ip
         pm.active_plugins["x"] = ip
         assert pm.disable_plugin("x") is True

@@ -1,6 +1,21 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for SimplifiedForge in forge/simple_forge.py."""
-import pytest
-from unittest.mock import patch, MagicMock
+
+from unittest.mock import MagicMock, patch
+
 from fluid_build.forge.simple_forge import SimplifiedForge, get_forge
 
 
@@ -25,7 +40,10 @@ class TestSimplifiedForgeInit:
 
 
 class TestGetAvailableTemplatesProviders:
-    @patch("fluid_build.forge.simple_forge.list_templates", return_value=["analytics-basic", "ml-pipeline"])
+    @patch(
+        "fluid_build.forge.simple_forge.list_templates",
+        return_value=["analytics-basic", "ml-pipeline"],
+    )
     @patch("fluid_build.forge.simple_forge.initialize_registries")
     def test_get_available_templates(self, mock_init, mock_list):
         forge = SimplifiedForge()
@@ -57,11 +75,11 @@ class TestGetTemplateInfo:
         meta.complexity = "simple"
         meta.use_cases = ["dashboards"]
         meta.provider_support = ["local", "gcp"]
-        
+
         template = MagicMock()
         template.get_metadata.return_value = meta
         mock_get.return_value = template
-        
+
         forge = SimplifiedForge()
         info = forge.get_template_info("analytics-basic")
         assert info["name"] == "analytics-basic"
@@ -74,7 +92,7 @@ class TestGetTemplateInfo:
         template = MagicMock()
         template.get_metadata.side_effect = RuntimeError("broken")
         mock_get.return_value = template
-        
+
         forge = SimplifiedForge()
         info = forge.get_template_info("broken")
         assert "error" in info
@@ -94,7 +112,7 @@ class TestGetProviderInfo:
         provider.get_required_tools.return_value = ["docker"]
         provider.get_environment_variables.return_value = {"API_KEY": "required"}
         mock_get.return_value = provider
-        
+
         forge = SimplifiedForge()
         info = forge.get_provider_info("gcp")
         assert info["name"] == "gcp"
@@ -106,7 +124,7 @@ class TestGetProviderInfo:
         provider = MagicMock()
         provider.check_prerequisites.side_effect = RuntimeError("fail")
         mock_get.return_value = provider
-        
+
         forge = SimplifiedForge()
         info = forge.get_provider_info("broken")
         assert info["available"] is False
@@ -139,7 +157,7 @@ class TestCreateProject:
         provider = MagicMock()
         provider.check_prerequisites.return_value = (False, ["docker not found"])
         mock_prov.return_value = provider
-        
+
         forge = SimplifiedForge()
         assert forge.create_project("tmpl", "local", "proj", "/tmp/out") is False
 
@@ -163,9 +181,10 @@ class TestCreateProject:
 
 class TestListAllComponents:
     @patch("fluid_build.forge.simple_forge.initialize_registries")
-    @patch("fluid_build.forge.simple_forge.get_registry_status", return_value={
-        "templates": ["a"], "providers": ["b"], "extensions": [], "generators": []
-    })
+    @patch(
+        "fluid_build.forge.simple_forge.get_registry_status",
+        return_value={"templates": ["a"], "providers": ["b"], "extensions": [], "generators": []},
+    )
     def test_list_all(self, mock_status, mock_init):
         forge = SimplifiedForge()
         result = forge.list_all_components()
@@ -175,9 +194,10 @@ class TestListAllComponents:
 
 class TestGetSystemStatus:
     @patch("fluid_build.forge.simple_forge.initialize_registries")
-    @patch("fluid_build.forge.simple_forge.get_registry_status", return_value={
-        "templates": ["t1"], "providers": ["p1"]
-    })
+    @patch(
+        "fluid_build.forge.simple_forge.get_registry_status",
+        return_value={"templates": ["t1"], "providers": ["p1"]},
+    )
     @patch("fluid_build.forge.simple_forge.get_provider")
     def test_system_status(self, mock_get_prov, mock_status, mock_init):
         provider = MagicMock()
@@ -196,6 +216,7 @@ class TestGetSystemStatus:
 class TestGetForge:
     def test_singleton(self):
         import fluid_build.forge.simple_forge as mod
+
         mod._global_forge = None
         f1 = get_forge()
         f2 = get_forge()

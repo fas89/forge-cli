@@ -1,39 +1,60 @@
-"""Tests for fluid_build.forge.core.simple_registry — SimpleRegistry, convenience functions."""
-from fluid_build.forge.core.simple_registry import (
-    SimpleRegistry,
-    Component,
-    get_registry_status,
-)
-from fluid_build.forge.core.interfaces import (
-    ProjectTemplate,
-    InfrastructureProvider,
-    Extension,
-    Generator,
-    ComplexityLevel,
-    TemplateMetadata,
-    GenerationContext,
-    Registrable,
-)
-from typing import Dict, List, Any, Optional, Tuple
-from pathlib import Path
-from abc import abstractmethod
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
+"""Tests for fluid_build.forge.core.simple_registry — SimpleRegistry, convenience functions."""
+
+from pathlib import Path
+
+from fluid_build.forge.core.interfaces import (
+    ComplexityLevel,
+    GenerationContext,
+    ProjectTemplate,
+    TemplateMetadata,
+)
+from fluid_build.forge.core.simple_registry import (
+    Component,
+    SimpleRegistry,
+)
 
 # ── Minimal concrete implementations for testing ──
+
 
 class _DummyTemplate(ProjectTemplate):
     def get_metadata(self):
         return TemplateMetadata(
-            name="dummy", description="d", complexity=ComplexityLevel.BEGINNER,
-            provider_support=["local"], use_cases=["test"], technologies=[],
-            estimated_time="1m", tags=[],
+            name="dummy",
+            description="d",
+            complexity=ComplexityLevel.BEGINNER,
+            provider_support=["local"],
+            use_cases=["test"],
+            technologies=[],
+            estimated_time="1m",
+            tags=[],
         )
-    def generate_structure(self, ctx): return {}
-    def generate_contract(self, ctx): return {}
-    def post_generation_hooks(self, ctx): pass
+
+    def generate_structure(self, ctx):
+        return {}
+
+    def generate_contract(self, ctx):
+        return {}
+
+    def post_generation_hooks(self, ctx):
+        pass
 
 
 # ── Component ──
+
 
 class TestComponent:
     def test_defaults(self):
@@ -45,6 +66,7 @@ class TestComponent:
 
 # ── SimpleRegistry ──
 
+
 class TestSimpleRegistry:
     def test_register_and_list(self):
         reg = SimpleRegistry(ProjectTemplate)
@@ -54,6 +76,7 @@ class TestSimpleRegistry:
     def test_register_wrong_type(self):
         reg = SimpleRegistry(ProjectTemplate)
         import pytest
+
         with pytest.raises(TypeError):
             reg.register("bad", str)  # str isn't a ProjectTemplate
 
@@ -100,6 +123,7 @@ class TestSimpleRegistry:
 
 # ── Interfaces — dataclasses / enums ──
 
+
 class TestComplexityLevel:
     def test_values(self):
         assert ComplexityLevel.BEGINNER.value == "beginner"
@@ -110,9 +134,14 @@ class TestComplexityLevel:
 class TestTemplateMetadata:
     def test_defaults(self):
         m = TemplateMetadata(
-            name="t", description="d", complexity=ComplexityLevel.BEGINNER,
-            provider_support=["local"], use_cases=["test"],
-            technologies=["python"], estimated_time="5m", tags=["quick"],
+            name="t",
+            description="d",
+            complexity=ComplexityLevel.BEGINNER,
+            provider_support=["local"],
+            use_cases=["test"],
+            technologies=["python"],
+            estimated_time="5m",
+            tags=["quick"],
         )
         assert m.version == "1.0.0"
         assert m.author is None
@@ -122,14 +151,22 @@ class TestTemplateMetadata:
 class TestGenerationContext:
     def test_fields(self):
         meta = TemplateMetadata(
-            name="t", description="d", complexity=ComplexityLevel.BEGINNER,
-            provider_support=[], use_cases=[], technologies=[],
-            estimated_time="1m", tags=[],
+            name="t",
+            description="d",
+            complexity=ComplexityLevel.BEGINNER,
+            provider_support=[],
+            use_cases=[],
+            technologies=[],
+            estimated_time="1m",
+            tags=[],
         )
         ctx = GenerationContext(
-            project_config={"name": "p"}, target_dir=Path("/tmp/p"),
-            template_metadata=meta, provider_config={},
-            user_selections={}, forge_version="2.0.0",
+            project_config={"name": "p"},
+            target_dir=Path("/tmp/p"),
+            template_metadata=meta,
+            provider_config={},
+            user_selections={},
+            forge_version="2.0.0",
             creation_time="2025-01-01T00:00:00",
         )
         assert ctx.forge_version == "2.0.0"
@@ -138,11 +175,16 @@ class TestGenerationContext:
 
 # ── Config constants ──
 
+
 class TestConfigConstants:
     def test_config_values(self):
         from fluid_build.config import (
-            RUN_STATE_DIR, DEFAULT_REGION, DEFAULT_PROVIDER, SUPPORTED_PROVIDERS,
+            DEFAULT_PROVIDER,
+            DEFAULT_REGION,
+            RUN_STATE_DIR,
+            SUPPORTED_PROVIDERS,
         )
+
         assert RUN_STATE_DIR == "runtime/.state"
         assert DEFAULT_REGION == "europe-west3"
         assert DEFAULT_PROVIDER == "gcp"

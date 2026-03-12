@@ -1,9 +1,25 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for fluid_build.secrets"""
-import os
+
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import patch, MagicMock
-from fluid_build.secrets import SecretSource, SecretConfig, SecretManager
+
 from fluid_build.errors import ConfigurationError
+from fluid_build.secrets import SecretConfig, SecretManager, SecretSource
 
 
 class TestSecretSource:
@@ -57,21 +73,21 @@ class TestSecretManager:
 
     def test_retrieve_dispatches_env(self):
         sm = SecretManager(SecretConfig(source=SecretSource.ENV))
-        with patch.object(sm, '_get_from_env', return_value="v") as mock:
+        with patch.object(sm, "_get_from_env", return_value="v") as mock:
             result = sm._retrieve_secret("k")
         mock.assert_called_once_with("k")
         assert result == "v"
 
     def test_retrieve_dispatches_gcp(self):
         sm = SecretManager(SecretConfig(source=SecretSource.GCP_SECRET_MANAGER))
-        with patch.object(sm, '_get_from_gcp', return_value="v") as mock:
-            result = sm._retrieve_secret("k")
+        with patch.object(sm, "_get_from_gcp", return_value="v") as mock:
+            sm._retrieve_secret("k")
         mock.assert_called_once_with("k")
 
     def test_retrieve_dispatches_aws(self):
         sm = SecretManager(SecretConfig(source=SecretSource.AWS_SECRETS_MANAGER))
-        with patch.object(sm, '_get_from_aws', return_value="v") as mock:
-            result = sm._retrieve_secret("k")
+        with patch.object(sm, "_get_from_aws", return_value="v") as mock:
+            sm._retrieve_secret("k")
         mock.assert_called_once_with("k")
 
     def test_gcp_requires_project_id(self):

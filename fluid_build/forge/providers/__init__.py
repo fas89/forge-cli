@@ -24,7 +24,7 @@ for different cloud platforms and runtimes. Each provider handles:
 
 Built-in providers:
 - local: Local development environment
-- gcp: Google Cloud Platform  
+- gcp: Google Cloud Platform
 - aws: Amazon Web Services
 - snowflake: Snowflake Data Cloud
 - azure: Microsoft Azure
@@ -33,33 +33,30 @@ Teams can extend this system by creating custom providers that follow
 the InfrastructureProvider interface.
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
+
 from ..core.interfaces import InfrastructureProvider
 from ..core.registry import ProviderRegistry
+from .aws import AWSProvider
+from .gcp import GCPProvider
 
 # Import built-in providers
 from .local import LocalProvider
-from .gcp import GCPProvider
-from .aws import AWSProvider
 from .snowflake import SnowflakeProvider
+
 
 def register_providers(registry: ProviderRegistry) -> None:
     """Register all built-in providers with the registry"""
-    
-    providers = [
-        ('local', LocalProvider),
-        ('gcp', GCPProvider),
-        ('aws', AWSProvider), 
-        ('snowflake', SnowflakeProvider)
-    ]
-    
-    for name, provider_class in providers:
-        registry.register(name, provider_class, source='builtin')
 
-__all__ = [
-    'LocalProvider',
-    'GCPProvider',
-    'AWSProvider',
-    'SnowflakeProvider',
-    'register_providers'
-]
+    providers = [
+        ("local", LocalProvider),
+        ("gcp", GCPProvider),
+        ("aws", AWSProvider),
+        ("snowflake", SnowflakeProvider),
+    ]
+
+    for name, provider_class in providers:
+        registry.register(name, provider_class, source="builtin")
+
+
+__all__ = ["LocalProvider", "GCPProvider", "AWSProvider", "SnowflakeProvider", "register_providers"]

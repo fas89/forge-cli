@@ -22,26 +22,25 @@ Implements idempotent IAM operations including:
 - Bucket IAM policy bindings
 - Pub/Sub topic IAM bindings
 """
+
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
-from fluid_build.providers.base import ProviderError
-
-from ..util.logging import format_event, duration_ms
+from ..util.logging import duration_ms
 
 
 def bind_bq_dataset(action: Dict[str, Any]) -> Dict[str, Any]:
     """
     Bind IAM policies to BigQuery dataset.
-    
+
     Args:
         action: IAM binding configuration
-        
+
     Returns:
         Action result with status and details
     """
     start_time = time.time()
-    
+
     try:
         from google.cloud import bigquery
         from google.cloud.exceptions import NotFound
@@ -52,11 +51,11 @@ def bind_bq_dataset(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     project = action.get("project")
     dataset = action.get("dataset")
     policies = action.get("policies", {})
-    
+
     if not project or not dataset:
         return {
             "status": "error",
@@ -64,26 +63,26 @@ def bind_bq_dataset(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     try:
         client = bigquery.Client(project=project)
         dataset_id = f"{project}.{dataset}"
-        
+
         # Get current policy
         dataset_ref = client.get_dataset(dataset_id)
         entries = list(dataset_ref.access_entries)
         original_count = len(entries)
-        
+
         changed = False
-        
+
         # Process access policies from FLUID contract
         for policy_name, policy_config in policies.items():
             if not isinstance(policy_config, dict):
                 continue
-            
+
             principals = policy_config.get("principals", [])
             permissions = policy_config.get("permissions", [])
-            
+
             # Map FLUID permissions to BigQuery roles
             for principal in principals:
                 for permission in permissions:
@@ -93,17 +92,17 @@ def bind_bq_dataset(action: Dict[str, Any]) -> Dict[str, Any]:
                         entry = bigquery.AccessEntry(
                             role=role,
                             entity_type="userByEmail" if "@" in principal else "groupByEmail",
-                            entity_id=principal
+                            entity_id=principal,
                         )
-                        
+
                         if entry not in entries:
                             entries.append(entry)
                             changed = True
-        
+
         if changed:
             dataset_ref.access_entries = entries
             client.update_dataset(dataset_ref, ["access_entries"])
-            
+
             return {
                 "status": "changed",
                 "op": "iam.bind_bq_dataset",
@@ -121,7 +120,7 @@ def bind_bq_dataset(action: Dict[str, Any]) -> Dict[str, Any]:
                 "duration_ms": duration_ms(start_time),
                 "changed": False,
             }
-    
+
     except NotFound:
         return {
             "status": "error",
@@ -141,15 +140,15 @@ def bind_bq_dataset(action: Dict[str, Any]) -> Dict[str, Any]:
 def bind_bq_table(action: Dict[str, Any]) -> Dict[str, Any]:
     """
     Bind IAM policies to BigQuery table.
-    
+
     Note: BigQuery table-level IAM is limited. Most policies are dataset-level.
     """
     start_time = time.time()
-    
+
     action.get("project")
     action.get("dataset")
     action.get("table")
-    
+
     # BigQuery doesn't support table-level IAM in the same way
     # This is a placeholder for future fine-grained access control
     return {
@@ -166,15 +165,15 @@ def bind_bq_table(action: Dict[str, Any]) -> Dict[str, Any]:
 def bind_gcs_bucket(action: Dict[str, Any]) -> Dict[str, Any]:
     """
     Bind IAM policies to Cloud Storage bucket.
-    
+
     Args:
         action: IAM binding configuration
-        
+
     Returns:
         Action result with status and details
     """
     start_time = time.time()
-    
+
     try:
         from google.cloud import storage
         from google.cloud.exceptions import NotFound
@@ -185,11 +184,11 @@ def bind_gcs_bucket(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     project = action.get("project")
     bucket_name = action.get("bucket")
     policies = action.get("policies", {})
-    
+
     if not project or not bucket_name:
         return {
             "status": "error",
@@ -197,25 +196,25 @@ def bind_gcs_bucket(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     try:
         client = storage.Client(project=project)
         bucket = client.get_bucket(bucket_name)
-        
+
         # Get current IAM policy
         policy = bucket.get_iam_policy(requested_policy_version=3)
         len(policy.bindings)
-        
+
         changed = False
-        
+
         # Process access policies from FLUID contract
         for policy_name, policy_config in policies.items():
             if not isinstance(policy_config, dict):
                 continue
-            
+
             principals = policy_config.get("principals", [])
             permissions = policy_config.get("permissions", [])
-            
+
             # Map FLUID permissions to GCS roles
             for permission in permissions:
                 role = _map_permission_to_gcs_role(permission)
@@ -230,14 +229,14 @@ def bind_gcs_bucket(action: Dict[str, Any]) -> Dict[str, Any]:
                                 members.add(f"user:{principal}")
                         else:
                             members.add(f"group:{principal}")
-                    
+
                     # Check if binding exists
                     existing_binding = None
                     for binding in policy.bindings:
                         if binding["role"] == role:
                             existing_binding = binding
                             break
-                    
+
                     if existing_binding:
                         # Add members to existing binding
                         original_members = set(existing_binding.get("members", []))
@@ -247,15 +246,12 @@ def bind_gcs_bucket(action: Dict[str, Any]) -> Dict[str, Any]:
                             changed = True
                     else:
                         # Create new binding
-                        policy.bindings.append({
-                            "role": role,
-                            "members": list(members)
-                        })
+                        policy.bindings.append({"role": role, "members": list(members)})
                         changed = True
-        
+
         if changed:
             bucket.set_iam_policy(policy)
-            
+
             return {
                 "status": "changed",
                 "op": "iam.bind_gcs_bucket",
@@ -273,7 +269,7 @@ def bind_gcs_bucket(action: Dict[str, Any]) -> Dict[str, Any]:
                 "duration_ms": duration_ms(start_time),
                 "changed": False,
             }
-    
+
     except NotFound:
         return {
             "status": "error",
@@ -293,15 +289,15 @@ def bind_gcs_bucket(action: Dict[str, Any]) -> Dict[str, Any]:
 def bind_pubsub_topic(action: Dict[str, Any]) -> Dict[str, Any]:
     """
     Bind IAM policies to Pub/Sub topic.
-    
+
     Args:
         action: IAM binding configuration
-        
+
     Returns:
         Action result with status and details
     """
     start_time = time.time()
-    
+
     try:
         from google.cloud import pubsub_v1
         from google.cloud.exceptions import NotFound
@@ -312,11 +308,11 @@ def bind_pubsub_topic(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     project = action.get("project")
     topic_name = action.get("topic")
     policies = action.get("policies", {})
-    
+
     if not project or not topic_name:
         return {
             "status": "error",
@@ -324,25 +320,25 @@ def bind_pubsub_topic(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     try:
         publisher = pubsub_v1.PublisherClient()
         topic_path = publisher.topic_path(project, topic_name)
-        
+
         # Get current IAM policy
         policy = publisher.get_iam_policy(request={"resource": topic_path})
         len(policy.bindings)
-        
+
         changed = False
-        
+
         # Process access policies from FLUID contract
         for policy_name, policy_config in policies.items():
             if not isinstance(policy_config, dict):
                 continue
-            
+
             principals = policy_config.get("principals", [])
             permissions = policy_config.get("permissions", [])
-            
+
             # Map FLUID permissions to Pub/Sub roles
             for permission in permissions:
                 role = _map_permission_to_pubsub_role(permission)
@@ -357,14 +353,14 @@ def bind_pubsub_topic(action: Dict[str, Any]) -> Dict[str, Any]:
                                 members.append(f"user:{principal}")
                         else:
                             members.append(f"group:{principal}")
-                    
+
                     # Check if binding exists
                     existing_binding = None
                     for binding in policy.bindings:
                         if binding.role == role:
                             existing_binding = binding
                             break
-                    
+
                     if existing_binding:
                         # Add members to existing binding
                         original_members = set(existing_binding.members)
@@ -375,16 +371,14 @@ def bind_pubsub_topic(action: Dict[str, Any]) -> Dict[str, Any]:
                     else:
                         # Create new binding
                         from google.iam.v1 import policy_pb2
-                        new_binding = policy_pb2.Binding(
-                            role=role,
-                            members=members
-                        )
+
+                        new_binding = policy_pb2.Binding(role=role, members=members)
                         policy.bindings.append(new_binding)
                         changed = True
-        
+
         if changed:
             publisher.set_iam_policy(request={"resource": topic_path, "policy": policy})
-            
+
             return {
                 "status": "changed",
                 "op": "iam.bind_pubsub_topic",
@@ -402,7 +396,7 @@ def bind_pubsub_topic(action: Dict[str, Any]) -> Dict[str, Any]:
                 "duration_ms": duration_ms(start_time),
                 "changed": False,
             }
-    
+
     except NotFound:
         return {
             "status": "error",

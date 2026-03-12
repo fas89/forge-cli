@@ -24,43 +24,39 @@ Supports:
 - Dataflow pipelines
 """
 
-from typing import Dict, Any, List
 from datetime import datetime
+from typing import Any, Dict, List
 
 
-def generate_dagster_pipeline(
-    contract: Dict[str, Any],
-    project: str,
-    region: str
-) -> str:
+def generate_dagster_pipeline(contract: Dict[str, Any], project: str, region: str) -> str:
     """
     Generate Dagster pipeline Python code from FLUID contract.
-    
+
     Args:
         contract: FLUID contract with orchestration section
         project: GCP project ID
         region: GCP region
-        
+
     Returns:
         Python code for Dagster pipeline
     """
     orchestration = contract.get("orchestration", {})
     if not orchestration:
         raise ValueError("Contract missing orchestration section")
-    
+
     tasks = orchestration.get("tasks", [])
     if not tasks:
         raise ValueError("Orchestration has no tasks")
-    
+
     # Extract configuration
     contract_id = contract.get("id", "unknown")
     contract_name = contract.get("name", contract_id)
     schedule = orchestration.get("schedule", "0 2 * * *")
     timezone = orchestration.get("timezone", "UTC")
-    
+
     # Filter provider action tasks
     provider_tasks = [t for t in tasks if t.get("type") == "provider_action"]
-    
+
     # Generate pipeline code
     code = _generate_header(contract_id, contract_name, schedule, timezone, project, region)
     code += "\n\n"
@@ -71,17 +67,12 @@ def generate_dagster_pipeline(
     code += _generate_ops(provider_tasks, project, region)
     code += "\n\n"
     code += _generate_job(contract_id, provider_tasks, schedule, timezone)
-    
+
     return code
 
 
 def _generate_header(
-    contract_id: str,
-    contract_name: str,
-    schedule: str,
-    timezone: str,
-    project: str,
-    region: str
+    contract_id: str, contract_name: str, schedule: str, timezone: str, project: str, region: str
 ) -> str:
     """Generate file header with metadata."""
     return f'''"""
@@ -100,7 +91,7 @@ Generated: {datetime.utcnow().isoformat()}Z
 
 def _generate_imports() -> str:
     """Generate import statements."""
-    return '''from dagster import (
+    return """from dagster import (
     op,
     job,
     resource,
@@ -114,7 +105,7 @@ from google.cloud import bigquery, storage, pubsub_v1, dataflow_v1beta3
 import json
 import logging
 
-logger = logging.getLogger(__name__)'''
+logger = logging.getLogger(__name__)"""
 
 
 def _generate_resources(project: str, region: str) -> str:
@@ -149,47 +140,39 @@ def pubsub_client(context):
     return pubsub_v1.PublisherClient()'''
 
 
-def _generate_ops(
-    tasks: List[Dict[str, Any]],
-    project: str,
-    region: str
-) -> str:
+def _generate_ops(tasks: List[Dict[str, Any]], project: str, region: str) -> str:
     """Generate op definitions."""
     ops_code = "# Pipeline Ops\n"
-    
+
     for task in tasks:
         ops_code += _generate_single_op(task, project, region)
         ops_code += "\n\n"
-    
+
     return ops_code.rstrip()
 
 
-def _generate_single_op(
-    task: Dict[str, Any],
-    project: str,
-    region: str
-) -> str:
+def _generate_single_op(task: Dict[str, Any], project: str, region: str) -> str:
     """Generate code for a single op."""
     task.get("taskId")
     action = task.get("action", "")
     params = task.get("params", {})
     depends_on = task.get("dependsOn", [])
-    
+
     # Parse action
     action_parts = action.split(".")
     if len(action_parts) < 3:
         return _generate_generic_op(task, project, region)
-    
+
     service = action_parts[1]
     operation = action_parts[2]
-    
+
     # Determine input dependencies
     if depends_on:
-        dep_items = ', '.join(['"dep_{}": In(Nothing)'.format(d) for d in depends_on])
+        dep_items = ", ".join([f'"dep_{d}": In(Nothing)' for d in depends_on])
         ins_def = f"ins={{{dep_items}}}, "
     else:
         ins_def = ""
-    
+
     # Map to appropriate op
     if service == "bigquery":
         return _generate_bigquery_op(task, operation, params, ins_def)
@@ -202,14 +185,11 @@ def _generate_single_op(
 
 
 def _generate_bigquery_op(
-    task: Dict[str, Any],
-    operation: str,
-    params: Dict[str, Any],
-    ins_def: str
+    task: Dict[str, Any], operation: str, params: Dict[str, Any], ins_def: str
 ) -> str:
     """Generate BigQuery op code."""
     task_id = task.get("taskId")
-    
+
     if operation == "create_dataset":
         dataset_id = params.get("dataset_id", "unknown_dataset")
         location = params.get("location", "US")
@@ -227,12 +207,12 @@ def {task_id}(context):
     except Exception as e:
         context.log.error(f"Failed to create dataset: {{{{e}}}}")
         raise'''
-    
+
     elif operation == "query" or operation == "run_query":
         query_sql = params.get("query", "SELECT 1")
         # Escape for Python string
-        query_escaped = query_sql.replace('\\', '\\\\').replace('"', '\\"')
-        
+        query_escaped = query_sql.replace("\\", "\\\\").replace('"', '\\"')
+
         return f'''@op({ins_def}required_resource_keys={{"bigquery_client"}})
 def {task_id}(context):
     """Run BigQuery query"""
@@ -248,24 +228,21 @@ def {task_id}(context):
     except Exception as e:
         context.log.error(f"Query failed: {{{{e}}}}")
         raise'''
-    
+
     else:
         return _generate_generic_op(task, None, None)
 
 
 def _generate_gcs_op(
-    task: Dict[str, Any],
-    operation: str,
-    params: Dict[str, Any],
-    ins_def: str
+    task: Dict[str, Any], operation: str, params: Dict[str, Any], ins_def: str
 ) -> str:
     """Generate Cloud Storage op code."""
     task_id = task.get("taskId")
-    
+
     if operation == "create_bucket" or operation == "ensure_bucket":
         bucket_name = params.get("bucket", "unknown-bucket")
         location = params.get("location", "US")
-        
+
         return f'''@op({ins_def}required_resource_keys={{"gcs_client"}})
 def {task_id}(context):
     """Create GCS bucket: {bucket_name}"""
@@ -283,20 +260,17 @@ def {task_id}(context):
     except Exception as e:
         context.log.error(f"Failed to create bucket: {{e}}")
         raise'''
-    
+
     else:
         return _generate_generic_op(task, None, None)
 
 
 def _generate_pubsub_op(
-    task: Dict[str, Any],
-    operation: str,
-    params: Dict[str, Any],
-    ins_def: str
+    task: Dict[str, Any], operation: str, params: Dict[str, Any], ins_def: str
 ) -> str:
     """Generate Pub/Sub op code."""
     task_id = task.get("taskId")
-    
+
     if operation == "create_topic":
         topic_name = params.get("topic", "unknown-topic")
         return f'''@op({ins_def}required_resource_keys={{"pubsub_client", "gcp_project"}})
@@ -315,28 +289,24 @@ def {task_id}(context):
             return topic_path
         context.log.error(f"Failed to create topic: {{e}}")
         raise'''
-    
+
     else:
         return _generate_generic_op(task, None, None)
 
 
-def _generate_generic_op(
-    task: Dict[str, Any],
-    project: str,
-    region: str
-) -> str:
+def _generate_generic_op(task: Dict[str, Any], project: str, region: str) -> str:
     """Generate generic op."""
     task_id = task.get("taskId")
     action = task.get("action")
     params = task.get("params", {})
     depends_on = task.get("dependsOn", [])
-    
+
     if depends_on:
-        dep_items = ', '.join(['"dep_{}": In(Nothing)'.format(d) for d in depends_on])
+        dep_items = ", ".join([f'"dep_{d}": In(Nothing)' for d in depends_on])
         ins_def = f", ins={{{dep_items}}}"
     else:
         ins_def = ""
-    
+
     return f'''@op({ins_def})
 def {task_id}(context):
     """Generic op: {action}"""
@@ -346,20 +316,17 @@ def {task_id}(context):
 
 
 def _generate_job(
-    contract_id: str,
-    tasks: List[Dict[str, Any]],
-    schedule: str,
-    timezone: str
+    contract_id: str, tasks: List[Dict[str, Any]], schedule: str, timezone: str
 ) -> str:
     """Generate job and schedule definitions."""
     # Build op call graph
     op_calls = []
     dependencies = {}
-    
+
     for task in tasks:
         task_id = task.get("taskId")
         depends_on = task.get("dependsOn", [])
-        
+
         if depends_on:
             # Op with dependencies
             dep_args = ", ".join([f"dep_{d}={d}_result" for d in depends_on])
@@ -368,14 +335,14 @@ def _generate_job(
         else:
             # Independent op
             op_calls.append(f"    {task_id}_result = {task_id}()")
-    
+
     op_calls_str = "\n".join(op_calls)
-    
+
     # Convert cron to Dagster schedule
     cron_schedule = _convert_schedule(schedule)
-    
+
     job_name = _sanitize_name(contract_id)
-    
+
     return f'''# Job definition
 @job(
     resource_defs={{
@@ -415,11 +382,11 @@ def _convert_schedule(schedule: str) -> str:
         return "0 0 * * 0"
     elif schedule_lower == "@monthly":
         return "0 0 1 * *"
-    
+
     # Pass through cron expressions
     if schedule.count(" ") >= 4:
         return schedule
-    
+
     # Default to daily
     return "0 2 * * *"
 
@@ -427,4 +394,5 @@ def _convert_schedule(schedule: str) -> str:
 def _sanitize_name(name: str) -> str:
     """Sanitize name for Python identifier."""
     import re
-    return re.sub(r'[^a-zA-Z0-9_]', '_', name)
+
+    return re.sub(r"[^a-zA-Z0-9_]", "_", name)

@@ -1,23 +1,39 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for fluid_build/errors.py and fluid_build/policy/guardrails.py."""
-import pytest
+
 from types import SimpleNamespace
 
+import pytest
+
 from fluid_build.errors import (
-    FluidError,
-    ValidationError,
-    ConfigurationError,
-    FileSystemError,
-    NetworkError,
-    DependencyError,
     AuthenticationError,
+    ConfigurationError,
+    DependencyError,
+    FileSystemError,
+    FluidError,
+    NetworkError,
+    ValidationError,
     wrap_error,
 )
 from fluid_build.policy.guardrails import validate_no_overgrant
 
-
 # ═══════════════════════════════════════════════════════════════════════
 # errors.py
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class TestFluidError:
     def test_basic(self):
@@ -43,10 +59,17 @@ class TestFluidError:
 
 
 class TestErrorSubclasses:
-    @pytest.mark.parametrize("cls", [
-        ValidationError, ConfigurationError, FileSystemError,
-        NetworkError, DependencyError, AuthenticationError,
-    ])
+    @pytest.mark.parametrize(
+        "cls",
+        [
+            ValidationError,
+            ConfigurationError,
+            FileSystemError,
+            NetworkError,
+            DependencyError,
+            AuthenticationError,
+        ],
+    )
     def test_is_fluid_error(self, cls):
         err = cls("test")
         assert isinstance(err, FluidError)
@@ -67,7 +90,7 @@ class TestWrapError:
         assert "Cannot write output" in str(wrapped)
 
     def test_custom_class(self):
-        orig = IOError("no access")
+        orig = OSError("no access")
         wrapped = wrap_error(orig, "Auth failed", error_class=AuthenticationError)
         assert isinstance(wrapped, AuthenticationError)
 
@@ -80,6 +103,7 @@ class TestWrapError:
 # ═══════════════════════════════════════════════════════════════════════
 # policy/guardrails.py
 # ═══════════════════════════════════════════════════════════════════════
+
 
 def _make_action(resource_id, roles):
     """Create a simple action-like namespace with payload."""

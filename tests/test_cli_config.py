@@ -1,18 +1,34 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for fluid_build.cli.config — ConfigurationManager, dataclasses, validation."""
+
 import os
-import pytest
 from unittest.mock import patch
 
+import pytest
+
 from fluid_build.cli.config import (
-    EnvironmentType,
     ConfigSource,
-    ConfigValue,
-    ValidationRule,
     ConfigurationManager,
+    ConfigValue,
+    EnvironmentType,
+    ValidationRule,
 )
 
-
 # ── Enums ──
+
 
 class TestEnvironmentType:
     def test_values(self):
@@ -30,6 +46,7 @@ class TestConfigSource:
 
 
 # ── ConfigValue ──
+
 
 class TestConfigValue:
     def test_basic(self):
@@ -54,10 +71,12 @@ class TestConfigValue:
 
 # ── ValidationRule ──
 
+
 class TestValidationRule:
     def test_basic(self):
         rule = ValidationRule(
-            name="test_rule", validator=lambda cfg: True,
+            name="test_rule",
+            validator=lambda cfg: True,
             error_message="test error",
         )
         assert rule.name == "test_rule"
@@ -66,7 +85,8 @@ class TestValidationRule:
 
     def test_custom_environments(self):
         rule = ValidationRule(
-            name="prod_only", validator=lambda cfg: True,
+            name="prod_only",
+            validator=lambda cfg: True,
             error_message="err",
             environments=[EnvironmentType.PRODUCTION],
         )
@@ -74,6 +94,7 @@ class TestValidationRule:
 
 
 # ── ConfigurationManager ──
+
 
 class TestConfigurationManager:
     def test_default_environment(self):

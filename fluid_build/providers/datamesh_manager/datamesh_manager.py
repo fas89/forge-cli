@@ -34,12 +34,12 @@ DMM_API_URL   (optional)  Base URL, default ``https://api.entropy-data.com``.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import uuid
+from collections.abc import Mapping
 from datetime import datetime
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Type
+from typing import Any, Dict, List, Optional
 
 from fluid_build.providers.base import BaseProvider, ProviderError
 
@@ -134,17 +134,21 @@ class DataMeshManagerProvider(BaseProvider):
 
     # ---- BaseProvider abstract methods ------------------------------------
 
-    def plan(self, contract: Any, out: Any = None, fmt: str = "yaml", **kw: Any) -> List[Dict[str, Any]]:
+    def plan(
+        self, contract: Any, out: Any = None, fmt: str = "yaml", **kw: Any
+    ) -> List[Dict[str, Any]]:
         """Return a preview of what *apply* would PUT to Entropy Data."""
         contracts = contract if isinstance(contract, list) else [contract]
         actions: List[Dict[str, Any]] = []
         for c in contracts:
             dp = self._to_data_product(c)
-            actions.append({
-                "action": "PUT",
-                "url": f"{self.api_url}/api/dataproducts/{dp['info']['id']}",
-                "payload": dp,
-            })
+            actions.append(
+                {
+                    "action": "PUT",
+                    "url": f"{self.api_url}/api/dataproducts/{dp['info']['id']}",
+                    "payload": dp,
+                }
+            )
         return actions
 
     def apply(self, contract: Any, out: Any = None, fmt: str = "yaml", **kw: Any) -> Dict[str, Any]:
@@ -220,7 +224,9 @@ class DataMeshManagerProvider(BaseProvider):
         resp = self._request("GET", "/api/teams")
         return resp.json()
 
-    def publish_data_contract(self, fluid: Mapping[str, Any], product_id: Optional[str] = None) -> Dict[str, Any]:
+    def publish_data_contract(
+        self, fluid: Mapping[str, Any], product_id: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Publish a FLUID contract as a data contract to Entropy Data.
 
         Public convenience method wrapping the internal helper.
@@ -249,29 +255,33 @@ class DataMeshManagerProvider(BaseProvider):
         """
         self._require_api_key()
 
-        url = publish_url or "{}/api/test-results".format(self.api_url)
+        url = publish_url or f"{self.api_url}/api/test-results"
 
         # Build payload compatible with Entropy Data test-results API
         issues = getattr(report, "issues", [])
         results: List[Dict[str, Any]] = []
         for issue in issues:
-            results.append({
-                "check": getattr(issue, "category", "unknown"),
-                "severity": getattr(issue, "severity", "info"),
-                "message": getattr(issue, "message", ""),
-                "path": getattr(issue, "path", ""),
-                "result": "failed" if getattr(issue, "severity", "") == "error" else "passed",
-            })
+            results.append(
+                {
+                    "check": getattr(issue, "category", "unknown"),
+                    "severity": getattr(issue, "severity", "info"),
+                    "message": getattr(issue, "message", ""),
+                    "path": getattr(issue, "path", ""),
+                    "result": "failed" if getattr(issue, "severity", "") == "error" else "passed",
+                }
+            )
 
         # If there are no issues, report a single "passed" result
         if not results:
-            results.append({
-                "check": "all",
-                "severity": "info",
-                "message": "All checks passed",
-                "path": "",
-                "result": "passed",
-            })
+            results.append(
+                {
+                    "check": "all",
+                    "severity": "info",
+                    "message": "All checks passed",
+                    "path": "",
+                    "result": "passed",
+                }
+            )
 
         payload: Dict[str, Any] = {
             "dataContractId": getattr(report, "contract_id", "unknown"),
@@ -297,17 +307,11 @@ class DataMeshManagerProvider(BaseProvider):
                 timeout=_TIMEOUT,
             )
         except Exception as exc:
-            raise ProviderError(
-                "Failed to publish test results to {}: {}".format(url, exc)
-            ) from exc
+            raise ProviderError(f"Failed to publish test results to {url}: {exc}") from exc
 
         if resp.status_code >= 400:
             body = resp.text[:500]
-            raise ProviderError(
-                "Test results publish failed (HTTP {}): {}".format(
-                    resp.status_code, body
-                )
-            )
+            raise ProviderError(f"Test results publish failed (HTTP {resp.status_code}): {body}")
 
         self._log.info("Published test results to %s (HTTP %s)", url, resp.status_code)
         return {
@@ -559,7 +563,7 @@ class DataMeshManagerProvider(BaseProvider):
                     bucket = loc.get("bucket", "")
                     path_val = loc.get("path", loc.get("prefix", loc.get("key", "")))
                     if bucket:
-                        result = "s3://{}".format(bucket)
+                        result = f"s3://{bucket}"
                         if path_val:
                             result += "/{}".format(str(path_val).strip("/"))
                         return result
@@ -585,7 +589,8 @@ class DataMeshManagerProvider(BaseProvider):
                 # Generic fallback for unknown providers with binding.location
                 if not parts:
                     generic_parts = [
-                        str(v) for k, v in loc.items()
+                        str(v)
+                        for k, v in loc.items()
                         if k not in ("region",) and v and not str(v).startswith("{{")
                     ]
                     if generic_parts:
@@ -612,9 +617,9 @@ class DataMeshManagerProvider(BaseProvider):
                 bucket = cfg.get("bucket", "")
                 prefix = cfg.get("prefix", cfg.get("key", ""))
                 if bucket:
-                    loc_str = "s3://{}".format(bucket)
+                    loc_str = f"s3://{bucket}"
                     if prefix:
-                        loc_str += "/{}".format(prefix)
+                        loc_str += f"/{prefix}"
                     return loc_str
 
         elif provider_lower == "redshift":
@@ -674,7 +679,9 @@ class DataMeshManagerProvider(BaseProvider):
 
     # ---- data contracts ---------------------------------------------------
 
-    def _publish_data_contract_internal(self, fluid: Mapping[str, Any], product_id: str) -> Dict[str, Any]:
+    def _publish_data_contract_internal(
+        self, fluid: Mapping[str, Any], product_id: str
+    ) -> Dict[str, Any]:
         """Publish a companion data contract to ``PUT /api/datacontracts/{id}``.
 
         Maps FLUID contract fields to Data Contract Specification 0.9.3,
@@ -682,7 +689,7 @@ class DataMeshManagerProvider(BaseProvider):
         and build metadata.
         """
         meta = fluid.get("metadata", {})
-        contract_id = "{}-contract".format(product_id)
+        contract_id = f"{product_id}-contract"
 
         dc: Dict[str, Any] = {
             "dataContractSpecification": "0.9.3",
@@ -715,8 +722,10 @@ class DataMeshManagerProvider(BaseProvider):
                 if isinstance(contract_block, dict):
                     schema = contract_block.get("schema", {})
 
-            fields_in = schema if isinstance(schema, list) else (
-                schema.get("fields", []) if isinstance(schema, dict) else []
+            fields_in = (
+                schema
+                if isinstance(schema, list)
+                else (schema.get("fields", []) if isinstance(schema, dict) else [])
             )
             fields_out: Dict[str, Any] = {}
             for f in fields_in:
@@ -818,12 +827,12 @@ class DataMeshManagerProvider(BaseProvider):
             if isinstance(labels, dict) and labels:
                 dc["custom"]["labels"] = labels
 
-        resp = self._request("PUT", "/api/datacontracts/{}".format(contract_id), json_body=dc)
+        resp = self._request("PUT", f"/api/datacontracts/{contract_id}", json_body=dc)
         self._log.info("Published data contract %s (%s)", contract_id, resp.status_code)
         return {
             "contract_id": contract_id,
             "status_code": resp.status_code,
-            "url": "https://app.entropy-data.com/datacontracts/{}".format(contract_id),
+            "url": f"https://app.entropy-data.com/datacontracts/{contract_id}",
         }
 
     # ---- team management --------------------------------------------------
@@ -894,7 +903,7 @@ class DataMeshManagerProvider(BaseProvider):
 
     # ---- HTTP helpers -----------------------------------------------------
 
-    def _session(self) -> "requests.Session":
+    def _session(self) -> requests.Session:
         if self._session_instance is None:
             s = requests.Session()
             retry = Retry(
@@ -922,7 +931,7 @@ class DataMeshManagerProvider(BaseProvider):
         path: str,
         *,
         json_body: Any = None,
-    ) -> "requests.Response":
+    ) -> requests.Response:
         url = f"{self.api_url}{path}"
         self._log.debug("%s %s", method, url)
         try:

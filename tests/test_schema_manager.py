@@ -1,13 +1,29 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for fluid_build.schema_manager — version parsing, constraints, cache, validation."""
-import json
-import pytest
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+
 from datetime import datetime, timedelta
 
+import pytest
+
 from fluid_build.schema_manager import (
-    SchemaVersion, VersionConstraint, ValidationResult, SchemaCache,
     FluidSchemaManager,
+    SchemaCache,
+    SchemaVersion,
+    ValidationResult,
+    VersionConstraint,
 )
 
 
@@ -31,6 +47,7 @@ class TestSchemaVersion:
 
     def test_parse_invalid_raises(self):
         from fluid_build.errors import ValidationError
+
         with pytest.raises(ValidationError):
             SchemaVersion.parse("not-a-version")
 
@@ -127,14 +144,16 @@ class TestValidationResult:
         assert "⚠️" in summary
 
     def test_validation_time_in_summary(self):
-        vr = ValidationResult(is_valid=True, schema_version=SchemaVersion.parse("1.0.0"), validation_time=0.123)
+        vr = ValidationResult(
+            is_valid=True, schema_version=SchemaVersion.parse("1.0.0"), validation_time=0.123
+        )
         assert "0.123" in vr.get_summary()
 
 
 class TestSchemaCache:
     def test_init_creates_dir(self, tmp_path):
         cache_dir = tmp_path / "cache"
-        cache = SchemaCache(cache_dir)
+        SchemaCache(cache_dir)
         assert cache_dir.exists()
 
     def test_cache_and_retrieve(self, tmp_path):
@@ -150,7 +169,9 @@ class TestSchemaCache:
         v = SchemaVersion.parse("0.5.7")
         cache.cache_schema(v, {"test": True})
         # Manually backdate the cache entry
-        cache._cache_index["0.5.7"]["last_fetched"] = (datetime.now() - timedelta(hours=48)).isoformat()
+        cache._cache_index["0.5.7"]["last_fetched"] = (
+            datetime.now() - timedelta(hours=48)
+        ).isoformat()
         cache._save_cache_index()
         result = cache.get_cached_schema(v, max_age_hours=24)
         assert result is None

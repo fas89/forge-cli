@@ -35,29 +35,31 @@ from .provider import AwsProvider
 try:
     from .types import (
         AWSProviderOptions,
-        ServiceConfig,
-        SecurityConfig,
+        CostOptimizationConfig,
         MonitoringConfig,
-        CostOptimizationConfig
+        SecurityConfig,
+        ServiceConfig,
     )
+
     _types_available = True
 except ImportError:
     _types_available = False
 
 # Register the new provider
 from fluid_build.providers import register_provider
+
 register_provider("aws", AwsProvider)
 
 # Export
 if _types_available:
     __all__ = [
-        'AwsProvider',
-        'LegacyAWSProvider',
-        'AWSProviderOptions', 
-        'ServiceConfig',
-        'SecurityConfig',
-        'MonitoringConfig',
-        'CostOptimizationConfig'
+        "AwsProvider",
+        "LegacyAWSProvider",
+        "AWSProviderOptions",
+        "ServiceConfig",
+        "SecurityConfig",
+        "MonitoringConfig",
+        "CostOptimizationConfig",
     ]
 else:
-    __all__ = ['AwsProvider', 'LegacyAWSProvider']
+    __all__ = ["AwsProvider", "LegacyAWSProvider"]

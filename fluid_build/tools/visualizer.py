@@ -12,8 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 def to_dot(plan: list) -> str:
-    lines = ["digraph PLAN {", '  rankdir=LR;', '  node [shape=box, style="rounded,filled", color="#334155", fillcolor="#0b1220", fontcolor="#e5e7eb"];']
+    lines = [
+        "digraph PLAN {",
+        "  rankdir=LR;",
+        '  node [shape=box, style="rounded,filled", color="#334155", fillcolor="#0b1220", fontcolor="#e5e7eb"];',
+    ]
     for i, a in enumerate(plan):
         nid = f"n{i}"
         label = f"{a['op']}\\n{a['resource_type']}\\n{a['resource_id']}"

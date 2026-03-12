@@ -31,434 +31,373 @@ This template follows analytics engineering best practices and provides
 a scalable foundation for business intelligence workloads.
 """
 
-from typing import Dict, List, Optional, Any
 from pathlib import Path
+from typing import Any, Dict, List
 
 from ..core.interfaces import (
-    ProjectTemplate, 
-    TemplateMetadata, 
-    ComplexityLevel, 
+    ComplexityLevel,
     GenerationContext,
-    ValidationResult
+    ProjectTemplate,
+    TemplateMetadata,
+    ValidationResult,
 )
 
 
 class AnalyticsTemplate(ProjectTemplate):
     """
     Analytics template for business intelligence data products
-    
+
     This template creates a comprehensive analytics platform structure
     with dbt transformations, dimensional modeling, and BI integration.
     """
-    
+
     def get_metadata(self) -> TemplateMetadata:
         """Return analytics template metadata"""
         return TemplateMetadata(
             name="Analytics Data Product",
             description="Business intelligence and reporting data products with SQL transforms",
             complexity=ComplexityLevel.INTERMEDIATE,
-            provider_support=['local', 'gcp', 'snowflake', 'bigquery', 'redshift'],
+            provider_support=["local", "gcp", "snowflake", "bigquery", "redshift"],
             use_cases=[
-                'Business dashboards and KPI tracking',
-                'Customer analytics and segmentation', 
-                'Financial reporting and analysis',
-                'Marketing performance metrics',
-                'Operational analytics and insights',
-                'Executive reporting and scorecards'
+                "Business dashboards and KPI tracking",
+                "Customer analytics and segmentation",
+                "Financial reporting and analysis",
+                "Marketing performance metrics",
+                "Operational analytics and insights",
+                "Executive reporting and scorecards",
             ],
-            technologies=['SQL', 'dbt', 'BigQuery', 'Looker', 'Tableau', 'Python'],
-            estimated_time='10-20 minutes',
-            tags=['analytics', 'reporting', 'bi', 'dashboard', 'metrics'],
-            category='analytics',
-            version='1.0.0',
-            author='FLUID Build Team',
-            license='MIT'
+            technologies=["SQL", "dbt", "BigQuery", "Looker", "Tableau", "Python"],
+            estimated_time="10-20 minutes",
+            tags=["analytics", "reporting", "bi", "dashboard", "metrics"],
+            category="analytics",
+            version="1.0.0",
+            author="FLUID Build Team",
+            license="MIT",
         )
-    
+
     def generate_structure(self, context: GenerationContext) -> Dict[str, Any]:
         """Generate analytics project folder structure"""
         return {
-            'dbt/': {
-                'models/': {
-                    'staging/': {},
-                    'intermediate/': {},
-                    'marts/': {
-                        'core/': {},
-                        'finance/': {},
-                        'marketing/': {},
-                        'operations/': {}
-                    }
+            "dbt/": {
+                "models/": {
+                    "staging/": {},
+                    "intermediate/": {},
+                    "marts/": {"core/": {}, "finance/": {}, "marketing/": {}, "operations/": {}},
                 },
-                'macros/': {},
-                'tests/': {},
-                'snapshots/': {},
-                'seeds/': {},
-                'analysis/': {}
+                "macros/": {},
+                "tests/": {},
+                "snapshots/": {},
+                "seeds/": {},
+                "analysis/": {},
             },
-            'sql/': {
-                'queries/': {
-                    'adhoc/': {},
-                    'reports/': {},
-                    'monitoring/': {}
-                },
-                'views/': {},
-                'procedures/': {}
+            "sql/": {
+                "queries/": {"adhoc/": {}, "reports/": {}, "monitoring/": {}},
+                "views/": {},
+                "procedures/": {},
             },
-            'data/': {
-                'raw/': {},
-                'staged/': {},
-                'marts/': {}
-            },
-            'dashboards/': {
-                'looker/': {},
-                'tableau/': {},
-                'powerbi/': {}
-            },
-            'docs/': {
-                'data_dictionary/': {},
-                'lineage/': {},
-                'reports/': {}
-            },
-            'tests/': {
-                'unit/': {},
-                'integration/': {},
-                'data_quality/': {},
-                'performance/': {}
-            },
-            'config/': {
-                'dbt/': {},
-                'environments/': {},
-                'connections/': {}
-            },
-            'scripts/': {
-                'deployment/': {},
-                'monitoring/': {},
-                'etl/': {}
-            },
-            '.github/': {
-                'workflows/': {}
-            }
+            "data/": {"raw/": {}, "staged/": {}, "marts/": {}},
+            "dashboards/": {"looker/": {}, "tableau/": {}, "powerbi/": {}},
+            "docs/": {"data_dictionary/": {}, "lineage/": {}, "reports/": {}},
+            "tests/": {"unit/": {}, "integration/": {}, "data_quality/": {}, "performance/": {}},
+            "config/": {"dbt/": {}, "environments/": {}, "connections/": {}},
+            "scripts/": {"deployment/": {}, "monitoring/": {}, "etl/": {}},
+            ".github/": {"workflows/": {}},
         }
-    
+
     def generate_contract(self, context: GenerationContext) -> Dict[str, Any]:
         """Generate FLUID 0.5.7 compliant analytics contract"""
         project_config = context.project_config
-        
+
         # Extract configuration values
-        project_name = project_config.get('name', 'analytics-product')
-        description = project_config.get('description', 'Analytics data product for business intelligence')
-        domain = project_config.get('domain', 'analytics')
-        owner = project_config.get('owner', 'analytics-team')
-        provider = project_config.get('provider', 'gcp')
-        
+        project_name = project_config.get("name", "analytics-product")
+        description = project_config.get(
+            "description", "Analytics data product for business intelligence"
+        )
+        domain = project_config.get("domain", "analytics")
+        owner = project_config.get("owner", "analytics-team")
+        provider = project_config.get("provider", "gcp")
+
         contract = {
-            'fluidVersion': '0.5.7',
-            'kind': 'DataProduct',
-            'id': f"{project_name.replace('-', '_')}_analytics",
-            'name': f"{project_name} Analytics",
-            'description': description,
-            'domain': domain,
-            'metadata': {
-                'layer': 'Silver',
-                'owner': {
-                    'team': owner,
-                    'email': f'{owner}@company.com'
-                },
-                'status': 'Development',
-                'tags': ['analytics', 'reporting', 'bi', 'dashboard'],
-                'created': context.creation_time,
-                'template': 'analytics',
-                'forge_version': context.forge_version,
-                'dbt_version': '1.6.0',
-                'analytics_patterns': ['dimensional_modeling', 'star_schema', 'metrics_layer']
+            "fluidVersion": "0.5.7",
+            "kind": "DataProduct",
+            "id": f"{project_name.replace('-', '_')}_analytics",
+            "name": f"{project_name} Analytics",
+            "description": description,
+            "domain": domain,
+            "metadata": {
+                "layer": "Silver",
+                "owner": {"team": owner, "email": f"{owner}@company.com"},
+                "status": "Development",
+                "tags": ["analytics", "reporting", "bi", "dashboard"],
+                "created": context.creation_time,
+                "template": "analytics",
+                "forge_version": context.forge_version,
+                "dbt_version": "1.6.0",
+                "analytics_patterns": ["dimensional_modeling", "star_schema", "metrics_layer"],
             },
-            'consumes': [
+            "consumes": [
                 {
-                    'id': 'source_systems',
-                    'ref': 'urn:fluid:source_systems:v1',
-                    'description': 'Raw data from operational systems for analytics processing'
+                    "id": "source_systems",
+                    "ref": "urn:fluid:source_systems:v1",
+                    "description": "Raw data from operational systems for analytics processing",
                 },
                 {
-                    'id': 'customer_data',
-                    'ref': 'urn:fluid:customers:v1', 
-                    'description': 'Customer master data and attributes'
+                    "id": "customer_data",
+                    "ref": "urn:fluid:customers:v1",
+                    "description": "Customer master data and attributes",
                 },
                 {
-                    'id': 'transaction_data',
-                    'ref': 'urn:fluid:transactions:v1',
-                    'description': 'Transaction and event data'
-                }
+                    "id": "transaction_data",
+                    "ref": "urn:fluid:transactions:v1",
+                    "description": "Transaction and event data",
+                },
             ],
-            'builds': [  # Changed from 'build' to 'builds' array
+            "builds": [  # Changed from 'build' to 'builds' array
                 {
-                    'transformation': {
-                    'pattern': 'hybrid-reference',
-                    'engine': 'dbt',
-                    'properties': {
-                        'models_path': 'dbt/models/',
-                        'staging_models': 'staging/',
-                        'mart_models': 'marts/',
-                        'vars': {
-                            'source_schema': 'raw',
-                            'staging_schema': 'staging',
-                            'mart_schema': 'marts'
+                    "transformation": {
+                        "pattern": "hybrid-reference",
+                        "engine": "dbt",
+                        "properties": {
+                            "models_path": "dbt/models/",
+                            "staging_models": "staging/",
+                            "mart_models": "marts/",
+                            "vars": {
+                                "source_schema": "raw",
+                                "staging_schema": "staging",
+                                "mart_schema": "marts",
+                            },
+                            "materializations": {
+                                "staging": "view",
+                                "intermediate": "ephemeral",
+                                "marts": "table",
+                            },
                         },
-                        'materializations': {
-                            'staging': 'view',
-                            'intermediate': 'ephemeral',
-                            'marts': 'table'
-                        }
-                    }
-                },
-                'execution': {
-                    'trigger': {
-                        'type': 'schedule',
-                        'cron': '0 2 * * *'
                     },
-                    'runtime': {
-                        'platform': provider,
-                        'resources': {
-                            'cpu': '4',
-                            'memory': '8GB'
-                        }
+                    "execution": {
+                        "trigger": {"type": "schedule", "cron": "0 2 * * *"},
+                        "runtime": {
+                            "platform": provider,
+                            "resources": {"cpu": "4", "memory": "8GB"},
+                        },
+                        "retries": {"count": 3, "delaySeconds": 300, "backoff": "exponential"},
                     },
-                    'retries': {
-                        'count': 3,
-                        'delaySeconds': 300,
-                        'backoff': 'exponential'
-                    }
                 }
-            }
             ],  # Close builds array
-            'exposes': [
+            "exposes": [
                 {
-                    'exposeId': 'customer_analytics_mart',  # Changed from 'id'
-                    'kind': 'table',  # Changed from 'type'
-                    'description': 'Customer analytics and segmentation data mart',
-                    'binding': {  # Changed from 'location'
-                        'format': 'table',
-                        'dataset': 'marts',  # Flattened from properties
-                        'table': 'customer_analytics'
+                    "exposeId": "customer_analytics_mart",  # Changed from 'id'
+                    "kind": "table",  # Changed from 'type'
+                    "description": "Customer analytics and segmentation data mart",
+                    "binding": {  # Changed from 'location'
+                        "format": "table",
+                        "dataset": "marts",  # Flattened from properties
+                        "table": "customer_analytics",
                     },
-                    'schema': [
+                    "schema": [
                         {
-                            'name': 'customer_id',
-                            'type': 'string',
-                            'description': 'Unique customer identifier',
-                            'nullable': False
+                            "name": "customer_id",
+                            "type": "string",
+                            "description": "Unique customer identifier",
+                            "nullable": False,
                         },
                         {
-                            'name': 'customer_segment',
-                            'type': 'string',
-                            'description': 'Customer segment classification',
-                            'nullable': True
+                            "name": "customer_segment",
+                            "type": "string",
+                            "description": "Customer segment classification",
+                            "nullable": True,
                         },
                         {
-                            'name': 'lifetime_value',
-                            'type': 'decimal',
-                            'description': 'Customer lifetime value',
-                            'nullable': True
+                            "name": "lifetime_value",
+                            "type": "decimal",
+                            "description": "Customer lifetime value",
+                            "nullable": True,
                         },
                         {
-                            'name': 'acquisition_date',
-                            'type': 'date',
-                            'description': 'Customer acquisition date',
-                            'nullable': False
+                            "name": "acquisition_date",
+                            "type": "date",
+                            "description": "Customer acquisition date",
+                            "nullable": False,
                         },
                         {
-                            'name': 'last_activity_date',
-                            'type': 'date',
-                            'description': 'Last customer activity date',
-                            'nullable': True
+                            "name": "last_activity_date",
+                            "type": "date",
+                            "description": "Last customer activity date",
+                            "nullable": True,
                         },
                         {
-                            'name': 'calculated_at',
-                            'type': 'timestamp',
-                            'description': 'Analytics calculation timestamp',
-                            'nullable': False
-                        }
+                            "name": "calculated_at",
+                            "type": "timestamp",
+                            "description": "Analytics calculation timestamp",
+                            "nullable": False,
+                        },
                     ],
-                    'quality': [
+                    "quality": [
                         {
-                            'name': 'customer_uniqueness',
-                            'rule': 'customer_id IS NOT NULL AND customer_id != ""',
-                            'onFailure': {
-                                'action': 'reject_row'
-                            }
+                            "name": "customer_uniqueness",
+                            "rule": 'customer_id IS NOT NULL AND customer_id != ""',
+                            "onFailure": {"action": "reject_row"},
                         },
                         {
-                            'name': 'data_freshness',
-                            'rule': 'calculated_at >= CURRENT_TIMESTAMP - INTERVAL 2 DAY',
-                            'onFailure': {
-                                'action': 'alert'
-                            }
+                            "name": "data_freshness",
+                            "rule": "calculated_at >= CURRENT_TIMESTAMP - INTERVAL 2 DAY",
+                            "onFailure": {"action": "alert"},
                         },
                         {
-                            'name': 'ltv_reasonableness',
-                            'rule': 'lifetime_value >= 0 OR lifetime_value IS NULL',
-                            'onFailure': {
-                                'action': 'flag_for_review'
-                            }
-                        }
-                    ]
+                            "name": "ltv_reasonableness",
+                            "rule": "lifetime_value >= 0 OR lifetime_value IS NULL",
+                            "onFailure": {"action": "flag_for_review"},
+                        },
+                    ],
                 },
                 {
-                    'id': 'revenue_metrics',
-                    'type': 'table',
-                    'description': 'Revenue and financial metrics data mart',
-                    'location': {
-                        'format': 'table',
-                        'properties': {
-                            'dataset': 'marts',
-                            'table': 'revenue_metrics'
-                        }
+                    "id": "revenue_metrics",
+                    "type": "table",
+                    "description": "Revenue and financial metrics data mart",
+                    "location": {
+                        "format": "table",
+                        "properties": {"dataset": "marts", "table": "revenue_metrics"},
                     },
-                    'schema': [
+                    "schema": [
                         {
-                            'name': 'date',
-                            'type': 'date',
-                            'description': 'Metric date',
-                            'nullable': False
+                            "name": "date",
+                            "type": "date",
+                            "description": "Metric date",
+                            "nullable": False,
                         },
                         {
-                            'name': 'revenue',
-                            'type': 'decimal',
-                            'description': 'Daily revenue',
-                            'nullable': False
+                            "name": "revenue",
+                            "type": "decimal",
+                            "description": "Daily revenue",
+                            "nullable": False,
                         },
                         {
-                            'name': 'orders',
-                            'type': 'integer',
-                            'description': 'Number of orders',
-                            'nullable': False
+                            "name": "orders",
+                            "type": "integer",
+                            "description": "Number of orders",
+                            "nullable": False,
                         },
                         {
-                            'name': 'customers',
-                            'type': 'integer',
-                            'description': 'Number of unique customers',
-                            'nullable': False
+                            "name": "customers",
+                            "type": "integer",
+                            "description": "Number of unique customers",
+                            "nullable": False,
+                        },
+                    ],
+                    "quality": [
+                        {
+                            "name": "revenue_positive",
+                            "rule": "revenue >= 0",
+                            "onFailure": {"action": "reject_row"},
                         }
                     ],
-                    'quality': [
-                        {
-                            'name': 'revenue_positive',
-                            'rule': 'revenue >= 0',
-                            'onFailure': {
-                                'action': 'reject_row'
-                            }
-                        }
-                    ]
-                }
+                },
             ],
-            'slo': {
-                'freshnessMinutes': 120,  # 2 hours
-                'availabilityPct': 99.5
+            "slo": {"freshnessMinutes": 120, "availabilityPct": 99.5},  # 2 hours
+            "analytics": {
+                "modeling_approach": "dimensional",
+                "grain": "daily",
+                "historical_data": "2_years",
+                "refresh_frequency": "daily",
+                "bi_tools": ["looker", "tableau"],
+                "metrics_layer": True,
             },
-            'analytics': {
-                'modeling_approach': 'dimensional',
-                'grain': 'daily',
-                'historical_data': '2_years',
-                'refresh_frequency': 'daily',
-                'bi_tools': ['looker', 'tableau'],
-                'metrics_layer': True
-            }
         }
-        
+
         return contract
-    
+
     def validate_configuration(self, config: Dict[str, Any]) -> ValidationResult:
         """Validate analytics template configuration"""
         errors = []
         warnings = []
-        
+
         # Basic validation
-        if not config.get('name'):
+        if not config.get("name"):
             errors.append("Project name is required")
-        
-        if not config.get('description'):
+
+        if not config.get("description"):
             errors.append("Project description is required")
-        
+
         # Analytics-specific validation
-        provider = config.get('provider')
-        if provider not in ['gcp', 'snowflake', 'bigquery', 'redshift', 'local']:
+        provider = config.get("provider")
+        if provider not in ["gcp", "snowflake", "bigquery", "redshift", "local"]:
             warnings.append(f"Provider '{provider}' may not be optimal for analytics workloads")
-        
+
         # Check if domain is analytics-related
-        domain = config.get('domain', '').lower()
-        analytics_domains = ['analytics', 'bi', 'business-intelligence', 'reporting', 'metrics']
+        domain = config.get("domain", "").lower()
+        analytics_domains = ["analytics", "bi", "business-intelligence", "reporting", "metrics"]
         if domain and not any(ad in domain for ad in analytics_domains):
             warnings.append("Consider using an analytics-related domain for better organization")
-        
+
         return len(errors) == 0, errors + [f"Warning: {w}" for w in warnings]
-    
+
     def get_recommended_providers(self) -> List[str]:
         """Get recommended providers for analytics template"""
         # BigQuery and Snowflake are optimal for analytics
-        return ['bigquery', 'snowflake', 'gcp', 'redshift']
-    
+        return ["bigquery", "snowflake", "gcp", "redshift"]
+
     def get_customization_prompts(self) -> List[Dict[str, Any]]:
         """Return analytics-specific customization prompts"""
         return [
             {
-                'name': 'include_dbt',
-                'type': 'confirm',
-                'message': 'Include dbt transformation framework?',
-                'default': True
+                "name": "include_dbt",
+                "type": "confirm",
+                "message": "Include dbt transformation framework?",
+                "default": True,
             },
             {
-                'name': 'bi_tool',
-                'type': 'select',
-                'message': 'Primary BI tool integration?',
-                'choices': ['looker', 'tableau', 'powerbi', 'none'],
-                'default': 'looker'
+                "name": "bi_tool",
+                "type": "select",
+                "message": "Primary BI tool integration?",
+                "choices": ["looker", "tableau", "powerbi", "none"],
+                "default": "looker",
             },
             {
-                'name': 'dimensional_modeling',
-                'type': 'confirm',
-                'message': 'Use dimensional modeling patterns?',
-                'default': True
+                "name": "dimensional_modeling",
+                "type": "confirm",
+                "message": "Use dimensional modeling patterns?",
+                "default": True,
             },
             {
-                'name': 'include_sample_dashboards',
-                'type': 'confirm',
-                'message': 'Include sample dashboards and reports?',
-                'default': True
+                "name": "include_sample_dashboards",
+                "type": "confirm",
+                "message": "Include sample dashboards and reports?",
+                "default": True,
             },
             {
-                'name': 'data_lineage',
-                'type': 'confirm',
-                'message': 'Enable data lineage tracking?',
-                'default': True
-            }
+                "name": "data_lineage",
+                "type": "confirm",
+                "message": "Enable data lineage tracking?",
+                "default": True,
+            },
         ]
-    
+
     def post_generation_hooks(self, context: GenerationContext) -> None:
         """Execute analytics-specific post-generation setup"""
         project_dir = context.target_dir
         user_selections = context.user_selections
-        
+
         # Create dbt project if requested
-        if user_selections.get('include_dbt', True):
+        if user_selections.get("include_dbt", True):
             self._create_dbt_project(project_dir, context)
-        
+
         # Create sample dashboards if requested
-        if user_selections.get('include_sample_dashboards', True):
+        if user_selections.get("include_sample_dashboards", True):
             self._create_sample_dashboards(project_dir, context)
-        
+
         # Set up data lineage if requested
-        if user_selections.get('data_lineage', True):
+        if user_selections.get("data_lineage", True):
             self._setup_data_lineage(project_dir)
-        
+
         # Create dimensional models if requested
-        if user_selections.get('dimensional_modeling', True):
+        if user_selections.get("dimensional_modeling", True):
             self._create_dimensional_models(project_dir)
-    
+
     def _create_dbt_project(self, project_dir: Path, context: GenerationContext) -> None:
         """Create dbt project structure and configuration"""
-        dbt_dir = project_dir / 'dbt'
-        
+        dbt_dir = project_dir / "dbt"
+
         # dbt_project.yml
-        project_name = context.project_config.get('name', 'analytics-product')
+        project_name = context.project_config.get("name", "analytics-product")
         dbt_project_config = f"""name: '{project_name.replace('-', '_')}'
 version: '1.0.0'
 config-version: 2
@@ -521,15 +460,15 @@ vars:
   customer_acquisition_start_date: '2020-01-01'
   revenue_calculation_method: 'gross'
 """
-        
-        (dbt_dir / 'dbt_project.yml').write_text(dbt_project_config, encoding='utf-8')
-        
+
+        (dbt_dir / "dbt_project.yml").write_text(dbt_project_config, encoding="utf-8")
+
         # profiles.yml template
-        profiles_dir = project_dir / 'config' / 'dbt'
+        profiles_dir = project_dir / "config" / "dbt"
         profiles_dir.mkdir(parents=True, exist_ok=True)
-        
-        provider = context.project_config.get('provider', 'gcp')
-        if provider in ['gcp', 'bigquery']:
+
+        provider = context.project_config.get("provider", "gcp")
+        if provider in ["gcp", "bigquery"]:
             profiles_config = f"""# dbt profiles for {project_name}
 {project_name.replace('-', '_')}:
   target: dev
@@ -554,7 +493,7 @@ vars:
       threads: 8
       timeout_seconds: 300
 """
-        elif provider == 'snowflake':
+        elif provider == "snowflake":
             profiles_config = f"""# dbt profiles for {project_name}
 {project_name.replace('-', '_')}:
   target: dev
@@ -597,20 +536,20 @@ vars:
       schema: public
       threads: 4
 """
-        
-        (profiles_dir / 'profiles.yml').write_text(profiles_config, encoding='utf-8')
-        
+
+        (profiles_dir / "profiles.yml").write_text(profiles_config, encoding="utf-8")
+
         # Create sample models
         self._create_sample_dbt_models(dbt_dir)
-    
+
     def _create_sample_dbt_models(self, dbt_dir: Path) -> None:
         """Create sample dbt models for analytics"""
-        models_dir = dbt_dir / 'models'
-        
+        models_dir = dbt_dir / "models"
+
         # Staging models
-        staging_dir = models_dir / 'staging'
+        staging_dir = models_dir / "staging"
         staging_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Customer staging model
         staging_customers = """{{
   config(
@@ -643,9 +582,9 @@ cleaned AS (
 
 SELECT * FROM cleaned
 """
-        
-        (staging_dir / 'stg_customers.sql').write_text(staging_customers, encoding='utf-8')
-        
+
+        (staging_dir / "stg_customers.sql").write_text(staging_customers, encoding="utf-8")
+
         # Orders staging model
         staging_orders = """{{
   config(
@@ -675,13 +614,13 @@ cleaned AS (
 
 SELECT * FROM cleaned
 """
-        
-        (staging_dir / 'stg_orders.sql').write_text(staging_orders, encoding='utf-8')
-        
+
+        (staging_dir / "stg_orders.sql").write_text(staging_orders, encoding="utf-8")
+
         # Intermediate models
-        intermediate_dir = models_dir / 'intermediate'
+        intermediate_dir = models_dir / "intermediate"
         intermediate_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Customer order summary
         int_customer_orders = """{{
   config(
@@ -704,13 +643,15 @@ WITH customer_orders AS (
 
 SELECT * FROM customer_orders
 """
-        
-        (intermediate_dir / 'int_customer_orders.sql').write_text(int_customer_orders, encoding='utf-8')
-        
+
+        (intermediate_dir / "int_customer_orders.sql").write_text(
+            int_customer_orders, encoding="utf-8"
+        )
+
         # Data marts
-        marts_core_dir = models_dir / 'marts' / 'core'
+        marts_core_dir = models_dir / "marts" / "core"
         marts_core_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Customer analytics mart
         customer_analytics = """{{
   config(
@@ -772,9 +713,9 @@ customer_analytics AS (
 
 SELECT * FROM customer_analytics
 """
-        
-        (marts_core_dir / 'customer_analytics.sql').write_text(customer_analytics, encoding='utf-8')
-        
+
+        (marts_core_dir / "customer_analytics.sql").write_text(customer_analytics, encoding="utf-8")
+
         # Revenue metrics mart
         revenue_metrics = """{{
   config(
@@ -848,20 +789,20 @@ SELECT
 FROM metrics_with_calculations
 ORDER BY date
 """
-        
-        (marts_core_dir / 'revenue_metrics.sql').write_text(revenue_metrics, encoding='utf-8')
-    
+
+        (marts_core_dir / "revenue_metrics.sql").write_text(revenue_metrics, encoding="utf-8")
+
     def _create_sample_dashboards(self, project_dir: Path, context: GenerationContext) -> None:
         """Create sample dashboard configurations"""
-        dashboards_dir = project_dir / 'dashboards'
-        
+        dashboards_dir = project_dir / "dashboards"
+
         # Create Looker dashboard if selected
-        bi_tool = context.user_selections.get('bi_tool', 'looker')
-        
-        if bi_tool == 'looker':
-            looker_dir = dashboards_dir / 'looker'
+        bi_tool = context.user_selections.get("bi_tool", "looker")
+
+        if bi_tool == "looker":
+            looker_dir = dashboards_dir / "looker"
             looker_dir.mkdir(parents=True, exist_ok=True)
-            
+
             # Customer analytics dashboard
             looker_dashboard = """- dashboard: customer_analytics
   title: Customer Analytics Dashboard
@@ -963,14 +904,16 @@ ORDER BY date
     width: 12
     height: 6
 """
-            
-            (looker_dir / 'customer_analytics.dashboard.lookml').write_text(looker_dashboard, encoding='utf-8')
-    
+
+            (looker_dir / "customer_analytics.dashboard.lookml").write_text(
+                looker_dashboard, encoding="utf-8"
+            )
+
     def _setup_data_lineage(self, project_dir: Path) -> None:
         """Set up data lineage tracking configuration"""
-        docs_dir = project_dir / 'docs' / 'lineage'
+        docs_dir = project_dir / "docs" / "lineage"
         docs_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Create lineage configuration
         lineage_config = """# Data Lineage Configuration
 
@@ -998,17 +941,17 @@ This directory contains data lineage documentation and configuration.
 For custom lineage tracking, create YAML files in this directory
 following the OpenLineage specification.
 """
-        
-        (docs_dir / 'README.md').write_text(lineage_config, encoding='utf-8')
-    
+
+        (docs_dir / "README.md").write_text(lineage_config, encoding="utf-8")
+
     def _create_dimensional_models(self, project_dir: Path) -> None:
         """Create dimensional modeling examples"""
-        models_dir = project_dir / 'dbt' / 'models'
-        
+        models_dir = project_dir / "dbt" / "models"
+
         # Create dimensions directory
-        dims_dir = models_dir / 'marts' / 'core' / 'dimensions'
+        dims_dir = models_dir / "marts" / "core" / "dimensions"
         dims_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Customer dimension
         dim_customer = """{{
   config(
@@ -1045,9 +988,9 @@ customer_dimension AS (
 
 SELECT * FROM customer_dimension
 """
-        
-        (dims_dir / 'dim_customer.sql').write_text(dim_customer, encoding='utf-8')
-        
+
+        (dims_dir / "dim_customer.sql").write_text(dim_customer, encoding="utf-8")
+
         # Date dimension
         dim_date = """{{
   config(
@@ -1084,13 +1027,13 @@ SELECT
 
 FROM {{ ref('date_spine') }}
 """
-        
-        (dims_dir / 'dim_date.sql').write_text(dim_date, encoding='utf-8')
-        
+
+        (dims_dir / "dim_date.sql").write_text(dim_date, encoding="utf-8")
+
         # Create facts directory
-        facts_dir = models_dir / 'marts' / 'core' / 'facts'
+        facts_dir = models_dir / "marts" / "core" / "facts"
         facts_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Order fact table
         fact_orders = """{{
   config(
@@ -1134,5 +1077,5 @@ order_facts AS (
 
 SELECT * FROM order_facts
 """
-        
-        (facts_dir / 'fact_orders.sql').write_text(fact_orders, encoding='utf-8')
+
+        (facts_dir / "fact_orders.sql").write_text(fact_orders, encoding="utf-8")

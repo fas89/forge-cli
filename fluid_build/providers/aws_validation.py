@@ -23,24 +23,21 @@ and optionally Redshift.
 from __future__ import annotations
 
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional
 
 from fluid_build.providers.validation_provider import (
-    ValidationProvider,
-    ResourceSchema,
     FieldSchema,
+    ResourceSchema,
     ResourceType,
-    ValidationResult,
     ValidationIssue,
-)
-from fluid_build.providers.quality_engine import (
-    execute_quality_checks,
-    quality_results_to_issues,
+    ValidationProvider,
+    ValidationResult,
 )
 
 try:
     import boto3
     from botocore.exceptions import ClientError
+
     BOTO3_AVAILABLE = True
 except ImportError:
     BOTO3_AVAILABLE = False
@@ -116,12 +113,14 @@ class AWSValidationProvider(ValidationProvider):
 
             fields: List[FieldSchema] = []
             for col in columns + partition_keys:
-                fields.append(FieldSchema(
-                    name=col.get("Name", ""),
-                    type=col.get("Type", "string").upper(),
-                    mode="NULLABLE",
-                    description=col.get("Comment"),
-                ))
+                fields.append(
+                    FieldSchema(
+                        name=col.get("Name", ""),
+                        type=col.get("Type", "string").upper(),
+                        mode="NULLABLE",
+                        description=col.get("Comment"),
+                    )
+                )
 
             # Table type
             table_type_raw = tbl.get("TableType", "EXTERNAL_TABLE")
@@ -130,7 +129,7 @@ class AWSValidationProvider(ValidationProvider):
             else:
                 resource_type = ResourceType.TABLE
 
-            fqn_str = "{}.{}".format(database, table)
+            fqn_str = f"{database}.{table}"
             params = tbl.get("Parameters", {})
 
             return ResourceSchema(
@@ -154,9 +153,9 @@ class AWSValidationProvider(ValidationProvider):
             code = e.response.get("Error", {}).get("Code", "")
             if code == "EntityNotFoundException":
                 return None
-            raise Exception("Error retrieving AWS Glue table: {}".format(str(e))) from e
+            raise Exception(f"Error retrieving AWS Glue table: {str(e)}") from e
         except Exception as e:
-            raise Exception("Error retrieving AWS Glue table: {}".format(str(e))) from e
+            raise Exception(f"Error retrieving AWS Glue table: {str(e)}") from e
 
     def validate_resource(
         self,
@@ -165,27 +164,27 @@ class AWSValidationProvider(ValidationProvider):
     ) -> ValidationResult:
         """Validate an AWS resource against the contract."""
         issues: List[ValidationIssue] = []
-        resource_name = (
-            contract_spec.get("id")
-            or contract_spec.get("exposeId")
-            or "unknown"
-        )
+        resource_name = contract_spec.get("id") or contract_spec.get("exposeId") or "unknown"
 
         if actual_schema is None:
             fqn = self._extract_fqn(contract_spec)
             fqn_str = "{}.{}".format(*fqn) if fqn else "unknown"
-            issues.append(ValidationIssue(
-                severity="error",
-                category="missing_resource",
-                message="Table '{}' does not exist in AWS Glue catalog".format(fqn_str),
-                path="exposes[].binding.location",
-                expected=fqn_str,
-                actual=None,
-                suggestion="Create the table in the Glue catalog or verify database/table names",
-            ))
+            issues.append(
+                ValidationIssue(
+                    severity="error",
+                    category="missing_resource",
+                    message=f"Table '{fqn_str}' does not exist in AWS Glue catalog",
+                    path="exposes[].binding.location",
+                    expected=fqn_str,
+                    actual=None,
+                    suggestion="Create the table in the Glue catalog or verify database/table names",
+                )
+            )
             return ValidationResult(
-                resource_name=resource_name, success=False,
-                issues=issues, schema=None,
+                resource_name=resource_name,
+                success=False,
+                issues=issues,
+                schema=None,
             )
 
         # Compare schemas
@@ -196,32 +195,34 @@ class AWSValidationProvider(ValidationProvider):
 
         # Row count
         if actual_schema.row_count is not None and actual_schema.row_count == 0:
-            issues.append(ValidationIssue(
-                severity="warning",
-                category="empty_table",
-                message="Table '{}' reports 0 rows".format(actual_schema.fully_qualified_name),
-                path="exposes[].binding.location",
-                expected="> 0 rows",
-                actual="0 rows",
-                suggestion="Verify data has been loaded or Glue crawler has run",
-            ))
+            issues.append(
+                ValidationIssue(
+                    severity="warning",
+                    category="empty_table",
+                    message=f"Table '{actual_schema.fully_qualified_name}' reports 0 rows",
+                    path="exposes[].binding.location",
+                    expected="> 0 rows",
+                    actual="0 rows",
+                    suggestion="Verify data has been loaded or Glue crawler has run",
+                )
+            )
 
         # SLA thresholds
         sla = contract_spec.get("sla", {})
         if "row_count_min" in sla and actual_schema.row_count is not None:
             min_rows = sla["row_count_min"]
             if actual_schema.row_count < min_rows:
-                issues.append(ValidationIssue(
-                    severity="error",
-                    category="row_count_below_threshold",
-                    message="Table has {} rows, below minimum of {}".format(
-                        actual_schema.row_count, min_rows
-                    ),
-                    path="exposes[].sla.row_count_min",
-                    expected=">= {} rows".format(min_rows),
-                    actual="{} rows".format(actual_schema.row_count),
-                    suggestion="Check data pipeline or run Glue crawler",
-                ))
+                issues.append(
+                    ValidationIssue(
+                        severity="error",
+                        category="row_count_below_threshold",
+                        message=f"Table has {actual_schema.row_count} rows, below minimum of {min_rows}",
+                        path="exposes[].sla.row_count_min",
+                        expected=f">= {min_rows} rows",
+                        actual=f"{actual_schema.row_count} rows",
+                        suggestion="Check data pipeline or run Glue crawler",
+                    )
+                )
 
         return ValidationResult(
             resource_name=resource_name,
@@ -242,7 +243,8 @@ class AWSValidationProvider(ValidationProvider):
     # ------------------------------------------------------------------
 
     def _extract_fqn(
-        self, resource_spec: Dict[str, Any],
+        self,
+        resource_spec: Dict[str, Any],
     ) -> Optional[tuple]:
         """Return (database, table) from a resource spec."""
         binding = resource_spec.get("binding", {})
@@ -276,12 +278,14 @@ class AWSValidationProvider(ValidationProvider):
                     mode = "REQUIRED" if f["required"] else "NULLABLE"
                 elif "nullable" in f:
                     mode = "NULLABLE" if f["nullable"] else "REQUIRED"
-                fields.append(FieldSchema(
-                    name=f.get("name", ""),
-                    type=f.get("type", "STRING").upper(),
-                    mode=mode,
-                    description=f.get("description"),
-                ))
+                fields.append(
+                    FieldSchema(
+                        name=f.get("name", ""),
+                        type=f.get("type", "STRING").upper(),
+                        mode=mode,
+                        description=f.get("description"),
+                    )
+                )
         return fields
 
     def run_quality_checks(
@@ -292,15 +296,19 @@ class AWSValidationProvider(ValidationProvider):
         """Execute DQ rules against Athena via SQL."""
         fqn = self._extract_fqn(resource_spec)
         if not fqn:
-            return [ValidationIssue(
-                severity="warning", category="quality",
-                message="Cannot run quality checks: unable to resolve table reference",
-                path="contract.dq.rules",
-            )]
+            return [
+                ValidationIssue(
+                    severity="warning",
+                    category="quality",
+                    message="Cannot run quality checks: unable to resolve table reference",
+                    path="contract.dq.rules",
+                )
+            ]
         # Athena requires unquoted identifiers (Presto SQL)
         "{}.{}".format(*fqn)
         try:
             import boto3 as _boto3
+
             session_kwargs = {"region_name": self.region}
             if self.profile:
                 session_kwargs["profile_name"] = self.profile
@@ -308,14 +316,20 @@ class AWSValidationProvider(ValidationProvider):
             session.client("athena")
             # Use Athena to execute quality checks
             # For now, return info that Athena DQ requires async execution
-            return [ValidationIssue(
-                severity="info", category="quality",
-                message="Athena quality checks require async query execution (not yet implemented)",
-                path="contract.dq.rules",
-            )]
+            return [
+                ValidationIssue(
+                    severity="info",
+                    category="quality",
+                    message="Athena quality checks require async query execution (not yet implemented)",
+                    path="contract.dq.rules",
+                )
+            ]
         except Exception as e:
-            return [ValidationIssue(
-                severity="warning", category="quality",
-                message="Failed to run quality checks: {}".format(e),
-                path="contract.dq.rules",
-            )]
+            return [
+                ValidationIssue(
+                    severity="warning",
+                    category="quality",
+                    message=f"Failed to run quality checks: {e}",
+                    path="contract.dq.rules",
+                )
+            ]

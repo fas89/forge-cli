@@ -22,12 +22,13 @@ Useful for CI/CD environments where OS keyring is not available.
 import json
 import logging
 from pathlib import Path
-from typing import Optional, Dict
+from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
 try:
     from cryptography.fernet import Fernet, InvalidToken
+
     CRYPTOGRAPHY_AVAILABLE = True
 except ImportError:
     CRYPTOGRAPHY_AVAILABLE = False
@@ -36,11 +37,11 @@ except ImportError:
 
 class EncryptedCredentialStore:
     """Encrypted credential storage for CI/CD environments."""
-    
+
     def __init__(self, store_path: Optional[Path] = None, key_path: Optional[Path] = None):
         """
         Initialize encrypted credential store.
-        
+
         Args:
             store_path: Path to encrypted credentials file (default: ~/.fluid/credentials.enc)
             key_path: Path to encryption key file (default: ~/.fluid/.key)
@@ -50,11 +51,11 @@ class EncryptedCredentialStore:
                 "cryptography library required for encrypted credential storage. "
                 "Install with: pip install cryptography"
             )
-        
+
         self.store_path = store_path or Path.home() / ".fluid" / "credentials.enc"
         self.key_path = key_path or Path.home() / ".fluid" / ".key"
         self._ensure_key()
-    
+
     def _ensure_key(self):
         """Create or load encryption key."""
         if not self.key_path.exists():
@@ -64,16 +65,16 @@ class EncryptedCredentialStore:
             self.key_path.write_bytes(key)
             self.key_path.chmod(0o600)  # Owner read/write only
             logger.info(f"Generated new encryption key: {self.key_path}")
-        
+
         # Load key
         self.key = self.key_path.read_bytes()
         self.cipher = Fernet(self.key)
         logger.debug(f"Loaded encryption key from: {self.key_path}")
-    
+
     def set_credential(self, key: str, value: str) -> None:
         """
         Store encrypted credential.
-        
+
         Args:
             key: Credential key (e.g., "snowflake.password")
             value: Credential value to encrypt and store
@@ -82,14 +83,14 @@ class EncryptedCredentialStore:
         data[key] = value
         self._save_store(data)
         logger.debug(f"Stored encrypted credential: {key}")
-    
+
     def get_credential(self, key: str) -> Optional[str]:
         """
         Retrieve encrypted credential.
-        
+
         Args:
             key: Credential key to retrieve
-        
+
         Returns:
             Decrypted credential value or None if not found
         """
@@ -98,11 +99,11 @@ class EncryptedCredentialStore:
         if value:
             logger.debug(f"Retrieved encrypted credential: {key}")
         return value
-    
+
     def delete_credential(self, key: str) -> None:
         """
         Remove credential from encrypted store.
-        
+
         Args:
             key: Credential key to delete
         """
@@ -111,22 +112,22 @@ class EncryptedCredentialStore:
             del data[key]
             self._save_store(data)
             logger.debug(f"Deleted encrypted credential: {key}")
-    
+
     def list_credentials(self) -> list:
         """
         List all credential keys (without values).
-        
+
         Returns:
             List of credential keys
         """
         data = self._load_store()
         return list(data.keys())
-    
+
     def _load_store(self) -> Dict[str, str]:
         """Load and decrypt credential store."""
         if not self.store_path.exists():
             return {}
-        
+
         try:
             encrypted = self.store_path.read_bytes()
             decrypted = self.cipher.decrypt(encrypted)
@@ -139,7 +140,7 @@ class EncryptedCredentialStore:
         except Exception as e:
             logger.error(f"Failed to load encrypted store: {e}")
             return {}
-    
+
     def _save_store(self, data: Dict[str, str]) -> None:
         """Encrypt and save credential store."""
         try:

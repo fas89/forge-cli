@@ -1,27 +1,42 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Branch-coverage tests for fluid_build.cli.orchestration"""
+
 import asyncio
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from fluid_build.cli.orchestration import (
-    ExecutionPhase,
     ActionStatus,
-    RollbackStrategy,
     ExecutionAction,
-    PhaseExecution,
-    ExecutionPlan,
-    ExecutionMetrics,
     ExecutionContext,
+    ExecutionMetrics,
+    ExecutionPhase,
+    ExecutionPlan,
     FluidOrchestrationEngine,
     FluidPlanGenerator,
+    PhaseExecution,
+    RollbackStrategy,
 )
 
-
 # ===================== Enums =====================
+
 
 class TestEnums:
     def test_execution_phase_values(self):
@@ -43,10 +58,16 @@ class TestEnums:
 
 # ===================== Dataclasses =====================
 
+
 class TestDataclasses:
     def test_execution_action_defaults(self):
-        a = ExecutionAction(id="a1", phase=ExecutionPhase.VALIDATION,
-                           provider="p", operation="op", description="desc")
+        a = ExecutionAction(
+            id="a1",
+            phase=ExecutionPhase.VALIDATION,
+            provider="p",
+            operation="op",
+            description="desc",
+        )
         assert a.status == ActionStatus.PENDING
         assert a.retry_count == 3
         assert a.timeout_seconds == 300
@@ -74,9 +95,11 @@ class TestDataclasses:
 
 # ===================== FluidOrchestrationEngine =====================
 
+
 def _make_engine(phases=None, rollback_strategy=RollbackStrategy.PHASE_COMPLETE):
     plan = ExecutionPlan(
-        contract_path="test.yaml", environment="dev",
+        contract_path="test.yaml",
+        environment="dev",
         phases=phases or [],
         rollback_strategy=rollback_strategy,
     )
@@ -102,22 +125,21 @@ class TestOrchestrationEngine:
 
     def test_should_continue_failed_no_continue(self):
         engine = _make_engine()
-        phase = PhaseExecution(phase=ExecutionPhase.VALIDATION, actions=[],
-                               continue_on_error=False)
+        phase = PhaseExecution(phase=ExecutionPhase.VALIDATION, actions=[], continue_on_error=False)
         phase.status = ActionStatus.FAILED
         assert engine._should_continue_execution(phase) is False
 
     def test_should_continue_failed_with_continue(self):
         engine = _make_engine()
-        phase = PhaseExecution(phase=ExecutionPhase.VALIDATION, actions=[],
-                               continue_on_error=True)
+        phase = PhaseExecution(phase=ExecutionPhase.VALIDATION, actions=[], continue_on_error=True)
         phase.status = ActionStatus.FAILED
         assert engine._should_continue_execution(phase) is True
 
     def test_update_action_metrics_success(self):
         engine = _make_engine()
-        action = ExecutionAction(id="a1", phase=ExecutionPhase.VALIDATION,
-                                provider="p", operation="op", description="d")
+        action = ExecutionAction(
+            id="a1", phase=ExecutionPhase.VALIDATION, provider="p", operation="op", description="d"
+        )
         action.status = ActionStatus.SUCCESS
         engine._update_action_metrics(action)
         assert engine.context.metrics.successful_actions == 1
@@ -125,16 +147,18 @@ class TestOrchestrationEngine:
 
     def test_update_action_metrics_failed(self):
         engine = _make_engine()
-        action = ExecutionAction(id="a1", phase=ExecutionPhase.VALIDATION,
-                                provider="p", operation="op", description="d")
+        action = ExecutionAction(
+            id="a1", phase=ExecutionPhase.VALIDATION, provider="p", operation="op", description="d"
+        )
         action.status = ActionStatus.FAILED
         engine._update_action_metrics(action)
         assert engine.context.metrics.failed_actions == 1
 
     def test_update_action_metrics_skipped(self):
         engine = _make_engine()
-        action = ExecutionAction(id="a1", phase=ExecutionPhase.VALIDATION,
-                                provider="p", operation="op", description="d")
+        action = ExecutionAction(
+            id="a1", phase=ExecutionPhase.VALIDATION, provider="p", operation="op", description="d"
+        )
         action.status = ActionStatus.SKIPPED
         engine._update_action_metrics(action)
         assert engine.context.metrics.skipped_actions == 1
@@ -153,11 +177,17 @@ class TestOrchestrationEngine:
 
     def test_build_dependency_graph(self):
         engine = _make_engine()
-        a1 = ExecutionAction(id="a1", phase=ExecutionPhase.VALIDATION,
-                            provider="p", operation="op", description="d")
-        a2 = ExecutionAction(id="a2", phase=ExecutionPhase.VALIDATION,
-                            provider="p", operation="op", description="d",
-                            dependencies=["a1"])
+        a1 = ExecutionAction(
+            id="a1", phase=ExecutionPhase.VALIDATION, provider="p", operation="op", description="d"
+        )
+        a2 = ExecutionAction(
+            id="a2",
+            phase=ExecutionPhase.VALIDATION,
+            provider="p",
+            operation="op",
+            description="d",
+            dependencies=["a1"],
+        )
         graph = engine._build_dependency_graph([a1, a2])
         assert graph["a1"] == []
         assert graph["a2"] == ["a1"]
@@ -197,15 +227,25 @@ class TestOrchestrationEngine:
     def test_log_action_start(self):
         engine = _make_engine()
         engine.context.console = None
-        action = ExecutionAction(id="a1", phase=ExecutionPhase.VALIDATION,
-                                provider="p", operation="op", description="Test action")
+        action = ExecutionAction(
+            id="a1",
+            phase=ExecutionPhase.VALIDATION,
+            provider="p",
+            operation="op",
+            description="Test action",
+        )
         engine._log_action_start(action)
 
     def test_log_action_success(self):
         engine = _make_engine()
         engine.context.console = None
-        action = ExecutionAction(id="a1", phase=ExecutionPhase.VALIDATION,
-                                provider="p", operation="op", description="Test action")
+        action = ExecutionAction(
+            id="a1",
+            phase=ExecutionPhase.VALIDATION,
+            provider="p",
+            operation="op",
+            description="Test action",
+        )
         action.start_time = datetime.now(timezone.utc)
         action.end_time = datetime.now(timezone.utc)
         engine._log_action_success(action)
@@ -213,14 +253,23 @@ class TestOrchestrationEngine:
     def test_log_action_success_no_times(self):
         engine = _make_engine()
         engine.context.console = None
-        action = ExecutionAction(id="a1", phase=ExecutionPhase.VALIDATION,
-                                provider="p", operation="op", description="Test action")
+        action = ExecutionAction(
+            id="a1",
+            phase=ExecutionPhase.VALIDATION,
+            provider="p",
+            operation="op",
+            description="Test action",
+        )
         engine._log_action_success(action)
 
     def test_execute_plan_success(self):
-        action = ExecutionAction(id="a1", phase=ExecutionPhase.VALIDATION,
-                               provider="test_p", operation="validate",
-                               description="Validate")
+        action = ExecutionAction(
+            id="a1",
+            phase=ExecutionPhase.VALIDATION,
+            provider="test_p",
+            operation="validate",
+            description="Validate",
+        )
         phase = PhaseExecution(phase=ExecutionPhase.VALIDATION, actions=[action])
         engine = _make_engine(phases=[phase])
 
@@ -228,10 +277,12 @@ class TestOrchestrationEngine:
         mock_provider.validate.return_value = {"status": "ok"}
 
         async def run_test():
-            with patch.object(engine, "_initialize_providers") as mock_init, \
-                 patch.object(engine, "_execute_phase") as mock_exec_phase, \
-                 patch.object(engine, "_finalize_execution") as mock_finalize, \
-                 patch.object(engine, "_save_execution_state"):
+            with (
+                patch.object(engine, "_initialize_providers"),
+                patch.object(engine, "_execute_phase"),
+                patch.object(engine, "_finalize_execution"),
+                patch.object(engine, "_save_execution_state"),
+            ):
                 result = await engine.execute_plan()
             return result
 
@@ -242,8 +293,10 @@ class TestOrchestrationEngine:
         engine = _make_engine()
 
         async def run_test():
-            with patch.object(engine, "_initialize_providers", side_effect=RuntimeError("boom")), \
-                 patch.object(engine, "_handle_execution_failure") as mock_handle:
+            with (
+                patch.object(engine, "_initialize_providers", side_effect=RuntimeError("boom")),
+                patch.object(engine, "_handle_execution_failure"),
+            ):
                 result = await engine.execute_plan()
             return result
 
@@ -251,43 +304,55 @@ class TestOrchestrationEngine:
         assert result["success"] is False
 
     def test_execute_phase_sequential(self):
-        action = ExecutionAction(id="a1", phase=ExecutionPhase.VALIDATION,
-                               provider="p", operation="op", description="d")
-        phase = PhaseExecution(phase=ExecutionPhase.VALIDATION, actions=[action],
-                               parallel_execution=False)
+        action = ExecutionAction(
+            id="a1", phase=ExecutionPhase.VALIDATION, provider="p", operation="op", description="d"
+        )
+        phase = PhaseExecution(
+            phase=ExecutionPhase.VALIDATION, actions=[action], parallel_execution=False
+        )
         engine = _make_engine()
 
         async def run_test():
-            with patch.object(engine, "_execute_actions_sequential") as mock_seq:
+            with patch.object(engine, "_execute_actions_sequential"):
                 await engine._execute_phase(phase)
             assert phase.status == ActionStatus.SUCCESS
 
         asyncio.run(run_test())
 
     def test_execute_phase_parallel(self):
-        action = ExecutionAction(id="a1", phase=ExecutionPhase.VALIDATION,
-                               provider="p", operation="op", description="d")
-        phase = PhaseExecution(phase=ExecutionPhase.VALIDATION, actions=[action],
-                               parallel_execution=True)
+        action = ExecutionAction(
+            id="a1", phase=ExecutionPhase.VALIDATION, provider="p", operation="op", description="d"
+        )
+        phase = PhaseExecution(
+            phase=ExecutionPhase.VALIDATION, actions=[action], parallel_execution=True
+        )
         engine = _make_engine()
 
         async def run_test():
-            with patch.object(engine, "_execute_actions_parallel") as mock_par:
+            with patch.object(engine, "_execute_actions_parallel"):
                 await engine._execute_phase(phase)
             assert phase.status == ActionStatus.SUCCESS
 
         asyncio.run(run_test())
 
     def test_execute_phase_failure_triggers_rollback(self):
-        action = ExecutionAction(id="a1", phase=ExecutionPhase.VALIDATION,
-                               provider="p", operation="op", description="d")
-        phase = PhaseExecution(phase=ExecutionPhase.VALIDATION, actions=[action],
-                               rollback_strategy=RollbackStrategy.IMMEDIATE)
+        action = ExecutionAction(
+            id="a1", phase=ExecutionPhase.VALIDATION, provider="p", operation="op", description="d"
+        )
+        phase = PhaseExecution(
+            phase=ExecutionPhase.VALIDATION,
+            actions=[action],
+            rollback_strategy=RollbackStrategy.IMMEDIATE,
+        )
         engine = _make_engine()
 
         async def run_test():
-            with patch.object(engine, "_execute_actions_sequential", side_effect=RuntimeError("fail")), \
-                 patch.object(engine, "_handle_phase_failure") as mock_rollback:
+            with (
+                patch.object(
+                    engine, "_execute_actions_sequential", side_effect=RuntimeError("fail")
+                ),
+                patch.object(engine, "_handle_phase_failure") as mock_rollback,
+            ):
                 with pytest.raises(RuntimeError):
                     await engine._execute_phase(phase)
             mock_rollback.assert_called_once()
@@ -296,16 +361,21 @@ class TestOrchestrationEngine:
 
     def test_execute_single_action_success(self):
         engine = _make_engine()
-        action = ExecutionAction(id="a1", phase=ExecutionPhase.VALIDATION,
-                               provider="p", operation="do_thing", description="d",
-                               rollback_operation="undo_thing")
+        action = ExecutionAction(
+            id="a1",
+            phase=ExecutionPhase.VALIDATION,
+            provider="p",
+            operation="do_thing",
+            description="d",
+            rollback_operation="undo_thing",
+        )
         mock_provider = MagicMock()
         mock_provider.do_thing.return_value = {"ok": True}
         engine.context.providers["p"] = mock_provider
 
         async def run_test():
             with patch.object(engine, "_execute_operation", return_value={"ok": True}):
-                result = await engine._execute_single_action(action)
+                await engine._execute_single_action(action)
             assert action.status == ActionStatus.SUCCESS
             assert action in engine.rollback_stack
 
@@ -313,9 +383,14 @@ class TestOrchestrationEngine:
 
     def test_execute_single_action_provider_not_found(self):
         engine = _make_engine()
-        action = ExecutionAction(id="a1", phase=ExecutionPhase.VALIDATION,
-                               provider="missing", operation="op", description="d",
-                               retry_count=0)
+        action = ExecutionAction(
+            id="a1",
+            phase=ExecutionPhase.VALIDATION,
+            provider="missing",
+            operation="op",
+            description="d",
+            retry_count=0,
+        )
 
         async def run_test():
             with pytest.raises(Exception):
@@ -325,9 +400,15 @@ class TestOrchestrationEngine:
 
     def test_execute_single_action_timeout(self):
         engine = _make_engine()
-        action = ExecutionAction(id="a1", phase=ExecutionPhase.VALIDATION,
-                               provider="p", operation="op", description="d",
-                               timeout_seconds=1, retry_count=0)
+        action = ExecutionAction(
+            id="a1",
+            phase=ExecutionPhase.VALIDATION,
+            provider="p",
+            operation="op",
+            description="d",
+            timeout_seconds=1,
+            retry_count=0,
+        )
         engine.context.providers["p"] = MagicMock()
 
         async def run_test():
@@ -343,9 +424,14 @@ class TestOrchestrationEngine:
 
     def test_execute_operation_sync(self):
         engine = _make_engine()
-        action = ExecutionAction(id="a1", phase=ExecutionPhase.VALIDATION,
-                               provider="p", operation="do_sync",
-                               description="d", metadata={"key": "val"})
+        action = ExecutionAction(
+            id="a1",
+            phase=ExecutionPhase.VALIDATION,
+            provider="p",
+            operation="do_sync",
+            description="d",
+            metadata={"key": "val"},
+        )
         mock_provider = MagicMock()
         mock_provider.do_sync.return_value = {"result": "ok"}
 
@@ -357,9 +443,14 @@ class TestOrchestrationEngine:
 
     def test_execute_operation_async(self):
         engine = _make_engine()
-        action = ExecutionAction(id="a1", phase=ExecutionPhase.VALIDATION,
-                               provider="p", operation="do_async",
-                               description="d", metadata={})
+        action = ExecutionAction(
+            id="a1",
+            phase=ExecutionPhase.VALIDATION,
+            provider="p",
+            operation="do_async",
+            description="d",
+            metadata={},
+        )
         mock_provider = MagicMock()
         mock_provider.do_async = AsyncMock(return_value={"async": True})
 
@@ -371,9 +462,14 @@ class TestOrchestrationEngine:
 
     def test_execute_operation_not_found(self):
         engine = _make_engine()
-        action = ExecutionAction(id="a1", phase=ExecutionPhase.VALIDATION,
-                               provider="p", operation="nonexistent",
-                               description="d", metadata={})
+        action = ExecutionAction(
+            id="a1",
+            phase=ExecutionPhase.VALIDATION,
+            provider="p",
+            operation="nonexistent",
+            description="d",
+            metadata={},
+        )
         mock_provider = MagicMock(spec=[])  # No methods
 
         async def run_test():
@@ -384,8 +480,11 @@ class TestOrchestrationEngine:
 
     def test_handle_phase_failure_immediate(self):
         engine = _make_engine()
-        phase = PhaseExecution(phase=ExecutionPhase.VALIDATION, actions=[],
-                               rollback_strategy=RollbackStrategy.IMMEDIATE)
+        phase = PhaseExecution(
+            phase=ExecutionPhase.VALIDATION,
+            actions=[],
+            rollback_strategy=RollbackStrategy.IMMEDIATE,
+        )
 
         async def run_test():
             with patch.object(engine, "_execute_rollback") as mock_rb:
@@ -396,8 +495,11 @@ class TestOrchestrationEngine:
 
     def test_handle_phase_failure_full_rollback(self):
         engine = _make_engine()
-        phase = PhaseExecution(phase=ExecutionPhase.VALIDATION, actions=[],
-                               rollback_strategy=RollbackStrategy.FULL_ROLLBACK)
+        phase = PhaseExecution(
+            phase=ExecutionPhase.VALIDATION,
+            actions=[],
+            rollback_strategy=RollbackStrategy.FULL_ROLLBACK,
+        )
 
         async def run_test():
             with patch.object(engine, "_execute_rollback") as mock_rb:
@@ -408,8 +510,11 @@ class TestOrchestrationEngine:
 
     def test_handle_phase_failure_phase_complete(self):
         engine = _make_engine()
-        phase = PhaseExecution(phase=ExecutionPhase.VALIDATION, actions=[],
-                               rollback_strategy=RollbackStrategy.PHASE_COMPLETE)
+        phase = PhaseExecution(
+            phase=ExecutionPhase.VALIDATION,
+            actions=[],
+            rollback_strategy=RollbackStrategy.PHASE_COMPLETE,
+        )
 
         async def run_test():
             with patch.object(engine, "_execute_rollback") as mock_rb:
@@ -420,30 +525,44 @@ class TestOrchestrationEngine:
 
     def test_execute_rollback_phase_only(self):
         engine = _make_engine()
-        action = ExecutionAction(id="a1", phase=ExecutionPhase.VALIDATION,
-                               provider="p", operation="op", description="d",
-                               rollback_operation="undo")
+        action = ExecutionAction(
+            id="a1",
+            phase=ExecutionPhase.VALIDATION,
+            provider="p",
+            operation="op",
+            description="d",
+            rollback_operation="undo",
+        )
         engine.rollback_stack.append(action)
         mock_provider = MagicMock()
         engine.context.providers["p"] = mock_provider
 
         async def run_test():
             with patch.object(engine, "_execute_rollback_operation"):
-                await engine._execute_rollback(phase_only=True, failed_phase=ExecutionPhase.VALIDATION)
+                await engine._execute_rollback(
+                    phase_only=True, failed_phase=ExecutionPhase.VALIDATION
+                )
 
         asyncio.run(run_test())
 
     def test_execute_rollback_failure(self):
         engine = _make_engine()
-        action = ExecutionAction(id="a1", phase=ExecutionPhase.VALIDATION,
-                               provider="p", operation="op", description="d",
-                               rollback_operation="undo")
+        action = ExecutionAction(
+            id="a1",
+            phase=ExecutionPhase.VALIDATION,
+            provider="p",
+            operation="op",
+            description="d",
+            rollback_operation="undo",
+        )
         engine.rollback_stack.append(action)
         mock_provider = MagicMock()
         engine.context.providers["p"] = mock_provider
 
         async def run_test():
-            with patch.object(engine, "_execute_rollback_operation", side_effect=RuntimeError("rb fail")):
+            with patch.object(
+                engine, "_execute_rollback_operation", side_effect=RuntimeError("rb fail")
+            ):
                 # Should not raise despite rollback failure
                 await engine._execute_rollback(phase_only=False)
 
@@ -463,8 +582,10 @@ class TestOrchestrationEngine:
         engine = _make_engine(rollback_strategy=RollbackStrategy.FULL_ROLLBACK)
 
         async def run_test():
-            with patch.object(engine, "_execute_rollback") as mock_rb, \
-                 patch.object(engine, "_save_execution_state"):
+            with (
+                patch.object(engine, "_execute_rollback") as mock_rb,
+                patch.object(engine, "_save_execution_state"),
+            ):
                 await engine._handle_execution_failure(RuntimeError("fail"))
             mock_rb.assert_called_once()
 
@@ -474,8 +595,10 @@ class TestOrchestrationEngine:
         engine = _make_engine(rollback_strategy=RollbackStrategy.NONE)
 
         async def run_test():
-            with patch.object(engine, "_execute_rollback") as mock_rb, \
-                 patch.object(engine, "_save_execution_state"):
+            with (
+                patch.object(engine, "_execute_rollback") as mock_rb,
+                patch.object(engine, "_save_execution_state"),
+            ):
                 await engine._handle_execution_failure(RuntimeError("fail"))
             mock_rb.assert_not_called()
 
@@ -483,12 +606,22 @@ class TestOrchestrationEngine:
 
     def test_execute_actions_parallel_circular_dependency(self):
         engine = _make_engine()
-        a1 = ExecutionAction(id="a1", phase=ExecutionPhase.VALIDATION,
-                            provider="p", operation="op", description="d",
-                            dependencies=["a2"])
-        a2 = ExecutionAction(id="a2", phase=ExecutionPhase.VALIDATION,
-                            provider="p", operation="op", description="d",
-                            dependencies=["a1"])
+        a1 = ExecutionAction(
+            id="a1",
+            phase=ExecutionPhase.VALIDATION,
+            provider="p",
+            operation="op",
+            description="d",
+            dependencies=["a2"],
+        )
+        a2 = ExecutionAction(
+            id="a2",
+            phase=ExecutionPhase.VALIDATION,
+            provider="p",
+            operation="op",
+            description="d",
+            dependencies=["a1"],
+        )
 
         async def run_test():
             with pytest.raises(Exception):
@@ -498,6 +631,7 @@ class TestOrchestrationEngine:
 
 
 # ===================== FluidPlanGenerator =====================
+
 
 class TestFluidPlanGenerator:
     def test_generate_empty_contract(self):

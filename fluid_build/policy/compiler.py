@@ -12,8 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import List, Tuple, Dict, Any
-from ..providers.base import PlanAction
+from typing import Any, Dict, List, Tuple
 
 SAFE_BQ_PERMS = {
     "readData": ["roles/bigquery.dataViewer"],
@@ -33,7 +32,12 @@ SAFE_S3_PERMS = {
     "manage": ["s3:PutObject", "s3:DeleteObject", "s3:GetObject", "s3:ListBucket"],
 }
 SAFE_GLUE_PERMS = {
-    "readData": ["glue:GetTable", "glue:GetDatabase", "athena:StartQueryExecution", "athena:GetQueryResults"],
+    "readData": [
+        "glue:GetTable",
+        "glue:GetDatabase",
+        "athena:StartQueryExecution",
+        "athena:GetQueryResults",
+    ],
     "readMetadata": ["glue:GetTable", "glue:GetDatabase"],
     "manage": ["glue:CreateTable", "glue:UpdateTable", "glue:DeleteTable"],
 }
@@ -100,60 +104,84 @@ def _compile_gcp_bindings(bindings, fmt, loc, principal, permissions):
         dataset = loc.get("dataset")
         project = loc.get("project")
         if dataset:
-            perm_key = "manage" if any(p in permissions for p in ("write", "insert", "update", "delete")) else "readData"
-            bindings.append({
-                "provider": "gcp",
-                "resource_type": "bigquery.dataset",
-                "resource_id": f"{project}.{dataset}" if project else dataset,
-                "project": project,
-                "dataset": dataset,
-                "principal": principal,
-                "roles": SAFE_BQ_PERMS.get(perm_key, SAFE_BQ_PERMS["readData"]),
-            })
+            perm_key = (
+                "manage"
+                if any(p in permissions for p in ("write", "insert", "update", "delete"))
+                else "readData"
+            )
+            bindings.append(
+                {
+                    "provider": "gcp",
+                    "resource_type": "bigquery.dataset",
+                    "resource_id": f"{project}.{dataset}" if project else dataset,
+                    "project": project,
+                    "dataset": dataset,
+                    "principal": principal,
+                    "roles": SAFE_BQ_PERMS.get(perm_key, SAFE_BQ_PERMS["readData"]),
+                }
+            )
     elif fmt in ("gcs_parquet_files", "gcs_file"):
         bucket = loc.get("bucket")
         if bucket:
-            perm_key = "manage" if any(p in permissions for p in ("write", "insert", "update", "delete")) else "readData"
-            bindings.append({
-                "provider": "gcp",
-                "resource_type": "gcs.bucket",
-                "resource_id": bucket,
-                "bucket": bucket,
-                "principal": principal,
-                "roles": SAFE_GCS_PERMS.get(perm_key, SAFE_GCS_PERMS["readData"]),
-            })
+            perm_key = (
+                "manage"
+                if any(p in permissions for p in ("write", "insert", "update", "delete"))
+                else "readData"
+            )
+            bindings.append(
+                {
+                    "provider": "gcp",
+                    "resource_type": "gcs.bucket",
+                    "resource_id": bucket,
+                    "bucket": bucket,
+                    "principal": principal,
+                    "roles": SAFE_GCS_PERMS.get(perm_key, SAFE_GCS_PERMS["readData"]),
+                }
+            )
 
 
 def _compile_aws_bindings(bindings, fmt, loc, principal, permissions):
     """Generate AWS IAM policy statements."""
     bucket = loc.get("bucket")
     if bucket:
-        perm_key = "manage" if any(p in permissions for p in ("write", "insert", "update", "delete")) else "readData"
-        bindings.append({
-            "provider": "aws",
-            "resource_type": "s3.bucket",
-            "resource_id": bucket,
-            "bucket": bucket,
-            "region": loc.get("region"),
-            "principal": principal,
-            "actions": SAFE_S3_PERMS.get(perm_key, SAFE_S3_PERMS["readData"]),
-        })
+        perm_key = (
+            "manage"
+            if any(p in permissions for p in ("write", "insert", "update", "delete"))
+            else "readData"
+        )
+        bindings.append(
+            {
+                "provider": "aws",
+                "resource_type": "s3.bucket",
+                "resource_id": bucket,
+                "bucket": bucket,
+                "region": loc.get("region"),
+                "principal": principal,
+                "actions": SAFE_S3_PERMS.get(perm_key, SAFE_S3_PERMS["readData"]),
+            }
+        )
 
     # Glue/Athena bindings
     database = loc.get("database") or loc.get("dataset")
     table = loc.get("table")
     if database:
-        perm_key = "manage" if any(p in permissions for p in ("write", "insert", "update", "delete")) else "readData"
-        bindings.append({
-            "provider": "aws",
-            "resource_type": "glue.table",
-            "resource_id": f"{database}.{table}" if table else database,
-            "database": database,
-            "table": table,
-            "region": loc.get("region"),
-            "principal": principal,
-            "actions": SAFE_GLUE_PERMS.get(perm_key, SAFE_GLUE_PERMS["readData"]),
-        })
+        perm_key = (
+            "manage"
+            if any(p in permissions for p in ("write", "insert", "update", "delete"))
+            else "readData"
+        )
+        bindings.append(
+            {
+                "provider": "aws",
+                "resource_type": "glue.table",
+                "resource_id": f"{database}.{table}" if table else database,
+                "database": database,
+                "table": table,
+                "region": loc.get("region"),
+                "principal": principal,
+                "actions": SAFE_GLUE_PERMS.get(perm_key, SAFE_GLUE_PERMS["readData"]),
+            }
+        )
 
 
 def _compile_snowflake_bindings(bindings, fmt, loc, principal, permissions):
@@ -162,15 +190,21 @@ def _compile_snowflake_bindings(bindings, fmt, loc, principal, permissions):
     schema = loc.get("schema")
     table = loc.get("table")
     if database:
-        perm_key = "manage" if any(p in permissions for p in ("write", "insert", "update", "delete")) else "readData"
+        perm_key = (
+            "manage"
+            if any(p in permissions for p in ("write", "insert", "update", "delete"))
+            else "readData"
+        )
         resource_id = ".".join(filter(None, [database, schema, table]))
-        bindings.append({
-            "provider": "snowflake",
-            "resource_type": "snowflake.table" if table else "snowflake.schema",
-            "resource_id": resource_id,
-            "database": database,
-            "schema": schema,
-            "table": table,
-            "principal": principal,
-            "grants": SAFE_SNOWFLAKE_PERMS.get(perm_key, SAFE_SNOWFLAKE_PERMS["readData"]),
-        })
+        bindings.append(
+            {
+                "provider": "snowflake",
+                "resource_type": "snowflake.table" if table else "snowflake.schema",
+                "resource_id": resource_id,
+                "database": database,
+                "schema": schema,
+                "table": table,
+                "principal": principal,
+                "grants": SAFE_SNOWFLAKE_PERMS.get(perm_key, SAFE_SNOWFLAKE_PERMS["readData"]),
+            }
+        )

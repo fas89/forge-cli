@@ -13,11 +13,16 @@
 # limitations under the License.
 
 from __future__ import annotations
-import argparse, logging, os
-from ._common import load_contract_with_overlay, write_json, CLIError
+
+import argparse
+import logging
+import os
+
+from ._common import CLIError, load_contract_with_overlay, write_json
 from ._logging import info
 
 COMMAND = "export-opds"
+
 
 def register(subparsers: argparse._SubParsersAction):
     p = subparsers.add_parser(COMMAND, help="Export FLUID → OPDS JSON")
@@ -26,11 +31,13 @@ def register(subparsers: argparse._SubParsersAction):
     p.add_argument("--out", default="runtime/exports/product.opds.json", help="Output path")
     p.set_defaults(cmd=COMMAND, func=run)
 
+
 def run(args, logger: logging.Logger) -> int:
     try:
         c = load_contract_with_overlay(args.contract, getattr(args, "env", None), logger)
         try:
             from fluid_build.providers.odps.odps import OdpsProvider
+
             export = OdpsProvider.to_odps(c)
         except Exception:
             export = {

@@ -22,6 +22,7 @@ Implements idempotent IAM operations:
 - S3 bucket access policy binding
 - Glue database access policy binding
 """
+
 import json
 import time
 from typing import Any, Dict
@@ -54,14 +55,19 @@ def ensure_role(action: Dict[str, Any]) -> Dict[str, Any]:
     if not role_name:
         return _error("'role_name' is required", start_time)
 
-    trust_policy = action.get("trust_policy", {
-        "Version": "2012-10-17",
-        "Statement": [{
-            "Effect": "Allow",
-            "Principal": {"Service": "glue.amazonaws.com"},
-            "Action": "sts:AssumeRole",
-        }],
-    })
+    trust_policy = action.get(
+        "trust_policy",
+        {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Principal": {"Service": "glue.amazonaws.com"},
+                    "Action": "sts:AssumeRole",
+                }
+            ],
+        },
+    )
     description = action.get("description", "Managed by FLUID Forge")
     tags = _to_iam_tags(action.get("tags", {}))
 
@@ -190,9 +196,7 @@ def ensure_policy(action: Dict[str, Any]) -> Dict[str, Any]:
             try:
                 # List versions and delete the oldest non-default if at limit (max 5)
                 versions = iam.list_policy_versions(PolicyArn=policy_arn)
-                non_default = [
-                    v for v in versions["Versions"] if not v["IsDefaultVersion"]
-                ]
+                non_default = [v for v in versions["Versions"] if not v["IsDefaultVersion"]]
                 if len(non_default) >= 4:
                     oldest = sorted(non_default, key=lambda v: v["CreateDate"])[0]
                     iam.delete_policy_version(
@@ -266,29 +270,35 @@ def bind_s3_bucket(action: Dict[str, Any]) -> Dict[str, Any]:
     # Build least-privilege S3 policy
     statements = []
     if access in ("read", "readwrite"):
-        statements.append({
-            "Effect": "Allow",
-            "Action": ["s3:GetObject", "s3:ListBucket"],
-            "Resource": [
-                f"arn:aws:s3:::{bucket}",
-                f"arn:aws:s3:::{bucket}/*",
-            ],
-        })
+        statements.append(
+            {
+                "Effect": "Allow",
+                "Action": ["s3:GetObject", "s3:ListBucket"],
+                "Resource": [
+                    f"arn:aws:s3:::{bucket}",
+                    f"arn:aws:s3:::{bucket}/*",
+                ],
+            }
+        )
     if access in ("write", "readwrite"):
-        statements.append({
-            "Effect": "Allow",
-            "Action": ["s3:PutObject", "s3:DeleteObject"],
-            "Resource": [f"arn:aws:s3:::{bucket}/*"],
-        })
+        statements.append(
+            {
+                "Effect": "Allow",
+                "Action": ["s3:PutObject", "s3:DeleteObject"],
+                "Resource": [f"arn:aws:s3:::{bucket}/*"],
+            }
+        )
 
     policy_doc = {"Version": "2012-10-17", "Statement": statements}
 
-    result = ensure_policy({
-        "policy_name": f"fluid-s3-{bucket}",
-        "policy_document": policy_doc,
-        "description": f"FLUID S3 access for {bucket}",
-        "account_id": account_id,
-    })
+    result = ensure_policy(
+        {
+            "policy_name": f"fluid-s3-{bucket}",
+            "policy_document": policy_doc,
+            "description": f"FLUID S3 access for {bucket}",
+            "account_id": account_id,
+        }
+    )
 
     if result.get("status") == "error":
         return result
@@ -296,10 +306,12 @@ def bind_s3_bucket(action: Dict[str, Any]) -> Dict[str, Any]:
     # Optionally attach to role
     role_name = action.get("role_name")
     if role_name and result.get("policy_arn"):
-        attach_result = attach_policy({
-            "role_name": role_name,
-            "policy_arn": result["policy_arn"],
-        })
+        attach_result = attach_policy(
+            {
+                "role_name": role_name,
+                "policy_arn": result["policy_arn"],
+            }
+        )
         if attach_result.get("status") == "error":
             return attach_result
 
@@ -371,12 +383,14 @@ def bind_glue_database(action: Dict[str, Any]) -> Dict[str, Any]:
         ],
     }
 
-    result = ensure_policy({
-        "policy_name": f"fluid-glue-{database}",
-        "policy_document": policy_doc,
-        "description": f"FLUID Glue access for {database}",
-        "account_id": account_id,
-    })
+    result = ensure_policy(
+        {
+            "policy_name": f"fluid-glue-{database}",
+            "policy_document": policy_doc,
+            "description": f"FLUID Glue access for {database}",
+            "account_id": account_id,
+        }
+    )
 
     if result.get("status") == "error":
         return result
@@ -384,10 +398,12 @@ def bind_glue_database(action: Dict[str, Any]) -> Dict[str, Any]:
     # Optionally attach to role
     role_name = action.get("role_name")
     if role_name and result.get("policy_arn"):
-        attach_result = attach_policy({
-            "role_name": role_name,
-            "policy_arn": result["policy_arn"],
-        })
+        attach_result = attach_policy(
+            {
+                "role_name": role_name,
+                "policy_arn": result["policy_arn"],
+            }
+        )
         if attach_result.get("status") == "error":
             return attach_result
 
@@ -396,6 +412,7 @@ def bind_glue_database(action: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # ── helpers ──────────────────────────────────────────────────────────────
+
 
 def _boto_missing(start_time: float) -> Dict[str, Any]:
     return {

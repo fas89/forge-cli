@@ -18,17 +18,19 @@ Enhanced Snowflake connection management with pooling and retry capabilities.
 """
 
 from __future__ import annotations
+
 import logging
-import os
-import time
 import threading
+import time
+from collections.abc import Iterable
 from contextlib import contextmanager
-from queue import Queue, Empty
-from typing import Optional, Dict, Any, Iterable, List
 from dataclasses import dataclass
+from queue import Empty, Queue
+from typing import Any, Dict, List, Optional
 
 try:
     import snowflake.connector
+
     SNOWFLAKE_AVAILABLE = True
 except ImportError:
     SNOWFLAKE_AVAILABLE = False
@@ -42,6 +44,7 @@ logger = logging.getLogger("fluid_build.providers.snowflake.connection")
 @dataclass
 class ConnectionMetrics:
     """Connection usage metrics."""
+
     created: int = 0
     reused: int = 0
     errors: int = 0
@@ -51,7 +54,7 @@ class ConnectionMetrics:
 
 class SnowflakeConnection:
     """Enhanced Snowflake connection with retry capabilities and monitoring."""
-    
+
     def __init__(self, opts: ProviderOptions):
         self.opts = opts
         self._conn = None
@@ -88,14 +91,14 @@ class SnowflakeConnection:
         """Execute function with retry logic."""
         max_retries = 3
         retry_delay = 1.0
-        
+
         for attempt in range(max_retries):
             try:
                 return func(*args, **kwargs)
             except Exception as e:
                 if attempt == max_retries - 1:
                     raise e
-                time.sleep(retry_delay * (2 ** attempt))
+                time.sleep(retry_delay * (2**attempt))
 
     def health_check(self) -> bool:
         """Check if connection is healthy and usable."""
@@ -106,7 +109,7 @@ class SnowflakeConnection:
         """Check if connection is healthy and usable."""
         if self._conn is None:
             return False
-        
+
         try:
             # Simple health check query
             cursor = self._conn.cursor()
@@ -121,7 +124,7 @@ class SnowflakeConnection:
         """Get connection age in seconds."""
         return time.time() - self._created_at
 
-    @property 
+    @property
     def idle_seconds(self) -> float:
         """Get idle time in seconds."""
         return time.time() - self._last_used
@@ -133,10 +136,10 @@ class SnowflakeConnection:
                 "snowflake-connector-python not installed. "
                 "Install with: pip install snowflake-connector-python"
             )
-        
+
         max_retries = 3
         retry_delay = 1.0
-        
+
         for attempt in range(max_retries):
             try:
                 kwargs: Dict[str, Any] = dict(
@@ -147,14 +150,12 @@ class SnowflakeConnection:
                     database=self.opts.database,
                     schema=self.opts.schema,
                     session_parameters=self.opts.session_params or {"QUERY_TAG": "fluid-forge"},
-                    
                     # Enhanced connection settings
-                    login_timeout=getattr(self.opts, 'login_timeout', 30),
-                    network_timeout=getattr(self.opts, 'connection_timeout', 60),
-                    client_session_keep_alive=getattr(self.opts, 'client_session_keep_alive', True),
-                    
+                    login_timeout=getattr(self.opts, "login_timeout", 30),
+                    network_timeout=getattr(self.opts, "connection_timeout", 60),
+                    client_session_keep_alive=getattr(self.opts, "client_session_keep_alive", True),
                     # Connection optimization
-                    paramstyle='qmark',
+                    paramstyle="qmark",
                     autocommit=True,
                 )
 
@@ -162,19 +163,22 @@ class SnowflakeConnection:
                 if self.opts.oauth_token:
                     kwargs["authenticator"] = "oauth"
                     kwargs["token"] = self.opts.oauth_token
-                elif getattr(self.opts, 'authenticator', None):
+                elif getattr(self.opts, "authenticator", None):
                     kwargs["authenticator"] = self.opts.authenticator
                 elif self.opts.private_key_path:
                     # Key pair authentication
                     from cryptography.hazmat.primitives import serialization
-                    
+
                     with open(self.opts.private_key_path, "rb") as f:
                         pkey = serialization.load_pem_private_key(
                             f.read(),
-                            password=(self.opts.private_key_passphrase.encode("utf-8") 
-                                    if self.opts.private_key_passphrase else None)
+                            password=(
+                                self.opts.private_key_passphrase.encode("utf-8")
+                                if self.opts.private_key_passphrase
+                                else None
+                            ),
                         )
-                    
+
                     pkb = pkey.private_bytes(
                         serialization.Encoding.DER,
                         serialization.PrivateFormat.PKCS8,
@@ -187,37 +191,38 @@ class SnowflakeConnection:
 
                 logger.debug(f"Connecting to Snowflake (attempt {attempt + 1})")
                 conn = snowflake.connector.connect(**kwargs)
-                
+
                 # Verify connection with simple query
                 cursor = conn.cursor()
                 cursor.execute("SELECT CURRENT_VERSION()")
                 cursor.close()
-                
+
                 logger.info("Successfully connected to Snowflake")
                 return conn
-                
+
             except Exception as e:
                 logger.warning(f"Connection attempt {attempt + 1} failed: {e}")
                 if attempt < max_retries - 1:
-                    time.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
+                    time.sleep(retry_delay * (2**attempt))  # Exponential backoff
                 else:
                     raise Exception(f"Failed to connect after {max_retries} attempts: {e}")
 
-    def execute(self, sql: str, params: Optional[Iterable] = None, many: bool = False, 
-                fetch: bool = True) -> Optional[List[Any]]:
+    def execute(
+        self, sql: str, params: Optional[Iterable] = None, many: bool = False, fetch: bool = True
+    ) -> Optional[List[Any]]:
         """Execute SQL with enhanced error handling and monitoring."""
         start_time = time.time()
-        
+
         with self._lock:
             self._last_used = time.time()
             self._query_count += 1
-        
+
         try:
             if self._conn is None:
                 self._conn = self._connect()
-            
+
             cursor = self._conn.cursor()
-            
+
             try:
                 if params and many:
                     cursor.executemany(sql, params)
@@ -225,20 +230,20 @@ class SnowflakeConnection:
                     cursor.execute(sql, params)
                 else:
                     cursor.execute(sql)
-                
+
                 # Fetch results if requested
                 results = None
                 if fetch and cursor.description:
                     results = cursor.fetchall()
-                
+
                 duration = time.time() - start_time
                 logger.debug(f"Query executed in {duration:.3f}s: {sql[:100]}...")
-                
+
                 return results
-                
+
             finally:
                 cursor.close()
-                
+
         except Exception as e:
             duration = time.time() - start_time
             logger.error(f"Query failed after {duration:.3f}s: {sql[:100]}... Error: {e}")
@@ -248,12 +253,12 @@ class SnowflakeConnection:
         """Execute multi-statement SQL script."""
         statements = self._split_sql_statements(script)
         results = []
-        
+
         for stmt in statements:
             if stmt.strip():
                 result = self.execute(stmt, fetch=False)
                 results.append(result)
-        
+
         return results
 
     def _split_sql_statements(self, script: str) -> List[str]:
@@ -261,45 +266,45 @@ class SnowflakeConnection:
         # Simple statement splitting - can be enhanced for complex cases
         statements = []
         current_statement = []
-        
-        for line in script.split('\n'):
+
+        for line in script.split("\n"):
             line = line.strip()
-            if not line or line.startswith('--'):
+            if not line or line.startswith("--"):
                 continue
-            
+
             current_statement.append(line)
-            
-            if line.endswith(';'):
-                statements.append(' '.join(current_statement))
+
+            if line.endswith(";"):
+                statements.append(" ".join(current_statement))
                 current_statement = []
-        
+
         # Add any remaining statement
         if current_statement:
-            statements.append(' '.join(current_statement))
-        
+            statements.append(" ".join(current_statement))
+
         return statements
 
 
 class ConnectionPool:
     """Connection pool for managing Snowflake connections."""
-    
+
     def __init__(self, opts: ProviderOptions):
         self.opts = opts
-        self.pool_size = getattr(opts, 'pool_size', 5)
-        self.max_overflow = getattr(opts, 'max_overflow', 10)
-        
+        self.pool_size = getattr(opts, "pool_size", 5)
+        self.max_overflow = getattr(opts, "max_overflow", 10)
+
         self._pool: Queue[SnowflakeConnection] = Queue(maxsize=self.pool_size)
         self._overflow_connections: List[SnowflakeConnection] = []
         self._lock = threading.Lock()
         self._metrics = ConnectionMetrics()
-        
+
         # Connection lifecycle settings
         self.max_connection_age = 3600  # 1 hour
-        self.max_idle_time = 600       # 10 minutes
-        
+        self.max_idle_time = 600  # 10 minutes
+
         # Pre-create initial connections
         self._initialize_pool()
-        
+
         logger.info(f"Connection pool initialized with {self.pool_size} connections")
 
     def _initialize_pool(self):
@@ -317,7 +322,7 @@ class ConnectionPool:
         """Get a connection from the pool."""
         conn = None
         is_overflow = False
-        
+
         try:
             # Try to get connection from pool
             try:
@@ -335,23 +340,23 @@ class ConnectionPool:
                         # Wait for connection to become available
                         conn = self._pool.get(timeout=30)
                         self._metrics.reused += 1
-            
+
             # Validate connection health
             if not conn.is_healthy:
                 logger.warning("Unhealthy connection detected, creating new one")
                 conn.close()
                 conn = SnowflakeConnection(self.opts)
                 self._metrics.created += 1
-            
+
             # Check connection age
             if conn.age_seconds > self.max_connection_age:
                 logger.debug("Connection too old, creating new one")
                 conn.close()
                 conn = SnowflakeConnection(self.opts)
                 self._metrics.created += 1
-            
+
             yield conn
-            
+
         except Exception as e:
             self._metrics.errors += 1
             logger.error(f"Connection pool error: {e}")
@@ -395,7 +400,7 @@ class ConnectionPool:
                 "total_created": self._metrics.created,
                 "total_reused": self._metrics.reused,
                 "total_errors": self._metrics.errors,
-                "pool_utilization": (self.pool_size - self._pool.qsize()) / self.pool_size
+                "pool_utilization": (self.pool_size - self._pool.qsize()) / self.pool_size,
             }
 
     def close_all(self):
@@ -407,20 +412,20 @@ class ConnectionPool:
                 conn.close()
             except Empty:
                 break
-        
+
         # Close overflow connections
         with self._lock:
             for conn in self._overflow_connections:
                 conn.close()
             self._overflow_connections.clear()
-        
+
         logger.info("All connections closed")
 
     def health_check(self) -> Dict[str, Any]:
         """Perform health check on the connection pool."""
         healthy_connections = 0
         total_connections = 0
-        
+
         # Check pool connections
         temp_connections = []
         while not self._pool.empty():
@@ -432,26 +437,30 @@ class ConnectionPool:
                 temp_connections.append(conn)
             except Empty:
                 break
-        
+
         # Return connections to pool
         for conn in temp_connections:
             try:
                 self._pool.put(conn, block=False)
             except Exception:
                 pass
-        
+
         # Check overflow connections
         with self._lock:
             for conn in self._overflow_connections:
                 total_connections += 1
                 if conn.is_healthy:
                     healthy_connections += 1
-        
+
         health_ratio = healthy_connections / total_connections if total_connections > 0 else 0
-        
+
         return {
             "healthy_connections": healthy_connections,
             "total_connections": total_connections,
             "health_ratio": health_ratio,
-            "status": "healthy" if health_ratio >= 0.8 else "degraded" if health_ratio >= 0.5 else "unhealthy"
+            "status": (
+                "healthy"
+                if health_ratio >= 0.8
+                else "degraded" if health_ratio >= 0.5 else "unhealthy"
+            ),
         }

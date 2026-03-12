@@ -25,36 +25,36 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Union
+from typing import Any, Dict, List, Optional, Union
 
-from fluid_build.providers.base import BaseProvider, ApplyResult, ProviderError
+from fluid_build.providers.base import ApplyResult, BaseProvider, ProviderError
 
 
 class OdcsProvider(BaseProvider):
     """
     ODCS (Open Data Contract Standard) provider.
-    
+
     Supports:
     - Export: FLUID → ODCS v3.1.0
     - Import: ODCS v3.1.0 → FLUID
     - Validation: Against JSON Schema
-    
+
     Specification: https://github.com/bitol-io/open-data-contract-standard
     """
 
     def __init__(self):
         super().__init__()
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
-        
+
         # ODCS version
         self.odcs_version = "v3.1.0"
         self.odcs_spec_url = "https://github.com/bitol-io/open-data-contract-standard"
-        
+
         # Load JSON Schema for validation
         self.schema = self._load_schema()
-        
+
         # Configuration
         # Quality checks now enabled by default with ODCS v3.1.0 compliant format
         # Disable with ODCS_INCLUDE_QUALITY=false if needed
@@ -69,23 +69,25 @@ class OdcsProvider(BaseProvider):
         """Signal provider capabilities."""
         caps = super().capabilities()
         caps = dict(caps)
-        caps.update({
-            "planning": False,
-            "apply": False,
-            "render": True,       # Export capability
-            "validate": True,     # Validation against ODCS schema
-            "supports_batch": False,
-        })
+        caps.update(
+            {
+                "planning": False,
+                "apply": False,
+                "render": True,  # Export capability
+                "validate": True,  # Validation against ODCS schema
+                "supports_batch": False,
+            }
+        )
         return caps
 
     def _load_schema(self) -> Optional[Dict[str, Any]]:
         """Load ODCS JSON Schema for validation."""
         schema_path = Path(__file__).parent / "odcs-schema-v3.1.0.json"
-        
+
         if not schema_path.exists():
             self.logger.warning(f"ODCS schema not found: {schema_path}")
             return None
-        
+
         try:
             with open(schema_path) as f:
                 return json.load(f)
@@ -114,12 +116,12 @@ class OdcsProvider(BaseProvider):
     ) -> Dict[str, Any]:
         """
         Export FLUID contract to ODCS format.
-        
+
         Args:
             src: FLUID contract dictionary
             out: Output file path (optional)
             fmt: Output format ('yaml' or 'json')
-            
+
         Returns:
             ODCS-compliant dictionary
         """
@@ -128,33 +130,30 @@ class OdcsProvider(BaseProvider):
                 "ODCS export does not support batch processing. "
                 "Each contract should be exported separately."
             )
-        
+
         self.logger.info("Converting FLUID contract to ODCS v3.1.0")
-        
+
         # Convert to ODCS
         odcs_contract = self._fluid_to_odcs(src)
-        
+
         # Validate if schema available (optional - can be disabled)
         if self.schema and os.getenv("ODCS_VALIDATE", "false").lower() == "true":
             self._validate_odcs(odcs_contract)
-        
+
         # Write output if path provided
         if out:
             self._write_output(odcs_contract, out, fmt)
             self.logger.info(f"Exported ODCS contract: {out}")
-        
+
         return odcs_contract
 
-    def import_contract(
-        self,
-        odcs: Union[Mapping[str, Any], str, Path]
-    ) -> Dict[str, Any]:
+    def import_contract(self, odcs: Union[Mapping[str, Any], str, Path]) -> Dict[str, Any]:
         """
         Import ODCS contract to FLUID format.
-        
+
         Args:
             odcs: ODCS contract (dict, JSON string, or file path)
-            
+
         Returns:
             FLUID contract dictionary
         """
@@ -163,31 +162,31 @@ class OdcsProvider(BaseProvider):
             odcs_data = self._read_input(odcs)
         else:
             odcs_data = dict(odcs)
-        
+
         # Validate
         if self.schema:
             self._validate_odcs(odcs_data)
-        
+
         self.logger.info("Converting ODCS contract to FLUID")
-        
+
         # Convert to FLUID
         fluid_contract = self._odcs_to_fluid(odcs_data)
-        
+
         return fluid_contract
 
     def _fluid_to_odcs(self, fluid: Mapping[str, Any]) -> Dict[str, Any]:
         """
         Convert FLUID contract to ODCS.
-        
+
         Args:
             fluid: FLUID contract dictionary
-            
+
         Returns:
             ODCS-compliant contract dictionary
         """
         metadata = fluid.get("metadata", {})
         fluid.get("contract", {})
-        
+
         # Required fields
         odcs_contract = {
             "version": metadata.get("version", "1.0.0"),
@@ -196,58 +195,56 @@ class OdcsProvider(BaseProvider):
             "id": self._extract_contract_id(fluid),
             "status": self._map_status_to_odcs(metadata.get("status", "active")),
         }
-        
+
         # Optional but common fields
         name = metadata.get("name")
         if name:
             odcs_contract["name"] = name
-        
+
         description = metadata.get("description")
         if description:
             # ODCS description is an object, not a string
-            odcs_contract["description"] = {
-                "purpose": description
-            }
-        
+            odcs_contract["description"] = {"purpose": description}
+
         # Team
         team = self._extract_team(fluid)
         if team:
             odcs_contract["team"] = team
-        
+
         # Tags
         tags = metadata.get("tags", [])
         if tags:
             odcs_contract["tags"] = tags
-        
+
         # Schema (from exposes) - always include
         schema = self._extract_schema(fluid)
         odcs_contract["schema"] = schema
-        
+
         # Servers (from expects/exposes) - always include
         servers = self._extract_servers(fluid)
         odcs_contract["servers"] = servers
-        
+
         # SLA Properties
         if self.include_sla:
             sla = self._extract_sla_properties(fluid)
             if sla:
                 odcs_contract["slaProperties"] = sla
-        
+
         # Quality (from schema fields)
         if self.include_quality_checks:
             quality = self._extract_quality(fluid)
             if quality:
                 odcs_contract["quality"] = quality
-        
+
         return odcs_contract
 
     def _odcs_to_fluid(self, odcs: Mapping[str, Any]) -> Dict[str, Any]:
         """
         Convert ODCS contract to FLUID.
-        
+
         Args:
             odcs: ODCS contract dictionary
-            
+
         Returns:
             FLUID contract dictionary
         """
@@ -264,36 +261,36 @@ class OdcsProvider(BaseProvider):
             "exposes": [],
             "expects": [],
         }
-        
+
         # Description
         description = odcs.get("description")
         if description:
             fluid_contract["metadata"]["description"] = description
-        
+
         # Tags
         tags = odcs.get("tags", [])
         if tags:
             fluid_contract["metadata"]["tags"] = tags
-        
+
         # Owner/Team
         team = odcs.get("team")
         if team:
             fluid_contract["owner"] = self._odcs_team_to_fluid_owner(team)
-        
+
         # Schema → Exposes
         schema = odcs.get("schema", [])
         if schema:
             expose = self._odcs_schema_to_expose(odcs)
             if expose:
                 fluid_contract["exposes"].append(expose)
-        
+
         # Servers → Expects
         servers = odcs.get("servers", [])
         for server in servers:
             expect = self._odcs_server_to_expect(server)
             if expect:
                 fluid_contract["expects"].append(expect)
-        
+
         return fluid_contract
 
     def _extract_contract_id(self, fluid: Mapping[str, Any]) -> str:
@@ -301,21 +298,21 @@ class OdcsProvider(BaseProvider):
         # FLUID 0.7.1 uses top-level 'id' field
         if "id" in fluid:
             return fluid["id"]
-        
+
         # Try contract.id (older format)
         contract = fluid.get("contract")
         if isinstance(contract, dict):
             contract_id = contract.get("id")
             if contract_id:
                 return contract_id
-        
+
         # Fallback to metadata.id
         metadata = fluid.get("metadata")
         if isinstance(metadata, dict):
             contract_id = metadata.get("id")
             if contract_id:
                 return contract_id
-        
+
         raise ProviderError(
             "Contract missing required 'id' field. "
             "Expected one of: fluid['id'], fluid['contract']['id'], or fluid['metadata']['id']"
@@ -324,7 +321,7 @@ class OdcsProvider(BaseProvider):
     def _map_status_to_odcs(self, status: str) -> str:
         """
         Map FLUID status to ODCS status.
-        
+
         Mappings:
         - draft → draft
         - active → active
@@ -339,7 +336,7 @@ class OdcsProvider(BaseProvider):
             "retired": "retired",
             "development": "draft",
         }
-        
+
         return mapping.get(status, "active")
 
     def _map_status_from_odcs(self, status: str) -> str:
@@ -351,34 +348,32 @@ class OdcsProvider(BaseProvider):
             "deprecated": "deprecated",
             "retired": "retired",
         }
-        
+
         return mapping.get(status, "active")
 
     def _extract_team(self, fluid: Mapping[str, Any]) -> Optional[str]:
         """
         Extract team information from FLUID owner.
-        
+
         ODCS v3.1.0 team can be:
         - Team object with name and members array
         - Array of team members (deprecated)
         - String team name (not valid in v3.1.0, needs to be Team object)
-        
+
         We'll create a proper Team object structure.
         """
         owner = fluid.get("owner", {})
-        
+
         team_name = owner.get("team") or owner.get("name")
         if not team_name:
             return None
-        
+
         # Build Team object structure (v3.1.0+)
-        team_obj = {
-            "name": team_name
-        }
-        
+        team_obj = {"name": team_name}
+
         # Add members if available
         members = []
-        
+
         # Add owner as first member if has name or email
         if owner.get("name") or owner.get("email"):
             member = {}
@@ -389,7 +384,7 @@ class OdcsProvider(BaseProvider):
             if owner.get("role"):
                 member["role"] = owner["role"]
             members.append(member)
-        
+
         # Add additional contacts as members
         if "contacts" in owner:
             for contact in owner["contacts"]:
@@ -402,44 +397,44 @@ class OdcsProvider(BaseProvider):
                     if contact.get("role"):
                         member["role"] = contact["role"]
                     members.append(member)
-        
+
         if members:
             team_obj["members"] = members
-        
+
         return team_obj
 
     def _extract_schema(self, fluid: Mapping[str, Any]) -> List[Dict[str, Any]]:
         """
         Extract ODCS schema from FLUID exposes.
-        
+
         ODCS v3.1.0 requires schema to be an array of SchemaObjects (logicalType: "object")
         with properties arrays containing the actual fields.
-        
+
         Supports both FLUID 0.5.7 and 0.7.1:
         - 0.5.7: exposes.schema.fields (object with fields array)
         - 0.7.1: exposes.contract.schema (array of fields)
         """
         odcs_schema = []
-        
+
         exposes = fluid.get("exposes", [])
         if not isinstance(exposes, list):
             self.logger.warning(f"exposes is not a list: {type(exposes)}")
             return odcs_schema
-        
+
         for expose in exposes:
             if not isinstance(expose, dict):
                 self.logger.warning(f"Skipping non-dict expose: {type(expose)}")
                 continue
-            
+
             contract_schema = []
-            
+
             # Try 0.7.1 format first: contract.schema (array)
             contract = expose.get("contract")
             if isinstance(contract, dict):
                 schema = contract.get("schema", [])
                 if isinstance(schema, list):
                     contract_schema = schema
-            
+
             # Fall back to 0.5.7 format: schema.fields (object)
             if not contract_schema:
                 schema_obj = expose.get("schema")
@@ -447,12 +442,12 @@ class OdcsProvider(BaseProvider):
                     fields = schema_obj.get("fields", [])
                     if isinstance(fields, list):
                         contract_schema = fields
-            
+
             # Process fields and create SchemaObject
             if contract_schema:
                 # Get expose metadata for naming
                 expose_id = expose.get("exposeId") or expose.get("id", "dataset")
-                
+
                 # Determine physical type from binding
                 binding = expose.get("binding")
                 physical_type = "table"  # default
@@ -462,7 +457,7 @@ class OdcsProvider(BaseProvider):
                         physical_type = "topic"
                     elif platform in ("bigquery", "snowflake"):
                         physical_type = "table"
-                
+
                 # Convert fields to properties
                 properties = []
                 for field in contract_schema:
@@ -473,38 +468,38 @@ class OdcsProvider(BaseProvider):
                         odcs_property = self._fluid_field_to_odcs_property(field, expose)
                         properties.append(odcs_property)
                     except Exception as e:
-                        self.logger.error(f"Error converting field {field.get('name', 'unknown')}: {e}")
-                
+                        self.logger.error(
+                            f"Error converting field {field.get('name', 'unknown')}: {e}"
+                        )
+
                 # Create SchemaObject wrapping the properties
                 if properties:
                     schema_object = {
                         "name": expose_id,
                         "logicalType": "object",
                         "physicalType": physical_type,
-                        "properties": properties
+                        "properties": properties,
                     }
-                    
+
                     # Add description if available
                     description = expose.get("description")
                     if description:
                         schema_object["description"] = description
-                    
+
                     odcs_schema.append(schema_object)
-        
+
         return odcs_schema
 
     def _fluid_field_to_odcs_property(
-        self,
-        field: Mapping[str, Any],
-        expose: Mapping[str, Any]
+        self, field: Mapping[str, Any], expose: Mapping[str, Any]
     ) -> Dict[str, Any]:
         """
         Convert FLUID field to ODCS schema property (inside SchemaObject.properties array).
-        
+
         Args:
             field: FLUID field dictionary
             expose: Parent expose (for context)
-            
+
         Returns:
             ODCS schema property
         """
@@ -513,63 +508,60 @@ class OdcsProvider(BaseProvider):
             "name": field.get("name", "unknown"),
             "logicalType": self._map_type_to_logical(field.get("type", "string")),
         }
-        
+
         # Physical type (provider-specific) - try binding.platform or direct provider
         binding = expose.get("binding")
         provider = None
-        
+
         # Safely extract provider from binding (handle None case)
         if isinstance(binding, dict):
             provider = binding.get("platform") or binding.get("provider")
-        
+
         # Fall back to direct provider field
         if not provider:
             provider = expose.get("provider")
-        
+
         if provider:
-            physical_type = self._map_type_to_physical(
-                field.get("type", "string"),
-                provider
-            )
+            physical_type = self._map_type_to_physical(field.get("type", "string"), provider)
             if physical_type:
                 schema_entry["physicalType"] = physical_type
-        
+
         # Description
         description = field.get("description")
         if description:
             schema_entry["description"] = description
-        
+
         # Required flag
         required = field.get("required", False)
         schema_entry["required"] = required
-        
+
         # Classification
         classification = field.get("classification")
         if classification:
             schema_entry["classification"] = classification
-        
+
         # Tags
         tags = field.get("tags", [])
         if tags:
             schema_entry["tags"] = tags
-        
+
         # Quality checks
         if self.include_quality_checks:
             quality = self._extract_field_quality(field)
             if quality:
                 schema_entry["quality"] = quality
-        
+
         return schema_entry
 
     def _map_type_to_logical(self, fluid_type: str) -> str:
         """
         Map FLUID type to ODCS logicalType.
-        
+
         ODCS v3.1.0 valid logicalTypes: string, date, timestamp, time, number, integer, object, array, boolean
-        
+
         Args:
             fluid_type: FLUID field type
-            
+
         Returns:
             ODCS logical type
         """
@@ -596,27 +588,27 @@ class OdcsProvider(BaseProvider):
             "object": "object",
             "array": "array",
             "binary": "string",  # ODCS doesn't have binary type, use string
-            "bytes": "string",   # ODCS doesn't have binary type, use string
+            "bytes": "string",  # ODCS doesn't have binary type, use string
         }
-        
+
         return mapping.get(fluid_type.lower(), "string")
 
     def _map_type_to_physical(self, fluid_type: str, provider: Optional[str]) -> Optional[str]:
         """
         Map FLUID type to physical type for specific provider.
-        
+
         Args:
             fluid_type: FLUID field type
             provider: Provider name (gcp, snowflake, etc.) or None
-            
+
         Returns:
             Physical type string or None
         """
         if not provider:
             return self._map_type_to_logical(fluid_type)
-        
+
         provider = provider.lower()
-        
+
         # BigQuery types
         if provider == "gcp" or provider == "bigquery":
             mapping = {
@@ -643,7 +635,7 @@ class OdcsProvider(BaseProvider):
                 "bytes": "BYTES",
             }
             return mapping.get(fluid_type.lower())
-        
+
         # Snowflake types
         elif provider == "snowflake":
             mapping = {
@@ -670,20 +662,20 @@ class OdcsProvider(BaseProvider):
                 "bytes": "BINARY",
             }
             return mapping.get(fluid_type.lower())
-        
+
         # Generic fallback: use logical type for unknown providers
         return self._map_type_to_logical(fluid_type)
 
     def _extract_field_quality(self, field: Mapping[str, Any]) -> Optional[List[Dict[str, Any]]]:
         """
         Extract quality checks from FLUID field and convert to ODCS v3.1.0 format.
-        
+
         ODCS v3.1.0 quality check structure:
         - type: "library", "text", "sql", or "custom"
         - For library type: metric (nullValues, missingValues, invalidValues, duplicateValues, rowCount)
           + ONE operator property (mustBe, mustNotBe, mustBeGreaterThan, etc.)
         - For text type: description (human-readable)
-        
+
         Example:
         [
             {
@@ -696,43 +688,49 @@ class OdcsProvider(BaseProvider):
         ]
         """
         quality_checks = []
-        
+
         # 1. Required field check (not null constraint)
         if field.get("required"):
-            quality_checks.append({
-                "type": "library",
-                "metric": "nullValues",
-                "mustBe": 0,
-                "dimension": "completeness",
-                "description": f"Field '{field.get('name', 'unknown')}' must not contain null values"
-            })
-        
-        # 2. Primary key check (uniqueness + not null)
-        tags = field.get("tags", [])
-        is_primary_key = "primary-key" in tags or "primaryKey" in tags
-        
-        if is_primary_key:
-            # Primary keys must be unique
-            quality_checks.append({
-                "type": "library",
-                "metric": "duplicateValues",
-                "mustBe": 0,
-                "dimension": "uniqueness",
-                "description": f"Primary key field '{field.get('name', 'unknown')}' must contain only unique values"
-            })
-            # Also ensure not null if not already added
-            if not field.get("required"):
-                quality_checks.append({
+            quality_checks.append(
+                {
                     "type": "library",
                     "metric": "nullValues",
                     "mustBe": 0,
                     "dimension": "completeness",
-                    "description": f"Primary key field '{field.get('name', 'unknown')}' must not contain null values"
-                })
-        
+                    "description": f"Field '{field.get('name', 'unknown')}' must not contain null values",
+                }
+            )
+
+        # 2. Primary key check (uniqueness + not null)
+        tags = field.get("tags", [])
+        is_primary_key = "primary-key" in tags or "primaryKey" in tags
+
+        if is_primary_key:
+            # Primary keys must be unique
+            quality_checks.append(
+                {
+                    "type": "library",
+                    "metric": "duplicateValues",
+                    "mustBe": 0,
+                    "dimension": "uniqueness",
+                    "description": f"Primary key field '{field.get('name', 'unknown')}' must contain only unique values",
+                }
+            )
+            # Also ensure not null if not already added
+            if not field.get("required"):
+                quality_checks.append(
+                    {
+                        "type": "library",
+                        "metric": "nullValues",
+                        "mustBe": 0,
+                        "dimension": "completeness",
+                        "description": f"Primary key field '{field.get('name', 'unknown')}' must not contain null values",
+                    }
+                )
+
         # 3. Check for explicit validations (can be list or dict)
         validations = field.get("validations", [])
-        
+
         # Handle both list and dict formats
         if isinstance(validations, dict):
             # Legacy dict format: {"pattern": "regex", "min_length": 5}
@@ -741,82 +739,98 @@ class OdcsProvider(BaseProvider):
             validation_list = validations
         else:
             validation_list = []
-        
+
         # Process validation list
         for validation in validation_list:
             if not isinstance(validation, dict):
                 continue
-            
+
             val_type = validation.get("type", "")
             val_value = validation.get("value")
             val_values = validation.get("values")
             field_name = field.get("name", "unknown")
-            
+
             # Pattern/regex validation
             if val_type in ("pattern", "regex") and val_value:
-                quality_checks.append({
-                    "type": "text",
-                    "description": f"Field '{field_name}' must match pattern: {val_value}"
-                })
-            
+                quality_checks.append(
+                    {
+                        "type": "text",
+                        "description": f"Field '{field_name}' must match pattern: {val_value}",
+                    }
+                )
+
             # Min/max length constraints
             elif val_type == "min_length" and val_value is not None:
-                quality_checks.append({
-                    "type": "text",
-                    "description": f"Field '{field_name}' must have minimum length of {val_value}"
-                })
-            
+                quality_checks.append(
+                    {
+                        "type": "text",
+                        "description": f"Field '{field_name}' must have minimum length of {val_value}",
+                    }
+                )
+
             elif val_type == "max_length" and val_value is not None:
-                quality_checks.append({
-                    "type": "text",
-                    "description": f"Field '{field_name}' must have maximum length of {val_value}"
-                })
-            
+                quality_checks.append(
+                    {
+                        "type": "text",
+                        "description": f"Field '{field_name}' must have maximum length of {val_value}",
+                    }
+                )
+
             # Min/max value constraints (for numeric fields)
             elif val_type == "min_value" and val_value is not None:
-                quality_checks.append({
-                    "type": "text",
-                    "description": f"Field '{field_name}' must be greater than or equal to {val_value}"
-                })
-            
+                quality_checks.append(
+                    {
+                        "type": "text",
+                        "description": f"Field '{field_name}' must be greater than or equal to {val_value}",
+                    }
+                )
+
             elif val_type == "max_value" and val_value is not None:
-                quality_checks.append({
-                    "type": "text",
-                    "description": f"Field '{field_name}' must be less than or equal to {val_value}"
-                })
-            
+                quality_checks.append(
+                    {
+                        "type": "text",
+                        "description": f"Field '{field_name}' must be less than or equal to {val_value}",
+                    }
+                )
+
             # Allowed values / enum constraints
             elif val_type in ("allowed_values", "enum") and val_values:
                 values_str = ", ".join(str(v) for v in val_values[:5])
                 if len(val_values) > 5:
                     values_str += f", ... ({len(val_values)} total)"
-                quality_checks.append({
-                    "type": "text",
-                    "description": f"Field '{field_name}' must be one of: {values_str}"
-                })
-            
+                quality_checks.append(
+                    {
+                        "type": "text",
+                        "description": f"Field '{field_name}' must be one of: {values_str}",
+                    }
+                )
+
             # Not null constraint
             elif val_type == "not_null" and val_value:
                 if not field.get("required"):  # Avoid duplicate if already added
-                    quality_checks.append({
-                        "type": "library",
-                        "metric": "nullValues",
-                        "mustBe": 0,
-                        "dimension": "completeness",
-                        "description": f"Field '{field_name}' must not contain null values"
-                    })
-            
+                    quality_checks.append(
+                        {
+                            "type": "library",
+                            "metric": "nullValues",
+                            "mustBe": 0,
+                            "dimension": "completeness",
+                            "description": f"Field '{field_name}' must not contain null values",
+                        }
+                    )
+
             # Unique constraint
             elif val_type == "unique" and val_value:
                 if not is_primary_key:  # Avoid duplicate if already added for PK
-                    quality_checks.append({
-                        "type": "library",
-                        "metric": "duplicateValues",
-                        "mustBe": 0,
-                        "dimension": "uniqueness",
-                        "description": f"Field '{field_name}' must contain only unique values"
-                    })
-        
+                    quality_checks.append(
+                        {
+                            "type": "library",
+                            "metric": "duplicateValues",
+                            "mustBe": 0,
+                            "dimension": "uniqueness",
+                            "description": f"Field '{field_name}' must contain only unique values",
+                        }
+                    )
+
         # 4. Custom quality checks from field metadata
         custom_quality = field.get("quality")
         if isinstance(custom_quality, list):
@@ -829,21 +843,18 @@ class OdcsProvider(BaseProvider):
                         quality_checks.append(qc)
                     # Otherwise convert legacy format
                     elif "description" in qc:
-                        quality_checks.append({
-                            "type": "text",
-                            "description": qc["description"]
-                        })
-        
+                        quality_checks.append({"type": "text", "description": qc["description"]})
+
         return quality_checks if quality_checks else None
 
     def _extract_servers(self, fluid: Mapping[str, Any]) -> List[Dict[str, Any]]:
         """
         Extract ODCS servers from FLUID expects/exposes.
-        
+
         Servers define where data is stored/accessed.
         """
         servers = []
-        
+
         # From exposes (data source locations)
         exposes = fluid.get("exposes", [])
         if isinstance(exposes, list):
@@ -854,7 +865,7 @@ class OdcsProvider(BaseProvider):
                         servers.append(server)
                 except Exception as e:
                     self.logger.error(f"Error extracting server from expose: {e}")
-        
+
         # From expects (dependencies)
         expects = fluid.get("expects", [])
         if isinstance(expects, list):
@@ -865,7 +876,7 @@ class OdcsProvider(BaseProvider):
                         servers.append(server)
                 except Exception as e:
                     self.logger.error(f"Error extracting server from expect: {e}")
-        
+
         return servers
 
     def _expose_to_server(self, expose: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
@@ -873,44 +884,44 @@ class OdcsProvider(BaseProvider):
         if not isinstance(expose, dict):
             self.logger.warning(f"Skipping non-dict expose: {type(expose)}")
             return None
-        
+
         # Try 0.7.1 format: binding.platform
         binding = expose.get("binding")
         provider = None
         location = None
-        
+
         # Safely extract from binding (handle None case)
         if isinstance(binding, dict):
             provider = binding.get("platform") or binding.get("provider")
             location = binding.get("location")
-        
+
         # Fall back to 0.5.7 format: direct provider field
         if not provider:
             provider = expose.get("provider")
-        
+
         if not provider:
             return None
-        
+
         # Use exposeId (0.7.1) or id (0.5.7)
         expose_id = expose.get("exposeId") or expose.get("id", "default")
-        
+
         server = {
             "id": expose_id,
             "server": expose_id,
             "type": self._map_provider_to_server_type(provider),
         }
-        
+
         # Location/connection details - ensure it's a dict
         if not isinstance(location, dict):
             # Fall back to direct location (0.5.7)
             location = expose.get("location")
-        
+
         if isinstance(location, dict) and location:
             try:
                 server.update(self._extract_server_details(location, provider))
             except Exception as e:
                 self.logger.error(f"Error extracting server details: {e}")
-        
+
         return server
 
     def _expect_to_server(self, expect: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
@@ -918,46 +929,46 @@ class OdcsProvider(BaseProvider):
         if not isinstance(expect, dict):
             self.logger.warning(f"Skipping non-dict expect: {type(expect)}")
             return None
-        
+
         # Try binding.platform (0.7.1) or direct provider (0.5.7)
         binding = expect.get("binding")
         provider = None
         location = None
-        
+
         # Safely extract from binding (handle None case)
         if isinstance(binding, dict):
             provider = binding.get("platform") or binding.get("provider")
             location = binding.get("location")
-        
+
         if not provider:
             provider = expect.get("provider")
-        
+
         if not provider:
             return None
-        
+
         expect_id = expect.get("id", "dependency")
         server = {
             "id": expect_id,
             "server": expect_id,
             "type": self._map_provider_to_server_type(provider),
         }
-        
+
         # Location/connection details - ensure it's a dict
         if not isinstance(location, dict):
             location = expect.get("location")
-        
+
         if isinstance(location, dict) and location:
             try:
                 server.update(self._extract_server_details(location, provider))
             except Exception as e:
                 self.logger.error(f"Error extracting server details: {e}")
-        
+
         return server
 
     def _map_provider_to_server_type(self, provider: str) -> str:
         """
         Map FLUID provider to ODCS server type.
-        
+
         ODCS supports 30+ server types.
         """
         mapping = {
@@ -978,30 +989,26 @@ class OdcsProvider(BaseProvider):
             "elasticsearch": "elasticsearch",
             "local": "local",
         }
-        
+
         return mapping.get(provider.lower(), "custom")
 
-    def _extract_server_details(
-        self,
-        location: Mapping[str, Any],
-        provider: str
-    ) -> Dict[str, Any]:
+    def _extract_server_details(self, location: Mapping[str, Any], provider: str) -> Dict[str, Any]:
         """
         Extract server connection details from location.
-        
+
         Returns provider-specific fields for ODCS server.
         """
         details = {}
-        
+
         provider = provider.lower()
-        
+
         # BigQuery
         if provider in ("gcp", "bigquery"):
             if "project" in location:
                 details["project"] = location["project"]
             if "dataset" in location:
                 details["dataset"] = location["dataset"]
-        
+
         # Snowflake
         elif provider == "snowflake":
             if "account" in location:
@@ -1012,7 +1019,7 @@ class OdcsProvider(BaseProvider):
                 details["schema"] = location["schema"]
             if "table" in location:
                 details["table"] = location["table"]
-        
+
         # S3
         elif provider in ("aws", "s3"):
             if "bucket" in location:
@@ -1021,7 +1028,7 @@ class OdcsProvider(BaseProvider):
                 details["path"] = location.get("path") or location.get("key")
             if "region" in location:
                 details["region"] = location["region"]
-        
+
         # Kafka
         elif provider == "kafka":
             # ODCS Kafka servers require 'host' property
@@ -1031,22 +1038,22 @@ class OdcsProvider(BaseProvider):
             elif "account" in location:
                 # Use account as host for streaming platform
                 details["host"] = location["account"]
-            
+
             # Format is optional
             if "format" in location:
                 details["format"] = location["format"]
-        
+
         # Generic fields for other providers
         else:
             # Copy all location fields
             details.update(location)
-        
+
         return details
 
     def _extract_sla_properties(self, fluid: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
         """
         Extract SLA properties from FLUID contract.
-        
+
         ODCS SLA structure:
         {
             "interval": "daily",
@@ -1056,15 +1063,15 @@ class OdcsProvider(BaseProvider):
         }
         """
         sla = {}
-        
+
         # Check metadata for SLA info
         metadata = fluid.get("metadata", {})
-        
+
         # Update frequency → interval
         update_frequency = metadata.get("update_frequency")
         if update_frequency:
             sla["interval"] = update_frequency
-        
+
         # Availability/uptime
         availability = metadata.get("availability")
         if availability:
@@ -1072,7 +1079,7 @@ class OdcsProvider(BaseProvider):
                 sla["availability"] = float(availability)
             except (ValueError, TypeError):
                 pass
-        
+
         # Quality thresholds
         quality = metadata.get("quality_threshold")
         if quality:
@@ -1080,13 +1087,13 @@ class OdcsProvider(BaseProvider):
                 sla["completenessKpi"] = float(quality)
             except (ValueError, TypeError):
                 pass
-        
+
         return sla if sla else None
 
     def _extract_quality(self, fluid: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
         """
         Extract quality properties from FLUID contract.
-        
+
         ODCS quality structure:
         {
             "type": "SodaCL",
@@ -1095,17 +1102,14 @@ class OdcsProvider(BaseProvider):
         """
         # Check for quality definitions
         quality_spec = fluid.get("quality", {})
-        
+
         if not quality_spec:
             return None
-        
+
         quality_type = quality_spec.get("type", "custom")
         specification = quality_spec.get("specification", "")
-        
-        return {
-            "type": quality_type,
-            "specification": specification
-        }
+
+        return {"type": quality_type, "specification": specification}
 
     def _odcs_team_to_fluid_owner(self, team: str) -> Dict[str, Any]:
         """Convert ODCS team (string) to FLUID owner."""
@@ -1117,27 +1121,25 @@ class OdcsProvider(BaseProvider):
     def _odcs_schema_to_expose(self, odcs: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
         """
         Convert ODCS schema to FLUID expose.
-        
+
         Groups all schema fields into one expose.
         """
         schema = odcs.get("schema", [])
         if not schema:
             return None
-        
+
         expose = {
             "id": odcs.get("id", "default"),
             "version": odcs.get("version", "1.0.0"),
             "description": odcs.get("description", ""),
-            "schema": {
-                "fields": []
-            },
+            "schema": {"fields": []},
         }
-        
+
         # Convert each schema entry to field
         for schema_entry in schema:
             field = self._odcs_schema_to_field(schema_entry)
             expose["schema"]["fields"].append(field)
-        
+
         return expose
 
     def _odcs_schema_to_field(self, schema_entry: Mapping[str, Any]) -> Dict[str, Any]:
@@ -1146,26 +1148,26 @@ class OdcsProvider(BaseProvider):
             "name": schema_entry.get("name", "unknown"),
             "type": self._map_logical_type_to_fluid(schema_entry.get("logicalType", "string")),
         }
-        
+
         # Description
         description = schema_entry.get("description")
         if description:
             field["description"] = description
-        
+
         # Required (inverse of isNullable)
         is_nullable = schema_entry.get("isNullable", True)
         field["required"] = not is_nullable
-        
+
         # Classification
         classification = schema_entry.get("classification")
         if classification:
             field["classification"] = classification
-        
+
         # Tags
         tags = schema_entry.get("tags", [])
         if tags:
             field["tags"] = tags
-        
+
         return field
 
     def _map_logical_type_to_fluid(self, logical_type: str) -> str:
@@ -1185,7 +1187,7 @@ class OdcsProvider(BaseProvider):
             "array": "array",
             "binary": "binary",
         }
-        
+
         return mapping.get(logical_type.lower(), "string")
 
     def _odcs_server_to_expect(self, server: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
@@ -1193,17 +1195,17 @@ class OdcsProvider(BaseProvider):
         server_type = server.get("type")
         if not server_type:
             return None
-        
+
         expect = {
             "id": server.get("name", "dependency"),
             "provider": self._map_server_type_to_provider(server_type),
         }
-        
+
         # Extract location details
         location = self._extract_location_from_server(server)
         if location:
             expect["location"] = location
-        
+
         return expect
 
     def _map_server_type_to_provider(self, server_type: str) -> str:
@@ -1223,37 +1225,49 @@ class OdcsProvider(BaseProvider):
             "elasticsearch": "elasticsearch",
             "local": "local",
         }
-        
+
         return mapping.get(server_type.lower(), "custom")
 
     def _extract_location_from_server(self, server: Mapping[str, Any]) -> Dict[str, Any]:
         """Extract location details from ODCS server."""
         location = {}
-        
+
         # Copy relevant fields
-        for key in ["project", "dataset", "table", "account", "database", "schema", 
-                   "bucket", "path", "region", "host", "port"]:
+        for key in [
+            "project",
+            "dataset",
+            "table",
+            "account",
+            "database",
+            "schema",
+            "bucket",
+            "path",
+            "region",
+            "host",
+            "port",
+        ]:
             if key in server:
                 location[key] = server[key]
-        
+
         return location
 
     def _validate_odcs(self, odcs: Mapping[str, Any]) -> None:
         """
         Validate ODCS contract against JSON Schema.
-        
+
         Args:
             odcs: ODCS contract to validate
-            
+
         Raises:
             ProviderError: If validation fails
         """
         if not self.schema:
             self.logger.warning("ODCS schema not available, skipping validation")
             return
-        
+
         try:
             import jsonschema
+
             jsonschema.validate(instance=odcs, schema=self.schema)
             self.logger.info("ODCS contract validated successfully")
         except ImportError:
@@ -1264,27 +1278,24 @@ class OdcsProvider(BaseProvider):
     def _read_input(self, path: Union[str, Path]) -> Dict[str, Any]:
         """Read ODCS contract from file."""
         input_path = Path(path) if not isinstance(path, Path) else path
-        
+
         with open(input_path) as f:
-            if input_path.suffix in ('.yaml', '.yml'):
+            if input_path.suffix in (".yaml", ".yml"):
                 import yaml
+
                 return yaml.safe_load(f)
             else:  # JSON
                 return json.load(f)
 
-    def _write_output(
-        self,
-        data: Dict[str, Any],
-        path: Union[Path, str],
-        fmt: str
-    ) -> None:
+    def _write_output(self, data: Dict[str, Any], path: Union[Path, str], fmt: str) -> None:
         """Write ODCS contract to file."""
         output_path = Path(path) if not isinstance(path, Path) else path
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        with open(output_path, 'w') as f:
+
+        with open(output_path, "w") as f:
             if fmt == "yaml":
                 import yaml
+
                 yaml.dump(data, f, default_flow_style=False, sort_keys=False)
             else:  # json
                 json.dump(data, f, indent=2)

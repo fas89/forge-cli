@@ -22,19 +22,21 @@ Supports multiple table formats:
 Table formats (like Iceberg) provide additional capabilities beyond
 file formats, including ACID transactions, time travel, and schema evolution.
 """
+
 from enum import Enum
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List
 
 
 class TableFormat(Enum):
     """Supported table formats in AWS provider."""
+
     PARQUET = "parquet"
     ORC = "orc"
     AVRO = "avro"
     CSV = "csv"
     JSON = "json"
     ICEBERG = "iceberg"
-    
+
     @classmethod
     def from_string(cls, format_str: str) -> "TableFormat":
         """Convert string to TableFormat enum."""
@@ -49,11 +51,11 @@ class TableFormat(Enum):
 class FormatCapabilities:
     """
     Capabilities of different table formats.
-    
+
     Used to determine what operations are supported and
     what infrastructure is required.
     """
-    
+
     CAPABILITIES = {
         TableFormat.PARQUET: {
             "acid": False,
@@ -125,32 +127,32 @@ class FormatCapabilities:
             "compaction": "manual",
         },
     }
-    
+
     @classmethod
     def get_capabilities(cls, format_type: TableFormat) -> Dict[str, Any]:
         """Get all capabilities for a format."""
         return cls.CAPABILITIES.get(format_type, {})
-    
+
     @classmethod
     def supports_acid(cls, format_type: TableFormat) -> bool:
         """Check if format supports ACID transactions."""
         return cls.CAPABILITIES.get(format_type, {}).get("acid", False)
-    
+
     @classmethod
     def supports_time_travel(cls, format_type: TableFormat) -> bool:
         """Check if format supports time travel queries."""
         return cls.CAPABILITIES.get(format_type, {}).get("time_travel", False)
-    
+
     @classmethod
     def requires_catalog(cls, format_type: TableFormat) -> bool:
         """Check if format requires Glue Catalog."""
         return cls.CAPABILITIES.get(format_type, {}).get("requires_catalog", False)
-    
+
     @classmethod
     def requires_athena_v3(cls, format_type: TableFormat) -> bool:
         """Check if format requires Athena Engine v3."""
         return cls.CAPABILITIES.get(format_type, {}).get("requires_athena_v3", False)
-    
+
     @classmethod
     def supports_merge(cls, format_type: TableFormat) -> bool:
         """Check if format supports MERGE operations."""
@@ -160,10 +162,10 @@ class FormatCapabilities:
 def is_iceberg_format(binding: Dict[str, Any]) -> bool:
     """
     Check if binding specifies Iceberg format.
-    
+
     Args:
         binding: The binding section from contract
-        
+
     Returns:
         True if format is Iceberg
     """
@@ -174,13 +176,13 @@ def is_iceberg_format(binding: Dict[str, Any]) -> bool:
 def is_table_format(format_str: str) -> bool:
     """
     Check if format is a table format (vs file format).
-    
+
     Table formats provide metadata and transactional capabilities
     on top of file formats.
-    
+
     Args:
         format_str: Format string from contract
-        
+
     Returns:
         True if it's a table format (currently only Iceberg)
     """
@@ -190,18 +192,18 @@ def is_table_format(format_str: str) -> bool:
 def get_iceberg_config(binding: Dict[str, Any]) -> Dict[str, Any]:
     """
     Extract Iceberg-specific configuration from binding.
-    
+
     Args:
         binding: The binding section from contract
-        
+
     Returns:
         Iceberg configuration dict with defaults applied
     """
     if not is_iceberg_format(binding):
         return {}
-    
+
     iceberg_config = binding.get("icebergConfig", {})
-    
+
     # Apply defaults
     return {
         "writeVersion": iceberg_config.get("writeVersion", 2),
@@ -215,45 +217,45 @@ def get_iceberg_config(binding: Dict[str, Any]) -> Dict[str, Any]:
 def get_underlying_file_format(binding: Dict[str, Any]) -> str:
     """
     Get the underlying file format for table formats.
-    
+
     For Iceberg: Returns the fileFormat from icebergConfig
     For file formats: Returns the format itself
-    
+
     Args:
         binding: The binding section from contract
-        
+
     Returns:
         File format string (parquet, orc, avro, etc.)
     """
     format_type = binding.get("format", "parquet").lower()
-    
+
     if format_type == "iceberg":
         iceberg_config = get_iceberg_config(binding)
         return iceberg_config.get("fileFormat", "parquet")
-    
+
     return format_type
 
 
 def validate_iceberg_config(iceberg_config: Dict[str, Any]) -> List[str]:
     """
     Validate Iceberg configuration.
-    
+
     Args:
         iceberg_config: Iceberg configuration dict
-        
+
     Returns:
         List of validation error messages (empty if valid)
     """
     errors = []
-    
+
     write_version = iceberg_config.get("writeVersion", 2)
     if write_version not in [1, 2]:
         errors.append(f"Invalid writeVersion: {write_version} (must be 1 or 2)")
-    
+
     file_format = iceberg_config.get("fileFormat", "parquet")
     if file_format not in ["parquet", "orc", "avro"]:
         errors.append(f"Invalid fileFormat: {file_format} (must be parquet, orc, or avro)")
-    
+
     # Validate partition spec
     partition_spec = iceberg_config.get("partitionSpec", [])
     if not isinstance(partition_spec, list):
@@ -263,18 +265,26 @@ def validate_iceberg_config(iceberg_config: Dict[str, Any]) -> List[str]:
             if not isinstance(spec, dict):
                 errors.append(f"partitionSpec[{i}] must be a dict")
                 continue
-            
+
             if "sourceColumn" not in spec:
                 errors.append(f"partitionSpec[{i}] missing 'sourceColumn'")
-            
+
             if "transform" not in spec:
                 errors.append(f"partitionSpec[{i}] missing 'transform'")
             else:
-                valid_transforms = ["identity", "year", "month", "day", "hour", "bucket", "truncate"]
+                valid_transforms = [
+                    "identity",
+                    "year",
+                    "month",
+                    "day",
+                    "hour",
+                    "bucket",
+                    "truncate",
+                ]
                 if spec["transform"] not in valid_transforms:
                     errors.append(
                         f"partitionSpec[{i}] invalid transform: {spec['transform']} "
                         f"(must be one of: {', '.join(valid_transforms)})"
                     )
-    
+
     return errors

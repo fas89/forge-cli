@@ -1,15 +1,28 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for providers/local/planner.py — format inference, topo sort, validation, plan helpers."""
 
 import logging
-import pytest
 
 from fluid_build.providers.local.planner import (
-    _infer_format,
-    _extract_input_tables,
     _determine_source_table,
+    _extract_input_tables,
+    _extract_sql,
+    _infer_format,
     _topological_sort,
     validate_plan,
-    _extract_sql,
 )
 
 
@@ -196,7 +209,11 @@ class TestValidatePlan:
         actions = [
             {"op": "load_data", "resource_id": "t1", "payload": {"path": "data.csv"}},
             {"op": "execute_sql", "resource_id": "b1", "payload": {"sql": "SELECT 1"}},
-            {"op": "materialize", "resource_id": "e1", "payload": {"path": "out.csv", "source_table": "t1"}},
+            {
+                "op": "materialize",
+                "resource_id": "e1",
+                "payload": {"path": "out.csv", "source_table": "t1"},
+            },
         ]
         valid, errors = validate_plan(actions)
         assert valid is True

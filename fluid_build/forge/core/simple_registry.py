@@ -26,26 +26,20 @@ Key simplifications:
 - Removed advanced dependency resolution
 """
 
-from typing import Dict, List, Optional, Any, Type, TypeVar, Generic
-from abc import ABC, abstractmethod
 import logging
 from dataclasses import dataclass
+from typing import Any, Dict, Generic, List, Optional, Type, TypeVar
 
-from .interfaces import (
-    ProjectTemplate, 
-    InfrastructureProvider, 
-    Extension, 
-    Generator,
-    Registrable
-)
+from .interfaces import Extension, Generator, InfrastructureProvider, ProjectTemplate, Registrable
 
-T = TypeVar('T', bound=Registrable)
+T = TypeVar("T", bound=Registrable)
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class Component:
     """Simple component wrapper"""
+
     name: str
     component_class: Type
     instance: Optional[Any] = None
@@ -55,49 +49,49 @@ class Component:
 class SimpleRegistry(Generic[T]):
     """
     Simplified component registry
-    
+
     Provides basic registration and retrieval functionality without
     complex auto-discovery or dependency resolution.
     """
-    
+
     def __init__(self, component_type: Type[T]):
         self.component_type = component_type
         self._components: Dict[str, Component] = {}
-    
+
     def register(self, name: str, component_class: Type[T]) -> None:
         """Register a component"""
         if not issubclass(component_class, self.component_type):
             raise TypeError(f"Component must inherit from {self.component_type.__name__}")
-        
+
         self._components[name] = Component(name, component_class)
         logger.info(f"Registered {self.component_type.__name__.lower()}: {name}")
-    
+
     def get(self, name: str) -> Optional[T]:
         """Get component instance"""
         component = self._components.get(name)
         if not component or not component.enabled:
             return None
-        
+
         if component.instance is None:
             try:
                 component.instance = component.component_class()
             except Exception as e:
                 logger.error(f"Failed to create {name}: {e}")
                 return None
-        
+
         return component.instance
-    
+
     def list_available(self) -> List[str]:
         """List available components"""
         return [name for name, comp in self._components.items() if comp.enabled]
-    
+
     def disable(self, name: str) -> bool:
         """Disable a component"""
         if name in self._components:
             self._components[name].enabled = False
             return True
         return False
-    
+
     def enable(self, name: str) -> bool:
         """Enable a component"""
         if name in self._components:
@@ -108,22 +102,22 @@ class SimpleRegistry(Generic[T]):
 
 class TemplateRegistry(SimpleRegistry[ProjectTemplate]):
     """Registry for project templates"""
-    
+
     def get_by_use_case(self, use_case: str) -> List[str]:
         """Get templates by use case"""
         results = []
         for name in self.list_available():
             template = self.get(name)
-            if template and hasattr(template, 'get_metadata'):
+            if template and hasattr(template, "get_metadata"):
                 metadata = template.get_metadata()
-                if hasattr(metadata, 'use_cases') and use_case in metadata.use_cases:
+                if hasattr(metadata, "use_cases") and use_case in metadata.use_cases:
                     results.append(name)
         return results
 
 
 class ProviderRegistry(SimpleRegistry[InfrastructureProvider]):
     """Registry for infrastructure providers"""
-    
+
     def check_available_providers(self) -> Dict[str, bool]:
         """Check which providers are available"""
         results = {}
@@ -142,11 +136,13 @@ class ProviderRegistry(SimpleRegistry[InfrastructureProvider]):
 
 class ExtensionRegistry(SimpleRegistry[Extension]):
     """Registry for forge extensions"""
+
     pass
 
 
 class GeneratorRegistry(SimpleRegistry[Generator]):
     """Registry for generators"""
+
     pass
 
 
@@ -162,6 +158,7 @@ def initialize_registries():
     # Import and register built-in components
     try:
         from ..simple_registration import register_all_components
+
         register_all_components(templates, providers, extensions, generators)
         logger.info("Initialized all registries")
     except ImportError as e:
@@ -169,6 +166,7 @@ def initialize_registries():
         # Try the existing registration system
         try:
             from ..registration import register_builtin_components
+
             register_builtin_components()
             logger.info("Initialized using existing registration system")
         except Exception as e2:
@@ -178,10 +176,10 @@ def initialize_registries():
 def get_registry_status() -> Dict[str, List[str]]:
     """Get simple status of all registries"""
     return {
-        'templates': templates.list_available(),
-        'providers': providers.list_available(),
-        'extensions': extensions.list_available(),
-        'generators': generators.list_available()
+        "templates": templates.list_available(),
+        "providers": providers.list_available(),
+        "extensions": extensions.list_available(),
+        "generators": generators.list_available(),
     }
 
 

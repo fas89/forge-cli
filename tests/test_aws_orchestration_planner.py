@@ -1,3 +1,17 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for providers/aws/plan/orchestration.py — task planning, DAG validation, topo sort."""
 
 import pytest
@@ -5,8 +19,8 @@ import pytest
 from fluid_build.providers.aws.plan.orchestration import (
     OrchestrationError,
     OrchestrationPlanner,
-    plan_orchestration_tasks,
     get_task_execution_order,
+    plan_orchestration_tasks,
 )
 
 
@@ -38,12 +52,14 @@ class TestPlanOrchestrationActions:
         contract = {
             "id": "test",
             "orchestration": {
-                "tasks": [{
-                    "taskId": "create_bucket",
-                    "type": "provider_action",
-                    "action": "aws.s3.ensure_bucket",
-                    "params": {"bucket": "my-bucket"},
-                }],
+                "tasks": [
+                    {
+                        "taskId": "create_bucket",
+                        "type": "provider_action",
+                        "action": "aws.s3.ensure_bucket",
+                        "params": {"bucket": "my-bucket"},
+                    }
+                ],
             },
         }
         actions = p.plan_orchestration_actions(contract)
@@ -58,12 +74,14 @@ class TestPlanOrchestrationActions:
             "id": "cid",
             "name": "cname",
             "orchestration": {
-                "tasks": [{
-                    "taskId": "t1",
-                    "type": "provider_action",
-                    "action": "aws.glue.ensure_table",
-                    "params": {"database": "db", "table": "tbl"},
-                }],
+                "tasks": [
+                    {
+                        "taskId": "t1",
+                        "type": "provider_action",
+                        "action": "aws.glue.ensure_table",
+                        "params": {"database": "db", "table": "tbl"},
+                    }
+                ],
             },
         }
         actions = p.plan_orchestration_actions(contract)

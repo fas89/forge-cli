@@ -1,11 +1,27 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for fluid_build/policy/compiler.py — access-policy → IAM bindings."""
-import pytest
+
 from fluid_build.policy.compiler import (
-    compile_policy,
-    _compile_gcp_bindings,
+    SAFE_BQ_PERMS,
+    SAFE_S3_PERMS,
+    SAFE_SNOWFLAKE_PERMS,
     _compile_aws_bindings,
+    _compile_gcp_bindings,
     _compile_snowflake_bindings,
-    SAFE_BQ_PERMS, SAFE_GCS_PERMS, SAFE_S3_PERMS, SAFE_GLUE_PERMS, SAFE_SNOWFLAKE_PERMS,
+    compile_policy,
 )
 
 
@@ -34,7 +50,15 @@ class TestCompilePolicy:
     def test_missing_principal(self):
         contract = {
             "accessPolicy": {"grants": [{"permissions": ["read"]}]},
-            "exposes": [{"binding": {"platform": "gcp", "format": "bigquery_table", "location": {"dataset": "ds"}}}],
+            "exposes": [
+                {
+                    "binding": {
+                        "platform": "gcp",
+                        "format": "bigquery_table",
+                        "location": {"dataset": "ds"},
+                    }
+                }
+            ],
         }
         bindings, warnings = compile_policy(contract)
         assert any("missing principal" in w for w in warnings)
@@ -51,8 +75,12 @@ class TestCompilePolicy:
         assert b["roles"] == SAFE_BQ_PERMS["readData"]
 
     def test_gcp_bigquery_write(self):
-        c = _contract("gcp", "bigquery_table", {"dataset": "ds", "project": "p"},
-                       grants=[{"principal": "sa@gcp", "permissions": ["write"]}])
+        c = _contract(
+            "gcp",
+            "bigquery_table",
+            {"dataset": "ds", "project": "p"},
+            grants=[{"principal": "sa@gcp", "permissions": ["write"]}],
+        )
         bindings, _ = compile_policy(c)
         assert bindings[0]["roles"] == SAFE_BQ_PERMS["manage"]
 
@@ -72,7 +100,11 @@ class TestCompilePolicy:
         assert bindings[0]["actions"] == SAFE_S3_PERMS["readData"]
 
     def test_aws_glue(self):
-        c = _contract("aws", "iceberg", {"bucket": "bkt", "database": "mydb", "table": "tbl", "region": "eu-west-1"})
+        c = _contract(
+            "aws",
+            "iceberg",
+            {"bucket": "bkt", "database": "mydb", "table": "tbl", "region": "eu-west-1"},
+        )
         bindings, _ = compile_policy(c)
         # Should produce both S3 and Glue bindings
         assert len(bindings) == 2
@@ -81,13 +113,19 @@ class TestCompilePolicy:
         assert "glue.table" in types
 
     def test_aws_write_permissions(self):
-        c = _contract("aws", "s3_file", {"bucket": "bkt"},
-                       grants=[{"principal": "role/x", "permissions": ["insert"]}])
+        c = _contract(
+            "aws",
+            "s3_file",
+            {"bucket": "bkt"},
+            grants=[{"principal": "role/x", "permissions": ["insert"]}],
+        )
         bindings, _ = compile_policy(c)
         assert bindings[0]["actions"] == SAFE_S3_PERMS["manage"]
 
     def test_snowflake(self):
-        c = _contract("snowflake", "snowflake_table", {"database": "DB", "schema": "SCH", "table": "T"})
+        c = _contract(
+            "snowflake", "snowflake_table", {"database": "DB", "schema": "SCH", "table": "T"}
+        )
         bindings, _ = compile_policy(c)
         assert len(bindings) == 1
         b = bindings[0]
@@ -117,7 +155,13 @@ class TestCompilePolicy:
                 ],
             },
             "exposes": [
-                {"binding": {"platform": "gcp", "format": "bigquery_table", "location": {"dataset": "ds"}}},
+                {
+                    "binding": {
+                        "platform": "gcp",
+                        "format": "bigquery_table",
+                        "location": {"dataset": "ds"},
+                    }
+                },
             ],
         }
         bindings, _ = compile_policy(contract)
@@ -169,5 +213,7 @@ class TestSnowflakeBindingsInternal:
 
     def test_write_grants(self):
         bindings = []
-        _compile_snowflake_bindings(bindings, "snowflake_table", {"database": "DB"}, "u@x.com", ["delete"])
+        _compile_snowflake_bindings(
+            bindings, "snowflake_table", {"database": "DB"}, "u@x.com", ["delete"]
+        )
         assert bindings[0]["grants"] == SAFE_SNOWFLAKE_PERMS["manage"]

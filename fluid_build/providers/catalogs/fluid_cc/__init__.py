@@ -16,4 +16,4 @@
 
 from .provider import FluidCommandCenterProvider
 
-__all__ = ['FluidCommandCenterProvider']
+__all__ = ["FluidCommandCenterProvider"]

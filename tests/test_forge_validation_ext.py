@@ -1,17 +1,33 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for fluid_build.cli.forge_validation — all validation functions."""
+
 import pytest
+
 from fluid_build.cli.forge_validation import (
-    validate_project_name,
     sanitize_project_name,
+    suggest_fixes,
+    validate_context_dict,
+    validate_directory_path,
+    validate_project_name,
     validate_provider,
     validate_template_name,
-    validate_directory_path,
-    validate_context_dict,
-    suggest_fixes,
 )
 
-
 # ── validate_project_name ──
+
 
 class TestValidateProjectName:
     def test_valid(self):
@@ -54,6 +70,7 @@ class TestValidateProjectName:
 
 # ── sanitize_project_name ──
 
+
 class TestSanitizeProjectName:
     def test_empty_nonstrict(self):
         assert sanitize_project_name("") == "my-data-product"
@@ -89,6 +106,7 @@ class TestSanitizeProjectName:
 
 # ── validate_provider ──
 
+
 class TestValidateProvider:
     def test_valid_providers(self):
         for p in ["local", "gcp", "aws", "azure", "snowflake", "databricks"]:
@@ -105,6 +123,7 @@ class TestValidateProvider:
 
 
 # ── validate_template_name ──
+
 
 class TestValidateTemplateName:
     def test_valid(self):
@@ -134,6 +153,7 @@ class TestValidateTemplateName:
 
 # ── validate_directory_path ──
 
+
 class TestValidateDirectoryPath:
     def test_relative(self):
         ok, err = validate_directory_path("./output")
@@ -149,6 +169,7 @@ class TestValidateDirectoryPath:
 
 
 # ── validate_context_dict ──
+
 
 class TestValidateContextDict:
     def test_valid(self):
@@ -169,30 +190,37 @@ class TestValidateContextDict:
         assert ok is False
 
     def test_invalid_use_case(self):
-        ok, err = validate_context_dict({
-            "project_goal": "Build something",
-            "use_case": "invalid_case",
-        })
+        ok, err = validate_context_dict(
+            {
+                "project_goal": "Build something",
+                "use_case": "invalid_case",
+            }
+        )
         assert ok is False
 
     def test_invalid_complexity(self):
-        ok, err = validate_context_dict({
-            "project_goal": "Build something",
-            "complexity": "extreme",
-        })
+        ok, err = validate_context_dict(
+            {
+                "project_goal": "Build something",
+                "complexity": "extreme",
+            }
+        )
         assert ok is False
 
     def test_valid_all_fields(self):
-        ok, err = validate_context_dict({
-            "project_goal": "Build a data lake",
-            "use_case": "analytics",
-            "complexity": "intermediate",
-            "data_sources": "BigQuery",
-        })
+        ok, err = validate_context_dict(
+            {
+                "project_goal": "Build a data lake",
+                "use_case": "analytics",
+                "complexity": "intermediate",
+                "data_sources": "BigQuery",
+            }
+        )
         assert ok is True
 
 
 # ── suggest_fixes ──
+
 
 class TestSuggestFixes:
     def test_starts_with_letter(self):

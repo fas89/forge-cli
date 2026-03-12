@@ -1,14 +1,31 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for fluid_build.cli.ide — data structures AND language server logic."""
-import pytest
+
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+
 from fluid_build.cli.ide import (
-    IDEType, CompletionType, CompletionItem, DiagnosticItem,
+    CompletionItem,
+    CompletionType,
+    DiagnosticItem,
     FluidLanguageServer,
+    IDEType,
 )
 
-
 # ── Enum tests ──
+
 
 class TestEnums:
     def test_ide_types(self):
@@ -23,11 +40,14 @@ class TestEnums:
 
 # ── CompletionItem ──
 
+
 class TestCompletionItem:
     def test_basic_creation(self):
         ci = CompletionItem(
-            label="validate", kind=CompletionType.COMMAND,
-            detail="Validate contract", documentation="docs",
+            label="validate",
+            kind=CompletionType.COMMAND,
+            detail="Validate contract",
+            documentation="docs",
             insert_text="validate ${1:file}",
         )
         assert ci.label == "validate"
@@ -35,9 +55,12 @@ class TestCompletionItem:
 
     def test_to_dict(self):
         ci = CompletionItem(
-            label="gcp", kind=CompletionType.PROVIDER,
-            detail="GCP", documentation="Google Cloud",
-            insert_text="gcp", score=0.9,
+            label="gcp",
+            kind=CompletionType.PROVIDER,
+            detail="GCP",
+            documentation="Google Cloud",
+            insert_text="gcp",
+            score=0.9,
         )
         d = ci.to_dict()
         assert d["label"] == "gcp"
@@ -48,19 +71,27 @@ class TestCompletionItem:
 
 # ── DiagnosticItem ──
 
+
 class TestDiagnosticItem:
     def test_basic(self):
         di = DiagnosticItem(
-            file_path="c.yaml", line=10, column=5,
-            severity="error", message="Missing field",
+            file_path="c.yaml",
+            line=10,
+            column=5,
+            severity="error",
+            message="Missing field",
         )
         assert di.source == "fluid"
         assert di.code is None
 
     def test_to_dict(self):
         di = DiagnosticItem(
-            file_path="c.yaml", line=1, column=1,
-            severity="warning", message="Warn", code="W001",
+            file_path="c.yaml",
+            line=1,
+            column=1,
+            severity="warning",
+            message="Warn",
+            code="W001",
         )
         d = di.to_dict()
         assert d["file"] == "c.yaml"
@@ -69,6 +100,7 @@ class TestDiagnosticItem:
 
 
 # ── FluidLanguageServer ──
+
 
 class TestFluidLanguageServer:
     def test_init_loads_completion_data(self):

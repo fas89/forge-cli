@@ -18,9 +18,9 @@ Gap 1: publish_test_results — POST /api/test-results
 Gap 2: Enhanced _publish_data_contract_internal mapping
 Gap 3: Fixed _resolve_location + _extract_provider for 0.7.1 bindings
 """
+
 from __future__ import annotations
 
-import json
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
@@ -30,19 +30,26 @@ from fluid_build.providers.datamesh_manager.datamesh_manager import (
     DataMeshManagerProvider,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_provider(**kwargs):
     """Create a DataMeshManagerProvider with a fake API key."""
     return DataMeshManagerProvider(api_key="test-key-123", **kwargs)
 
 
-def _make_report(*, is_valid=True, issues=None, contract_id="test-product",
-                 contract_version="1.0.0", duration=1.23, checks_passed=5,
-                 checks_failed=0):
+def _make_report(
+    *,
+    is_valid=True,
+    issues=None,
+    contract_id="test-product",
+    contract_version="1.0.0",
+    duration=1.23,
+    checks_passed=5,
+    checks_failed=0,
+):
     """Create a mock ValidationReport."""
     report = MagicMock()
     report.contract_id = contract_id
@@ -56,8 +63,9 @@ def _make_report(*, is_valid=True, issues=None, contract_id="test-product",
     return report
 
 
-def _make_issue(severity="error", category="schema", message="bad field",
-                path="exposes[0].schema.fields[0]"):
+def _make_issue(
+    severity="error", category="schema", message="bad field", path="exposes[0].schema.fields[0]"
+):
     issue = MagicMock()
     issue.severity = severity
     issue.category = category
@@ -69,6 +77,7 @@ def _make_issue(severity="error", category="schema", message="bad field",
 # ===================================================================
 # Gap 3: _extract_provider + _resolve_location (FLUID 0.7.1)
 # ===================================================================
+
 
 class TestExtractProvider:
     """Test _extract_provider with legacy and 0.7.1 patterns."""
@@ -208,15 +217,17 @@ class TestMapOutputPortsV071:
     def test_uses_expose_id_and_title(self):
         provider = _make_provider()
         fluid = {
-            "exposes": [{
-                "exposeId": "btc_table",
-                "title": "Bitcoin Prices",
-                "description": "BTC data",
-                "binding": {
-                    "platform": "gcp",
-                    "location": {"project": "p", "dataset": "d", "table": "t"},
-                },
-            }],
+            "exposes": [
+                {
+                    "exposeId": "btc_table",
+                    "title": "Bitcoin Prices",
+                    "description": "BTC data",
+                    "binding": {
+                        "platform": "gcp",
+                        "location": {"project": "p", "dataset": "d", "table": "t"},
+                    },
+                }
+            ],
         }
         ports = provider._map_output_ports(fluid)
         assert len(ports) == 1
@@ -229,6 +240,7 @@ class TestMapOutputPortsV071:
 # ===================================================================
 # Gap 2: Enhanced _publish_data_contract_internal
 # ===================================================================
+
 
 class TestPublishDataContractInternal:
     """Test the enhanced data contract mapping."""
@@ -256,57 +268,68 @@ class TestPublishDataContractInternal:
                 "runtime": "python3.11",
                 "schedule": "*/5 * * * *",
             },
-            "exposes": [{
-                "exposeId": "btc_prices",
-                "title": "Bitcoin Prices",
-                "kind": "table",
-                "binding": {
-                    "platform": "gcp",
-                    "format": "bigquery_table",
-                    "location": {
-                        "project": "my-proj",
-                        "dataset": "crypto",
-                        "table": "btc_prices",
-                        "region": "EU",
+            "exposes": [
+                {
+                    "exposeId": "btc_prices",
+                    "title": "Bitcoin Prices",
+                    "kind": "table",
+                    "binding": {
+                        "platform": "gcp",
+                        "format": "bigquery_table",
+                        "location": {
+                            "project": "my-proj",
+                            "dataset": "crypto",
+                            "table": "btc_prices",
+                            "region": "EU",
+                        },
                     },
-                },
-                "policy": {
-                    "dq": {
-                        "rules": [
+                    "policy": {
+                        "dq": {
+                            "rules": [
+                                {
+                                    "id": "freshness_check",
+                                    "type": "freshness",
+                                    "severity": "critical",
+                                    "window": "PT6H",
+                                    "description": "Data must be fresh",
+                                },
+                                {
+                                    "id": "completeness_price",
+                                    "type": "completeness",
+                                    "severity": "error",
+                                    "selector": "price_usd",
+                                    "threshold": 0.95,
+                                    "description": "95% price completeness",
+                                },
+                            ]
+                        }
+                    },
+                    "contract": {
+                        "schema": [
                             {
-                                "id": "freshness_check",
-                                "type": "freshness",
-                                "severity": "critical",
-                                "window": "PT6H",
-                                "description": "Data must be fresh",
+                                "name": "price_usd",
+                                "type": "numeric",
+                                "required": True,
+                                "description": "BTC price",
+                                "sensitivity": "cleartext",
                             },
                             {
-                                "id": "completeness_price",
-                                "type": "completeness",
-                                "severity": "error",
-                                "selector": "price_usd",
-                                "threshold": 0.95,
-                                "description": "95% price completeness",
+                                "name": "timestamp",
+                                "type": "timestamp",
+                                "required": True,
+                                "description": "Record time",
                             },
                         ]
-                    }
-                },
-                "contract": {
-                    "schema": [
-                        {"name": "price_usd", "type": "numeric", "required": True,
-                         "description": "BTC price", "sensitivity": "cleartext"},
-                        {"name": "timestamp", "type": "timestamp", "required": True,
-                         "description": "Record time"},
-                    ]
-                },
-            }],
+                    },
+                }
+            ],
         }
 
     @patch.object(DataMeshManagerProvider, "_request")
     def test_includes_domain(self, mock_req):
         mock_req.return_value = MagicMock(status_code=200)
         provider = _make_provider()
-        result = provider._publish_data_contract_internal(self._fluid_contract(), "test-product")
+        provider._publish_data_contract_internal(self._fluid_contract(), "test-product")
         payload = mock_req.call_args[1]["json_body"]
         assert payload["info"]["domain"] == "finance"
 
@@ -390,19 +413,21 @@ class TestPublishDataContractInternal:
         fluid = {
             "id": "test",
             "metadata": {"owner": {"team": "t"}},
-            "exposes": [{
-                "exposeId": "tbl",
-                "binding": {
-                    "platform": "snowflake",
-                    "location": {
-                        "account": "{{ env.SF_ACCOUNT }}",
-                        "database": "DB",
-                        "schema": "SCH",
-                        "table": "TBL",
+            "exposes": [
+                {
+                    "exposeId": "tbl",
+                    "binding": {
+                        "platform": "snowflake",
+                        "location": {
+                            "account": "{{ env.SF_ACCOUNT }}",
+                            "database": "DB",
+                            "schema": "SCH",
+                            "table": "TBL",
+                        },
                     },
-                },
-                "contract": {"schema": [{"name": "col1", "type": "string"}]},
-            }],
+                    "contract": {"schema": [{"name": "col1", "type": "string"}]},
+                }
+            ],
         }
         provider._publish_data_contract_internal(fluid, "test")
         payload = mock_req.call_args[1]["json_body"]
@@ -414,6 +439,7 @@ class TestPublishDataContractInternal:
 # ===================================================================
 # Gap 1: publish_test_results
 # ===================================================================
+
 
 class TestPublishTestResults:
     """Test the new publish_test_results method."""
@@ -451,7 +477,7 @@ class TestPublishTestResults:
         ]
         provider = _make_provider()
         report = _make_report(is_valid=False, issues=issues, checks_passed=3, checks_failed=2)
-        result = provider.publish_test_results(report)
+        provider.publish_test_results(report)
 
         payload = mock_session.return_value.request.call_args[1]["json"]
         assert payload["result"] == "failed"
@@ -507,24 +533,30 @@ class TestPublishTestResults:
 # Gap 1 CLI integration: --publish flag on fluid test
 # ===================================================================
 
+
 class TestFluidTestPublishFlag:
     """Test that --publish is wired into the fluid test CLI."""
 
     def test_publish_arg_registered(self):
         """The --publish argument should be registered on the test parser."""
         import argparse
+
         from fluid_build.cli.test import register
+
         parser = argparse.ArgumentParser()
         subs = parser.add_subparsers()
         register(subs)
-        args = parser.parse_args(["test", "contract.yaml", "--publish",
-                                  "https://api.entropy-data.com/api/test-results"])
+        args = parser.parse_args(
+            ["test", "contract.yaml", "--publish", "https://api.entropy-data.com/api/test-results"]
+        )
         assert args.publish == "https://api.entropy-data.com/api/test-results"
 
     def test_publish_arg_optional(self):
         """Without --publish the attribute should be None."""
         import argparse
+
         from fluid_build.cli.test import register
+
         parser = argparse.ArgumentParser()
         subs = parser.add_subparsers()
         register(subs)

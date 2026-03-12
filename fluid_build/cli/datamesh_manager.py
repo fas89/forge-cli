@@ -30,22 +30,22 @@ Usage:
 from __future__ import annotations
 
 import json
-import sys
-from pathlib import Path
-from typing import Optional
-from fluid_build.cli.console import cprint, error as console_error, success
+
+from fluid_build.cli.console import cprint, success
+from fluid_build.cli.console import error as console_error
 
 try:
     from rich.console import Console
     from rich.panel import Panel
     from rich.table import Table
+
     RICH_AVAILABLE = True
 except ImportError:
     RICH_AVAILABLE = False
 
 from fluid_build.cli.bootstrap import load_contract_with_overlay
-from fluid_build.providers.datamesh_manager import DataMeshManagerProvider
 from fluid_build.providers.base import ProviderError
+from fluid_build.providers.datamesh_manager import DataMeshManagerProvider
 
 
 def add_parser(subparsers):
@@ -63,9 +63,7 @@ def add_parser(subparsers):
     pub.add_argument("contract", help="Path to FLUID contract file")
     pub.add_argument("-o", "--overlay", help="Path to overlay file")
     pub.add_argument("--team-id", help="Team ID (default: from contract owner)")
-    pub.add_argument(
-        "--dry-run", action="store_true", help="Preview without publishing"
-    )
+    pub.add_argument("--dry-run", action="store_true", help="Preview without publishing")
     pub.add_argument(
         "--with-contract",
         action="store_true",
@@ -91,7 +89,10 @@ def add_parser(subparsers):
     ls.add_argument("--api-key", help="Entropy Data API key")
     ls.add_argument("--api-url", help="API base URL")
     ls.add_argument(
-        "--format", "-f", choices=["table", "json"], default="table",
+        "--format",
+        "-f",
+        choices=["table", "json"],
+        default="table",
         help="Output format (default: table)",
     )
     ls.set_defaults(func=_cmd_list)
@@ -116,7 +117,10 @@ def add_parser(subparsers):
     tm.add_argument("--api-key", help="Entropy Data API key")
     tm.add_argument("--api-url", help="API base URL")
     tm.add_argument(
-        "--format", "-f", choices=["table", "json"], default="table",
+        "--format",
+        "-f",
+        choices=["table", "json"],
+        default="table",
         help="Output format (default: table)",
     )
     tm.set_defaults(func=_cmd_teams)
@@ -278,13 +282,15 @@ def _print_dry_run(result):
     if RICH_AVAILABLE:
         console = Console()
         payload = result.get("payload", {})
-        console.print(Panel(
-            f"[bold]Method:[/bold] {result.get('method', 'PUT')}\n"
-            f"[bold]URL:[/bold]    {result.get('url', '?')}\n\n"
-            f"[bold]Payload:[/bold]\n{json.dumps(payload, indent=2)}",
-            title="[yellow]Dry Run Preview[/yellow]",
-            border_style="yellow",
-        ))
+        console.print(
+            Panel(
+                f"[bold]Method:[/bold] {result.get('method', 'PUT')}\n"
+                f"[bold]URL:[/bold]    {result.get('url', '?')}\n\n"
+                f"[bold]Payload:[/bold]\n{json.dumps(payload, indent=2)}",
+                title="[yellow]Dry Run Preview[/yellow]",
+                border_style="yellow",
+            )
+        )
     else:
         cprint("=== Dry Run Preview ===")
         cprint(f"Method: {result.get('method', 'PUT')}")

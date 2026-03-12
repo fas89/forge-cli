@@ -13,7 +13,11 @@
 # limitations under the License.
 
 from __future__ import annotations
-import os, json, tempfile
+
+import json
+import os
+import tempfile
+
 
 def atomic_write(path: str, data: str, encoding: str = "utf-8") -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -28,6 +32,7 @@ def atomic_write(path: str, data: str, encoding: str = "utf-8") -> None:
             os.remove(tmp)
         except FileNotFoundError:
             pass
+
 
 def dump_json(path: str, obj):
     atomic_write(path, json.dumps(obj, indent=2))

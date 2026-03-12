@@ -1,9 +1,23 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for fluid_build.forge.core.engine — ForgeEngine helpers."""
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+
 import json
-import pytest
 import tempfile
+from pathlib import Path
+from unittest.mock import patch
 
 from fluid_build.forge.core.interfaces import ComplexityLevel
 
@@ -14,10 +28,15 @@ class TestForgeEngineHelpers:
     def _make_engine(self):
         """Create a ForgeEngine with registries stubbed out."""
         from fluid_build.forge.core.engine import ForgeEngine
+
         with patch("fluid_build.forge.core.engine.initialize_all_registries"):
-            with patch("fluid_build.forge.core.engine.get_registry_status", return_value={
-                "templates": {"count": 1}, "providers": {"count": 1},
-            }):
+            with patch(
+                "fluid_build.forge.core.engine.get_registry_status",
+                return_value={
+                    "templates": {"count": 1},
+                    "providers": {"count": 1},
+                },
+            ):
                 return ForgeEngine(auto_init_registries=True)
 
     def test_get_complexity_icon_beginner(self):
@@ -109,10 +128,15 @@ class TestForgeEngineHelpers:
     def test_validate_registry_setup_warns_on_empty(self):
         """Registry setup should log warnings when registries are empty."""
         with patch("fluid_build.forge.core.engine.initialize_all_registries"):
-            with patch("fluid_build.forge.core.engine.get_registry_status", return_value={
-                "templates": {"count": 0}, "providers": {"count": 0},
-            }):
+            with patch(
+                "fluid_build.forge.core.engine.get_registry_status",
+                return_value={
+                    "templates": {"count": 0},
+                    "providers": {"count": 0},
+                },
+            ):
                 with patch("fluid_build.forge.core.engine.logger") as mock_logger:
                     from fluid_build.forge.core.engine import ForgeEngine
+
                     ForgeEngine(auto_init_registries=True)
                     assert mock_logger.warning.call_count >= 1

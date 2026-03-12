@@ -15,37 +15,40 @@
 """
 FLUID CLI Configuration Management and Validation
 
-Comprehensive configuration validation, environment management, and 
+Comprehensive configuration validation, environment management, and
 deployment documentation for production-ready CLI operations.
 """
 
 from __future__ import annotations
 
-import os
 import json
-import yaml
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Union, TypeVar, Type
-from dataclasses import dataclass, field
-from enum import Enum
-import re
 import logging
+import os
+from dataclasses import dataclass
+from enum import Enum
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Type, TypeVar, Union
+
+import yaml
 
 from .core import FluidCLIError
 from .security import read_file_secure, validate_input_file
 
-T = TypeVar('T')
+T = TypeVar("T")
+
 
 class EnvironmentType(Enum):
     """Environment types for configuration validation"""
+
     DEVELOPMENT = "dev"
-    TESTING = "test" 
+    TESTING = "test"
     STAGING = "staging"
     PRODUCTION = "prod"
 
 
 class ConfigSource(Enum):
     """Configuration source types"""
+
     DEFAULT = "default"
     ENVIRONMENT = "environment"
     CONFIG_FILE = "config_file"
@@ -56,13 +59,14 @@ class ConfigSource(Enum):
 @dataclass
 class ConfigValue:
     """Configuration value with metadata"""
+
     value: Any
     source: ConfigSource
     required: bool = False
     sensitive: bool = False
     validated: bool = False
     description: str = ""
-    
+
     def mask_if_sensitive(self) -> str:
         """Return masked value if sensitive"""
         if self.sensitive and self.value:
@@ -70,15 +74,16 @@ class ConfigValue:
         return str(self.value)
 
 
-@dataclass 
+@dataclass
 class ValidationRule:
     """Configuration validation rule"""
+
     name: str
     validator: callable
     error_message: str
     severity: str = "error"  # error, warning, info
     environments: List[EnvironmentType] = None
-    
+
     def __post_init__(self):
         if self.environments is None:
             self.environments = list(EnvironmentType)
@@ -86,152 +91,172 @@ class ValidationRule:
 
 class ConfigurationManager:
     """Production-ready configuration management with validation"""
-    
+
     def __init__(self, environment: Optional[str] = None):
         self.environment = self._determine_environment(environment)
         self.config: Dict[str, ConfigValue] = {}
         self.validation_rules: List[ValidationRule] = []
         self.logger = logging.getLogger(__name__)
-        
+
         # Load default configuration
         self._load_defaults()
         self._register_default_validation_rules()
-    
+
     def _determine_environment(self, env: Optional[str]) -> EnvironmentType:
         """Determine the current environment"""
-        env_str = env or os.getenv('FLUID_ENV', 'dev')
-        
+        env_str = env or os.getenv("FLUID_ENV", "dev")
+
         try:
             return EnvironmentType(env_str.lower())
         except ValueError:
             # Default to development for unknown environments
             self.logger.warning(f"Unknown environment '{env_str}', defaulting to development")
             return EnvironmentType.DEVELOPMENT
-    
+
     def _load_defaults(self) -> None:
         """Load default configuration values"""
         defaults = {
             # Infrastructure
-            'provider': ConfigValue("local", ConfigSource.DEFAULT, description="Infrastructure provider"),
-            'region': ConfigValue("us-central1", ConfigSource.DEFAULT, description="Cloud region"),
-            'project': ConfigValue(None, ConfigSource.DEFAULT, description="Cloud project ID"),
-            
+            "provider": ConfigValue(
+                "local", ConfigSource.DEFAULT, description="Infrastructure provider"
+            ),
+            "region": ConfigValue("us-central1", ConfigSource.DEFAULT, description="Cloud region"),
+            "project": ConfigValue(None, ConfigSource.DEFAULT, description="Cloud project ID"),
             # Logging
-            'log_level': ConfigValue("INFO", ConfigSource.DEFAULT, description="Logging level"),
-            'log_file': ConfigValue(None, ConfigSource.DEFAULT, description="Log file path"),
-            'log_format': ConfigValue("text", ConfigSource.DEFAULT, description="Log format (text/json)"),
-            
+            "log_level": ConfigValue("INFO", ConfigSource.DEFAULT, description="Logging level"),
+            "log_file": ConfigValue(None, ConfigSource.DEFAULT, description="Log file path"),
+            "log_format": ConfigValue(
+                "text", ConfigSource.DEFAULT, description="Log format (text/json)"
+            ),
             # Security
-            'safe_mode': ConfigValue(False, ConfigSource.DEFAULT, description="Enhanced security mode"),
-            'max_file_size_mb': ConfigValue(100, ConfigSource.DEFAULT, description="Maximum file size in MB"),
-            'timeout_seconds': ConfigValue(300, ConfigSource.DEFAULT, description="Default timeout in seconds"),
-            
-            # Performance  
-            'cache_enabled': ConfigValue(True, ConfigSource.DEFAULT, description="Enable caching"),
-            'cache_ttl_seconds': ConfigValue(3600, ConfigSource.DEFAULT, description="Cache TTL in seconds"),
-            'parallel_operations': ConfigValue(4, ConfigSource.DEFAULT, description="Max parallel operations"),
-            
+            "safe_mode": ConfigValue(
+                False, ConfigSource.DEFAULT, description="Enhanced security mode"
+            ),
+            "max_file_size_mb": ConfigValue(
+                100, ConfigSource.DEFAULT, description="Maximum file size in MB"
+            ),
+            "timeout_seconds": ConfigValue(
+                300, ConfigSource.DEFAULT, description="Default timeout in seconds"
+            ),
+            # Performance
+            "cache_enabled": ConfigValue(True, ConfigSource.DEFAULT, description="Enable caching"),
+            "cache_ttl_seconds": ConfigValue(
+                3600, ConfigSource.DEFAULT, description="Cache TTL in seconds"
+            ),
+            "parallel_operations": ConfigValue(
+                4, ConfigSource.DEFAULT, description="Max parallel operations"
+            ),
             # Features
-            'rich_output': ConfigValue(True, ConfigSource.DEFAULT, description="Enable rich terminal output"),
-            'auto_confirm': ConfigValue(False, ConfigSource.DEFAULT, description="Auto-confirm operations"),
-            'dry_run': ConfigValue(False, ConfigSource.DEFAULT, description="Dry run mode"),
-            
+            "rich_output": ConfigValue(
+                True, ConfigSource.DEFAULT, description="Enable rich terminal output"
+            ),
+            "auto_confirm": ConfigValue(
+                False, ConfigSource.DEFAULT, description="Auto-confirm operations"
+            ),
+            "dry_run": ConfigValue(False, ConfigSource.DEFAULT, description="Dry run mode"),
             # Development
-            'debug': ConfigValue(False, ConfigSource.DEFAULT, description="Debug mode"),
-            'profiling': ConfigValue(False, ConfigSource.DEFAULT, description="Performance profiling"),
-            'trace': ConfigValue(False, ConfigSource.DEFAULT, description="Execution tracing"),
+            "debug": ConfigValue(False, ConfigSource.DEFAULT, description="Debug mode"),
+            "profiling": ConfigValue(
+                False, ConfigSource.DEFAULT, description="Performance profiling"
+            ),
+            "trace": ConfigValue(False, ConfigSource.DEFAULT, description="Execution tracing"),
         }
-        
+
         self.config.update(defaults)
-    
+
     def _register_default_validation_rules(self) -> None:
         """Register default validation rules"""
         self.validation_rules = [
             # Provider validation
             ValidationRule(
                 "provider_valid",
-                lambda cfg: cfg.get('provider', {}).value in ['local', 'gcp', 'aws', 'azure', 'snowflake'],
-                "Provider must be one of: local, gcp, aws, azure, snowflake"
+                lambda cfg: cfg.get("provider", {}).value
+                in ["local", "gcp", "aws", "azure", "snowflake"],
+                "Provider must be one of: local, gcp, aws, azure, snowflake",
             ),
-            
             # Cloud provider project requirement
             ValidationRule(
                 "cloud_provider_project",
-                lambda cfg: not (cfg.get('provider', {}).value in ['gcp', 'aws', 'azure'] and not cfg.get('project', {}).value),
+                lambda cfg: not (
+                    cfg.get("provider", {}).value in ["gcp", "aws", "azure"]
+                    and not cfg.get("project", {}).value
+                ),
                 "Cloud providers (gcp, aws, azure) require a project to be specified",
-                environments=[EnvironmentType.STAGING, EnvironmentType.PRODUCTION]
+                environments=[EnvironmentType.STAGING, EnvironmentType.PRODUCTION],
             ),
-            
             # Production security requirements
             ValidationRule(
                 "production_safe_mode",
-                lambda cfg: cfg.get('safe_mode', {}).value if cfg.get('environment') == EnvironmentType.PRODUCTION else True,
+                lambda cfg: (
+                    cfg.get("safe_mode", {}).value
+                    if cfg.get("environment") == EnvironmentType.PRODUCTION
+                    else True
+                ),
                 "Safe mode should be enabled in production",
                 severity="warning",
-                environments=[EnvironmentType.PRODUCTION]
+                environments=[EnvironmentType.PRODUCTION],
             ),
-            
             # Log level validation
             ValidationRule(
                 "log_level_valid",
-                lambda cfg: cfg.get('log_level', {}).value.upper() in ['DEBUG', 'INFO', 'WARNING', 'ERROR'],
-                "Log level must be one of: DEBUG, INFO, WARNING, ERROR"
+                lambda cfg: cfg.get("log_level", {}).value.upper()
+                in ["DEBUG", "INFO", "WARNING", "ERROR"],
+                "Log level must be one of: DEBUG, INFO, WARNING, ERROR",
             ),
-            
             # File size limits
             ValidationRule(
                 "file_size_reasonable",
-                lambda cfg: 1 <= cfg.get('max_file_size_mb', {}).value <= 1000,
-                "Maximum file size must be between 1MB and 1000MB"
+                lambda cfg: 1 <= cfg.get("max_file_size_mb", {}).value <= 1000,
+                "Maximum file size must be between 1MB and 1000MB",
             ),
-            
             # Timeout validation
             ValidationRule(
-                "timeout_reasonable", 
-                lambda cfg: 10 <= cfg.get('timeout_seconds', {}).value <= 3600,
-                "Timeout must be between 10 seconds and 1 hour"
+                "timeout_reasonable",
+                lambda cfg: 10 <= cfg.get("timeout_seconds", {}).value <= 3600,
+                "Timeout must be between 10 seconds and 1 hour",
             ),
-            
             # Parallel operations limit
             ValidationRule(
                 "parallel_operations_limit",
-                lambda cfg: 1 <= cfg.get('parallel_operations', {}).value <= 20,
-                "Parallel operations must be between 1 and 20"
+                lambda cfg: 1 <= cfg.get("parallel_operations", {}).value <= 20,
+                "Parallel operations must be between 1 and 20",
             ),
-            
             # Production debugging warning
             ValidationRule(
                 "production_debug_warning",
-                lambda cfg: not (cfg.get('debug', {}).value and cfg.get('environment') == EnvironmentType.PRODUCTION),
+                lambda cfg: not (
+                    cfg.get("debug", {}).value
+                    and cfg.get("environment") == EnvironmentType.PRODUCTION
+                ),
                 "Debug mode should not be enabled in production",
                 severity="warning",
-                environments=[EnvironmentType.PRODUCTION]
+                environments=[EnvironmentType.PRODUCTION],
             ),
         ]
-    
+
     def load_from_environment(self) -> None:
         """Load configuration from environment variables"""
         env_mappings = {
-            'FLUID_PROVIDER': 'provider',
-            'FLUID_REGION': 'region', 
-            'FLUID_PROJECT': 'project',
-            'FLUID_LOG_LEVEL': 'log_level',
-            'FLUID_LOG_FILE': 'log_file',
-            'FLUID_LOG_FORMAT': 'log_format',
-            'FLUID_SAFE_MODE': 'safe_mode',
-            'FLUID_MAX_FILE_SIZE_MB': 'max_file_size_mb',
-            'FLUID_TIMEOUT_SECONDS': 'timeout_seconds',
-            'FLUID_CACHE_ENABLED': 'cache_enabled',
-            'FLUID_CACHE_TTL_SECONDS': 'cache_ttl_seconds',
-            'FLUID_PARALLEL_OPERATIONS': 'parallel_operations',
-            'FLUID_RICH_OUTPUT': 'rich_output',
-            'FLUID_AUTO_CONFIRM': 'auto_confirm',
-            'FLUID_DRY_RUN': 'dry_run',
-            'FLUID_DEBUG': 'debug',
-            'FLUID_PROFILING': 'profiling',
-            'FLUID_TRACE': 'trace',
+            "FLUID_PROVIDER": "provider",
+            "FLUID_REGION": "region",
+            "FLUID_PROJECT": "project",
+            "FLUID_LOG_LEVEL": "log_level",
+            "FLUID_LOG_FILE": "log_file",
+            "FLUID_LOG_FORMAT": "log_format",
+            "FLUID_SAFE_MODE": "safe_mode",
+            "FLUID_MAX_FILE_SIZE_MB": "max_file_size_mb",
+            "FLUID_TIMEOUT_SECONDS": "timeout_seconds",
+            "FLUID_CACHE_ENABLED": "cache_enabled",
+            "FLUID_CACHE_TTL_SECONDS": "cache_ttl_seconds",
+            "FLUID_PARALLEL_OPERATIONS": "parallel_operations",
+            "FLUID_RICH_OUTPUT": "rich_output",
+            "FLUID_AUTO_CONFIRM": "auto_confirm",
+            "FLUID_DRY_RUN": "dry_run",
+            "FLUID_DEBUG": "debug",
+            "FLUID_PROFILING": "profiling",
+            "FLUID_TRACE": "trace",
         }
-        
+
         for env_var, config_key in env_mappings.items():
             env_value = os.getenv(env_var)
             if env_value is not None:
@@ -244,19 +269,19 @@ class ConfigurationManager:
                         ConfigSource.ENVIRONMENT,
                         current_config.required,
                         current_config.sensitive,
-                        description=current_config.description
+                        description=current_config.description,
                     )
-    
+
     def load_from_file(self, config_path: Union[str, Path]) -> None:
         """Load configuration from a file"""
         try:
             config_file = validate_input_file(config_path, "configuration file")
             content = read_file_secure(config_file, "configuration file")
-            
+
             # Parse based on file extension
-            if config_file.suffix.lower() in ['.yaml', '.yml']:
+            if config_file.suffix.lower() in [".yaml", ".yml"]:
                 file_config = yaml.safe_load(content)
-            elif config_file.suffix.lower() == '.json':
+            elif config_file.suffix.lower() == ".json":
                 file_config = json.loads(content)
             else:
                 raise FluidCLIError(
@@ -265,10 +290,10 @@ class ConfigurationManager:
                     f"Unsupported configuration file format: {config_file.suffix}",
                     suggestions=[
                         "Use .yaml, .yml, or .json configuration files",
-                        "Check the file extension matches the content format"
-                    ]
+                        "Check the file extension matches the content format",
+                    ],
                 )
-            
+
             # Update configuration
             for key, value in file_config.items():
                 if key in self.config:
@@ -278,11 +303,11 @@ class ConfigurationManager:
                         ConfigSource.CONFIG_FILE,
                         current_config.required,
                         current_config.sensitive,
-                        description=current_config.description
+                        description=current_config.description,
                     )
                 else:
                     self.logger.warning(f"Unknown configuration key in file: {key}")
-        
+
         except Exception as e:
             raise FluidCLIError(
                 1,
@@ -292,10 +317,10 @@ class ConfigurationManager:
                 suggestions=[
                     "Check if the configuration file exists and is readable",
                     "Verify the file format (YAML or JSON)",
-                    "Check for syntax errors in the configuration file"
-                ]
+                    "Check for syntax errors in the configuration file",
+                ],
             )
-    
+
     def update_from_args(self, args_dict: Dict[str, Any]) -> None:
         """Update configuration from CLI arguments"""
         for key, value in args_dict.items():
@@ -306,13 +331,13 @@ class ConfigurationManager:
                     ConfigSource.CLI_ARGS,
                     current_config.required,
                     current_config.sensitive,
-                    description=current_config.description
+                    description=current_config.description,
                 )
-    
+
     def _convert_value(self, value: str, target_type: Type) -> Any:
         """Convert string value to target type"""
         if target_type == bool:
-            return value.lower() in ('true', '1', 'yes', 'on', 'enabled')
+            return value.lower() in ("true", "1", "yes", "on", "enabled")
         elif target_type == int:
             try:
                 return int(value)
@@ -325,37 +350,37 @@ class ConfigurationManager:
                 raise ValueError(f"Cannot convert '{value}' to float")
         else:
             return value
-    
+
     def validate(self) -> Dict[str, List[str]]:
         """Validate current configuration and return issues"""
         issues = {"errors": [], "warnings": [], "info": []}
-        
+
         # Add environment to config for validation
         temp_config = self.config.copy()
-        temp_config['environment'] = ConfigValue(self.environment, ConfigSource.DEFAULT)
-        
+        temp_config["environment"] = ConfigValue(self.environment, ConfigSource.DEFAULT)
+
         for rule in self.validation_rules:
             # Check if rule applies to current environment
             if self.environment not in rule.environments:
                 continue
-            
+
             try:
                 if not rule.validator(temp_config):
                     issues[f"{rule.severity}s"].append(f"{rule.name}: {rule.error_message}")
             except Exception as e:
                 issues["errors"].append(f"{rule.name}: Validation error - {e}")
-        
+
         # Mark configuration as validated
         for config_value in self.config.values():
             config_value.validated = True
-        
+
         return issues
-    
+
     def get(self, key: str, default: Any = None) -> Any:
         """Get configuration value"""
         config_value = self.config.get(key)
         return config_value.value if config_value else default
-    
+
     def set(self, key: str, value: Any, source: ConfigSource = ConfigSource.OVERRIDE) -> None:
         """Set configuration value"""
         current_config = self.config.get(key)
@@ -365,42 +390,44 @@ class ConfigurationManager:
                 source,
                 current_config.required,
                 current_config.sensitive,
-                description=current_config.description
+                description=current_config.description,
             )
         else:
             self.config[key] = ConfigValue(value, source)
-    
+
     def get_summary(self, include_sensitive: bool = False) -> Dict[str, Any]:
         """Get configuration summary"""
         summary = {
             "environment": self.environment.value,
             "configuration": {},
             "sources": {},
-            "validation_status": "validated" if all(cv.validated for cv in self.config.values()) else "not_validated"
+            "validation_status": (
+                "validated" if all(cv.validated for cv in self.config.values()) else "not_validated"
+            ),
         }
-        
+
         for key, config_value in self.config.items():
             if include_sensitive or not config_value.sensitive:
                 summary["configuration"][key] = config_value.value
             else:
                 summary["configuration"][key] = config_value.mask_if_sensitive()
-            
+
             summary["sources"][key] = config_value.source.value
-        
+
         return summary
-    
+
     def generate_example_config(self, format: str = "yaml") -> str:
         """Generate example configuration file"""
         config_dict = {}
-        
+
         for key, config_value in self.config.items():
             if not config_value.sensitive:
                 config_dict[key] = {
                     "value": config_value.value,
                     "description": config_value.description,
-                    "required": config_value.required
+                    "required": config_value.required,
                 }
-        
+
         if format.lower() == "yaml":
             return yaml.dump(config_dict, default_flow_style=False, indent=2)
         elif format.lower() == "json":
@@ -411,7 +438,7 @@ class ConfigurationManager:
 
 def create_production_documentation() -> str:
     """Create comprehensive production deployment documentation"""
-    
+
     doc = """
 # FLUID CLI Production Deployment Guide
 
@@ -625,7 +652,7 @@ fluid doctor --out-dir diagnostics/$(date +%Y%m%d_%H%M%S)
 
 For additional support, contact the FLUID team or refer to the enterprise documentation.
 """
-    
+
     return doc.strip()
 
 
@@ -651,7 +678,7 @@ def validate_production_config() -> Dict[str, List[str]]:
 # Export public interface
 __all__ = [
     "EnvironmentType",
-    "ConfigSource", 
+    "ConfigSource",
     "ConfigValue",
     "ValidationRule",
     "ConfigurationManager",

@@ -22,17 +22,17 @@ Implements idempotent SQS operations including:
 - FIFO queues
 - Message sending
 """
-import time
-from typing import Any, Dict, Optional
 
-from fluid_build.providers.base import ProviderError
+import time
+from typing import Any, Dict
+
 from ..util.logging import duration_ms
 
 
 def ensure_queue(action: Dict[str, Any]) -> Dict[str, Any]:
     """
     Ensure SQS queue exists with specified configuration.
-    
+
     Args:
         action: Queue configuration
             - queue_name: Name of the queue (required)
@@ -45,12 +45,12 @@ def ensure_queue(action: Dict[str, Any]) -> Dict[str, Any]:
             - max_receive_count: Max receives before DLQ (default: 5)
             - region: AWS region
             - tags: Resource tags
-            
+
     Returns:
         Action result with status and details
     """
     start_time = time.time()
-    
+
     try:
         import boto3
         from botocore.exceptions import ClientError
@@ -61,7 +61,7 @@ def ensure_queue(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     queue_name = action.get("queue_name")
     fifo = action.get("fifo", False)
     visibility_timeout = action.get("visibility_timeout", 30)
@@ -72,7 +72,7 @@ def ensure_queue(action: Dict[str, Any]) -> Dict[str, Any]:
     max_receive_count = action.get("max_receive_count", 5)
     region = action.get("region", "us-east-1")
     tags = action.get("tags", {})
-    
+
     # Input validation
     if not queue_name:
         return {
@@ -81,11 +81,11 @@ def ensure_queue(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     # FIFO queues must end with .fifo
     if fifo and not queue_name.endswith(".fifo"):
         queue_name = f"{queue_name}.fifo"
-    
+
     # Validate visibility timeout (0 to 43200 seconds = 12 hours)
     if visibility_timeout < 0 or visibility_timeout > 43200:
         return {
@@ -94,7 +94,7 @@ def ensure_queue(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     # Validate message retention (60 to 1209600 seconds = 14 days)
     if message_retention_period < 60 or message_retention_period > 1209600:
         return {
@@ -103,48 +103,42 @@ def ensure_queue(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     try:
         sqs = boto3.client("sqs", region_name=region)
-        
+
         changed = False
-        
+
         # Check if queue exists
         try:
             response = sqs.get_queue_url(QueueName=queue_name)
             queue_url = response["QueueUrl"]
             queue_exists = True
-            
+
             # Get current attributes
-            attrs_response = sqs.get_queue_attributes(
-                QueueUrl=queue_url,
-                AttributeNames=["All"]
-            )
+            attrs_response = sqs.get_queue_attributes(QueueUrl=queue_url, AttributeNames=["All"])
             current_attrs = attrs_response["Attributes"]
-            
+
             # Check if attributes need updating
             update_attrs = {}
-            
+
             if int(current_attrs.get("VisibilityTimeout", 30)) != visibility_timeout:
                 update_attrs["VisibilityTimeout"] = str(visibility_timeout)
-            
+
             if int(current_attrs.get("MessageRetentionPeriod", 345600)) != message_retention_period:
                 update_attrs["MessageRetentionPeriod"] = str(message_retention_period)
-            
+
             if update_attrs:
-                sqs.set_queue_attributes(
-                    QueueUrl=queue_url,
-                    Attributes=update_attrs
-                )
+                sqs.set_queue_attributes(QueueUrl=queue_url, Attributes=update_attrs)
                 changed = True
-            
+
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code")
             if error_code == "AWS.SimpleQueueService.NonExistentQueue":
                 queue_exists = False
             else:
                 raise
-        
+
         if not queue_exists:
             # Create queue
             attributes = {
@@ -153,39 +147,39 @@ def ensure_queue(action: Dict[str, Any]) -> Dict[str, Any]:
                 "ReceiveMessageWaitTimeSeconds": str(receive_wait_time),
                 "MaximumMessageSize": str(max_message_size),
             }
-            
+
             # Add FIFO-specific attributes
             if fifo:
                 attributes["FifoQueue"] = "true"
                 attributes["ContentBasedDeduplication"] = "true"
-            
+
             # Add dead letter queue configuration
             if dead_letter_target_arn:
                 import json
-                attributes["RedrivePolicy"] = json.dumps({
-                    "deadLetterTargetArn": dead_letter_target_arn,
-                    "maxReceiveCount": max_receive_count
-                })
-            
+
+                attributes["RedrivePolicy"] = json.dumps(
+                    {
+                        "deadLetterTargetArn": dead_letter_target_arn,
+                        "maxReceiveCount": max_receive_count,
+                    }
+                )
+
             create_params = {
                 "QueueName": queue_name,
                 "Attributes": attributes,
             }
-            
+
             if tags:
                 create_params["tags"] = tags
-            
+
             response = sqs.create_queue(**create_params)
             queue_url = response["QueueUrl"]
             changed = True
-        
+
         # Get queue ARN
-        attrs = sqs.get_queue_attributes(
-            QueueUrl=queue_url,
-            AttributeNames=["QueueArn"]
-        )
+        attrs = sqs.get_queue_attributes(QueueUrl=queue_url, AttributeNames=["QueueArn"])
         queue_arn = attrs["Attributes"]["QueueArn"]
-        
+
         return {
             "status": "changed" if changed else "ok",
             "queue_name": queue_name,
@@ -196,7 +190,7 @@ def ensure_queue(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": changed,
         }
-        
+
     except Exception as e:
         return {
             "status": "error",
@@ -210,7 +204,7 @@ def ensure_queue(action: Dict[str, Any]) -> Dict[str, Any]:
 def send_message(action: Dict[str, Any]) -> Dict[str, Any]:
     """
     Send message to SQS queue.
-    
+
     Args:
         action: Message configuration
             - queue_url: URL of the queue (required)
@@ -219,12 +213,12 @@ def send_message(action: Dict[str, Any]) -> Dict[str, Any]:
             - message_deduplication_id: FIFO deduplication ID (optional)
             - delay_seconds: Delay before message is available (default: 0)
             - region: AWS region
-            
+
     Returns:
         Action result with status and details
     """
     start_time = time.time()
-    
+
     try:
         import boto3
     except ImportError:
@@ -234,14 +228,14 @@ def send_message(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     queue_url = action.get("queue_url")
     message_body = action.get("message_body")
     message_group_id = action.get("message_group_id")
     message_deduplication_id = action.get("message_deduplication_id")
     delay_seconds = action.get("delay_seconds", 0)
     region = action.get("region", "us-east-1")
-    
+
     # Input validation
     if not queue_url:
         return {
@@ -250,7 +244,7 @@ def send_message(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     if not message_body:
         return {
             "status": "error",
@@ -258,26 +252,26 @@ def send_message(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     try:
         sqs = boto3.client("sqs", region_name=region)
-        
+
         send_params = {
             "QueueUrl": queue_url,
             "MessageBody": message_body,
         }
-        
+
         if delay_seconds:
             send_params["DelaySeconds"] = delay_seconds
-        
+
         if message_group_id:
             send_params["MessageGroupId"] = message_group_id
-        
+
         if message_deduplication_id:
             send_params["MessageDeduplicationId"] = message_deduplication_id
-        
+
         response = sqs.send_message(**send_params)
-        
+
         return {
             "status": "changed",
             "message_id": response["MessageId"],
@@ -285,7 +279,7 @@ def send_message(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": True,
         }
-        
+
     except Exception as e:
         return {
             "status": "error",

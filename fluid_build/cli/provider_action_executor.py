@@ -16,88 +16,86 @@
 FLUID 0.7.1 Provider Action Executor
 Integrates provider action handlers into the apply workflow.
 """
-from typing import Dict, List, Any, Optional
-import logging
 
-from ..forge.core.provider_actions import ProviderActionParser, ProviderAction, ActionType
+import logging
+from typing import Any, Dict, List, Optional
+
+from ..forge.core.provider_actions import ProviderAction, ProviderActionParser
 
 
 class ProviderActionExecutor:
     """
     Executes provider actions using provider-specific handlers.
-    
+
     Coordinates between parsed actions and provider implementations
     (GCP, AWS, Snowflake, etc.).
     """
-    
+
     def __init__(self, logger: Optional[logging.Logger] = None):
         """
         Initialize executor.
-        
+
         Args:
             logger: Optional logger instance
         """
         self.logger = logger or logging.getLogger(__name__)
         self.handlers = {}
-    
+
     def execute_actions(
-        self,
-        contract: Dict[str, Any],
-        provider_instances: Dict[str, Any],
-        dry_run: bool = False
+        self, contract: Dict[str, Any], provider_instances: Dict[str, Any], dry_run: bool = False
     ) -> Dict[str, Any]:
         """
         Execute all provider actions from a contract.
-        
+
         Args:
             contract: FLUID contract dict
             provider_instances: Dict of provider name -> provider instance
             dry_run: If True, only simulate execution
-            
+
         Returns:
             Execution results with status and details
         """
         # Parse actions from contract
         parser = ProviderActionParser(self.logger)
         actions = parser.parse(contract)
-        
+
         if not actions:
             return {
                 "success": True,
                 "message": "No provider actions to execute",
-                "actions_executed": 0
+                "actions_executed": 0,
             }
-        
+
         # Build dependency graph
         graph = parser.build_dependency_graph(actions)
-        
+
         if graph.get("has_cycles"):
             return {
                 "success": False,
                 "error": "Circular dependency detected in provider actions",
-                "cycles": graph.get("cycles", [])
+                "cycles": graph.get("cycles", []),
             }
-        
+
         # Execute actions in topological order
         ordered_actions = graph["ordered_actions"]
-        
+
         if dry_run:
             return self._dry_run_actions(ordered_actions)
-        
+
         return self._execute_actions_ordered(ordered_actions, provider_instances)
-    
+
     def _dry_run_actions(self, actions: List[ProviderAction]) -> Dict[str, Any]:
         """
         Simulate action execution (dry run).
-        
+
         Args:
             actions: List of actions to simulate
-            
+
         Returns:
             Simulation results
         """
         self.logger.info(f"[DRY RUN] Would execute {len(actions)} actions")
-        
+
         results = []
         for i, action in enumerate(actions):
             result = {
@@ -106,30 +104,28 @@ class ProviderActionExecutor:
                 "action_type": action.action_type.value,
                 "provider": action.provider,
                 "status": "simulated",
-                "message": f"Would execute {action.action_type.value} on {action.provider}"
+                "message": f"Would execute {action.action_type.value} on {action.provider}",
             }
             results.append(result)
             self.logger.info(f"  [{i+1}] {action.action_id} ({action.action_type.value})")
-        
+
         return {
             "success": True,
             "dry_run": True,
             "actions_simulated": len(actions),
-            "results": results
+            "results": results,
         }
-    
+
     def _execute_actions_ordered(
-        self,
-        actions: List[ProviderAction],
-        provider_instances: Dict[str, Any]
+        self, actions: List[ProviderAction], provider_instances: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
         Execute actions in dependency order.
-        
+
         Args:
             actions: Ordered list of actions
             provider_instances: Available provider instances
-            
+
         Returns:
             Execution results
         """
@@ -137,87 +133,92 @@ class ProviderActionExecutor:
             "success": True,
             "actions_executed": 0,
             "actions_failed": 0,
-            "results": []
+            "results": [],
         }
-        
+
         for i, action in enumerate(actions):
             self.logger.info(f"Executing action {i+1}/{len(actions)}: {action.action_id}")
-            
+
             try:
                 result = self._execute_single_action(action, provider_instances)
                 overall_results["actions_executed"] += 1
-                overall_results["results"].append({
-                    "step": i + 1,
-                    "action_id": action.action_id,
-                    "status": "success",
-                    "result": result
-                })
-                
+                overall_results["results"].append(
+                    {
+                        "step": i + 1,
+                        "action_id": action.action_id,
+                        "status": "success",
+                        "result": result,
+                    }
+                )
+
             except Exception as e:
                 self.logger.error(f"Action {action.action_id} failed: {e}")
                 overall_results["success"] = False
                 overall_results["actions_failed"] += 1
-                overall_results["results"].append({
-                    "step": i + 1,
-                    "action_id": action.action_id,
-                    "status": "failed",
-                    "error": str(e)
-                })
-                
+                overall_results["results"].append(
+                    {
+                        "step": i + 1,
+                        "action_id": action.action_id,
+                        "status": "failed",
+                        "error": str(e),
+                    }
+                )
+
                 # Stop on first failure by default
                 # (could be configurable to continue on errors)
                 break
-        
+
         return overall_results
-    
+
     def _execute_single_action(
-        self,
-        action: ProviderAction,
-        provider_instances: Dict[str, Any]
+        self, action: ProviderAction, provider_instances: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
         Execute a single provider action.
-        
+
         Args:
             action: Action to execute
             provider_instances: Available provider instances
-            
+
         Returns:
             Action execution result
         """
         provider_name = action.provider.lower()
-        
+
         # Get provider instance
         provider = provider_instances.get(provider_name)
         if not provider:
-            raise ValueError(f"Provider '{provider_name}' not available. "
-                           f"Available: {list(provider_instances.keys())}")
-        
+            raise ValueError(
+                f"Provider '{provider_name}' not available. "
+                f"Available: {list(provider_instances.keys())}"
+            )
+
         # Get or create handler for this provider
         handler = self._get_handler_for_provider(provider_name, provider)
-        
+
         # Execute action through handler
         result = handler._execute_single_action(action)
-        
+
         return result
-    
+
     def _get_handler_for_provider(self, provider_name: str, provider_instance: Any):
         """
         Get or create provider action handler.
-        
+
         Args:
             provider_name: Provider identifier (gcp, aws, etc.)
             provider_instance: Provider instance
-            
+
         Returns:
             Provider action handler
         """
         if provider_name in self.handlers:
             return self.handlers[provider_name]
-        
+
         # Create handler based on provider type
         if provider_name == "gcp":
             from ..providers.gcp.provider_action_handler import GCPProviderActionHandler
+
             handler = GCPProviderActionHandler(provider_instance, self.logger)
         elif provider_name == "aws":
             # AWS uses the planner + provider.apply() flow directly;
@@ -232,38 +233,38 @@ class ProviderActionExecutor:
         else:
             # Generic fallback handler
             handler = GenericProviderActionHandler(provider_instance, self.logger)
-        
+
         self.handlers[provider_name] = handler
         return handler
 
 
 class AirflowActionHandler:
     """Handler for Airflow orchestration actions."""
-    
+
     def __init__(self, logger):
         self.logger = logger
-    
+
     def _execute_single_action(self, action: ProviderAction) -> Dict[str, Any]:
         """Airflow actions are typically delegated to DAG generation."""
         self.logger.info(f"Airflow action {action.action_id} delegated to DAG generation")
         return {
             "status": "delegated",
             "message": "Action will be executed by Airflow DAG",
-            "action_id": action.action_id
+            "action_id": action.action_id,
         }
 
 
 class GenericProviderActionHandler:
     """Generic handler for providers without specific implementation."""
-    
+
     def __init__(self, provider, logger):
         self.provider = provider
         self.logger = logger
-    
+
     def _execute_single_action(self, action: ProviderAction) -> Dict[str, Any]:
         """Generic action execution - calls provider if it supports the action."""
         method_name = f"execute_{action.action_type.value}"
-        
+
         if hasattr(self.provider, method_name):
             method = getattr(self.provider, method_name)
             return method(action.params)
@@ -274,5 +275,5 @@ class GenericProviderActionHandler:
             )
             return {
                 "status": "not_implemented",
-                "message": f"Action type {action.action_type.value} not implemented for this provider"
+                "message": f"Action type {action.action_type.value} not implemented for this provider",
             }

@@ -30,8 +30,7 @@ permissions:
 env:
   PACKAGE_NAME: fluid-forge
   PYTHON_VERSION: "3.12"
-  # GitHub repo for fluid-provider-sdk (update org/repo once mirrored to GitHub)
-  SDK_REPO: agentics-rising/fluid-provider-sdk
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   # ──────────────────────────────────────────────────────────────
@@ -76,8 +75,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install "fluid-provider-sdk @ git+https://github.com/${{ env.SDK_REPO }}.git"
-          pip install -e ".[dev,local]"
+          pip install -e ".[dev,local]" || pip install -e ".[dev]"
 
       - name: Lint
         run: |
@@ -92,7 +90,7 @@ jobs:
       - name: Security scan
         run: |
           pip install bandit
-          bandit -r fluid_build/ --severity-level medium -q
+          bandit -r fluid_build/ -c pyproject.toml --severity-level medium -q
 
       - name: Verify version matches tag
         run: |
@@ -123,7 +121,6 @@ jobs:
       - name: Install build tools
         run: |
           pip install --upgrade pip build twine
-          pip install "fluid-provider-sdk @ git+https://github.com/${{ env.SDK_REPO }}.git"
 
       - name: Build wheel and sdist
         env:

@@ -1,21 +1,36 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Branch-coverage tests for fluid_build.forge.core.monitoring"""
+
 import json
 import time
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 from fluid_build.forge.core.monitoring import (
-    MetricType,
-    AlertSeverity,
-    Metric,
     Alert,
-    LogEntry,
+    AlertSeverity,
     HealthCheck,
+    LogEntry,
+    Metric,
+    MetricType,
     MonitoringSystem,
 )
 
-
 # ── Enum tests ──────────────────────────────────────────────────────
+
 
 class TestMetricType:
     def test_counter(self):
@@ -46,6 +61,7 @@ class TestAlertSeverity:
 
 
 # ── Dataclass tests ─────────────────────────────────────────────────
+
 
 class TestMetric:
     def test_create_with_defaults(self):
@@ -79,9 +95,7 @@ class TestAlert:
         assert a.tags == {}
 
     def test_create_resolved(self):
-        a = Alert(
-            name="x", severity=AlertSeverity.INFO, message="ok", resolved=True
-        )
+        a = Alert(name="x", severity=AlertSeverity.INFO, message="ok", resolved=True)
         assert a.resolved is True
 
 
@@ -119,6 +133,7 @@ class TestHealthCheck:
 
 
 # ── MonitoringSystem tests ──────────────────────────────────────────
+
 
 @pytest.fixture
 def mon():
@@ -225,12 +240,8 @@ class TestAlerts:
         assert mon.get_alerts() == []
 
     def test_get_alerts_filter_severity(self, mon):
-        mon.alerts.append(
-            Alert(name="a", severity=AlertSeverity.WARNING, message="w")
-        )
-        mon.alerts.append(
-            Alert(name="b", severity=AlertSeverity.ERROR, message="e")
-        )
+        mon.alerts.append(Alert(name="a", severity=AlertSeverity.WARNING, message="w"))
+        mon.alerts.append(Alert(name="b", severity=AlertSeverity.ERROR, message="e"))
         result = mon.get_alerts(severity=AlertSeverity.ERROR)
         assert len(result) == 1
         assert result[0].name == "b"
@@ -286,8 +297,12 @@ class TestGetMetrics:
         assert mon.get_metrics() == []
 
     def test_get_metrics_with_name_pattern(self, mon):
-        mon.metrics["cpu.load"].append(Metric(name="cpu.load", value=0.5, metric_type=MetricType.GAUGE))
-        mon.metrics["mem.used"].append(Metric(name="mem.used", value=100, metric_type=MetricType.GAUGE))
+        mon.metrics["cpu.load"].append(
+            Metric(name="cpu.load", value=0.5, metric_type=MetricType.GAUGE)
+        )
+        mon.metrics["mem.used"].append(
+            Metric(name="mem.used", value=100, metric_type=MetricType.GAUGE)
+        )
         result = mon.get_metrics(name_pattern="cpu")
         assert len(result) == 1
         assert result[0].name == "cpu.load"
@@ -399,6 +414,7 @@ class TestHealthChecks:
     def test_add_health_check_unhealthy_exception(self, mon):
         def bad():
             raise RuntimeError("fail")
+
         mon.add_health_check("bad", bad)
         time.sleep(0.1)
         status = mon.get_health_status()
@@ -457,9 +473,7 @@ class TestDefaultAlertRules:
 
     def test_no_alert_when_below_threshold(self, mon):
         """No alerts when metrics are below thresholds"""
-        mon.metrics["cpu"].append(
-            Metric(name="cpu", value=0.5, metric_type=MetricType.GAUGE)
-        )
+        mon.metrics["cpu"].append(Metric(name="cpu", value=0.5, metric_type=MetricType.GAUGE))
         dummy = Metric(name="x", value=1, metric_type=MetricType.GAUGE)
         mon._check_alert_rules(dummy)
         # Queue should only have the alert rules that don't trigger
@@ -502,16 +516,10 @@ class TestGenerateDashboard:
 class TestInternalLogging:
     def test_log_error_internal(self, mon):
         mon._log_error("something bad")
-        found = any(
-            e.level == "ERROR" and "something bad" in e.message
-            for e in mon.logs
-        )
+        found = any(e.level == "ERROR" and "something bad" in e.message for e in mon.logs)
         assert found
 
     def test_log_info_internal(self, mon):
         mon._log_info("all good")
-        found = any(
-            e.level == "INFO" and "all good" in e.message
-            for e in mon.logs
-        )
+        found = any(e.level == "INFO" and "all good" in e.message for e in mon.logs)
         assert found

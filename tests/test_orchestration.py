@@ -1,16 +1,35 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for fluid_build.cli.orchestration — data structures and pure logic."""
-import pytest
-from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch, AsyncMock
+
+from unittest.mock import MagicMock, patch
+
 from fluid_build.cli.orchestration import (
-    ExecutionPhase, ActionStatus, RollbackStrategy,
-    ExecutionAction, PhaseExecution, ExecutionPlan,
-    ExecutionMetrics, ExecutionContext,
+    ActionStatus,
+    ExecutionAction,
+    ExecutionContext,
+    ExecutionMetrics,
+    ExecutionPhase,
+    ExecutionPlan,
     FluidOrchestrationEngine,
+    PhaseExecution,
+    RollbackStrategy,
 )
 
-
 # ── Enum tests ──
+
 
 class TestEnums:
     def test_execution_phases(self):
@@ -30,11 +49,15 @@ class TestEnums:
 
 # ── Dataclass tests ──
 
+
 class TestExecutionAction:
     def test_defaults(self):
         a = ExecutionAction(
-            id="a1", phase=ExecutionPhase.VALIDATION,
-            provider="local", operation="validate", description="test",
+            id="a1",
+            phase=ExecutionPhase.VALIDATION,
+            provider="local",
+            operation="validate",
+            description="test",
         )
         assert a.dependencies == []
         assert a.timeout_seconds == 300
@@ -44,8 +67,10 @@ class TestExecutionAction:
 
     def test_custom_values(self):
         a = ExecutionAction(
-            id="a2", phase=ExecutionPhase.INFRASTRUCTURE,
-            provider="gcp", operation="create_dataset",
+            id="a2",
+            phase=ExecutionPhase.INFRASTRUCTURE,
+            provider="gcp",
+            operation="create_dataset",
             description="Create BQ dataset",
             dependencies=["a1"],
             timeout_seconds=600,
@@ -112,6 +137,7 @@ class TestExecutionContext:
 
 # ── Engine pure methods ──
 
+
 class TestOrchestrationEnginePureMethods:
     def _make_engine(self):
         plan = ExecutionPlan("/tmp/c.yaml", None, [])
@@ -121,7 +147,7 @@ class TestOrchestrationEnginePureMethods:
             plan=plan,
             logger=MagicMock(),
         )
-        with patch.object(FluidOrchestrationEngine, '_ensure_directories'):
+        with patch.object(FluidOrchestrationEngine, "_ensure_directories"):
             engine = FluidOrchestrationEngine(ctx)
         return engine
 
@@ -157,8 +183,11 @@ class TestOrchestrationEnginePureMethods:
     def test_update_action_metrics_success(self):
         engine = self._make_engine()
         action = ExecutionAction(
-            id="a", phase=ExecutionPhase.VALIDATION,
-            provider="local", operation="x", description="d",
+            id="a",
+            phase=ExecutionPhase.VALIDATION,
+            provider="local",
+            operation="x",
+            description="d",
             status=ActionStatus.SUCCESS,
         )
         engine._update_action_metrics(action)
@@ -167,8 +196,11 @@ class TestOrchestrationEnginePureMethods:
     def test_update_action_metrics_failed(self):
         engine = self._make_engine()
         action = ExecutionAction(
-            id="a", phase=ExecutionPhase.VALIDATION,
-            provider="local", operation="x", description="d",
+            id="a",
+            phase=ExecutionPhase.VALIDATION,
+            provider="local",
+            operation="x",
+            description="d",
             status=ActionStatus.FAILED,
         )
         engine._update_action_metrics(action)
@@ -177,8 +209,11 @@ class TestOrchestrationEnginePureMethods:
     def test_update_action_metrics_skipped(self):
         engine = self._make_engine()
         action = ExecutionAction(
-            id="a", phase=ExecutionPhase.VALIDATION,
-            provider="local", operation="x", description="d",
+            id="a",
+            phase=ExecutionPhase.VALIDATION,
+            provider="local",
+            operation="x",
+            description="d",
             status=ActionStatus.SKIPPED,
         )
         engine._update_action_metrics(action)
@@ -188,13 +223,19 @@ class TestOrchestrationEnginePureMethods:
         engine = self._make_engine()
         actions = [
             ExecutionAction(
-                id="a", phase=ExecutionPhase.VALIDATION,
-                provider="local", operation="x", description="d",
+                id="a",
+                phase=ExecutionPhase.VALIDATION,
+                provider="local",
+                operation="x",
+                description="d",
                 dependencies=["b", "c"],
             ),
             ExecutionAction(
-                id="b", phase=ExecutionPhase.VALIDATION,
-                provider="local", operation="y", description="d",
+                id="b",
+                phase=ExecutionPhase.VALIDATION,
+                provider="local",
+                operation="y",
+                description="d",
                 dependencies=[],
             ),
         ]

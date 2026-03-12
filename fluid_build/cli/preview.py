@@ -13,13 +13,16 @@
 # limitations under the License.
 
 from __future__ import annotations
-import argparse, logging, os
+
+import argparse
+import logging
+
+from ._logging import info
 from .plan import run as run_plan
 from .viz_plan import render_plan_html
-from ._logging import info
-from ._common import CLIError
 
 COMMAND = "preview"
+
 
 def register(subparsers: argparse._SubParsersAction):
     p = subparsers.add_parser(COMMAND, help="Validate → Plan → Visualize (no apply)")
@@ -28,6 +31,7 @@ def register(subparsers: argparse._SubParsersAction):
     p.add_argument("--out", default="runtime/plan.json", help="plan path")
     p.add_argument("--html", default="runtime/plan.html", help="HTML report")
     p.set_defaults(cmd=COMMAND, func=run)
+
 
 def run(args, logger: logging.Logger) -> int:
     run_plan(args, logger)  # writes plan

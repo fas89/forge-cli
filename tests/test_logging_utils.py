@@ -1,10 +1,23 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for fluid_build/logging_utils.py — JSON logging setup."""
+
 import json
 import logging
-import pytest
-from unittest.mock import patch
 
-from fluid_build.logging_utils import JsonFormatter, setup_logger, log_json
+from fluid_build.logging_utils import JsonFormatter, log_json, setup_logger
 
 
 class TestJsonFormatter:
@@ -31,6 +44,7 @@ class TestJsonFormatter:
             raise ValueError("boom")
         except ValueError:
             import sys
+
             exc_info = sys.exc_info()
         record = logging.LogRecord("fluid", logging.ERROR, "", 0, "err", (), exc_info)
         output = fmt.format(record)
@@ -47,7 +61,7 @@ class TestSetupLogger:
     def test_clears_handlers(self):
         root = logging.getLogger()
         root.addHandler(logging.NullHandler())
-        count_before = len(root.handlers)
+        len(root.handlers)
         setup_logger("INFO")
         # Should have exactly one handler (stderr)
         assert len(root.handlers) == 1

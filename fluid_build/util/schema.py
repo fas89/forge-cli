@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 def project_id_from_contract(contract: dict, fallback: str = None):
     # You can optionally embed project in contract.metadata or environment overlays
     return fallback

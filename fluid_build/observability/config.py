@@ -15,6 +15,7 @@
 """
 Command Center configuration.
 """
+
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,13 +28,13 @@ import yaml
 class CommandCenterConfig:
     """
     Configuration for Command Center integration.
-    
+
     Priority order (highest to lowest):
     1. Environment variables
     2. Config file (~/.fluid/config.yaml)
     3. CLI flags (if provided)
     """
-    
+
     url: Optional[str] = None
     api_key: Optional[str] = None
     enabled: bool = True
@@ -41,18 +42,18 @@ class CommandCenterConfig:
     retry_attempts: int = 3
     batch_size: int = 100  # logs/metrics per batch
     flush_interval: int = 5  # seconds
-    
+
     @classmethod
     def from_environment(cls) -> "CommandCenterConfig":
         """
         Load configuration from environment and config file.
-        
+
         Environment variables:
         - FLUID_COMMAND_CENTER_URL: Command Center URL
         - FLUID_COMMAND_CENTER_API_KEY: API key for authentication
         - FLUID_COMMAND_CENTER_ENABLED: Enable/disable integration (default: true)
         - FLUID_COMMAND_CENTER_TIMEOUT: Request timeout in seconds (default: 5)
-        
+
         Config file: ~/.fluid/config.yaml
         ```yaml
         command_center:
@@ -61,13 +62,13 @@ class CommandCenterConfig:
           enabled: true
           timeout: 5
         ```
-        
+
         Returns:
             CommandCenterConfig instance
         """
         # Start with defaults
         config = cls()
-        
+
         # Load from config file
         config_file = Path.home() / ".fluid" / "config.yaml"
         if config_file.exists():
@@ -75,7 +76,7 @@ class CommandCenterConfig:
                 with open(config_file) as f:
                     yaml_config = yaml.safe_load(f) or {}
                     cc_config = yaml_config.get("command_center", {})
-                    
+
                     if "url" in cc_config:
                         config.url = cc_config["url"]
                     if "api_key" in cc_config:
@@ -93,7 +94,7 @@ class CommandCenterConfig:
             except Exception:
                 # Ignore config file errors (env vars can still work)
                 pass
-        
+
         # Override with environment variables (highest priority)
         if url := os.getenv("FLUID_COMMAND_CENTER_URL"):
             config.url = url
@@ -106,18 +107,18 @@ class CommandCenterConfig:
                 config.timeout = int(timeout)
             except ValueError:
                 pass
-        
+
         return config
-    
+
     def is_configured(self) -> bool:
         """
         Check if Command Center is properly configured.
-        
+
         Returns:
             True if URL and API key are set, False otherwise
         """
         return bool(self.enabled and self.url and self.api_key)
-    
+
     def __repr__(self) -> str:
         # Mask API key for security
         masked_key = f"{self.api_key[:8]}..." if self.api_key else None

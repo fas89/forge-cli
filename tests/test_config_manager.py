@@ -31,8 +31,6 @@ from __future__ import annotations
 
 import copy
 import os
-from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 import yaml
@@ -52,6 +50,7 @@ _PRISTINE_DEFAULTS = copy.deepcopy(DEFAULT_CONFIG)
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(autouse=True)
 def _isolate_config(monkeypatch, tmp_path):
     """Ensure tests don't read real config files or leak state.
@@ -60,6 +59,7 @@ def _isolate_config(monkeypatch, tmp_path):
     so _deep_merge mutates the module-level dict.  We save and restore it here.
     """
     import fluid_build.config_manager as _cm
+
     saved = copy.deepcopy(_PRISTINE_DEFAULTS)
     reset_config()
     # Prevent reading the real home / system configs
@@ -68,8 +68,13 @@ def _isolate_config(monkeypatch, tmp_path):
     (tmp_path / "fakehome").mkdir(exist_ok=True)
     # Clear any FLUID_ env vars from the host
     for key in list(os.environ):
-        if key.startswith("FLUID_") or key in ("GCP_PROJECT_ID", "GCP_REGION", "AWS_REGION",
-                                                 "SNOWFLAKE_ACCOUNT", "NO_COLOR"):
+        if key.startswith("FLUID_") or key in (
+            "GCP_PROJECT_ID",
+            "GCP_REGION",
+            "AWS_REGION",
+            "SNOWFLAKE_ACCOUNT",
+            "NO_COLOR",
+        ):
             monkeypatch.delenv(key, raising=False)
     yield
     reset_config()
@@ -81,6 +86,7 @@ def _isolate_config(monkeypatch, tmp_path):
 # =====================================================================
 # DEFAULTS
 # =====================================================================
+
 
 class TestDefaults:
     """FluidConfig should start with sensible defaults."""
@@ -94,8 +100,16 @@ class TestDefaults:
 
     def test_all_default_sections_present(self):
         cfg = FluidConfig()
-        for section in ("logging", "cache", "network", "validation",
-                        "apply", "providers", "catalogs", "output"):
+        for section in (
+            "logging",
+            "cache",
+            "network",
+            "validation",
+            "apply",
+            "providers",
+            "catalogs",
+            "output",
+        ):
             assert cfg.get(section) is not None, f"Missing default section: {section}"
 
     def test_provider_defaults(self):
@@ -114,6 +128,7 @@ class TestDefaults:
 # =====================================================================
 # DOT-NOTATION GET / SET
 # =====================================================================
+
 
 class TestGetSet:
     """Dot-notation accessors."""
@@ -157,6 +172,7 @@ class TestGetSet:
 # =====================================================================
 # DEEP MERGE
 # =====================================================================
+
 
 class TestDeepMerge:
     """_deep_merge should merge dicts recursively; replace scalars and lists."""
@@ -203,6 +219,7 @@ class TestDeepMerge:
 # CONFIG FILE LOADING
 # =====================================================================
 
+
 class TestConfigFileLoading:
     """Config files at various paths should be loaded and merged."""
 
@@ -224,9 +241,7 @@ class TestConfigFileLoading:
 
         xdg = home / ".config" / "fluid"
         xdg.mkdir(parents=True)
-        (xdg / "config.yaml").write_text(
-            yaml.dump({"network": {"timeout": 99}}), encoding="utf-8"
-        )
+        (xdg / "config.yaml").write_text(yaml.dump({"network": {"timeout": 99}}), encoding="utf-8")
 
         cfg = FluidConfig()
         assert cfg.get("network.timeout") == 99
@@ -297,6 +312,7 @@ class TestConfigFileLoading:
 # ENVIRONMENT VARIABLE MAPPING
 # =====================================================================
 
+
 class TestEnvVarMapping:
     """FLUID_* env vars should override config values."""
 
@@ -355,6 +371,7 @@ class TestEnvVarMapping:
 # CLI ARGUMENT OVERRIDES
 # =====================================================================
 
+
 class TestCLIArgOverrides:
     """update_from_args should override all prior sources."""
 
@@ -399,6 +416,7 @@ class TestCLIArgOverrides:
 # FULL HIERARCHY: defaults < file < env < args
 # =====================================================================
 
+
 class TestFullHierarchy:
     """End-to-end test of the priority chain."""
 
@@ -430,6 +448,7 @@ class TestFullHierarchy:
 # =====================================================================
 # CATALOG CONFIG
 # =====================================================================
+
 
 class TestCatalogConfig:
     """get_catalog_config should resolve overrides from env."""
@@ -463,6 +482,7 @@ class TestCatalogConfig:
 # SAVE / ROUND-TRIP
 # =====================================================================
 
+
 class TestSaveConfig:
     """save_user_config should persist and be loadable."""
 
@@ -480,6 +500,7 @@ class TestSaveConfig:
 # =====================================================================
 # GLOBAL SINGLETON
 # =====================================================================
+
 
 class TestGlobalSingleton:
     """get_config / reset_config manage the singleton."""

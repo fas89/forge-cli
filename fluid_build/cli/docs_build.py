@@ -13,17 +13,25 @@
 # limitations under the License.
 
 from __future__ import annotations
-import argparse, logging, os, json, glob
-from ._logging import info
+
+import argparse
+import glob
+import json
+import logging
+import os
+
 from ._common import CLIError
+from ._logging import info
 
 COMMAND = "docs"
+
 
 def register(subparsers: argparse._SubParsersAction):
     p = subparsers.add_parser(COMMAND, help="Generate static docs for products")
     p.add_argument("--src", default="products", help="Root to scan for contracts")
     p.add_argument("--out", default="docs", help="Docs folder")
     p.set_defaults(cmd=COMMAND, func=run)
+
 
 def run(args, logger: logging.Logger) -> int:
     try:
@@ -33,7 +41,9 @@ def run(args, logger: logging.Logger) -> int:
             index.append({"path": path})
         with open(os.path.join(args.out, "index.json"), "w", encoding="utf-8") as f:
             json.dump(index, f, indent=2)
-        info(logger, "docs_index_written", out=os.path.join(args.out, "index.json"), count=len(index))
+        info(
+            logger, "docs_index_written", out=os.path.join(args.out, "index.json"), count=len(index)
+        )
         return 0
     except Exception as e:
         raise CLIError(1, "docs_failed", {"error": str(e)})

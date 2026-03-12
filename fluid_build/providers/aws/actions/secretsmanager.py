@@ -21,17 +21,17 @@ Implements idempotent Secrets Manager operations including:
 - Secret rotation configuration
 - Secret retrieval
 """
+
 import time
 from typing import Any, Dict
 
-from fluid_build.providers.base import ProviderError
 from ..util.logging import duration_ms
 
 
 def ensure_secret(action: Dict[str, Any]) -> Dict[str, Any]:
     """
     Ensure secret exists in AWS Secrets Manager.
-    
+
     Args:
         action: Secret configuration
             - secret_name: Name of the secret (required)
@@ -40,12 +40,12 @@ def ensure_secret(action: Dict[str, Any]) -> Dict[str, Any]:
             - kms_key_id: KMS key for encryption (optional)
             - region: AWS region
             - tags: Resource tags
-            
+
     Returns:
         Action result with status and details
     """
     start_time = time.time()
-    
+
     try:
         import boto3
         from botocore.exceptions import ClientError
@@ -56,14 +56,14 @@ def ensure_secret(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     secret_name = action.get("secret_name")
     secret_value = action.get("secret_value")
     description = action.get("description", "")
     kms_key_id = action.get("kms_key_id")
     region = action.get("region", "us-east-1")
     tags = action.get("tags", {})
-    
+
     # Input validation
     if not secret_name:
         return {
@@ -72,7 +72,7 @@ def ensure_secret(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     if secret_value is None:
         return {
             "status": "error",
@@ -80,60 +80,58 @@ def ensure_secret(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     try:
         import json
+
         secrets = boto3.client("secretsmanager", region_name=region)
-        
+
         changed = False
-        
+
         # Convert secret_value to string if it's a dict
         if isinstance(secret_value, dict):
             secret_string = json.dumps(secret_value)
         else:
             secret_string = str(secret_value)
-        
+
         # Check if secret exists
         try:
             response = secrets.describe_secret(SecretId=secret_name)
             secret_exists = True
             secret_arn = response["ARN"]
-            
+
             # Update secret value
-            secrets.put_secret_value(
-                SecretId=secret_name,
-                SecretString=secret_string
-            )
+            secrets.put_secret_value(SecretId=secret_name, SecretString=secret_string)
             changed = True
-            
+
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code")
             if error_code == "ResourceNotFoundException":
                 secret_exists = False
             else:
                 raise
-        
+
         if not secret_exists:
             # Create secret
             create_params = {
                 "Name": secret_name,
                 "SecretString": secret_string,
             }
-            
+
             if description:
                 create_params["Description"] = description
-            
+
             if kms_key_id:
                 create_params["KmsKeyId"] = kms_key_id
-            
+
             if tags:
                 tag_list = [{"Key": k, "Value": v} for k, v in tags.items()]
                 create_params["Tags"] = tag_list
-            
+
             response = secrets.create_secret(**create_params)
             secret_arn = response["ARN"]
             changed = True
-        
+
         return {
             "status": "changed" if changed else "ok",
             "secret_name": secret_name,
@@ -142,7 +140,7 @@ def ensure_secret(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": changed,
         }
-        
+
     except Exception as e:
         return {
             "status": "error",
@@ -156,19 +154,19 @@ def ensure_secret(action: Dict[str, Any]) -> Dict[str, Any]:
 def get_secret_value(action: Dict[str, Any]) -> Dict[str, Any]:
     """
     Retrieve secret value from AWS Secrets Manager.
-    
+
     Args:
         action: Retrieval configuration
             - secret_name: Name of the secret (required)
             - version_id: Specific version ID (optional)
             - version_stage: Version stage (optional, default: AWSCURRENT)
             - region: AWS region
-            
+
     Returns:
         Action result with status and secret value
     """
     start_time = time.time()
-    
+
     try:
         import boto3
     except ImportError:
@@ -178,12 +176,12 @@ def get_secret_value(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     secret_name = action.get("secret_name")
     version_id = action.get("version_id")
     version_stage = action.get("version_stage", "AWSCURRENT")
     region = action.get("region", "us-east-1")
-    
+
     # Input validation
     if not secret_name:
         return {
@@ -192,28 +190,29 @@ def get_secret_value(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     try:
         import json
+
         secrets = boto3.client("secretsmanager", region_name=region)
-        
+
         get_params = {"SecretId": secret_name}
-        
+
         if version_id:
             get_params["VersionId"] = version_id
         else:
             get_params["VersionStage"] = version_stage
-        
+
         response = secrets.get_secret_value(**get_params)
-        
+
         secret_string = response.get("SecretString")
-        
+
         # Try to parse as JSON
         try:
             secret_value = json.loads(secret_string)
         except (json.JSONDecodeError, TypeError):
             secret_value = secret_string
-        
+
         return {
             "status": "ok",
             "secret_name": secret_name,
@@ -223,7 +222,7 @@ def get_secret_value(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-        
+
     except Exception as e:
         return {
             "status": "error",

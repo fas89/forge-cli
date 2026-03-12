@@ -36,11 +36,8 @@ Tests cover:
 
 from __future__ import annotations
 
-import json
 import logging
-import time
-from typing import Any, Dict, Iterable, List, Mapping
-from unittest.mock import MagicMock
+from typing import List
 
 import pytest
 
@@ -48,21 +45,20 @@ import pytest
 # SDK imports
 # ---------------------------------------------------------------------------
 from fluid_provider_sdk import (
-    BaseProvider,
     ApplyResult,
+    BaseProvider,
+    ConsumeSpec,
+    CostEstimate,
     ProviderCapabilities,
     ProviderHookSpec,
-    CostEstimate,
-    invoke_hook,
     has_hook,
-    ContractHelper,
-    ConsumeSpec,
+    invoke_hook,
 )
-
 
 # ===================================================================
 # SECTION 1: CostEstimate
 # ===================================================================
+
 
 class TestCostEstimate:
     def test_defaults(self):
@@ -87,6 +83,7 @@ class TestCostEstimate:
 # ===================================================================
 # SECTION 2: ProviderHookSpec (no-op defaults)
 # ===================================================================
+
 
 class TestProviderHookSpec:
     def test_pre_plan_passthrough(self):
@@ -125,11 +122,13 @@ class TestProviderHookSpec:
 # SECTION 3: invoke_hook / has_hook
 # ===================================================================
 
+
 class TestInvokeHook:
     def test_invoke_existing_hook(self):
         class P:
             def pre_plan(self, contract):
                 return {**contract, "injected": True}
+
         p = P()
         result = invoke_hook(p, "pre_plan", {"id": "c1"})
         assert result["injected"] is True
@@ -137,6 +136,7 @@ class TestInvokeHook:
     def test_invoke_missing_hook_passthrough(self):
         class P:
             pass
+
         p = P()
         result = invoke_hook(p, "pre_plan", {"id": "c1"})
         assert result == {"id": "c1"}
@@ -145,6 +145,7 @@ class TestInvokeHook:
         class P:
             def pre_plan(self, contract):
                 raise ValueError("boom")
+
         p = P()
         result = invoke_hook(p, "pre_plan", {"id": "c1"})
         # Should return first arg on failure
@@ -153,6 +154,7 @@ class TestInvokeHook:
     def test_invoke_no_args_returns_none(self):
         class P:
             pass
+
         p = P()
         assert invoke_hook(p, "missing_hook") is None
 
@@ -160,24 +162,29 @@ class TestInvokeHook:
         class P:
             def estimate_cost(self, actions):
                 return CostEstimate(monthly=1.0)
+
         assert has_hook(P(), "estimate_cost") is True
 
     def test_has_hook_false(self):
         class P:
             pass
+
         assert has_hook(P(), "estimate_cost") is False
 
     def test_has_hook_detects_noop_default(self):
         """If a provider subclasses ProviderHookSpec but doesn't override,
         has_hook should return False."""
+
         class P(ProviderHookSpec):
             pass
+
         assert has_hook(P(), "pre_plan") is False
 
     def test_has_hook_detects_real_override(self):
         class P(ProviderHookSpec):
             def pre_plan(self, contract):
                 return {**contract, "modified": True}
+
         assert has_hook(P(), "pre_plan") is True
 
 
@@ -185,81 +192,105 @@ class TestInvokeHook:
 # SECTION 4: CLI hook wrappers
 # ===================================================================
 
+
 class TestCLIHookWrappers:
     def _logger(self):
         return logging.getLogger("test_hooks")
 
     def test_run_pre_plan_no_hook(self):
         from fluid_build.cli.hooks import run_pre_plan
+
         class P:
             name = "test"
+
         contract = {"id": "c1"}
         assert run_pre_plan(P(), contract, self._logger()) is contract
 
     def test_run_pre_plan_with_hook(self):
         from fluid_build.cli.hooks import run_pre_plan
+
         class P(ProviderHookSpec):
             name = "test"
+
             def pre_plan(self, contract):
                 return {**contract, "enriched": True}
+
         result = run_pre_plan(P(), {"id": "c1"}, self._logger())
         assert result["enriched"] is True
 
     def test_run_post_plan_no_hook(self):
         from fluid_build.cli.hooks import run_post_plan
+
         class P:
             name = "test"
+
         actions = [{"op": "a"}]
         assert run_post_plan(P(), actions, self._logger()) is actions
 
     def test_run_pre_apply_passthrough(self):
         from fluid_build.cli.hooks import run_pre_apply
+
         class P:
             name = "test"
+
         actions = [{"op": "a"}]
         assert run_pre_apply(P(), actions, self._logger()) is actions
 
     def test_run_post_apply_noop(self):
         from fluid_build.cli.hooks import run_post_apply
+
         class P:
             name = "test"
+
         # Should not raise
         run_post_apply(P(), {"applied": 1}, self._logger())
 
     def test_run_on_error_noop(self):
         from fluid_build.cli.hooks import run_on_error
+
         class P:
             name = "test"
+
         run_on_error(P(), RuntimeError("x"), "plan", self._logger())
 
     def test_run_estimate_cost_none(self):
         from fluid_build.cli.hooks import run_estimate_cost
+
         class P:
             name = "test"
+
         assert run_estimate_cost(P(), [], self._logger()) is None
 
     def test_run_estimate_cost_with_hook(self):
         from fluid_build.cli.hooks import run_estimate_cost
+
         class P(ProviderHookSpec):
             name = "test"
+
             def estimate_cost(self, actions):
                 return CostEstimate(monthly=5.0)
+
         result = run_estimate_cost(P(), [{"op": "a"}], self._logger())
         assert result is not None
         assert result.monthly == 5.0
 
     def test_run_validate_sovereignty_empty(self):
         from fluid_build.cli.hooks import run_validate_sovereignty
+
         class P:
             name = "test"
+
         assert run_validate_sovereignty(P(), {}, self._logger()) == []
 
     def test_run_validate_sovereignty_with_hook(self):
         from fluid_build.cli.hooks import run_validate_sovereignty
+
         class P(ProviderHookSpec):
             name = "test"
+
             def validate_sovereignty(self, contract):
                 return ["Data resides outside EU"]
+
         result = run_validate_sovereignty(P(), {}, self._logger())
         assert result == ["Data resides outside EU"]
 
@@ -267,6 +298,7 @@ class TestCLIHookWrappers:
 # ===================================================================
 # SECTION 5: ProviderCapabilities v2 (new fields)
 # ===================================================================
+
 
 class TestProviderCapabilitiesV2:
     def test_new_fields_default_false(self):
@@ -293,7 +325,14 @@ class TestProviderCapabilitiesV2:
     def test_iter_includes_new_fields(self):
         cap = ProviderCapabilities()
         keys = list(cap)
-        for expected in ("dry_run", "rollback", "cost_estimation", "schema_validation", "lineage", "streaming"):
+        for expected in (
+            "dry_run",
+            "rollback",
+            "cost_estimation",
+            "schema_validation",
+            "lineage",
+            "streaming",
+        ):
             assert expected in keys
 
     def test_extra_still_works(self):
@@ -306,19 +345,22 @@ class TestProviderCapabilitiesV2:
 # SECTION 6: Bugfix validation
 # ===================================================================
 
+
 class TestBugfixH1ProxyDicts:
     """H1: PROVIDERS and DISCOVERY_ERRORS in base.py should proxy to canonical."""
 
     def test_providers_proxy_reflects_canonical(self):
-        from fluid_build.providers.base import PROVIDERS
         from fluid_build.providers import PROVIDERS as canonical
+        from fluid_build.providers.base import PROVIDERS
+
         # They should reflect the same data
         for name in canonical:
             assert name in PROVIDERS
 
     def test_discovery_errors_proxy_reflects_canonical(self):
-        from fluid_build.providers.base import DISCOVERY_ERRORS
         from fluid_build.providers import DISCOVERY_ERRORS as canonical
+        from fluid_build.providers.base import DISCOVERY_ERRORS
+
         assert len(DISCOVERY_ERRORS) == len(canonical)
 
 
@@ -326,20 +368,26 @@ class TestBugfixH2TypeErrorCatch:
     """H2: build_provider should not swallow real TypeErrors."""
 
     def test_real_type_error_propagates(self):
-        from fluid_build.providers import register_provider, PROVIDERS
+        from fluid_build.providers import PROVIDERS, register_provider
 
         class BadProvider(BaseProvider):
             name = "bad_type_error_test"
-            def plan(self, contract): return []
-            def apply(self, actions): return ApplyResult(
-                provider="bad", applied=0, failed=0,
-                duration_sec=0.0, timestamp="", results=[])
+
+            def plan(self, contract):
+                return []
+
+            def apply(self, actions):
+                return ApplyResult(
+                    provider="bad", applied=0, failed=0, duration_sec=0.0, timestamp="", results=[]
+                )
+
             def __init__(self, **kwargs):
                 raise TypeError("real bug in constructor")
 
         register_provider("bad_type_error_test", BadProvider, source="test")
         try:
             from fluid_build.cli._common import build_provider
+
             with pytest.raises(TypeError, match="real bug"):
                 build_provider("bad_type_error_test", "proj", "region", logging.getLogger("test"))
         finally:
@@ -366,17 +414,13 @@ class TestBugfixM1ConsumeSpec:
     """M1: ConsumeSpec.from_dict should handle both dict and string locations."""
 
     def test_string_location(self):
-        spec = ConsumeSpec.from_dict({
-            "source": "my-source",
-            "location": "s3://bucket/path"
-        })
+        spec = ConsumeSpec.from_dict({"source": "my-source", "location": "s3://bucket/path"})
         assert spec.path == "s3://bucket/path"
 
     def test_dict_location_with_path(self):
-        spec = ConsumeSpec.from_dict({
-            "source": "my-source",
-            "location": {"path": "/data/file.csv", "project": "proj"}
-        })
+        spec = ConsumeSpec.from_dict(
+            {"source": "my-source", "location": {"path": "/data/file.csv", "project": "proj"}}
+        )
         assert spec.path == "/data/file.csv"
 
 
@@ -385,9 +429,11 @@ class TestBugfixM3RenderSignature:
 
     def test_render_accepts_src_kwarg(self):
         from fluid_build.providers.local.local import LocalProvider
+
         p = LocalProvider(project="test", region="local", logger=logging.getLogger("test"))
         # Should accept src as first positional — just verify no TypeError on signature
         import inspect
+
         sig = inspect.signature(p.render)
         params = list(sig.parameters.keys())
         assert "src" in params
@@ -401,12 +447,8 @@ class TestBugfixM4ResolveProviderTopLevel:
 
     def test_snowflake_style_binding(self):
         from fluid_build.cli._common import resolve_provider_from_contract
-        contract = {
-            "binding": {
-                "platform": "snowflake",
-                "account": "xyz123"
-            }
-        }
+
+        contract = {"binding": {"platform": "snowflake", "account": "xyz123"}}
         provider, location = resolve_provider_from_contract(contract)
         assert provider == "snowflake"
 
@@ -416,6 +458,7 @@ class TestBugfixM6DeterministicSourceTable:
 
     def test_deterministic_fallback(self):
         from fluid_build.providers.local.planner import _determine_source_table
+
         logger = logging.getLogger("test")
         # With unordered set, sorted() should always pick alphabetically first
         loaded = {"zebra", "alpha", "mango"}
@@ -424,6 +467,7 @@ class TestBugfixM6DeterministicSourceTable:
 
     def test_explicit_source_preferred(self):
         from fluid_build.providers.local.planner import _determine_source_table
+
         logger = logging.getLogger("test")
         loaded = {"zebra", "alpha"}
         result = _determine_source_table({"source_table": "explicit"}, [], loaded, logger)
@@ -435,10 +479,12 @@ class TestBugfixM7VersionChecking:
 
     def test_check_sdk_compat_exists(self):
         from fluid_build.providers import _check_sdk_compat
+
         assert callable(_check_sdk_compat)
 
     def test_parse_version(self):
         from fluid_build.providers import _parse_version
+
         assert _parse_version("0.7.1") == (0, 7, 1)
         assert _parse_version("1.0.0") == (1, 0, 0)
         assert _parse_version("invalid") == (0, 0, 0)
@@ -446,15 +492,18 @@ class TestBugfixM7VersionChecking:
     def test_compat_check_no_crash(self):
         """Version check should be advisory — never crash."""
         from fluid_build.providers import _check_sdk_compat
+
         # Passing a class that has no version info should not crash
         class FakeProvider:
             name = "fake"
+
         _check_sdk_compat("fake", FakeProvider, logging.getLogger("test"))
 
 
 # ===================================================================
 # SECTION 7: Integration — provider with hooks
 # ===================================================================
+
 
 class TestHookedProviderIntegration:
     """Test a provider that implements hooks end-to-end."""
@@ -475,8 +524,13 @@ class TestHookedProviderIntegration:
             def apply(self, actions):
                 self.call_log.append("apply")
                 return ApplyResult(
-                    provider="hooked_test", applied=1, failed=0,
-                    duration_sec=0.01, timestamp="T", results=[])
+                    provider="hooked_test",
+                    applied=1,
+                    failed=0,
+                    duration_sec=0.01,
+                    timestamp="T",
+                    results=[],
+                )
 
             def pre_plan(self, contract):
                 self.call_log.append("pre_plan")
@@ -533,9 +587,14 @@ class TestHookedProviderIntegration:
 
     def test_cli_wrappers_with_hooked_provider(self):
         from fluid_build.cli.hooks import (
-            run_pre_plan, run_post_plan, run_pre_apply,
-            run_post_apply, run_estimate_cost, run_validate_sovereignty,
+            run_estimate_cost,
+            run_post_apply,
+            run_post_plan,
+            run_pre_apply,
+            run_pre_plan,
+            run_validate_sovereignty,
         )
+
         p = self._make_hooked_provider()
         logger = logging.getLogger("test")
 
@@ -557,6 +616,10 @@ class TestHookedProviderIntegration:
         assert violations == []
 
         assert p.call_log == [
-            "pre_plan", "post_plan", "pre_apply",
-            "post_apply", "estimate_cost", "validate_sovereignty",
+            "pre_plan",
+            "post_plan",
+            "pre_apply",
+            "post_apply",
+            "estimate_cost",
+            "validate_sovereignty",
         ]

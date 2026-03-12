@@ -1,27 +1,39 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for fluid_build/validation.py — input validation framework."""
-import os
+
 import pytest
-from pathlib import Path
-from unittest.mock import patch, MagicMock
 
-from fluid_build.validation import (
-    validate_file_exists,
-    validate_directory_exists,
-    validate_writable_path,
-    validate_contract_path,
-    validate_non_empty,
-    validate_identifier,
-    validate_enum,
-    validate_url,
-    validate_positive_int,
-    validate_int_range,
-    validate_environment_name,
-    validate_gcp_project_id,
-)
 from fluid_build.errors import ValidationError
-
+from fluid_build.validation import (
+    validate_contract_path,
+    validate_directory_exists,
+    validate_enum,
+    validate_environment_name,
+    validate_file_exists,
+    validate_gcp_project_id,
+    validate_identifier,
+    validate_int_range,
+    validate_non_empty,
+    validate_positive_int,
+    validate_url,
+    validate_writable_path,
+)
 
 # ── Path validation ─────────────────────────────────────────────────────
+
 
 class TestValidateFileExists:
     def test_existing_file(self, tmp_path):
@@ -99,6 +111,7 @@ class TestValidateContractPath:
 
 # ── String validation ───────────────────────────────────────────────────
 
+
 class TestValidateNonEmpty:
     def test_valid(self):
         assert validate_non_empty("hello", field_name="name") == "hello"
@@ -135,10 +148,17 @@ class TestValidateIdentifier:
 
 class TestValidateEnum:
     def test_valid_case_insensitive(self):
-        assert validate_enum("Gold", field_name="layer", allowed_values=["gold", "silver"]) == "gold"
+        assert (
+            validate_enum("Gold", field_name="layer", allowed_values=["gold", "silver"]) == "gold"
+        )
 
     def test_valid_case_sensitive(self):
-        assert validate_enum("Gold", field_name="layer", allowed_values=["Gold", "Silver"], case_sensitive=True) == "Gold"
+        assert (
+            validate_enum(
+                "Gold", field_name="layer", allowed_values=["Gold", "Silver"], case_sensitive=True
+            )
+            == "Gold"
+        )
 
     def test_invalid(self):
         with pytest.raises(ValidationError, match="Invalid"):
@@ -154,7 +174,9 @@ class TestValidateUrl:
         assert validate_url("http://example.com", field_name="url") == "http://example.com"
 
     def test_valid_https(self):
-        assert validate_url("https://example.com/path", field_name="url") == "https://example.com/path"
+        assert (
+            validate_url("https://example.com/path", field_name="url") == "https://example.com/path"
+        )
 
     def test_require_https(self):
         with pytest.raises(ValidationError, match="HTTPS"):
@@ -174,6 +196,7 @@ class TestValidateUrl:
 
 
 # ── Numeric validation ──────────────────────────────────────────────────
+
 
 class TestValidatePositiveInt:
     def test_valid(self):
@@ -211,6 +234,7 @@ class TestValidateIntRange:
 
 
 # ── Environment validation ──────────────────────────────────────────────
+
 
 class TestValidateEnvironmentName:
     @pytest.mark.parametrize("env", ["dev", "test", "staging", "prod", "my-env"])

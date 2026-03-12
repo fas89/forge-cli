@@ -21,26 +21,25 @@ Implements idempotent Dataflow operations including:
 - Job launching and monitoring
 - Pipeline configuration
 """
+
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
-from fluid_build.providers.base import ProviderError
-
-from ..util.logging import format_event, duration_ms
+from ..util.logging import duration_ms
 
 
 def ensure_template(action: Dict[str, Any]) -> Dict[str, Any]:
     """
     Ensure Dataflow Flex template exists in GCS.
-    
+
     Args:
         action: Template configuration
-        
+
     Returns:
         Action result with status and details
     """
     start_time = time.time()
-    
+
     try:
         from google.cloud import storage
     except ImportError:
@@ -50,11 +49,11 @@ def ensure_template(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     project = action.get("project")
     template_path = action.get("template_path")  # gs://bucket/path/template.json
     template_spec = action.get("template_spec", {})
-    
+
     if not project or not template_path:
         return {
             "status": "error",
@@ -62,7 +61,7 @@ def ensure_template(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     try:
         # Parse GCS path
         if not template_path.startswith("gs://"):
@@ -72,30 +71,30 @@ def ensure_template(action: Dict[str, Any]) -> Dict[str, Any]:
                 "duration_ms": duration_ms(start_time),
                 "changed": False,
             }
-        
+
         path_parts = template_path[5:].split("/", 1)
         bucket_name = path_parts[0]
         blob_name = path_parts[1] if len(path_parts) > 1 else "template.json"
-        
+
         client = storage.Client(project=project)
         bucket = client.bucket(bucket_name)
         blob = bucket.blob(blob_name)
-        
+
         changed = False
-        
+
         if not blob.exists():
             # Upload template specification
             import json
+
             blob.upload_from_string(
-                json.dumps(template_spec, indent=2),
-                content_type="application/json"
+                json.dumps(template_spec, indent=2), content_type="application/json"
             )
             changed = True
             action_taken = "created"
         else:
             # Template exists, optionally update if spec changed
             action_taken = "exists"
-        
+
         return {
             "status": "changed" if changed else "ok",
             "op": "dataflow.ensure_template",
@@ -104,7 +103,7 @@ def ensure_template(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": changed,
         }
-    
+
     except Exception as e:
         return {
             "status": "error",
@@ -117,15 +116,15 @@ def ensure_template(action: Dict[str, Any]) -> Dict[str, Any]:
 def launch_job(action: Dict[str, Any]) -> Dict[str, Any]:
     """
     Launch Dataflow job from template.
-    
+
     Args:
         action: Job launch configuration
-        
+
     Returns:
         Action result with status and details
     """
     start_time = time.time()
-    
+
     try:
         from google.cloud import dataflow_v1beta3
     except ImportError:
@@ -135,14 +134,14 @@ def launch_job(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     project = action.get("project")
     region = action.get("region", "us-central1")
     job_name = action.get("job_name")
     template_path = action.get("template_path")
     parameters = action.get("parameters", {})
     wait = action.get("wait", False)
-    
+
     if not all([project, job_name, template_path]):
         return {
             "status": "error",
@@ -150,11 +149,11 @@ def launch_job(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": False,
         }
-    
+
     try:
         # Initialize Dataflow client
         client = dataflow_v1beta3.FlexTemplatesServiceClient()
-        
+
         # Build launch request
         launch_request = dataflow_v1beta3.LaunchFlexTemplateRequest(
             project_id=project,
@@ -163,13 +162,13 @@ def launch_job(action: Dict[str, Any]) -> Dict[str, Any]:
                 job_name=job_name,
                 container_spec_gcs_path=template_path,
                 parameters=parameters,
-            )
+            ),
         )
-        
+
         # Launch job
         response = client.launch_flex_template(request=launch_request)
         job = response.job
-        
+
         result = {
             "status": "changed",
             "op": "dataflow.launch_job",
@@ -179,13 +178,15 @@ def launch_job(action: Dict[str, Any]) -> Dict[str, Any]:
             "duration_ms": duration_ms(start_time),
             "changed": True,
         }
-        
+
         # Optionally wait for job completion
         if wait and job:
-            result["wait_status"] = "completed"  # Simplified - full implementation would poll job status
-        
+            result["wait_status"] = (
+                "completed"  # Simplified - full implementation would poll job status
+            )
+
         return result
-    
+
     except Exception as e:
         return {
             "status": "error",
@@ -198,36 +199,34 @@ def launch_job(action: Dict[str, Any]) -> Dict[str, Any]:
 def get_job_status(project: str, region: str, job_id: str) -> Dict[str, Any]:
     """
     Get status of running Dataflow job.
-    
+
     Args:
         project: GCP project ID
         region: GCP region
         job_id: Dataflow job ID
-        
+
     Returns:
         Job status information
     """
     try:
         from google.cloud import dataflow_v1beta3
-        
+
         client = dataflow_v1beta3.JobsV1Beta3Client()
-        
+
         request = dataflow_v1beta3.GetJobRequest(
             project_id=project,
             location=region,
             job_id=job_id,
         )
-        
+
         job = client.get_job(request=request)
-        
+
         return {
             "job_id": job.id,
             "name": job.name,
             "state": job.current_state.name,
             "create_time": job.create_time.isoformat() if job.create_time else None,
         }
-    
+
     except Exception as e:
-        return {
-            "error": f"Failed to get job status: {str(e)}"
-        }
+        return {"error": f"Failed to get job status: {str(e)}"}
