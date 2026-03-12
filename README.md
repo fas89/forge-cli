@@ -13,7 +13,7 @@
 [![PyPI](https://img.shields.io/pypi/v/fluid-forge.svg)](https://pypi.org/project/fluid-forge/)
 [![CI](https://github.com/Agentics-Rising/forge-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/Agentics-Rising/forge-cli/actions/workflows/ci.yml)
 
-[Documentation](https://agentics-rising.github.io/forge_docs/) · [Getting Started](https://agentics-rising.github.io/forge_docs/getting-started/) · [The Book](https://a.co/d/04zTi7aQ) · [Community](https://github.com/Agentics-Rising/forge-cli/discussions)
+[Documentation](https://agentics-rising.github.io/forge_docs/) · [Getting Started](https://agentics-rising.github.io/forge_docs/getting-started/) · [FLUID Specification](https://open-data-protocol.github.io/fluid/) · [The Book](https://a.co/d/04zTi7aQ) · [Community](https://github.com/Agentics-Rising/forge-cli/discussions)
 
 </div>
 
@@ -437,7 +437,7 @@ To report security vulnerabilities, see [SECURITY.md](SECURITY.md).
 
 **Built for the future of data. Built for the Agentic Era.**
 
-[Documentation](https://agentics-rising.github.io/forge_docs/) · [The Book](https://a.co/d/04zTi7aQ) · [PyPI](https://pypi.org/project/fluid-forge/) · [Issues](https://github.com/Agentics-Rising/forge-cli/issues)
+[Documentation](https://agentics-rising.github.io/forge_docs/) · [FLUID Specification](https://open-data-protocol.github.io/fluid/) · [The Book](https://a.co/d/04zTi7aQ) · [PyPI](https://pypi.org/project/fluid-forge/) · [Issues](https://github.com/Agentics-Rising/forge-cli/issues)
 
 ---
 
