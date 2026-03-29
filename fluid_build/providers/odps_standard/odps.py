@@ -144,7 +144,7 @@ class OdpsStandardProvider(BaseProvider):
             "apiVersion": self.odps_version,
             "kind": "DataProduct",
             "id": self._extract_id(fluid),
-            "name": self._extract_name(metadata),
+            "name": self._extract_name(fluid),
             "status": self._extract_status(metadata),
         }
 
@@ -191,11 +191,18 @@ class OdpsStandardProvider(BaseProvider):
 
         raise ProviderError("Contract missing required 'id' field")
 
-    def _extract_name(self, metadata: Mapping[str, Any]) -> str:
-        """Extract data product name."""
-        name = metadata.get("name")
+    def _extract_name(self, fluid: Mapping[str, Any]) -> str:
+        """Extract data product name.
+
+        Checks metadata.name first (explicit override), then falls back to
+        the top-level 'name' field which is the standard FLUID contract location.
+        """
+        name = fluid.get("metadata", {}).get("name") or fluid.get("name")
         if not name:
-            raise ProviderError("Contract missing required 'metadata.name' field")
+            raise ProviderError(
+                "Contract missing required name field. "
+                "Set 'name:' at the contract root (or 'metadata.name' to override)."
+            )
         return name
 
     def _extract_status(self, metadata: Mapping[str, Any]) -> str:

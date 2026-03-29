@@ -47,7 +47,7 @@ def odcs_cli():
     "--output",
     "-o",
     type=click.Path(),
-    help="Output file path (default: <contract-name>-odcs.yaml)",
+    help="Output file path (default: <contract-name>-odcs.yaml). Ignored when --per-port is used.",
 )
 @click.option(
     "--format",
@@ -58,16 +58,51 @@ def odcs_cli():
 )
 @click.option("--quality/--no-quality", default=True, help="Include quality checks (default: true)")
 @click.option("--sla/--no-sla", default=True, help="Include SLA properties (default: true)")
-def export_command(contract: str, output: Optional[str], format: str, quality: bool, sla: bool):
+@click.option(
+    "--expose-id",
+    "-e",
+    default=None,
+    metavar="EXPOSE_ID",
+    help=(
+        "Export a single output port by its exposeId. "
+        "Produces one ODCS contract scoped to that port with id "
+        "'<product-id>.<exposeId>'. Mutually exclusive with --per-port."
+    ),
+)
+@click.option(
+    "--per-port",
+    is_flag=True,
+    default=False,
+    help=(
+        "Export every output port as a separate ODCS file "
+        "(product.odcs.<exposeId>.<format> written to the same directory "
+        "as --output, or the current directory if --output is omitted). "
+        "Mutually exclusive with --expose-id."
+    ),
+)
+def export_command(
+    contract: str,
+    output: Optional[str],
+    format: str,
+    quality: bool,
+    sla: bool,
+    expose_id: Optional[str],
+    per_port: bool,
+):
     """
     Export FLUID contract to ODCS format.
 
     Example:
         fluid odcs export my-contract.yaml
         fluid odcs export my-contract.yaml -o contract.json -f json
+        fluid odcs export my-contract.yaml --expose-id bitcoin_prices_table
+        fluid odcs export my-contract.yaml --per-port -o standards/product.odcs.yaml
         fluid odcs export my-contract.yaml --no-quality
     """
     logger = logging.getLogger(__name__)
+
+    if expose_id and per_port:
+        raise click.UsageError("--expose-id and --per-port are mutually exclusive.")
 
     try:
         # Load FLUID contract
@@ -79,16 +114,38 @@ def export_command(contract: str, output: Optional[str], format: str, quality: b
         provider.include_quality_checks = quality
         provider.include_sla = sla
 
-        # Generate output path if not specified
-        if not output:
-            contract_path = Path(contract)
-            output = contract_path.stem + f"-odcs.{format}"
-
-        # Export to ODCS
         click.echo(f"Exporting to ODCS v{provider.odcs_version}...")
-        odcs_contract = provider.render(fluid_contract, out=output, fmt=format)
 
-        click.echo(f"✓ Successfully exported to {output}")
+        # ── Per-port mode ────────────────────────────────────────────────────
+        if per_port:
+            out_dir = Path(output).parent if output else Path(".")
+            out_dir.mkdir(parents=True, exist_ok=True)
+            results = provider.render_all_ports(fluid_contract, out_dir=out_dir, fmt=format)
+            if not results:
+                click.echo("WARNING: No exposes found in contract — nothing exported.", err=True)
+                return
+            for eid, odcs in results:
+                out_path = out_dir / f"product.odcs.{eid}.{format}"
+                click.echo(f"✓ Exported {eid} → {out_path}")
+                click.echo(f"  ID: {odcs.get('id')}  status: {odcs.get('status')}  version: {odcs.get('version')}")
+            return
+
+        # ── Single-expose mode ───────────────────────────────────────────────
+        if expose_id:
+            if not output:
+                contract_path = Path(contract)
+                output = contract_path.stem + f"-odcs-{expose_id}.{format}"
+            odcs_contract = provider.render(
+                fluid_contract, out=output, fmt=format, expose_id=expose_id
+            )
+            click.echo(f"✓ Successfully exported expose '{expose_id}' to {output}")
+        else:
+            # ── Legacy mode: all exposes merged into one file ────────────────
+            if not output:
+                contract_path = Path(contract)
+                output = contract_path.stem + f"-odcs.{format}"
+            odcs_contract = provider.render(fluid_contract, out=output, fmt=format)
+            click.echo(f"✓ Successfully exported to {output}")
 
         # Show summary
         schema = odcs_contract.get("schema", [])

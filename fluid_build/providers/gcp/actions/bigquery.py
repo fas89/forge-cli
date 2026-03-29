@@ -361,8 +361,6 @@ def ensure_table(action: Dict[str, Any]) -> Dict[str, Any]:
                         project, normalized_dataset, normalized_table, schema, column_restrictions
                     )
 
-            created_table = client.create_table(table_obj)
-
             return {
                 "status": "changed",
                 "table_id": created_table.table_id,

@@ -236,7 +236,22 @@ class FluidCommandCenterProvider(BaseCatalogProvider):
         rather than creating duplicates.
         """
         try:
-            # Search for assets with matching contract ID
+            # Use the dedicated fluid_contract_id filter parameter
+            response = await client.get(
+                f"{self.endpoint}/api/v1/assets",
+                params={"fluid_contract_id": contract_id, "limit": 1},
+                headers=headers,
+                timeout=10.0,
+            )
+            response.raise_for_status()
+
+            results = response.json()
+            assets = results.get("items", results.get("assets", []))
+
+            if assets:
+                return assets[0]
+
+            # Fallback: text search with client-side metadata check
             response = await client.get(
                 f"{self.endpoint}/api/v1/assets",
                 params={"q": contract_id, "limit": 10},
@@ -248,7 +263,6 @@ class FluidCommandCenterProvider(BaseCatalogProvider):
             results = response.json()
             assets = results.get("items", results.get("assets", []))
 
-            # Find exact match in metadata
             for asset in assets:
                 metadata = asset.get("metadata", {})
                 if metadata.get("fluid_contract_id") == contract_id:

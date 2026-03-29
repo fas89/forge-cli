@@ -80,12 +80,35 @@ def _parse_file(path: Path) -> Dict[str, Any]:
 
 def _deep_merge(base: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Recursively merge overlay into base. Lists are replaced (not extended) to
-    avoid accidental duplication; dicts are merged key-by-key.
+    Recursively merge overlay into base.
+
+    - Dicts (both sides): merged key-by-key recursively.
+    - List of dicts (both sides): merged positionally so overlay entries act as
+      partial patches — each overlay item is deep-merged into the corresponding
+      base item by index.  Extra overlay items beyond the base length are appended.
+    - Scalar lists / mismatched types: overlay value replaces base value entirely.
     """
     for k, v in overlay.items():
         if k in base and isinstance(base[k], dict) and isinstance(v, dict):
             base[k] = _deep_merge(base[k], v)
+        elif (
+            k in base
+            and isinstance(base[k], list)
+            and isinstance(v, list)
+            and v
+            and all(isinstance(item, dict) for item in v)
+        ):
+            # Positional merge for list-of-dicts: patch each overlay entry into
+            # the corresponding base entry, preserving unmentioned fields.
+            merged: List[Any] = list(base[k])
+            for i, overlay_item in enumerate(v):
+                if i < len(merged) and isinstance(merged[i], dict):
+                    merged[i] = _deep_merge(dict(merged[i]), overlay_item)
+                elif i < len(merged):
+                    merged[i] = overlay_item
+                else:
+                    merged.append(overlay_item)
+            base[k] = merged
         else:
             base[k] = v
     return base

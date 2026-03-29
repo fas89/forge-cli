@@ -345,6 +345,9 @@ class DataMeshManagerProvider(BaseProvider):
                 "url": f"{self.api_url}/api/dataproducts/{product_id}",
                 "payload": dp,
             }
+            # Also preview per-expose ODCS contracts so the caller can inspect them
+            if publish_contract:
+                result["odcs_contracts"] = self._preview_odcs_per_expose(fluid, product_id)
             return result
 
         # Ensure team exists
@@ -363,12 +366,115 @@ class DataMeshManagerProvider(BaseProvider):
             "url": f"https://app.entropy-data.com/dataproducts/{product_id}",
         }
 
-        # Optionally publish a companion data contract
+        # Publish one ODCS data contract per expose, linked via dataContractId
         if publish_contract:
-            dc_result = self._publish_data_contract_internal(fluid, product_id)
-            result["data_contract"] = dc_result
+            odcs_results = self._publish_odcs_per_expose(fluid, product_id)
+            result["odcs_contracts"] = odcs_results
 
         return result
+
+    # ---- ODCS per-expose publishing ---------------------------------------
+
+    def _preview_odcs_per_expose(
+        self, fluid: Mapping[str, Any], product_id: str
+    ) -> List[Dict[str, Any]]:
+        """Return the ODCS payloads that *_publish_odcs_per_expose* would PUT
+        (used for dry-run mode only — no HTTP calls made).
+        """
+        try:
+            from fluid_build.providers.odcs import OdcsProvider  # lazy import
+        except ImportError as exc:
+            self._log.warning("OdcsProvider not available — cannot preview ODCS contracts: %s", exc)
+            return []
+
+        odcs_prov = OdcsProvider()
+        previews: List[Dict[str, Any]] = []
+        for expose in fluid.get("exposes", []):
+            if not isinstance(expose, dict):
+                continue
+            expose_id = expose.get("exposeId") or expose.get("id")
+            if not expose_id:
+                continue
+            contract_id = f"{product_id}.{expose_id}"
+            try:
+                odcs_body = odcs_prov.render(fluid, expose_id=expose_id)
+            except Exception as exc:
+                self._log.warning("Could not generate ODCS preview for %s: %s", expose_id, exc)
+                continue
+            previews.append(
+                {
+                    "method": "PUT",
+                    "url": f"{self.api_url}/api/datacontracts/{contract_id}",
+                    "payload": odcs_body,
+                }
+            )
+        return previews
+
+    def _publish_odcs_per_expose(
+        self, fluid: Mapping[str, Any], product_id: str
+    ) -> List[Dict[str, Any]]:
+        """Publish one ODCS data contract for every expose port.
+
+        Each contract is PUT to ``/api/datacontracts/{product_id}.{exposeId}``
+        in ODCS v3.1.0 JSON format.  The contract id matches the ``dataContractId``
+        already written into the output port by ``_map_output_ports``.
+
+        Returns a list of per-expose result dicts.
+        """
+        try:
+            from fluid_build.providers.odcs import OdcsProvider  # lazy import
+        except ImportError as exc:
+            raise ProviderError(
+                "OdcsProvider is required to publish ODCS contracts.\n"
+                "Ensure fluid_build.providers.odcs is installed."
+            ) from exc
+
+        odcs_prov = OdcsProvider()
+        results: List[Dict[str, Any]] = []
+
+        for expose in fluid.get("exposes", []):
+            if not isinstance(expose, dict):
+                continue
+            expose_id = expose.get("exposeId") or expose.get("id")
+            if not expose_id:
+                self._log.warning("Expose missing exposeId/id — skipping ODCS contract publish")
+                continue
+
+            contract_id = f"{product_id}.{expose_id}"
+
+            try:
+                odcs_body = odcs_prov.render(fluid, expose_id=expose_id)
+            except Exception as exc:
+                self._log.error(
+                    "Failed to generate ODCS contract for expose '%s': %s", expose_id, exc
+                )
+                results.append({"contract_id": contract_id, "success": False, "error": str(exc)})
+                continue
+
+            try:
+                resp = self._request(
+                    "PUT", f"/api/datacontracts/{contract_id}", json_body=odcs_body
+                )
+                self._log.info(
+                    "Published ODCS contract %s (HTTP %s)", contract_id, resp.status_code
+                )
+                results.append(
+                    {
+                        "contract_id": contract_id,
+                        "expose_id": expose_id,
+                        "success": True,
+                        "status_code": resp.status_code,
+                        "url": f"https://app.entropy-data.com/datacontracts/{contract_id}",
+                    }
+                )
+            except ProviderError as exc:
+                self._log.error(
+                    "HTTP error publishing ODCS contract %s: %s", contract_id, exc
+                )
+                results.append({"contract_id": contract_id, "success": False, "error": str(exc)})
+
+        return results
+
 
     # ---- mapping: FLUID -> Entropy Data Product ----------------------------
 
@@ -405,8 +511,8 @@ class DataMeshManagerProvider(BaseProvider):
         if input_ports:
             dp["inputPorts"] = input_ports
 
-        # Output ports (exposes)
-        output_ports = self._map_output_ports(fluid)
+        # Output ports (exposes) — pass product_id so each port gets a dataContractId
+        output_ports = self._map_output_ports(fluid, product_id=product_id)
         if output_ports:
             dp["outputPorts"] = output_ports
 
@@ -461,15 +567,28 @@ class DataMeshManagerProvider(BaseProvider):
             ports.append(port)
         return ports
 
-    def _map_output_ports(self, fluid: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    def _map_output_ports(
+        self, fluid: Mapping[str, Any], product_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         ports: List[Dict[str, Any]] = []
         for expose in fluid.get("exposes", []):
+            expose_id = expose.get("id", expose.get("exposeId", str(uuid.uuid4())))
             port: Dict[str, Any] = {
-                "id": expose.get("id", expose.get("exposeId", str(uuid.uuid4()))),
-                "name": expose.get("name") or expose.get("title") or expose.get("id", "output"),
+                "id": expose_id,
+                "name": expose.get("name") or expose.get("title") or expose_id,
                 "description": expose.get("description", ""),
-                "status": "active",
             }
+
+            # Lifecycle status from expose (default to "active")
+            lifecycle = expose.get("lifecycle", {})
+            port["status"] = _STATUS_MAP.get(
+                str(lifecycle.get("state", "active")).lower(), "active"
+            )
+
+            # Link output port to its per-expose ODCS data contract
+            if product_id:
+                port["dataContractId"] = f"{product_id}.{expose_id}"
+
             provider = self._extract_provider(expose)
             if provider:
                 port["type"] = _PROVIDER_TYPE_MAP.get(provider.lower(), provider.title())

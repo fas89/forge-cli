@@ -113,6 +113,7 @@ class OdcsProvider(BaseProvider):
         *,
         out: Optional[Union[Path, str]] = None,
         fmt: Optional[str] = "yaml",
+        expose_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Export FLUID contract to ODCS format.
@@ -121,6 +122,10 @@ class OdcsProvider(BaseProvider):
             src: FLUID contract dictionary
             out: Output file path (optional)
             fmt: Output format ('yaml' or 'json')
+            expose_id: When set, export only this output port (exposeId).
+                       The resulting ODCS contract id is scoped to
+                       ``{product_id}.{expose_id}`` and ``status`` is
+                       derived from that expose's ``lifecycle.state``.
 
         Returns:
             ODCS-compliant dictionary
@@ -133,8 +138,11 @@ class OdcsProvider(BaseProvider):
 
         self.logger.info("Converting FLUID contract to ODCS v3.1.0")
 
+        # Scope to a single output port when requested
+        fluid = self._filter_to_expose(src, expose_id) if expose_id else src
+
         # Convert to ODCS
-        odcs_contract = self._fluid_to_odcs(src)
+        odcs_contract = self._fluid_to_odcs(fluid)
 
         # Validate if schema available (optional - can be disabled)
         if self.schema and os.getenv("ODCS_VALIDATE", "false").lower() == "true":
@@ -146,6 +154,82 @@ class OdcsProvider(BaseProvider):
             self.logger.info(f"Exported ODCS contract: {out}")
 
         return odcs_contract
+
+    def render_all_ports(
+        self,
+        fluid: Mapping[str, Any],
+        *,
+        out_dir: Optional[Union[Path, str]] = None,
+        fmt: Optional[str] = "yaml",
+    ) -> List[tuple]:
+        """
+        Export one ODCS contract per output port.
+
+        Args:
+            fluid: FLUID contract dictionary
+            out_dir: Directory to write files into.
+                     Files are named ``product.odcs.<exposeId>.<fmt>``.
+                     If *None*, files are not written.
+            fmt: Output format ('yaml' or 'json')
+
+        Returns:
+            List of ``(expose_id, odcs_dict)`` tuples in expose order.
+        """
+        import copy
+
+        results = []
+        for expose in fluid.get("exposes", []):
+            if not isinstance(expose, dict):
+                continue
+            eid = expose.get("exposeId") or expose.get("id")
+            if not eid:
+                self.logger.warning("Expose missing exposeId — skipping")
+                continue
+            out_path = None
+            if out_dir is not None:
+                out_path = Path(out_dir) / f"product.odcs.{eid}.{fmt}"
+            odcs = self.render(fluid, out=out_path, fmt=fmt, expose_id=eid)
+            results.append((eid, odcs))
+        return results
+
+    def _filter_to_expose(
+        self, fluid: Mapping[str, Any], expose_id: str
+    ) -> Dict[str, Any]:
+        """
+        Return a shallow copy of *fluid* filtered to a single output port.
+
+        The returned dict carries two private sentinel keys used by
+        ``_fluid_to_odcs``:
+
+        * ``_scoped_id``     – ``{product_id}.{expose_id}``
+        * ``_scoped_status`` – expose-level ``lifecycle.state`` (or ``active``)
+        """
+        import copy
+
+        scoped = copy.deepcopy(dict(fluid))
+        exposes = [
+            e
+            for e in scoped.get("exposes", [])
+            if isinstance(e, dict)
+            and (e.get("exposeId") == expose_id or e.get("id") == expose_id)
+        ]
+        if not exposes:
+            raise ProviderError(
+                f"Expose '{expose_id}' not found in contract. "
+                f"Available exposeIds: "
+                f"{[e.get('exposeId') or e.get('id') for e in fluid.get('exposes', [])]}"
+            )
+        scoped["exposes"] = exposes
+
+        # Derive scoped contract id
+        product_id = self._extract_contract_id(fluid)
+        scoped["_scoped_id"] = f"{product_id}.{expose_id}"
+
+        # Derive status from expose lifecycle
+        lifecycle = exposes[0].get("lifecycle", {})
+        scoped["_scoped_status"] = lifecycle.get("state", "active")
+
+        return scoped
 
     def import_contract(self, odcs: Union[Mapping[str, Any], str, Path]) -> Dict[str, Any]:
         """
@@ -187,13 +271,17 @@ class OdcsProvider(BaseProvider):
         metadata = fluid.get("metadata", {})
         fluid.get("contract", {})
 
+        # When filtered to a single expose, _scoped_id / _scoped_status are set
+        contract_id = fluid.get("_scoped_id") or self._extract_contract_id(fluid)
+        raw_status = fluid.get("_scoped_status") or metadata.get("status", "active")
+
         # Required fields
         odcs_contract = {
             "version": metadata.get("version", "1.0.0"),
             "apiVersion": self.odcs_version,
             "kind": "DataContract",
-            "id": self._extract_contract_id(fluid),
-            "status": self._map_status_to_odcs(metadata.get("status", "active")),
+            "id": contract_id,
+            "status": self._map_status_to_odcs(raw_status),
         }
 
         # Optional but common fields
@@ -362,7 +450,10 @@ class OdcsProvider(BaseProvider):
 
         We'll create a proper Team object structure.
         """
-        owner = fluid.get("owner", {})
+        # FLUID 0.7.1: owner may live under metadata.owner
+        owner = fluid.get("owner") or fluid.get("metadata", {}).get("owner", {})
+        if not isinstance(owner, dict):
+            owner = {}
 
         team_name = owner.get("team") or owner.get("name")
         if not team_name:
@@ -1061,20 +1152,54 @@ class OdcsProvider(BaseProvider):
             "completenessKpi": 0.95,
             ...
         }
+
+        Sources (in priority order):
+        1. expose-level ``qos`` block  (FLUID 0.7.1)
+        2. ``metadata.update_frequency`` / ``metadata.availability`` (legacy)
         """
         sla = {}
 
-        # Check metadata for SLA info
+        # --- 1. Expose-level qos block (FLUID 0.7.1) -----------------------
+        # When scoped to a single expose via render(expose_id=...) there will
+        # be exactly one expose; otherwise we merge qos from all exposes.
+        for expose in fluid.get("exposes", []):
+            if not isinstance(expose, dict):
+                continue
+            qos = expose.get("qos", {})
+            if not isinstance(qos, dict):
+                continue
+
+            # availability: "99.5%" → strip % and convert to float
+            avail = qos.get("availability")
+            if avail is not None and "availability" not in sla:
+                try:
+                    sla["availability"] = float(str(avail).rstrip("%")) / 100
+                except (ValueError, TypeError):
+                    sla["availability"] = str(avail)  # keep as string if unparseable
+
+            # freshnessSLO: ISO-8601 duration string (e.g. "PT5M") → interval
+            freshness = qos.get("freshnessSLO") or qos.get("freshness_slo")
+            if freshness and "interval" not in sla:
+                sla["interval"] = str(freshness)
+
+            # SLA labels as custom properties
+            qos_labels = qos.get("labels", {})
+            if isinstance(qos_labels, dict) and qos_labels and "customProperties" not in sla:
+                sla["customProperties"] = [
+                    {"property": k, "value": v} for k, v in qos_labels.items()
+                ]
+
+        # --- 2. Metadata-level fallbacks (legacy) ---------------------------
         metadata = fluid.get("metadata", {})
 
-        # Update frequency → interval
+        # Update frequency → interval (if not already set from qos)
         update_frequency = metadata.get("update_frequency")
-        if update_frequency:
+        if update_frequency and "interval" not in sla:
             sla["interval"] = update_frequency
 
-        # Availability/uptime
+        # Availability/uptime (if not already set from qos)
         availability = metadata.get("availability")
-        if availability:
+        if availability and "availability" not in sla:
             try:
                 sla["availability"] = float(availability)
             except (ValueError, TypeError):

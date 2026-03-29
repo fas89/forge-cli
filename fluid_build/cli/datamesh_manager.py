@@ -291,12 +291,30 @@ def _print_dry_run(result):
                 border_style="yellow",
             )
         )
+        # Show per-expose ODCS contract previews
+        for odcs in result.get("odcs_contracts", []):
+            console.print(
+                Panel(
+                    f"[bold]Method:[/bold] {odcs.get('method', 'PUT')}\n"
+                    f"[bold]URL:[/bold]    {odcs.get('url', '?')}\n\n"
+                    f"[bold]ODCS Payload:[/bold]\n{json.dumps(odcs.get('payload', {}), indent=2)}",
+                    title="[yellow]ODCS Contract Dry Run[/yellow]",
+                    border_style="yellow",
+                )
+            )
     else:
         cprint("=== Dry Run Preview ===")
         cprint(f"Method: {result.get('method', 'PUT')}")
         cprint(f"URL:    {result.get('url', '?')}")
         cprint()
         cprint(json.dumps(result.get("payload", {}), indent=2))
+        for odcs in result.get("odcs_contracts", []):
+            cprint()
+            cprint("=== ODCS Contract Dry Run ===")
+            cprint(f"Method: {odcs.get('method', 'PUT')}")
+            cprint(f"URL:    {odcs.get('url', '?')}")
+            cprint()
+            cprint(json.dumps(odcs.get("payload", {}), indent=2))
 
 
 def _print_publish_result(result):
@@ -308,11 +326,22 @@ def _print_publish_result(result):
         lines = [f"[green]✅ Published:[/green] [bold]{product_id}[/bold]"]
         if url:
             lines.append(f"[dim]View at:[/dim] {url}")
+        # Legacy single contract (kept for backward compatibility)
         dc = result.get("data_contract")
         if dc:
             lines.append(f"[green]📄 Contract:[/green] {dc.get('contract_id', '?')}")
             if dc.get("url"):
                 lines.append(f"[dim]View at:[/dim] {dc['url']}")
+        # Per-expose ODCS contracts
+        for odcs in result.get("odcs_contracts", []):
+            status_icon = "✅" if odcs.get("success") else "❌"
+            lines.append(
+                f"[green]{status_icon} ODCS:[/green] {odcs.get('contract_id', '?')}"
+            )
+            if odcs.get("url"):
+                lines.append(f"[dim]View at:[/dim] {odcs['url']}")
+            if not odcs.get("success") and odcs.get("error"):
+                lines.append(f"[red]Error:[/red] {odcs['error']}")
         console.print(Panel("\n".join(lines), title="Data Mesh Manager", border_style="green"))
     else:
         success(f"Published data product: {product_id}")
@@ -323,3 +352,10 @@ def _print_publish_result(result):
             cprint(f"📄 Published data contract: {dc.get('contract_id', '?')}")
             if dc.get("url"):
                 cprint(f"   View at: {dc['url']}")
+        for odcs in result.get("odcs_contracts", []):
+            icon = "✅" if odcs.get("success") else "❌"
+            cprint(f"{icon} ODCS contract: {odcs.get('contract_id', '?')}")
+            if odcs.get("url"):
+                cprint(f"   View at: {odcs['url']}")
+            if not odcs.get("success") and odcs.get("error"):
+                cprint(f"   Error: {odcs['error']}")

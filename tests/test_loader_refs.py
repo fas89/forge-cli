@@ -732,3 +732,164 @@ class TestCompileCLIRun:
         assert rc == 0
         result = yaml.safe_load(out_path.read_text())
         assert result["region"] == "eu-prod"
+
+
+# ---------------------------------------------------------------------------
+# _deep_merge — positional list-of-dicts merge
+# ---------------------------------------------------------------------------
+
+class TestDeepMergePositionalLists:
+    """_deep_merge must patch list-of-dict items by position."""
+
+    def _merge(self, base, overlay):
+        from fluid_build.loader import _deep_merge
+        return _deep_merge(dict(base), overlay)
+
+    def test_scalar_list_is_replaced(self):
+        """Scalar lists must still be fully replaced (no positional magic)."""
+        result = self._merge({"tags": ["a", "b"]}, {"tags": ["x"]})
+        assert result["tags"] == ["x"]
+
+    def test_list_of_dicts_patches_by_position(self):
+        """Overlay entries patch matching-index base entries."""
+        base = {
+            "exposes": [
+                {"exposeId": "port_a", "binding": {"location": {"project": "prod", "dataset": "ds"}}},
+                {"exposeId": "port_b", "binding": {"location": {"project": "prod", "dataset": "ds2"}}},
+            ]
+        }
+        overlay = {
+            "exposes": [
+                {"binding": {"location": {"project": "staging", "dataset": "ds_staging"}}},
+                {"binding": {"location": {"project": "staging", "dataset": "ds_staging"}}},
+            ]
+        }
+        result = self._merge(base, overlay)
+        # exposeId must be preserved from base
+        assert result["exposes"][0]["exposeId"] == "port_a"
+        assert result["exposes"][1]["exposeId"] == "port_b"
+        # location must be updated from overlay
+        assert result["exposes"][0]["binding"]["location"]["project"] == "staging"
+        assert result["exposes"][0]["binding"]["location"]["dataset"] == "ds_staging"
+        assert result["exposes"][1]["binding"]["location"]["project"] == "staging"
+
+    def test_partial_overlay_list_leaves_extra_base_items_intact(self):
+        """When overlay has fewer items than base, remaining base items are untouched."""
+        base = {
+            "exposes": [
+                {"exposeId": "p1", "binding": {"location": {"project": "prod"}}},
+                {"exposeId": "p2", "binding": {"location": {"project": "prod"}}},
+                {"exposeId": "p3", "binding": {"location": {"project": "prod"}}},
+            ]
+        }
+        overlay = {
+            "exposes": [
+                {"binding": {"location": {"project": "staging"}}},
+            ]
+        }
+        result = self._merge(base, overlay)
+        assert result["exposes"][0]["binding"]["location"]["project"] == "staging"
+        assert result["exposes"][1]["binding"]["location"]["project"] == "prod"
+        assert result["exposes"][2]["binding"]["location"]["project"] == "prod"
+        assert len(result["exposes"]) == 3
+
+    def test_overlay_list_longer_than_base_appends_new_items(self):
+        """Overlay items beyond base length are appended."""
+        base = {"items": [{"name": "a"}]}
+        overlay = {"items": [{"name": "a-patched"}, {"name": "b-new"}]}
+        result = self._merge(base, overlay)
+        assert result["items"][0]["name"] == "a-patched"
+        assert result["items"][1]["name"] == "b-new"
+        assert len(result["items"]) == 2
+
+    def test_overlay_dict_fields_not_in_overlay_are_preserved(self):
+        """Fields within a base list item that aren't in the overlay item survive."""
+        base = {
+            "exposes": [
+                {
+                    "exposeId": "port_x",
+                    "lifecycle": {"state": "active"},
+                    "binding": {"platform": "bigquery", "location": {"project": "prod", "dataset": "ds", "table": "t1"}},
+                    "qos": {"availability": "99.9%"},
+                }
+            ]
+        }
+        overlay = {
+            "exposes": [
+                {"binding": {"location": {"project": "staging", "dataset": "ds_stg"}}}
+            ]
+        }
+        result = self._merge(base, overlay)
+        expose = result["exposes"][0]
+        assert expose["exposeId"] == "port_x"
+        assert expose["lifecycle"]["state"] == "active"
+        assert expose["qos"]["availability"] == "99.9%"
+        assert expose["binding"]["platform"] == "bigquery"
+        assert expose["binding"]["location"]["project"] == "staging"
+        assert expose["binding"]["location"]["dataset"] == "ds_stg"
+        # table not in overlay → preserved from base
+        assert expose["binding"]["location"]["table"] == "t1"
+
+    def test_non_list_overlay_replaces_list_base(self):
+        """If overlay value is a scalar where base has a list, replace."""
+        result = self._merge({"x": [1, 2, 3]}, {"x": "replaced"})
+        assert result["x"] == "replaced"
+
+
+class TestLoadWithOverlayListMerge:
+    """load_with_overlay must deep-merge exposes by position (env name lookup)."""
+
+    def test_staging_overlay_patches_binding_location(self, tmp_path):
+        """Overlay updates binding.location while exposeId/qos/schema survive."""
+        _write_yaml(
+            tmp_path / "contract.fluid.yaml",
+            {
+                "fluid": "0.7.1",
+                "id": "test.product",
+                "exposes": [
+                    {
+                        "exposeId": "port_a",
+                        "binding": {"platform": "bigquery", "location": {"project": "prod", "dataset": "raw"}},
+                        "qos": {"availability": "99.5%"},
+                    },
+                    {
+                        "exposeId": "port_b",
+                        "binding": {"platform": "bigquery", "location": {"project": "prod", "dataset": "raw"}},
+                    },
+                ],
+            },
+        )
+        overlays_dir = tmp_path / "overlays"
+        overlays_dir.mkdir()
+        _write_yaml(
+            overlays_dir / "staging.yaml",
+            {
+                "exposes": [
+                    {"binding": {"location": {"project": "stg", "dataset": "raw_stg"}}},
+                    {"binding": {"location": {"project": "stg", "dataset": "raw_stg"}}},
+                ]
+            },
+        )
+
+        from fluid_build.loader import load_with_overlay
+
+        result = load_with_overlay(tmp_path / "contract.fluid.yaml", env="staging")
+
+        exposes = result["exposes"]
+        assert exposes[0]["exposeId"] == "port_a"
+        assert exposes[0]["qos"]["availability"] == "99.5%"
+        assert exposes[0]["binding"]["location"]["project"] == "stg"
+        assert exposes[0]["binding"]["location"]["dataset"] == "raw_stg"
+        assert exposes[1]["exposeId"] == "port_b"
+        assert exposes[1]["binding"]["location"]["project"] == "stg"
+
+    def test_no_overlay_returns_base_unchanged(self, tmp_path):
+        """load_with_overlay without env returns the base contract verbatim."""
+        _write_yaml(
+            tmp_path / "contract.fluid.yaml",
+            {"id": "test.product", "exposes": [{"exposeId": "p1"}]},
+        )
+        from fluid_build.loader import load_with_overlay
+
+        result = load_with_overlay(tmp_path / "contract.fluid.yaml")
+        assert result["exposes"][0]["exposeId"] == "p1"
