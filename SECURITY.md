@@ -60,4 +60,4 @@ FLUID Forge includes several built-in security measures:
 
 For security concerns: **security@fluidhq.io**
 
-For general questions: [GitHub Discussions](https://github.com/agentics-rising/fluid-forge-cli/discussions)
+For general questions: [GitHub Discussions](https://github.com/Agentics-Rising/forge-cli/discussions)

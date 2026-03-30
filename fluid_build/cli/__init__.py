@@ -115,7 +115,7 @@ Environment Variables:
   FLUID_PROJECT      - Cloud project/account identifier
   FLUID_REGION       - Cloud region/location
 
-For more information, visit: https://github.com/agentics-rising/fluid-forge-cli
+For more information, visit: https://github.com/Agentics-Rising/forge-cli
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

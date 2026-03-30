@@ -48,7 +48,7 @@ pypi/
 
 ### Publish All Builds (Recommended)
 ```bash
-cd fluid_forge/fluid-forge-cli/fluid_build
+cd forge-cli/fluid_build
 ./publish-to-pypi.sh all
 ```
 
@@ -95,7 +95,7 @@ Example: `pypi/alpha/build-metadata/0.7.1a42.json`
 ```groovy
 stage('Build All') {
     steps {
-        sh 'cd fluid_forge/fluid-forge-cli/fluid_build && ./publish-to-pypi.sh all'
+        sh 'cd forge-cli/fluid_build && ./publish-to-pypi.sh all'
     }
 }
 ```
@@ -104,7 +104,7 @@ stage('Build All') {
 ```yaml
 - name: Publish to PyPI
   run: |
-    cd fluid_forge/fluid-forge-cli/fluid_build
+    cd forge-cli/fluid_build
     ./publish-to-pypi.sh all
 ```
 

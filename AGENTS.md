@@ -21,7 +21,7 @@ One contract. Any provider. Full governance. Zero boilerplate.
 ### Project Structure
 
 ```
-fluid-forge-cli/
+forge-cli/
 ├── fluid_build/              # Python package — the CLI
 │   ├── cli/                  # Command implementations (Click-based)
 │   ├── providers/            # Provider plugins: local, gcp, aws, snowflake, odps, odcs
@@ -276,7 +276,7 @@ For MCP (Model Context Protocol) tool servers, these JSON outputs can be piped d
 
 - **Documentation**: [https://fluidhq.io/docs](https://fluidhq.io/docs)
 - **PyPI**: [https://pypi.org/project/fluid-forge](https://pypi.org/project/fluid-forge/)
-- **Repository**: [https://github.com/agentics-rising/fluid-forge-cli](https://github.com/agentics-rising/fluid-forge-cli)
+- **Repository**: [https://github.com/Agentics-Rising/forge-cli](https://github.com/Agentics-Rising/forge-cli)
 - **Agent Policy Examples**: `examples/0.7.1/ai-restricted-data.yaml`
 - **Policy Validator Source**: `fluid_build/policy/agent_policy.py`
 - **Forge Agents Source**: `fluid_build/cli/forge_agents.py`

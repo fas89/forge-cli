@@ -34,7 +34,9 @@ from .core import FluidCLIError
 
 # Security configuration
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
-MAX_PATH_DEPTH = 10
+# Allow normal macOS/Linux workspace and temp paths while still catching
+# obviously suspiciously deep paths that are hard to reason about safely.
+MAX_PATH_DEPTH = 25
 ALLOWED_FILE_EXTENSIONS = {".yaml", ".yml", ".json", ".txt", ".md", ".html", ".dot", ".svg", ".png"}
 FORBIDDEN_PATHS = {"/etc", "/usr", "/bin", "/sbin", "/var", "/root"}
 

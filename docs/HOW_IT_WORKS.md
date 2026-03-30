@@ -184,8 +184,8 @@ The SDK exists so backend authors don't need the frontend, and the frontend does
 |---------------------|------------|
 | Understand the provider contract | `fluid-provider-sdk/src/fluid_provider_sdk/base.py` |
 | Parse a YAML contract in a provider | `fluid-provider-sdk/src/fluid_provider_sdk/contract.py` → `ContractHelper` |
-| See how the CLI calls providers | `fluid-forge-cli/fluid_build/cli/apply.py` + `plan.py` + `hooks.py` |
-| See how providers are found | `fluid-forge-cli/fluid_build/providers/__init__.py` |
-| See the SDK ↔ CLI bridge | `fluid-forge-cli/fluid_build/providers/base.py` (the try/except import) |
+| See how the CLI calls providers | `forge-cli/fluid_build/cli/apply.py` + `plan.py` + `hooks.py` |
+| See how providers are found | `forge-cli/fluid_build/providers/__init__.py` |
+| See the SDK ↔ CLI bridge | `forge-cli/fluid_build/providers/base.py` (the try/except import) |
 | Build a new provider | `fluid-provider-sdk/src/fluid_provider_sdk/testing/harness.py` |
-| See a working provider | `fluid-forge-cli/fluid_build/providers/local/local.py` (simplest) |
+| See a working provider | `forge-cli/fluid_build/providers/local/local.py` (simplest) |
