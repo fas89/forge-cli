@@ -88,12 +88,6 @@ tui = [
   "textual>=0.58",
 ]
 
-# Optional copilot discovery helpers for Parquet / Avro metadata inspection
-copilot = [
-  "pyarrow>=14",
-  "fastavro>=1.9",
-]
-
 # Docs toolchain (optional; if you’ll publish docs)
 docs = [
   "mkdocs>=1.6",
@@ -114,7 +108,7 @@ dev = [
 
 # One-shot install for contributors
 all = [
-  "fluid-forge[local,gcp,snowflake,viz,opds,tui,copilot,docs,dev]"
+  "fluid-forge[local,gcp,snowflake,viz,opds,tui,docs,dev]"
 ]
 
 [project.scripts]
