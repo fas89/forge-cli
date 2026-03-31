@@ -70,6 +70,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Contract schema v0.5.7
 - Basic Airflow DAG export
 
-[Unreleased]: https://github.com/agentics-rising/fluid-forge-cli/compare/v0.7.1...HEAD
-[0.7.1]: https://github.com/agentics-rising/fluid-forge-cli/compare/v0.5.7...v0.7.1
-[0.5.7]: https://github.com/agentics-rising/fluid-forge-cli/releases/tag/v0.5.7
+[Unreleased]: https://github.com/Agentics-Rising/forge-cli/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/Agentics-Rising/forge-cli/compare/v0.5.7...v0.7.1
+[0.5.7]: https://github.com/Agentics-Rising/forge-cli/releases/tag/v0.5.7

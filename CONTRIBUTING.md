@@ -10,7 +10,7 @@ By participating in this project you agree to abide by the [Code of Conduct](COD
 
 ### Reporting Bugs
 
-1. Search [existing issues](https://github.com/agentics-rising/fluid-forge-cli/issues) to avoid duplicates.
+1. Search [existing issues](https://github.com/Agentics-Rising/forge-cli/issues) to avoid duplicates.
 2. Open a new issue using the **Bug Report** template.
 3. Include:
    - FLUID Forge version (`fluid version`)
@@ -92,8 +92,8 @@ If you're building a new provider:
 
 ```bash
 # Clone
-git clone https://github.com/agentics-rising/fluid-forge-cli.git
-cd fluid-forge-cli
+git clone https://github.com/Agentics-Rising/forge-cli.git
+cd forge-cli
 
 # Create virtualenv (recommended)
 python3 -m venv .venv && source .venv/bin/activate
@@ -114,8 +114,8 @@ By submitting a pull request, you agree that your contributions are licensed und
 
 ## Getting Help
 
-- **Discussions:** [GitHub Discussions](https://github.com/agentics-rising/fluid-forge-cli/discussions)
-- **Bugs:** [Issue Tracker](https://github.com/agentics-rising/fluid-forge-cli/issues)
+- **Discussions:** [GitHub Discussions](https://github.com/Agentics-Rising/forge-cli/discussions)
+- **Bugs:** [Issue Tracker](https://github.com/Agentics-Rising/forge-cli/issues)
 - **Docs:** [fluidhq.io/docs](https://fluidhq.io/docs)
 
 Thank you for helping make FLUID Forge better!

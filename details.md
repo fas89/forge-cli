@@ -12,7 +12,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/fluid-forge.svg)](https://pypi.org/project/fluid-forge/)
 
-[Documentation](https://fluidhq.io/docs) · [Quickstart](#-60-seconds-to-magic) · [Community](https://github.com/agentics-rising/fluid-forge-cli/discussions) · [Enterprise](https://fluidhq.io)
+[Documentation](https://fluidhq.io/docs) · [Quickstart](#-60-seconds-to-magic) · [Community](https://github.com/Agentics-Rising/forge-cli/discussions) · [Enterprise](https://fluidhq.io)
 
 </div>
 
@@ -45,8 +45,8 @@ That's it. You just deployed a **versioned, governed, and orchestrated Data Prod
 
 **From source:**
 ```bash
-git clone https://github.com/agentics-rising/fluid-forge-cli.git
-cd fluid-forge-cli
+git clone https://github.com/Agentics-Rising/forge-cli.git
+cd forge-cli
 pip install -e ".[local]"
 fluid validate examples/01-hello-world/contract.fluid.yaml
 ```
@@ -174,8 +174,8 @@ pip install "fluid-forge[all]"         # Everything
 ### From Source (Contributors)
 
 ```bash
-git clone https://github.com/agentics-rising/fluid-forge-cli.git
-cd fluid-forge-cli
+git clone https://github.com/Agentics-Rising/forge-cli.git
+cd forge-cli
 pip install -e ".[local]"    # Quick — just the CLI + DuckDB
 # or
 make setup                   # Full dev environment: venv, all extras, tests, doctor
@@ -300,7 +300,7 @@ make demo           # Run validate → plan → apply on example
 ### Project Structure
 
 ```
-fluid-forge-cli/
+forge-cli/
 ├── fluid_build/              # Python package (the CLI)
 │   ├── cli/                  # Command implementations
 │   ├── providers/            # Provider plugins (local, gcp, aws, snowflake, ...)
@@ -345,6 +345,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for style guides and architecture overvie
 
 **Built for the future of data. Built for the Agentic Era.**
 
-[fluidhq.io](https://fluidhq.io) · [Documentation](https://fluidhq.io/docs) · [PyPI](https://pypi.org/project/fluid-forge/) · [Issues](https://github.com/agentics-rising/fluid-forge-cli/issues)
+[fluidhq.io](https://fluidhq.io) · [Documentation](https://fluidhq.io/docs) · [PyPI](https://pypi.org/project/fluid-forge/) · [Issues](https://github.com/Agentics-Rising/forge-cli/issues)
 
 </div>
