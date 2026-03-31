@@ -186,7 +186,9 @@ def run(args, logger: logging.Logger) -> int:
             raise CLIError(1, "contract_load_failed", {"error": str(e)})
 
         # Determine target schema version
-        target_version, auto_selected = _determine_target_version(contract, args, schema_manager, logger)
+        target_version, auto_selected = _determine_target_version(
+            contract, args, schema_manager, logger
+        )
 
         # Validate version constraints
         _validate_version_constraints(target_version, args, logger)
@@ -325,7 +327,10 @@ def _determine_target_version(
         return detected, False
 
     default_version = _find_latest_compatible_version(args, schema_manager)
-    warn(logger, f"No fluidVersion detected, defaulting to latest compatible version: {default_version}")
+    warn(
+        logger,
+        f"No fluidVersion detected, defaulting to latest compatible version: {default_version}",
+    )
     return default_version, True
 
 
