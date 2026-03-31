@@ -49,7 +49,11 @@ class TestForgeDialogs:
     def test_normalize_prompt_choices_preserves_aliases(self):
         choices = normalize_prompt_choices(
             [
-                {"label": "Fraud Detection", "value": "fraud_detection", "aliases": ["fraud", "fraud analytics"]}
+                {
+                    "label": "Fraud Detection",
+                    "value": "fraud_detection",
+                    "aliases": ["fraud", "fraud analytics"],
+                }
             ]
         )
 
@@ -60,7 +64,9 @@ class TestForgeDialogs:
             field_name="product_type",
             raw_input="fraud analytics",
             choices=[
-                build_choice("Fraud Detection", "fraud_detection", aliases=["fraud", "fraud analytics"]),
+                build_choice(
+                    "Fraud Detection", "fraud_detection", aliases=["fraud", "fraud analytics"]
+                ),
                 build_choice("Trading Platform", "trading_platform"),
             ],
             allow_skip=True,

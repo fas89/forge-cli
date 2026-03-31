@@ -52,27 +52,17 @@ except ImportError:
 
 from ..blueprints import registry as blueprint_registry
 from ._common import CLIError
-from .forge_copilot_memory import (
-    CopilotMemoryStore,
-    build_copilot_project_memory,
-    resolve_copilot_memory_root,
-    summarize_copilot_memory,
-)
-from .forge_dialogs import ask_confirmation, ask_dialog_question, print_dialog_status
 from .forge_copilot_interview import (
     InterviewQuestion,
     build_interview_summary_from_context,
     run_adaptive_copilot_interview,
     run_post_generation_clarification,
 )
-from .forge_copilot_taxonomy import (
-    USE_CASE_CHOICES,
-    USE_CASE_LABELS,
-    canonicalize_use_case_text as _canonicalize_use_case_text,
-    clean_text as _clean_text,
-    format_use_case_label,
-    normalize_copilot_context,
-    normalize_use_case,
+from .forge_copilot_memory import (
+    CopilotMemoryStore,
+    build_copilot_project_memory,
+    resolve_copilot_memory_root,
+    summarize_copilot_memory,
 )
 from .forge_copilot_runtime import (
     CopilotGenerationError,
@@ -84,6 +74,20 @@ from .forge_copilot_runtime import (
     normalize_template_name,
     resolve_llm_config,
 )
+from .forge_copilot_taxonomy import (
+    USE_CASE_CHOICES,
+    USE_CASE_LABELS,
+    format_use_case_label,
+    normalize_copilot_context,
+    normalize_use_case,
+)
+from .forge_copilot_taxonomy import (
+    canonicalize_use_case_text as _canonicalize_use_case_text,
+)
+from .forge_copilot_taxonomy import (
+    clean_text as _clean_text,
+)
+from .forge_dialogs import ask_confirmation, ask_dialog_question, print_dialog_status
 
 COMMAND = "forge"
 LOG = logging.getLogger("fluid.cli.forge")
@@ -102,7 +106,10 @@ def _infer_template_from_text(text: str) -> Optional[str]:
         or re.search(r"\bml\b", normalized_text)
     ):
         return "ml_pipeline"
-    if any(token in normalized_text for token in ("streaming", "real time", "realtime", "kafka", "event")):
+    if any(
+        token in normalized_text
+        for token in ("streaming", "real time", "realtime", "kafka", "event")
+    ):
         return "streaming"
     if any(
         token in normalized_text
@@ -368,9 +375,7 @@ class CopilotAgent(AIAgent):
             logger=LOG,
         )
         project_memory = (
-            getattr(options, "project_memory", None)
-            if hasattr(options, "project_memory")
-            else None
+            getattr(options, "project_memory", None) if hasattr(options, "project_memory") else None
         )
         if project_memory is None:
             project_memory = self._load_project_memory(
@@ -424,7 +429,9 @@ class CopilotAgent(AIAgent):
                 if recovered_result is None:
                     raise
                 context = normalize_copilot_context(
-                    options.get("interview_state").normalized_context if options.get("interview_state") else context
+                    options.get("interview_state").normalized_context
+                    if options.get("interview_state")
+                    else context
                 )
                 generation_result = recovered_result
             suggestions = generation_result.suggestions
@@ -591,7 +598,9 @@ class CopilotAgent(AIAgent):
         """Build short human-facing status lines for current memory state."""
         relative_path = self._relative_memory_path()
         if not self._project_memory_enabled:
-            return [f"Project memory is disabled for this run (`--no-memory`). Path: `{relative_path}`"]
+            return [
+                f"Project memory is disabled for this run (`--no-memory`). Path: `{relative_path}`"
+            ]
         if not self._project_memory_snapshot:
             return [
                 "No project-scoped copilot memory was found yet.",
@@ -604,9 +613,21 @@ class CopilotAgent(AIAgent):
             [
                 part
                 for part in (
-                    f"template={summary.get('preferred_template')}" if summary.get("preferred_template") else "",
-                    f"provider={summary.get('preferred_provider')}" if summary.get("preferred_provider") else "",
-                    f"domain={summary.get('preferred_domain')}" if summary.get("preferred_domain") else "",
+                    (
+                        f"template={summary.get('preferred_template')}"
+                        if summary.get("preferred_template")
+                        else ""
+                    ),
+                    (
+                        f"provider={summary.get('preferred_provider')}"
+                        if summary.get("preferred_provider")
+                        else ""
+                    ),
+                    (
+                        f"domain={summary.get('preferred_domain')}"
+                        if summary.get("preferred_domain")
+                        else ""
+                    ),
                 )
                 if part
             ]
@@ -638,10 +659,26 @@ class CopilotAgent(AIAgent):
             [
                 part
                 for part in (
-                    f"template={summary.get('preferred_template')}" if summary.get("preferred_template") else "",
-                    f"provider={summary.get('preferred_provider')}" if summary.get("preferred_provider") else "",
-                    f"domain={summary.get('preferred_domain')}" if summary.get("preferred_domain") else "",
-                    f"owner={summary.get('preferred_owner')}" if summary.get("preferred_owner") else "",
+                    (
+                        f"template={summary.get('preferred_template')}"
+                        if summary.get("preferred_template")
+                        else ""
+                    ),
+                    (
+                        f"provider={summary.get('preferred_provider')}"
+                        if summary.get("preferred_provider")
+                        else ""
+                    ),
+                    (
+                        f"domain={summary.get('preferred_domain')}"
+                        if summary.get("preferred_domain")
+                        else ""
+                    ),
+                    (
+                        f"owner={summary.get('preferred_owner')}"
+                        if summary.get("preferred_owner")
+                        else ""
+                    ),
                 )
                 if part
             ]
@@ -688,7 +725,9 @@ class CopilotAgent(AIAgent):
 
         should_save = self._should_save_project_memory(options, candidate_memory)
         if not should_save:
-            if getattr(options, "non_interactive", False) and not getattr(options, "save_memory", False):
+            if getattr(options, "non_interactive", False) and not getattr(
+                options, "save_memory", False
+            ):
                 note = "Project memory was not saved. Re-run with `--save-memory` to remember these conventions."
                 if self.console:
                     self.console.print(f"[dim]{note}[/dim]")
@@ -745,7 +784,9 @@ class CopilotAgent(AIAgent):
 
         return sanitize_project_name(goal, strict=False)
 
-    def _create_with_forge_engine(self, project_config: Dict[str, Any], dry_run: bool = False) -> bool:
+    def _create_with_forge_engine(
+        self, project_config: Dict[str, Any], dry_run: bool = False
+    ) -> bool:
         """Use ForgeEngine to create and validate project"""
         try:
             from ..forge import ForgeEngine
@@ -906,7 +947,9 @@ class CopilotAgent(AIAgent):
         if not self._project_memory_enabled:
             return ["Disabled for this run with `--no-memory`."]
         if not self._project_memory_snapshot:
-            return ["No saved project memory was available, so only current context and discovery were used."]
+            return [
+                "No saved project memory was available, so only current context and discovery were used."
+            ]
         summary = summarize_copilot_memory(self._project_memory_snapshot)
         lines.append(
             "Loaded saved conventions"
@@ -927,8 +970,13 @@ class CopilotAgent(AIAgent):
         lines.append(
             f"Provider seed: `{decision.provider}` from {self._friendly_source_name(decision.provider_source)}."
         )
-        if decision.template_source != "project_memory" or decision.provider_source != "project_memory":
-            lines.append("Saved memory was treated as a soft preference and did not override stronger current signals.")
+        if (
+            decision.template_source != "project_memory"
+            or decision.provider_source != "project_memory"
+        ):
+            lines.append(
+                "Saved memory was treated as a soft preference and did not override stronger current signals."
+            )
         return lines
 
     def _friendly_source_name(self, source: Optional[str]) -> str:
@@ -976,7 +1024,9 @@ class CopilotAgent(AIAgent):
     ) -> str:
         """Generate intelligent contract based on AI analysis"""
         goal = context.get("project_goal", "Data Product")
-        use_case = format_use_case_label(context.get("use_case", "analytics"), context.get("use_case_other"))
+        use_case = format_use_case_label(
+            context.get("use_case", "analytics"), context.get("use_case_other")
+        )
         provider = suggestions["recommended_provider"]
 
         # Basic contract structure
@@ -1450,12 +1500,9 @@ def handle_memory_management(args, logger: logging.Logger) -> int:
             f"Preferred provider: {summary.get('preferred_provider') or 'unknown'}",
             f"Preferred domain: {summary.get('preferred_domain') or 'unknown'}",
             f"Preferred owner: {summary.get('preferred_owner') or 'unknown'}",
-            "Build engines: "
-            + (", ".join(summary.get("build_engines") or []) or "none"),
-            "Binding formats: "
-            + (", ".join(summary.get("binding_formats") or []) or "none"),
-            "Provider hints: "
-            + (", ".join(summary.get("provider_hints") or []) or "none"),
+            "Build engines: " + (", ".join(summary.get("build_engines") or []) or "none"),
+            "Binding formats: " + (", ".join(summary.get("binding_formats") or []) or "none"),
+            "Provider hints: " + (", ".join(summary.get("provider_hints") or []) or "none"),
             f"Schema summaries: {summary.get('schema_summary_count', 0)}",
             f"Recent successful outcomes: {summary.get('recent_outcome_count', 0)}",
         ]
@@ -1466,9 +1513,7 @@ def handle_memory_management(args, logger: logging.Logger) -> int:
                     f"{key}={value}" for key, value in sorted(summary["source_formats"].items())
                 )
             )
-        console.print(
-            Panel("\n".join(details), title="🧠 Project Memory", border_style="cyan")
-        )
+        console.print(Panel("\n".join(details), title="🧠 Project Memory", border_style="cyan"))
         return 0
 
     if not memory:
@@ -1480,10 +1525,7 @@ def handle_memory_management(args, logger: logging.Logger) -> int:
     cprint(f"  provider={summary.get('preferred_provider') or 'unknown'}")
     cprint(f"  domain={summary.get('preferred_domain') or 'unknown'}")
     cprint(f"  owner={summary.get('preferred_owner') or 'unknown'}")
-    cprint(
-        "  build_engines="
-        + (", ".join(summary.get("build_engines") or []) or "none")
-    )
+    cprint("  build_engines=" + (", ".join(summary.get("build_engines") or []) or "none"))
     cprint(f"  schema_summaries={summary.get('schema_summary_count', 0)}")
     cprint(f"  recent_outcomes={summary.get('recent_outcome_count', 0)}")
     return 0
@@ -1728,7 +1770,9 @@ def run_domain_agent_mode(args, logger: logging.Logger) -> int:
                 if is_valid:
                     context.update(loaded_context)
                     if console:
-                        print_dialog_status(console, status="success", message="Loaded extra context.")
+                        print_dialog_status(
+                            console, status="success", message="Loaded extra context."
+                        )
                 else:
                     if console:
                         print_dialog_status(

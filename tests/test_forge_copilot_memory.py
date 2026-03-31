@@ -297,7 +297,9 @@ class TestCopilotMemoryRuntimeIntegration:
 
         assert result.contract["id"] == "generated.test"
         assert captured["user_prompt"]["project_memory"]["preferred_provider"] == "local"
-        assert captured["user_prompt"]["project_memory"]["schema_summaries"][0]["format"] == "parquet"
+        assert (
+            captured["user_prompt"]["project_memory"]["schema_summaries"][0]["format"] == "parquet"
+        )
 
     def test_suggest_scaffold_uses_project_memory_after_current_context(self):
         memory = CopilotProjectMemory(

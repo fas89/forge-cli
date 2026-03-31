@@ -111,7 +111,13 @@ def normalize_use_case(value: Any) -> Optional[str]:
         return "streaming"
     if "data platform" in text or "data lake" in text or "lakehouse" in text:
         return "data_platform"
-    if "etl" in text or "data pipeline" in text or "pipeline" in text or "cdc" in text or "sync" in text:
+    if (
+        "etl" in text
+        or "data pipeline" in text
+        or "pipeline" in text
+        or "cdc" in text
+        or "sync" in text
+    ):
         return "etl_pipeline"
     if (
         "analytics" in text

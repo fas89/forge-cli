@@ -25,15 +25,17 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence
 import yaml
 
 from fluid_build.cli._common import redact_secrets, resolve_provider_from_contract
-from fluid_build.cli.forge_copilot_memory import CopilotMemorySnapshot
-from fluid_build.cli.forge_copilot_taxonomy import format_use_case_label, normalize_use_case
-from fluid_build.schema_manager import FluidSchemaManager
-from fluid_build.util.contract import get_builds
+
+# Re-export: Discovery  -----------------------------------------------------
+from fluid_build.cli.forge_copilot_discovery import (  # noqa: F401  – re-exports
+    DiscoveryReport,
+    discover_local_context,
+)
 
 # Re-export: LLM providers  ------------------------------------------------
 from fluid_build.cli.forge_copilot_llm_providers import (  # noqa: F401  – re-exports
-    AnthropicProvider,
     BUILTIN_LLM_PROVIDERS,
+    AnthropicProvider,
     CopilotGenerationError,
     GeminiProvider,
     LlmConfig,
@@ -44,17 +46,15 @@ from fluid_build.cli.forge_copilot_llm_providers import (  # noqa: F401  – re-
     get_llm_provider,
     resolve_llm_config,
 )
-
-# Re-export: Discovery  -----------------------------------------------------
-from fluid_build.cli.forge_copilot_discovery import (  # noqa: F401  – re-exports
-    DiscoveryReport,
-    discover_local_context,
-)
+from fluid_build.cli.forge_copilot_memory import CopilotMemorySnapshot
 
 # Schema inference (only import what this module actually uses)
 from fluid_build.cli.forge_copilot_schema_inference import (
     map_inferred_type_to_contract_type as _map_inferred_type_to_contract_type,
 )
+from fluid_build.cli.forge_copilot_taxonomy import format_use_case_label, normalize_use_case
+from fluid_build.schema_manager import FluidSchemaManager
+from fluid_build.util.contract import get_builds
 
 LOG = logging.getLogger("fluid.cli.forge_copilot")
 
@@ -285,7 +285,9 @@ def generate_copilot_artifacts(
     attempt_summaries = []
     for report in attempts:
         if report.parse_error:
-            attempt_summaries.append(f"Attempt {report.attempt}: parse error - {report.parse_error}")
+            attempt_summaries.append(
+                f"Attempt {report.attempt}: parse error - {report.parse_error}"
+            )
         elif report.validation_errors:
             joined = "; ".join(report.validation_errors[:4])
             attempt_summaries.append(f"Attempt {report.attempt}: validation failed - {joined}")
@@ -342,7 +344,9 @@ def _build_scaffold_decision(
     if explicit_provider in available_providers:
         provider = explicit_provider
         provider_source = "explicit_context"
-        provider_reason = f"Using explicit provider hint '{explicit_provider}' from the current run."
+        provider_reason = (
+            f"Using explicit provider hint '{explicit_provider}' from the current run."
+        )
     elif discovery_report.provider_hints:
         provider = ""
         provider_source = ""
@@ -363,11 +367,15 @@ def _build_scaffold_decision(
     elif any(token in text for token in ("aws", "s3", "redshift", "athena", "glue")):
         provider = "aws"
         provider_source = "heuristic_context"
-        provider_reason = "Using the current run context because it references AWS-oriented sources."
+        provider_reason = (
+            "Using the current run context because it references AWS-oriented sources."
+        )
     elif any(token in text for token in ("gcp", "bigquery", "dataform", "composer")):
         provider = "gcp"
         provider_source = "heuristic_context"
-        provider_reason = "Using the current run context because it references GCP-oriented sources."
+        provider_reason = (
+            "Using the current run context because it references GCP-oriented sources."
+        )
     else:
         provider = ""
         provider_source = ""
@@ -377,18 +385,14 @@ def _build_scaffold_decision(
         if preferred_provider in available_providers:
             provider = preferred_provider
             provider_source = "project_memory"
-            provider_reason = (
-                f"Reusing saved project memory provider '{preferred_provider}' because the current run was ambiguous."
-            )
+            provider_reason = f"Reusing saved project memory provider '{preferred_provider}' because the current run was ambiguous."
         else:
             for memory_hint in project_memory.provider_hints:
                 candidate = normalize_provider_name(memory_hint)
                 if candidate in available_providers:
                     provider = candidate
                     provider_source = "project_memory"
-                    provider_reason = (
-                        f"Using saved project memory provider hint '{candidate}' because no stronger current signal was available."
-                    )
+                    provider_reason = f"Using saved project memory provider hint '{candidate}' because no stronger current signal was available."
                     break
     if not provider:
         provider = "local" if "local" in available_providers else sorted(available_providers)[0]
@@ -404,11 +408,15 @@ def _build_scaffold_decision(
     elif any(token in text for token in ("ml", "machine learning", "feature store", "model")):
         template = "ml_pipeline"
         template_source = "heuristic_context"
-        template_reason = "Using the current run context because it looks like a machine-learning pipeline."
+        template_reason = (
+            "Using the current run context because it looks like a machine-learning pipeline."
+        )
     elif any(token in text for token in ("stream", "kafka", "real-time", "realtime")):
         template = "streaming"
         template_source = "heuristic_context"
-        template_reason = "Using the current run context because it looks like a streaming workload."
+        template_reason = (
+            "Using the current run context because it looks like a streaming workload."
+        )
     elif any(
         token in text
         for token in (
@@ -425,17 +433,19 @@ def _build_scaffold_decision(
     ):
         template = "etl_pipeline"
         template_source = "heuristic_context"
-        template_reason = "Using the current run context because it looks like an ingestion or ETL workload."
+        template_reason = (
+            "Using the current run context because it looks like an ingestion or ETL workload."
+        )
     elif any(token in text for token in ("analytics", "report", "dashboard", "bi", "metric")):
         template = "analytics"
         template_source = "heuristic_context"
-        template_reason = "Using the current run context because it looks like an analytics project."
+        template_reason = (
+            "Using the current run context because it looks like an analytics project."
+        )
     elif project_memory and normalize_template_name(project_memory.preferred_template) in templates:
         template = normalize_template_name(project_memory.preferred_template)
         template_source = "project_memory"
-        template_reason = (
-            f"Reusing saved project memory template '{template}' because the current run was ambiguous."
-        )
+        template_reason = f"Reusing saved project memory template '{template}' because the current run was ambiguous."
     else:
         template = "starter"
         template_source = "default"
@@ -521,7 +531,9 @@ def _normalize_interview_summary(context: Mapping[str, Any]) -> Dict[str, Any]:
         "time_granularity": semantic_intent.get("time_granularity")
         or context.get("time_granularity"),
     }
-    normalized["use_case"] = normalize_use_case(normalized.get("use_case")) or normalized.get("use_case")
+    normalized["use_case"] = normalize_use_case(normalized.get("use_case")) or normalized.get(
+        "use_case"
+    )
     normalized["use_case_label"] = normalized.get("use_case_label") or format_use_case_label(
         normalized.get("use_case"), normalized.get("use_case_other")
     )
@@ -810,11 +822,7 @@ def build_clarification_system_prompt(capability_matrix: Mapping[str, Any]) -> s
         "Treat transcript.raw_input as primary evidence of user intent and transcript.resolved_value as a helpful local guess.\n"
         "If local matching is uncertain, prefer inferring from the raw wording over asking a rigid repeat question.\n"
         "Canonical use_case values: analytics, etl_pipeline, streaming, ml_pipeline, data_platform, other.\n"
-        "Allowed providers: "
-        + providers
-        + ". Known templates: "
-        + templates
-        + ".\n"
+        "Allowed providers: " + providers + ". Known templates: " + templates + ".\n"
         "Return a JSON object with keys: status, reason, context_patch, assumptions, questions.\n"
         "status must be either 'ask' or 'ready'.\n"
         "questions must be an array of objects with: id, field, prompt, type, choices, required, allow_skip.\n"
@@ -940,7 +948,8 @@ def classify_generation_failure(attempts: Sequence[GenerationAttemptReport]) -> 
     combined_errors = " ".join(
         error.lower()
         for attempt in attempts
-        for error in ([attempt.parse_error] if attempt.parse_error else []) + attempt.validation_errors
+        for error in ([attempt.parse_error] if attempt.parse_error else [])
+        + attempt.validation_errors
     )
     if not combined_errors:
         return "unknown"
@@ -986,7 +995,9 @@ def normalize_generation_payload(
         or resolve_provider_from_contract(contract)[0]
         or seed_provider
     )
-    recommended_template = normalize_template_name(payload.get("recommended_template") or seed_template)
+    recommended_template = normalize_template_name(
+        payload.get("recommended_template") or seed_template
+    )
     additional_files = sanitize_additional_files(payload.get("additional_files"))
 
     suggestions = {
@@ -1041,7 +1052,9 @@ def validate_generated_result(
 
     recommended_provider = suggestions.get("recommended_provider")
     if recommended_provider not in providers:
-        errors.append(f"Unsupported provider '{recommended_provider}'. Use one of {sorted(providers)}")
+        errors.append(
+            f"Unsupported provider '{recommended_provider}'. Use one of {sorted(providers)}"
+        )
 
     recommended_template = suggestions.get("recommended_template")
     if recommended_template not in templates:
@@ -1062,7 +1075,9 @@ def validate_generated_result(
         errors.append("Contract must include a build or builds section.")
     for index, build in enumerate(builds):
         build_id = build.get("id") or f"build_{index}"
-        engine = str(build.get("engine") or build.get("transformation", {}).get("engine") or "").strip()
+        engine = str(
+            build.get("engine") or build.get("transformation", {}).get("engine") or ""
+        ).strip()
         if not engine:
             errors.append(f"Build '{build_id}' is missing an engine.")
             continue
@@ -1086,7 +1101,9 @@ def validate_generated_result(
             properties = build.get("properties") or {}
             sql_text = properties.get("sql") or properties.get("sql_statements") or build.get("sql")
             if not sql_text:
-                errors.append(f"SQL build '{build_id}' must include SQL in build.properties.sql or sql_statements.")
+                errors.append(
+                    f"SQL build '{build_id}' must include SQL in build.properties.sql or sql_statements."
+                )
 
     exposes = contract.get("exposes") or []
     if not exposes:
@@ -1096,11 +1113,15 @@ def validate_generated_result(
             errors.append("Each expose must include exposeId.")
         binding = expose.get("binding") or {}
         if not binding.get("platform"):
-            errors.append(f"Expose '{expose.get('exposeId', 'unknown')}' is missing binding.platform.")
+            errors.append(
+                f"Expose '{expose.get('exposeId', 'unknown')}' is missing binding.platform."
+            )
         contract_section = expose.get("contract") or {}
         schema = contract_section.get("schema")
         if not schema:
-            warnings.append(f"Expose '{expose.get('exposeId', 'unknown')}' does not define contract.schema.")
+            warnings.append(
+                f"Expose '{expose.get('exposeId', 'unknown')}' does not define contract.schema."
+            )
         semantics = expose.get("semantics")
         if not semantics:
             errors.append(f"Expose '{expose.get('exposeId', 'unknown')}' is missing semantics.")

@@ -47,13 +47,21 @@ def _binding(provider: str, expose_name: str) -> dict:
         return {
             "platform": "gcp",
             "format": "bigquery_table",
-            "location": {"project": "${FLUID_GCP_PROJECT}", "dataset": "analytics", "table": expose_name},
+            "location": {
+                "project": "${FLUID_GCP_PROJECT}",
+                "dataset": "analytics",
+                "table": expose_name,
+            },
         }
     if provider == "snowflake":
         return {
             "platform": "snowflake",
             "format": "table",
-            "location": {"database": "${SNOWFLAKE_DATABASE}", "schema": "ANALYTICS", "table": expose_name.upper()},
+            "location": {
+                "database": "${SNOWFLAKE_DATABASE}",
+                "schema": "ANALYTICS",
+                "table": expose_name.upper(),
+            },
         }
     return {
         "platform": "local",
@@ -74,7 +82,12 @@ def _minimal_contract(
     schema_columns = [
         {
             "name": name,
-            "type": {"integer": "integer", "number": "number", "date": "date", "datetime": "timestamp"}.get(column_type, "string"),
+            "type": {
+                "integer": "integer",
+                "number": "number",
+                "date": "date",
+                "datetime": "timestamp",
+            }.get(column_type, "string"),
             "required": False,
         }
         for name, column_type in (columns or {"id": "integer", "email": "string"}).items()
@@ -182,7 +195,9 @@ def _mock_llm_config() -> LlmConfig:
 
 def _write_common_workspace(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
-    (path / "README.md").write_text("# Fake project\n\nUsed for copilot scenarios.\n", encoding="utf-8")
+    (path / "README.md").write_text(
+        "# Fake project\n\nUsed for copilot scenarios.\n", encoding="utf-8"
+    )
     (path / "sql").mkdir(exist_ok=True)
     (path / "sql" / "orders.sql").write_text(
         "select * from raw.orders join raw.customers using (customer_id)\n",
@@ -190,7 +205,9 @@ def _write_common_workspace(path: Path) -> None:
     )
 
 
-def _write_sample_workspace(path: Path, sample_format: str) -> tuple[dict[str, str], dict[str, object]]:
+def _write_sample_workspace(
+    path: Path, sample_format: str
+) -> tuple[dict[str, str], dict[str, object]]:
     _write_common_workspace(path)
     samples_dir = path / "samples"
     samples_dir.mkdir(exist_ok=True)
@@ -221,7 +238,11 @@ def _write_sample_workspace(path: Path, sample_format: str) -> tuple[dict[str, s
             {
                 "patch_target": "fluid_build.cli.forge_copilot_schema_inference.read_parquet_metadata",
                 "patch_value": {
-                    "columns": {"customer_id": "integer", "created_at": "datetime", "country": "string"},
+                    "columns": {
+                        "customer_id": "integer",
+                        "created_at": "datetime",
+                        "country": "string",
+                    },
                     "row_count": 12,
                     "schema_source": "pyarrow",
                 },
@@ -235,7 +256,11 @@ def _write_sample_workspace(path: Path, sample_format: str) -> tuple[dict[str, s
             {
                 "patch_target": "fluid_build.cli.forge_copilot_schema_inference.read_avro_metadata",
                 "patch_value": {
-                    "columns": {"customer_id": "integer", "created_at": "datetime", "country": "string"},
+                    "columns": {
+                        "customer_id": "integer",
+                        "created_at": "datetime",
+                        "country": "string",
+                    },
                     "schema_source": "fastavro",
                 },
             },
@@ -258,7 +283,9 @@ def _write_gcp_workspace(path: Path) -> None:
 
 
 @pytest.mark.parametrize("sample_format", ["csv", "json", "parquet", "avro"])
-def test_copilot_scenario_mock_samples_save_metadata_only_memory(tmp_path: Path, monkeypatch, sample_format: str):
+def test_copilot_scenario_mock_samples_save_metadata_only_memory(
+    tmp_path: Path, monkeypatch, sample_format: str
+):
     workspace = tmp_path / f"workspace-{sample_format}"
     expected_columns, patch_config = _write_sample_workspace(workspace, sample_format)
     monkeypatch.chdir(workspace)
@@ -269,10 +296,19 @@ def test_copilot_scenario_mock_samples_save_metadata_only_memory(tmp_path: Path,
     agent._show_ai_analysis = lambda *args, **kwargs: None
 
     with ExitStack() as stack:
-        stack.enter_context(patch("fluid_build.cli.forge.resolve_llm_config", return_value=_mock_llm_config()))
-        stack.enter_context(patch("fluid_build.cli.forge.build_capability_matrix", return_value=_capability_matrix()))
         stack.enter_context(
-            patch("fluid_build.cli.forge_copilot_runtime.validate_generated_result", return_value=([], []))
+            patch("fluid_build.cli.forge.resolve_llm_config", return_value=_mock_llm_config())
+        )
+        stack.enter_context(
+            patch(
+                "fluid_build.cli.forge.build_capability_matrix", return_value=_capability_matrix()
+            )
+        )
+        stack.enter_context(
+            patch(
+                "fluid_build.cli.forge_copilot_runtime.validate_generated_result",
+                return_value=([], []),
+            )
         )
         stack.enter_context(
             patch(
@@ -287,7 +323,9 @@ def test_copilot_scenario_mock_samples_save_metadata_only_memory(tmp_path: Path,
             )
         )
         if patch_config:
-            stack.enter_context(patch(patch_config["patch_target"], return_value=patch_config["patch_value"]))
+            stack.enter_context(
+                patch(patch_config["patch_target"], return_value=patch_config["patch_value"])
+            )
         success = agent.create_project(
             workspace,
             {
@@ -347,9 +385,16 @@ def test_copilot_scenario_reuses_saved_memory_for_ambiguous_followup(tmp_path: P
         return json.dumps(_payload(provider="local", template="analytics"))
 
     with patch("fluid_build.cli.forge.resolve_llm_config", return_value=_mock_llm_config()):
-        with patch("fluid_build.cli.forge.build_capability_matrix", return_value=_capability_matrix()):
-            with patch("fluid_build.cli.forge_copilot_runtime.validate_generated_result", return_value=([], [])):
-                with patch("fluid_build.cli.forge_copilot_runtime.call_llm", side_effect=_capture_llm):
+        with patch(
+            "fluid_build.cli.forge.build_capability_matrix", return_value=_capability_matrix()
+        ):
+            with patch(
+                "fluid_build.cli.forge_copilot_runtime.validate_generated_result",
+                return_value=([], []),
+            ):
+                with patch(
+                    "fluid_build.cli.forge_copilot_runtime.call_llm", side_effect=_capture_llm
+                ):
                     result = agent.generate_project_artifacts(
                         {
                             "project_goal": "Orders product",
@@ -393,9 +438,16 @@ def test_copilot_scenario_no_memory_bypasses_saved_memory(tmp_path: Path, monkey
         return json.dumps(_payload(provider="local", template="starter"))
 
     with patch("fluid_build.cli.forge.resolve_llm_config", return_value=_mock_llm_config()):
-        with patch("fluid_build.cli.forge.build_capability_matrix", return_value=_capability_matrix()):
-            with patch("fluid_build.cli.forge_copilot_runtime.validate_generated_result", return_value=([], [])):
-                with patch("fluid_build.cli.forge_copilot_runtime.call_llm", side_effect=_capture_llm):
+        with patch(
+            "fluid_build.cli.forge.build_capability_matrix", return_value=_capability_matrix()
+        ):
+            with patch(
+                "fluid_build.cli.forge_copilot_runtime.validate_generated_result",
+                return_value=([], []),
+            ):
+                with patch(
+                    "fluid_build.cli.forge_copilot_runtime.call_llm", side_effect=_capture_llm
+                ):
                     result = agent.generate_project_artifacts(
                         {
                             "project_goal": "Orders product",
@@ -434,11 +486,18 @@ def test_copilot_scenario_current_discovery_beats_saved_memory(tmp_path: Path, m
     agent = _make_agent()
 
     with patch("fluid_build.cli.forge.resolve_llm_config", return_value=_mock_llm_config()):
-        with patch("fluid_build.cli.forge.build_capability_matrix", return_value=_capability_matrix()):
-            with patch("fluid_build.cli.forge_copilot_runtime.validate_generated_result", return_value=([], [])):
+        with patch(
+            "fluid_build.cli.forge.build_capability_matrix", return_value=_capability_matrix()
+        ):
+            with patch(
+                "fluid_build.cli.forge_copilot_runtime.validate_generated_result",
+                return_value=([], []),
+            ):
                 with patch(
                     "fluid_build.cli.forge_copilot_runtime.call_llm",
-                    return_value=json.dumps(_payload(provider="gcp", template="etl_pipeline", domain="operations")),
+                    return_value=json.dumps(
+                        _payload(provider="gcp", template="etl_pipeline", domain="operations")
+                    ),
                 ):
                     result = agent.generate_project_artifacts(
                         {
@@ -478,11 +537,18 @@ def test_copilot_scenario_explicit_input_beats_discovery_and_memory(tmp_path: Pa
     agent = _make_agent()
 
     with patch("fluid_build.cli.forge.resolve_llm_config", return_value=_mock_llm_config()):
-        with patch("fluid_build.cli.forge.build_capability_matrix", return_value=_capability_matrix()):
-            with patch("fluid_build.cli.forge_copilot_runtime.validate_generated_result", return_value=([], [])):
+        with patch(
+            "fluid_build.cli.forge.build_capability_matrix", return_value=_capability_matrix()
+        ):
+            with patch(
+                "fluid_build.cli.forge_copilot_runtime.validate_generated_result",
+                return_value=([], []),
+            ):
                 with patch(
                     "fluid_build.cli.forge_copilot_runtime.call_llm",
-                    return_value=json.dumps(_payload(provider="snowflake", template="ml_pipeline", domain="ml")),
+                    return_value=json.dumps(
+                        _payload(provider="snowflake", template="ml_pipeline", domain="ml")
+                    ),
                 ):
                     result = agent.generate_project_artifacts(
                         {
@@ -519,12 +585,16 @@ def test_copilot_scenario_validation_repair_loop_uses_second_attempt(tmp_path: P
         return json.dumps(good_payload)
 
     with patch("fluid_build.cli.forge.resolve_llm_config", return_value=_mock_llm_config()):
-        with patch("fluid_build.cli.forge.build_capability_matrix", return_value=_capability_matrix()):
+        with patch(
+            "fluid_build.cli.forge.build_capability_matrix", return_value=_capability_matrix()
+        ):
             with patch(
                 "fluid_build.cli.forge_copilot_runtime.validate_generated_result",
                 side_effect=[(["First attempt failed validation"], []), ([], [])],
             ):
-                with patch("fluid_build.cli.forge_copilot_runtime.call_llm", side_effect=_capture_llm):
+                with patch(
+                    "fluid_build.cli.forge_copilot_runtime.call_llm", side_effect=_capture_llm
+                ):
                     result = agent.generate_project_artifacts(
                         {
                             "project_goal": "Orders product",
@@ -541,7 +611,9 @@ def test_copilot_scenario_validation_repair_loop_uses_second_attempt(tmp_path: P
     assert result.suggestions["recommended_template"] == "analytics"
 
 
-def test_copilot_scenario_corrupt_memory_is_ignored_then_show_and_reset_work(tmp_path: Path, monkeypatch):
+def test_copilot_scenario_corrupt_memory_is_ignored_then_show_and_reset_work(
+    tmp_path: Path, monkeypatch
+):
     workspace = tmp_path / "memory-management"
     _write_common_workspace(workspace)
     store = CopilotMemoryStore(workspace)
@@ -555,8 +627,13 @@ def test_copilot_scenario_corrupt_memory_is_ignored_then_show_and_reset_work(tmp
     agent._show_ai_analysis = lambda *args, **kwargs: None
 
     with patch("fluid_build.cli.forge.resolve_llm_config", return_value=_mock_llm_config()):
-        with patch("fluid_build.cli.forge.build_capability_matrix", return_value=_capability_matrix()):
-            with patch("fluid_build.cli.forge_copilot_runtime.validate_generated_result", return_value=([], [])):
+        with patch(
+            "fluid_build.cli.forge.build_capability_matrix", return_value=_capability_matrix()
+        ):
+            with patch(
+                "fluid_build.cli.forge_copilot_runtime.validate_generated_result",
+                return_value=([], []),
+            ):
                 with patch(
                     "fluid_build.cli.forge_copilot_runtime.call_llm",
                     return_value=json.dumps(_payload(provider="local", template="starter")),

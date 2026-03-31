@@ -13,8 +13,8 @@ __all__ = [
 
 import json
 import logging
-from collections.abc import Iterable
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -469,10 +469,7 @@ def _summarize_outcome(
             ]
         )[:MAX_MEMORY_LIST_VALUES],
         "binding_platforms": _dedupe_strings(
-            [
-                (expose.get("binding") or {}).get("platform")
-                for expose in exposes
-            ]
+            [(expose.get("binding") or {}).get("platform") for expose in exposes]
             + [
                 ((build.get("execution") or {}).get("runtime") or {}).get("platform")
                 for build in builds
@@ -569,7 +566,9 @@ def _coerce_recent_outcomes(
             "binding_platforms": _coerce_string_list(item.get("binding_platforms")),
             "binding_formats": _coerce_string_list(item.get("binding_formats")),
             "expose_kinds": _coerce_string_list(item.get("expose_kinds")),
-            "expose_ids": _coerce_string_list(item.get("expose_ids"), limit=MAX_MEMORY_OUTCOME_EXPOSES),
+            "expose_ids": _coerce_string_list(
+                item.get("expose_ids"), limit=MAX_MEMORY_OUTCOME_EXPOSES
+            ),
             "quality_dimensions": _coerce_string_list(item.get("quality_dimensions")),
             "source_formats": _coerce_string_counter(item.get("source_formats")),
         }
@@ -594,7 +593,9 @@ def _coerce_schema_summaries(
             continue
         raw_path = item.get("path")
         path_value = (
-            _sanitize_path(raw_path, project_root) if project_root is not None else _clean_scalar(raw_path)
+            _sanitize_path(raw_path, project_root)
+            if project_root is not None
+            else _clean_scalar(raw_path)
         ) or "unknown"
         summary = {
             "path": path_value,

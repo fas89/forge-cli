@@ -16,16 +16,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field as dc_field
+from dataclasses import dataclass
+from dataclasses import field as dc_field
 from typing import Any, Dict, List, Mapping, Optional
 
-from .forge_dialogs import (
-    DialogQuestionResult as AskedQuestionResult,
-    ask_dialog_question as ask_interview_question,
-    ask_friendly_text,
-    normalize_prompt_choices,
-    resolve_choice_input,
-)
 from .forge_copilot_runtime import (
     DiscoveryReport,
     LlmConfig,
@@ -41,6 +35,17 @@ from .forge_copilot_taxonomy import (
     format_use_case_label,
     normalize_copilot_context,
     normalize_use_case,
+)
+from .forge_dialogs import (
+    DialogQuestionResult as AskedQuestionResult,
+)
+from .forge_dialogs import (
+    ask_dialog_question as ask_interview_question,
+)
+from .forge_dialogs import (
+    ask_friendly_text,
+    normalize_prompt_choices,
+    resolve_choice_input,
 )
 
 INTERVIEW_MAX_ROUNDS = 3
@@ -133,7 +138,9 @@ class InterviewQuestion:
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "InterviewQuestion":
-        field_name = str(payload.get("field") or payload.get("key") or payload.get("id") or "").strip()
+        field_name = str(
+            payload.get("field") or payload.get("key") or payload.get("id") or ""
+        ).strip()
         choices = normalize_prompt_choices(list(payload.get("choices") or []))
         if field_name == "use_case" and not choices:
             choices = list(USE_CASE_CHOICES)
@@ -143,7 +150,7 @@ class InterviewQuestion:
             field=field_name,
             prompt=str(payload.get("prompt") or payload.get("question") or "Tell me more.").strip(),
             type=str(payload.get("type") or "text").strip().lower(),
-            choices=choices[:INTERVIEW_MAX_QUESTIONS_PER_ROUND * 4],
+            choices=choices[: INTERVIEW_MAX_QUESTIONS_PER_ROUND * 4],
             required=bool(payload.get("required", False)),
             allow_skip=bool(payload.get("allow_skip", not payload.get("required", False))),
             default=str(payload.get("default") or "").strip() or None,
@@ -362,12 +369,22 @@ def bootstrap_interview_state(
             state.apply_patch({"provider": provider_hint}, source="discovery")
 
     if project_memory:
-        if not state.normalized_context.get("provider") and getattr(project_memory, "preferred_provider", None):
-            state.apply_patch({"provider": project_memory.preferred_provider}, source="project_memory")
-        if not state.normalized_context.get("domain") and getattr(project_memory, "preferred_domain", None):
+        if not state.normalized_context.get("provider") and getattr(
+            project_memory, "preferred_provider", None
+        ):
+            state.apply_patch(
+                {"provider": project_memory.preferred_provider}, source="project_memory"
+            )
+        if not state.normalized_context.get("domain") and getattr(
+            project_memory, "preferred_domain", None
+        ):
             state.apply_patch({"domain": project_memory.preferred_domain}, source="project_memory")
-        if not state.normalized_context.get("owner_team") and getattr(project_memory, "preferred_owner", None):
-            state.apply_patch({"owner_team": project_memory.preferred_owner}, source="project_memory")
+        if not state.normalized_context.get("owner_team") and getattr(
+            project_memory, "preferred_owner", None
+        ):
+            state.apply_patch(
+                {"owner_team": project_memory.preferred_owner}, source="project_memory"
+            )
         memory_engines = list(getattr(project_memory, "build_engines", []) or [])
         if not state.normalized_context.get("build_engine") and memory_engines:
             state.apply_patch({"build_engine": memory_engines[0]}, source="project_memory")

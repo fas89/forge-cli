@@ -108,7 +108,10 @@ class OpenAIProvider(LlmProvider):
     default_model = "gpt-4o-mini"
 
     def default_endpoint(self, model: str, env: Mapping[str, str]) -> str:
-        return env.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/") + "/chat/completions"
+        return (
+            env.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+            + "/chat/completions"
+        )
 
     def build_request(
         self, config: LlmConfig, system_prompt: str, user_prompt: str
@@ -332,8 +335,10 @@ def call_llm(
         except httpx.HTTPStatusError as exc:
             last_exc = exc
             if exc.response.status_code in _TRANSIENT_STATUS_CODES and attempt < _LLM_MAX_RETRIES:
-                delay = _LLM_RETRY_BASE_SECONDS * (2 ** attempt)
-                LOG.info("LLM request returned %s, retrying in %.1fs", exc.response.status_code, delay)
+                delay = _LLM_RETRY_BASE_SECONDS * (2**attempt)
+                LOG.info(
+                    "LLM request returned %s, retrying in %.1fs", exc.response.status_code, delay
+                )
                 time.sleep(delay)
                 continue
             raise CopilotGenerationError(

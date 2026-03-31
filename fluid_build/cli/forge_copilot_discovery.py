@@ -167,7 +167,9 @@ def discover_local_context(
                 report.readmes.append(_summarize_readme(path))
                 continue
 
-            if path.name.endswith("contract.fluid.yaml") or path.name.endswith("contract.fluid.json"):
+            if path.name.endswith("contract.fluid.yaml") or path.name.endswith(
+                "contract.fluid.json"
+            ):
                 if len(report.existing_contracts) < MAX_EXISTING_CONTRACTS:
                     summary = _summarize_existing_contract(path)
                     report.existing_contracts.append(summary)
@@ -178,7 +180,10 @@ def discover_local_context(
                 report.sql_files.append(_summarize_sql_file(path))
                 continue
 
-            if suffix in DISCOVERABLE_SAMPLE_SUFFIXES and len(report.sample_files) < MAX_SAMPLE_FILES:
+            if (
+                suffix in DISCOVERABLE_SAMPLE_SUFFIXES
+                and len(report.sample_files) < MAX_SAMPLE_FILES
+            ):
                 sample = summarize_sample_file(path)
                 report.sample_files.append(sample)
                 detected_sources.append(sample)
@@ -324,7 +329,10 @@ def _summarize_existing_contract(path: Path) -> Dict[str, Any]:
     except Exception:  # noqa: BLE001
         return {"path": str(path), "warnings": [f"Could not parse contract file: {path.name}"]}
     if not isinstance(contract, dict):
-        return {"path": str(path), "warnings": [f"Contract file is not a valid mapping: {path.name}"]}
+        return {
+            "path": str(path),
+            "warnings": [f"Contract file is not a valid mapping: {path.name}"],
+        }
     providers = []
     for expose in contract.get("exposes") or []:
         binding = expose.get("binding") or {}

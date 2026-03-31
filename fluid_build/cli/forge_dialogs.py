@@ -17,7 +17,8 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field as dc_field
+from dataclasses import dataclass
+from dataclasses import field as dc_field
 from difflib import SequenceMatcher
 from typing import Any, Dict, List, Mapping, Optional
 
@@ -160,7 +161,9 @@ class DialogQuestionResult:
     context_patch: Dict[str, Any] = dc_field(default_factory=dict)
 
 
-def build_choice(label: str, value: Optional[str] = None, aliases: Optional[List[str]] = None) -> Dict[str, Any]:
+def build_choice(
+    label: str, value: Optional[str] = None, aliases: Optional[List[str]] = None
+) -> Dict[str, Any]:
     """Build a labeled choice entry for friendly dialog prompts."""
     return {
         "label": str(label).strip(),
@@ -220,8 +223,10 @@ def ask_dialog_question(console: Any, question: Any) -> DialogQuestionResult:
             context_patch[field_name] = match.value
 
         raw_input = match.raw_input
-        if field_name == "use_case" and context_patch.get("use_case") == "other" and not context_patch.get(
-            "use_case_other"
+        if (
+            field_name == "use_case"
+            and context_patch.get("use_case") == "other"
+            and not context_patch.get("use_case_other")
         ):
             follow_up = ask_friendly_text(
                 console,
@@ -593,7 +598,10 @@ def _match_choice_aliases(
         choice
         for choice in choices
         if normalized_raw in set(choice.get("aliases") or [])
-        or any(alias in normalized_raw or normalized_raw in alias for alias in choice.get("aliases") or [])
+        or any(
+            alias in normalized_raw or normalized_raw in alias
+            for alias in choice.get("aliases") or []
+        )
     ]
     if not matches:
         return None
@@ -609,7 +617,9 @@ def _match_choice_aliases(
     return ChoiceMatchResult(
         status="ambiguous",
         confidence=0.8,
-        candidates=[{"label": item["label"], "value": item["value"], "score": 0.8} for item in matches[:2]],
+        candidates=[
+            {"label": item["label"], "value": item["value"], "score": 0.8} for item in matches[:2]
+        ],
         raw_input=raw_text,
     )
 
@@ -621,9 +631,14 @@ def _resolve_field_alias(field_name: str, normalized_raw: str) -> Optional[str]:
             return alias
         if any(token in normalized_raw for token in ("cdc", "sync", "replication", "ingest")):
             return "etl_pipeline"
-        if any(token in normalized_raw for token in ("stream processing", "events", "kafka", "pubsub")):
+        if any(
+            token in normalized_raw for token in ("stream processing", "events", "kafka", "pubsub")
+        ):
             return "streaming"
-        if any(token in normalized_raw for token in ("feature store", "feature engineering", "features")):
+        if any(
+            token in normalized_raw
+            for token in ("feature store", "feature engineering", "features")
+        ):
             return "ml_pipeline"
         if any(token in normalized_raw for token in ("lakehouse", "bronze", "silver", "gold")):
             return "data_platform"
@@ -631,7 +646,9 @@ def _resolve_field_alias(field_name: str, normalized_raw: str) -> Optional[str]:
             return "analytics"
         return None
     if field_name in {"provider", "provider_hint"}:
-        return _match_alias_map(normalized_raw, PROVIDER_ALIASES) or normalize_provider_name(normalized_raw)
+        return _match_alias_map(normalized_raw, PROVIDER_ALIASES) or normalize_provider_name(
+            normalized_raw
+        )
     if field_name == "build_engine":
         return _match_alias_map(normalized_raw, BUILD_ENGINE_ALIASES)
     if field_name == "output_kind":

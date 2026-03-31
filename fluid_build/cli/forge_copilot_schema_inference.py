@@ -20,7 +20,6 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
-
 MAX_SAMPLE_ROWS = 20
 
 
@@ -271,9 +270,7 @@ def _read_parquet_metadata_duckdb(path: Path) -> Dict[str, Any]:
 
     connection = duckdb.connect()
     try:
-        rows = connection.execute(
-            "DESCRIBE SELECT * FROM read_parquet(?)", [str(path)]
-        ).fetchall()
+        rows = connection.execute("DESCRIBE SELECT * FROM read_parquet(?)", [str(path)]).fetchall()
     finally:
         connection.close()
     columns = {
@@ -354,7 +351,12 @@ def infer_avro_type(type_spec: Any) -> str:
         logical_type = str(type_spec.get("logicalType") or "").lower()
         if logical_type in {"date"}:
             return "date"
-        if logical_type in {"timestamp-millis", "timestamp-micros", "local-timestamp-millis", "local-timestamp-micros"}:
+        if logical_type in {
+            "timestamp-millis",
+            "timestamp-micros",
+            "local-timestamp-millis",
+            "local-timestamp-micros",
+        }:
             return "datetime"
         avro_type = type_spec.get("type")
         if avro_type == "array":

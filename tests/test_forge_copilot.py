@@ -113,9 +113,7 @@ class TestCopilotAgentAnalyze:
 
     def test_other_use_case_infers_from_follow_up(self):
         agent = self._agent()
-        s = agent.analyze_requirements(
-            {"use_case": "other", "use_case_other": "customer CDC sync"}
-        )
+        s = agent.analyze_requirements({"use_case": "other", "use_case_other": "customer CDC sync"})
         assert s["recommended_template"] == "etl_pipeline"
 
     def test_bigquery_provider(self):

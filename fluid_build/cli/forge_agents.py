@@ -32,10 +32,22 @@ YES_NO_CHOICES = [
 ]
 
 FINANCE_PRODUCT_CHOICES = [
-    build_choice("Risk Analytics", "risk_analytics", aliases=["risk", "market risk", "risk scoring"]),
-    build_choice("Trading Platform", "trading_platform", aliases=["trading", "trades", "execution"]),
-    build_choice("Fraud Detection", "fraud_detection", aliases=["fraud", "fraud analytics", "fraud monitoring"]),
-    build_choice("Customer Analytics", "customer_analytics", aliases=["customer", "customer insights", "customer 360"]),
+    build_choice(
+        "Risk Analytics", "risk_analytics", aliases=["risk", "market risk", "risk scoring"]
+    ),
+    build_choice(
+        "Trading Platform", "trading_platform", aliases=["trading", "trades", "execution"]
+    ),
+    build_choice(
+        "Fraud Detection",
+        "fraud_detection",
+        aliases=["fraud", "fraud analytics", "fraud monitoring"],
+    ),
+    build_choice(
+        "Customer Analytics",
+        "customer_analytics",
+        aliases=["customer", "customer insights", "customer 360"],
+    ),
     build_choice(
         "Compliance Reporting",
         "compliance_reporting",
@@ -54,20 +66,30 @@ FINANCE_COMPLIANCE_CHOICES = [
 
 HEALTHCARE_PRODUCT_CHOICES = [
     build_choice("Patient Analytics", "patient_analytics", aliases=["patient", "patient insights"]),
-    build_choice("Clinical Research", "clinical_research", aliases=["research", "clinical studies"]),
+    build_choice(
+        "Clinical Research", "clinical_research", aliases=["research", "clinical studies"]
+    ),
     build_choice("Population Health", "population_health", aliases=["population", "public health"]),
-    build_choice("EHR Integration", "ehr_integration", aliases=["ehr", "emr", "clinical integration"]),
+    build_choice(
+        "EHR Integration", "ehr_integration", aliases=["ehr", "emr", "clinical integration"]
+    ),
     build_choice("Drug Discovery", "drug_discovery", aliases=["drug", "discovery", "r and d"]),
 ]
 
 PHI_CHOICES = [
     build_choice("Yes", "yes", aliases=["phi", "full phi"]),
     build_choice("No", "no", aliases=["no phi"]),
-    build_choice("De-identified only", "deidentified_only", aliases=["deidentified", "de identified", "masked"]),
+    build_choice(
+        "De-identified only",
+        "deidentified_only",
+        aliases=["deidentified", "de identified", "masked"],
+    ),
 ]
 
 RETAIL_PRODUCT_CHOICES = [
-    build_choice("Customer 360", "customer_360", aliases=["customer 360", "cdp", "customer profile"]),
+    build_choice(
+        "Customer 360", "customer_360", aliases=["customer 360", "cdp", "customer profile"]
+    ),
     build_choice(
         "Recommendation Engine",
         "recommendation_engine",
@@ -83,13 +105,17 @@ RETAIL_PRODUCT_CHOICES = [
 ]
 
 RETAIL_SCALE_CHOICES = [
-    build_choice("Small (<1M records)", "small (<1m records)", aliases=["small", "<1m", "under 1m"]),
+    build_choice(
+        "Small (<1M records)", "small (<1m records)", aliases=["small", "<1m", "under 1m"]
+    ),
     build_choice(
         "Medium (1M-100M)",
         "medium (1m-100m)",
         aliases=["medium", "mid", "1m to 100m", "10m"],
     ),
-    build_choice("Large (>100M)", "large (>100m)", aliases=["large", "huge", "100m+", "enterprise scale"]),
+    build_choice(
+        "Large (>100M)", "large (>100m)", aliases=["large", "huge", "100m+", "enterprise scale"]
+    ),
 ]
 
 
@@ -253,7 +279,9 @@ class AIAgentBase:
         except (NotImplementedError, IndexError, KeyError, TypeError):
             product_choices = []
         product_type = _choice_label(product_choices, context.get("product_type"))
-        patterns = ", ".join(suggestions.get("recommended_patterns", []) or ["Standard scaffolding"])
+        patterns = ", ".join(
+            suggestions.get("recommended_patterns", []) or ["Standard scaffolding"]
+        )
 
         analysis = f"""
 🎯 **Project Goal:** {goal}

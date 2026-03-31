@@ -76,7 +76,9 @@ class TestAdaptiveCopilotInterview:
 
     @patch(
         "fluid_build.cli.forge_copilot_interview.request_interview_decision",
-        return_value=InterviewDecision(status="ready", reason="Discovery already provided enough context."),
+        return_value=InterviewDecision(
+            status="ready", reason="Discovery already provided enough context."
+        ),
     )
     def test_no_question_fast_path_when_context_and_discovery_are_sufficient(self, _mock_decision):
         console = FakeConsole([])
@@ -204,9 +206,9 @@ class TestAdaptiveCopilotInterview:
         )
 
         assert updated.normalized_context["primary_measures"] == ["revenue"]
-        assert updated.normalized_context["interview_summary"]["semantic_intent"]["primary_measures"] == [
-            "revenue"
-        ]
+        assert updated.normalized_context["interview_summary"]["semantic_intent"][
+            "primary_measures"
+        ] == ["revenue"]
 
     @patch(
         "fluid_build.cli.forge_copilot_interview.request_interview_decision",

@@ -328,15 +328,27 @@ def print_forge_help() -> None:
     options_table.add_row("--interactive, -i", "Force interactive mode")
     options_table.add_row("--dry-run", "Preview without creating files")
     options_table.add_row("--context", "Additional AI context (JSON string or file)")
-    options_table.add_row("--llm-provider", "Built-in copilot adapter (openai/anthropic/gemini/ollama)")
+    options_table.add_row(
+        "--llm-provider", "Built-in copilot adapter (openai/anthropic/gemini/ollama)"
+    )
     options_table.add_row("--llm-model", "Model identifier for copilot mode")
     options_table.add_row("--llm-endpoint", "Exact HTTP endpoint override for the selected adapter")
-    options_table.add_row("--discover / --no-discover", "Enable or disable local metadata discovery")
+    options_table.add_row(
+        "--discover / --no-discover", "Enable or disable local metadata discovery"
+    )
     options_table.add_row("--discovery-path", "Extra local file or directory to scan for metadata")
-    options_table.add_row("--memory / --no-memory", "Enable or disable loading repo-local copilot memory")
-    options_table.add_row("--save-memory", "Persist repo-local copilot memory after a successful non-interactive run")
-    options_table.add_row("--show-memory", "Show the current project-scoped copilot memory summary and exit")
-    options_table.add_row("--reset-memory", "Delete the current project-scoped copilot memory file and exit")
+    options_table.add_row(
+        "--memory / --no-memory", "Enable or disable loading repo-local copilot memory"
+    )
+    options_table.add_row(
+        "--save-memory", "Persist repo-local copilot memory after a successful non-interactive run"
+    )
+    options_table.add_row(
+        "--show-memory", "Show the current project-scoped copilot memory summary and exit"
+    )
+    options_table.add_row(
+        "--reset-memory", "Delete the current project-scoped copilot memory file and exit"
+    )
 
     console.print("[bold bright_yellow]⚙️  Options[/bold bright_yellow]")
     console.print(options_table)
@@ -347,7 +359,11 @@ def print_forge_help() -> None:
     console.print()
 
     examples = [
-        ("AI Copilot Mode (Recommended):", "fluid forge", "Interactive copilot with discovery and validation"),
+        (
+            "AI Copilot Mode (Recommended):",
+            "fluid forge",
+            "Interactive copilot with discovery and validation",
+        ),
         (
             "OpenAI Copilot:",
             "fluid forge --mode copilot --llm-provider openai --llm-model gpt-4o-mini",

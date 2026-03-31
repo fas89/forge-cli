@@ -268,7 +268,9 @@ class TestCopilotAgent:
         assert result is True
 
     @patch("fluid_build.cli.forge.CopilotMemoryStore")
-    def test_create_project_saves_memory_in_non_interactive_mode_when_requested(self, mock_store_cls):
+    def test_create_project_saves_memory_in_non_interactive_mode_when_requested(
+        self, mock_store_cls
+    ):
         from fluid_build.cli.forge_copilot_runtime import CopilotGenerationResult, DiscoveryReport
 
         agent = self._make_agent()

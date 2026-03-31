@@ -23,6 +23,10 @@ from unittest.mock import patch
 import httpx
 import pytest
 
+from fluid_build.cli.forge_copilot_discovery import (
+    DiscoveryReport,
+    discover_local_context,
+)
 from fluid_build.cli.forge_copilot_llm_providers import (
     AnthropicProvider,
     CopilotGenerationError,
@@ -32,14 +36,6 @@ from fluid_build.cli.forge_copilot_llm_providers import (
     OpenAIProvider,
     call_llm,
     resolve_llm_config,
-)
-from fluid_build.cli.forge_copilot_discovery import (
-    DiscoveryReport,
-    discover_local_context,
-)
-from fluid_build.cli.forge_copilot_schema_inference import (
-    read_avro_metadata as _read_avro_metadata,
-    read_parquet_metadata as _read_parquet_metadata,
 )
 from fluid_build.cli.forge_copilot_runtime import (
     _build_scaffold_decision,
@@ -51,13 +47,18 @@ from fluid_build.cli.forge_copilot_runtime import (
     sanitize_additional_files,
     validate_generated_result,
 )
+from fluid_build.cli.forge_copilot_schema_inference import (
+    read_avro_metadata as _read_avro_metadata,
+)
+from fluid_build.cli.forge_copilot_schema_inference import (
+    read_parquet_metadata as _read_parquet_metadata,
+)
 from fluid_build.forge.core.engine import ForgeEngine
 from fluid_build.forge.core.interfaces import ComplexityLevel, GenerationContext, TemplateMetadata
 from fluid_build.forge.generators.config_generator import ConfigGenerator
 from fluid_build.forge.generators.contract_generator import ContractGenerator
 from fluid_build.forge.generators.readme_generator import ReadmeGenerator
-from fluid_build.schema_manager import FluidSchemaManager
-from fluid_build.schema_manager import ValidationResult
+from fluid_build.schema_manager import FluidSchemaManager, ValidationResult
 
 
 def _minimal_contract(provider: str = "local", engine: str = "sql") -> dict:
@@ -225,7 +226,9 @@ class TestProviderAdapters:
         [
             (
                 OpenAIProvider(),
-                LlmConfig("openai", "gpt-4o-mini", "https://api.openai.com/v1/chat/completions", "key"),
+                LlmConfig(
+                    "openai", "gpt-4o-mini", "https://api.openai.com/v1/chat/completions", "key"
+                ),
                 "Authorization",
                 "messages",
             ),
@@ -368,7 +371,9 @@ class TestRuntimeHelpers:
             provider_name="local",
         )
 
-        validation = FluidSchemaManager().validate_contract(contract, strict=True, offline_only=True)
+        validation = FluidSchemaManager().validate_contract(
+            contract, strict=True, offline_only=True
+        )
 
         assert validation.is_valid is True
         assert validation.errors == []
@@ -507,12 +512,15 @@ class TestDiscovery:
         sample_path = tmp_path / "customers.parquet"
         sample_path.write_bytes(b"PAR1")
 
-        with patch(
-            "fluid_build.cli.forge_copilot_schema_inference._read_parquet_metadata_pyarrow",
-            side_effect=ImportError,
-        ), patch(
-            "fluid_build.cli.forge_copilot_schema_inference._read_parquet_metadata_duckdb",
-            side_effect=ImportError,
+        with (
+            patch(
+                "fluid_build.cli.forge_copilot_schema_inference._read_parquet_metadata_pyarrow",
+                side_effect=ImportError,
+            ),
+            patch(
+                "fluid_build.cli.forge_copilot_schema_inference._read_parquet_metadata_duckdb",
+                side_effect=ImportError,
+            ),
         ):
             report = discover_local_context(None, workspace_root=tmp_path)
 
@@ -587,7 +595,9 @@ class TestDiscovery:
 
 class TestGenerationValidation:
     @patch("fluid_build.cli.forge_copilot_runtime.FluidSchemaManager")
-    def test_validate_generated_result_checks_provider_engine_compatibility(self, mock_schema_manager):
+    def test_validate_generated_result_checks_provider_engine_compatibility(
+        self, mock_schema_manager
+    ):
         mock_schema_manager.return_value.validate_contract.return_value = ValidationResult(
             is_valid=True, errors=[], warnings=[]
         )
