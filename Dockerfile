@@ -82,4 +82,4 @@ LABEL maintainer="Agentics Transformation <info@agentics.ai>" \
       org.opencontainers.image.description="FLUID Data Products CLI — plan, apply, and visualize data products" \
       org.opencontainers.image.vendor="Agentics Transformation Pty Ltd" \
       org.opencontainers.image.licenses="Apache-2.0" \
-      org.opencontainers.image.source="https://github.com/agentics-rising/fluid-forge-cli"
+      org.opencontainers.image.source="https://github.com/Agentics-Rising/forge-cli"

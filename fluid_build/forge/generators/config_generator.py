@@ -103,7 +103,7 @@ class ConfigGenerator(Generator):
             base_requirements.extend(["boto3>=1.28", "awscli>=1.29"])
         elif provider == "snowflake":
             base_requirements.extend(
-                ["snowflake-connector-python>=3.0", "snowflake-sqlalchemy>=1.5"]
+                ["snowflake-connector-python>=4.4", "snowflake-sqlalchemy>=1.9"]
             )
 
         return "\n".join(sorted(set(base_requirements))) + "\n"
