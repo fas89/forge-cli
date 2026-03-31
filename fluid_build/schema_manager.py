@@ -47,7 +47,32 @@ except ImportError as e:
 
 # Version constraints
 VERSION_PATTERN = re.compile(r"^(\d+)\.(\d+)(?:\.(\d+))?(?:-(.+))?$")
+SCHEMA_FILE_PATTERN = re.compile(r"^fluid-schema-(\d+\.\d+(?:\.\d+)?)\.json$")
 SCHEMA_REPO_BASE = "https://raw.githubusercontent.com/open-data-protocol/fluid/main/schema"
+
+
+def _schema_version_sort_key(version: str) -> tuple[int, int, int]:
+    match = VERSION_PATTERN.match(version)
+    if not match:
+        return (0, 0, 0)
+    major, minor, patch_str, _prerelease = match.groups()
+    return (int(major), int(minor), int(patch_str) if patch_str else 0)
+
+
+def _discover_bundled_versions() -> List[str]:
+    schemas_dir = Path(__file__).parent / "schemas"
+    versions = set()
+
+    if schemas_dir.exists():
+        for schema_file in schemas_dir.glob("fluid-schema-*.json"):
+            match = SCHEMA_FILE_PATTERN.match(schema_file.name)
+            if match:
+                versions.add(match.group(1))
+
+    if not versions:
+        versions.update(["0.4.0", "0.5.7", "0.7.1"])
+
+    return sorted(versions, key=_schema_version_sort_key)
 
 
 @dataclass
@@ -307,7 +332,7 @@ class FluidSchemaManager:
     """
 
     # Bundled schema versions (embedded in package)
-    BUNDLED_VERSIONS = ["0.4.0", "0.5.7", "0.7.1"]
+    BUNDLED_VERSIONS = _discover_bundled_versions()
 
     def __init__(
         self,
@@ -334,8 +359,8 @@ class FluidSchemaManager:
         # Load available schema files
         for schema_file in schemas_dir.glob("fluid-schema-*.json"):
             try:
-                # Extract version from filename: fluid-schema-0.4.0.json -> 0.4.0
-                version_match = re.search(r"fluid-schema-(\d+\.\d+(?:\.\d+)?)", schema_file.name)
+                # Extract version from canonical filenames like fluid-schema-0.7.2.json
+                version_match = SCHEMA_FILE_PATTERN.match(schema_file.name)
                 if not version_match:
                     continue
 
