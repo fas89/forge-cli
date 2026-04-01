@@ -3,6 +3,7 @@
 Execute build jobs from FLUID contract.
 Reads execution.trigger configuration and runs the specified script.
 """
+
 import subprocess
 import sys
 import time

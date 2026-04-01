@@ -24,6 +24,17 @@ from typing import Optional
 import yaml
 
 
+def _safe_home_dir() -> Path:
+    """Resolve a usable home directory even in restricted environments."""
+    try:
+        return Path.home()
+    except Exception:
+        env_home = os.getenv("HOME") or os.getenv("USERPROFILE")
+        if env_home:
+            return Path(env_home)
+        return Path.cwd()
+
+
 @dataclass
 class CommandCenterConfig:
     """
@@ -70,7 +81,7 @@ class CommandCenterConfig:
         config = cls()
 
         # Load from config file
-        config_file = Path.home() / ".fluid" / "config.yaml"
+        config_file = _safe_home_dir() / ".fluid" / "config.yaml"
         if config_file.exists():
             try:
                 with open(config_file) as f:

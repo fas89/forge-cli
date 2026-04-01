@@ -3,6 +3,7 @@
 Check Enhanced Features in BigQuery
 Verifies that Part C advanced features are deployed correctly
 """
+
 from google.cloud import bigquery
 
 
