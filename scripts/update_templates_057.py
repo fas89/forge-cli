@@ -2,6 +2,7 @@
 """
 Update forge templates to use FLUID schema 0.5.7 field names
 """
+
 import re
 from pathlib import Path
 

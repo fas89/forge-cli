@@ -896,6 +896,38 @@ class TestBuildDataContractODCS:
         dc = self._make_provider()._build_data_contract_odcs(RICH_CONTRACT, "bronze.bss.accounts")
         assert "bronze-layer" in dc["tags"]
 
+    def test_odcs_tags_fallback_to_metadata_tags(self):
+        contract = {
+            "id": "sales.product",
+            "metadata": {
+                "name": "Sales Product",
+                "owner": {"team": "analytics"},
+                "tags": ["sales", "curated"],
+            },
+            "owner": {"team": "analytics"},
+            "exposes": [],
+        }
+
+        dc = self._make_provider()._build_data_contract_odcs(contract, "sales.product")
+        assert dc["tags"] == ["sales", "curated"]
+
+    def test_odcs_schema_uses_legacy_expose_type_when_kind_missing(self):
+        contract = {
+            "id": "legacy.product",
+            "metadata": {"name": "Legacy Product", "owner": {"team": "analytics"}},
+            "owner": {"team": "analytics"},
+            "exposes": [
+                {
+                    "id": "legacy_port",
+                    "type": "view",
+                    "schema": [{"name": "id", "type": "string"}],
+                }
+            ],
+        }
+
+        dc = self._make_provider()._build_data_contract_odcs(contract, "legacy.product")
+        assert dc["schema"][0]["physicalType"] == "view"
+
 
 # ---------------------------------------------------------------------------
 # 13. DCS 0.9.3 data contract builder (deprecated path)
@@ -921,6 +953,23 @@ class TestBuildDataContractDCS:
         assert "customer_accounts" in dc["models"]
         model = dc["models"]["customer_accounts"]
         assert "customer_id" in model["fields"]
+
+    def test_dcs_model_type_uses_legacy_expose_type_when_kind_missing(self):
+        contract = {
+            "id": "legacy.product",
+            "metadata": {"name": "Legacy Product", "owner": {"team": "analytics"}},
+            "owner": {"team": "analytics"},
+            "exposes": [
+                {
+                    "id": "legacy_port",
+                    "type": "view",
+                    "schema": [{"name": "id", "type": "string"}],
+                }
+            ],
+        }
+
+        dc = self._make_provider()._build_data_contract_dcs(contract, "legacy.product")
+        assert dc["models"]["legacy_port"]["type"] == "view"
 
     def test_dcs_servers(self):
         dc = self._make_provider()._build_data_contract_dcs(RICH_CONTRACT, "bronze.bss.accounts")

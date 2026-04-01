@@ -734,12 +734,16 @@ def sanitize_additional_files(value: Any) -> Dict[str, str]:
     for raw_path, raw_content in value.items():
         if not isinstance(raw_path, str) or not isinstance(raw_content, str):
             continue
-        candidate = Path(raw_path)
-        if candidate.is_absolute() or ".." in candidate.parts:
+        normalized_raw_path = raw_path.replace("\\", "/")
+        is_absolute_like = normalized_raw_path.startswith("/") or bool(
+            re.match(r"^[a-zA-Z]:/", normalized_raw_path)
+        )
+        candidate = Path(normalized_raw_path)
+        if is_absolute_like or candidate.is_absolute() or ".." in candidate.parts:
             continue
         if candidate.suffix.lower() not in SAFE_ADDITIONAL_FILE_EXTENSIONS:
             continue
-        sanitized[str(candidate)] = raw_content
+        sanitized[candidate.as_posix()] = raw_content
     return sanitized
 
 
