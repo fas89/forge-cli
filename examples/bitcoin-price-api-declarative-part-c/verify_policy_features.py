@@ -2,6 +2,7 @@
 """
 Verify Policy Tags, Data Masking, and Column Restrictions Implementation
 """
+
 import sys
 
 from google.cloud import bigquery

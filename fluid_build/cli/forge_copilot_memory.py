@@ -677,12 +677,18 @@ def _truncate_columns(value: Any) -> Dict[str, str]:
 def _sanitize_path(value: Any, project_root: Optional[Path]) -> Optional[str]:
     if value is None:
         return None
+    raw_value = str(value)
     try:
-        path = Path(str(value)).expanduser()
+        path = Path(raw_value).expanduser()
     except TypeError:
         return None
 
-    if not path.is_absolute():
+    # On Windows, Unix-style rooted paths (e.g. /Users/foo/file.avro) may not be
+    # considered absolute by pathlib. Treat them as absolute-like to avoid leaking
+    # host path structure in prompts.
+    looks_absolute_like = raw_value.startswith("/") or raw_value.startswith("\\")
+
+    if not path.is_absolute() and not looks_absolute_like:
         normalized = path.as_posix().lstrip("./")
         if not normalized or normalized.startswith(".."):
             return path.name or None

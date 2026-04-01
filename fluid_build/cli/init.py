@@ -1208,7 +1208,7 @@ def generate_jenkinsfile(project_dir: Path, logger: logging.Logger):
 """
 
     jenkinsfile_path = project_dir / "Jenkinsfile"
-    jenkinsfile_path.write_text(jenkinsfile_content.strip())
+    jenkinsfile_path.write_text(jenkinsfile_content.strip(), encoding="utf-8")
 
     if RICH_AVAILABLE:
         console.print("✅ Generated [bold]Jenkinsfile[/bold] with FLUID 0.7.1 pipeline")

@@ -14,6 +14,7 @@ Generated: 2026-01-30T14:02:10.320788
 import json
 import logging
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
@@ -24,6 +25,15 @@ from airflow.providers.amazon.aws.operators.redshift_data import RedshiftDataOpe
 from airflow.providers.amazon.aws.operators.s3 import S3CreateBucketOperator
 
 logger = logging.getLogger(__name__)
+
+
+def _ensure_glue_database(**kwargs):
+    return kwargs
+
+
+def _ensure_glue_table(**kwargs):
+    return kwargs
+
 
 # Default DAG arguments
 default_args = {

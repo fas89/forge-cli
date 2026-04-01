@@ -971,7 +971,7 @@ def _generate_html_report(
     </html>
     """
 
-    with open(report_path, "w") as f:
+    with open(report_path, "w", encoding="utf-8") as f:
         f.write(html_content)
 
 
@@ -987,7 +987,7 @@ def _generate_json_report(
         "result": execution_result,
     }
 
-    with open(report_path, "w") as f:
+    with open(report_path, "w", encoding="utf-8") as f:
         json.dump(report_data, f, indent=2)
 
 
@@ -1026,7 +1026,7 @@ def _generate_markdown_report(
 - **Duration**: {phase.get('duration', 0):.2f}s
 """
 
-    with open(report_path, "w") as f:
+    with open(report_path, "w", encoding="utf-8") as f:
         f.write(markdown_content)
 
 

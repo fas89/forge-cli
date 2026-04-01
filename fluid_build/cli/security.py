@@ -25,6 +25,8 @@ import logging
 import os
 import re
 import signal
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -109,6 +111,7 @@ class SecurePathValidator:
             return
 
         path_str = str(path)
+        normalized_path = re.sub(r"/+", "/", path_str.replace("\\", "/"))
 
         # Check for path traversal attempts
         if ".." in path.parts:
@@ -138,7 +141,8 @@ class SecurePathValidator:
 
         # Check for forbidden system paths
         for forbidden in self.security_context.forbidden_paths:
-            if path_str.startswith(forbidden):
+            normalized_forbidden = re.sub(r"/+", "/", forbidden.replace("\\", "/"))
+            if normalized_path.startswith(normalized_forbidden):
                 raise FluidCLIError(
                     1,
                     "forbidden_path_access",
@@ -358,13 +362,30 @@ class ProcessManager:
         kwargs = kwargs or {}
 
         try:
-            with self.timeout_context(timeout):
-                return func(*args, **kwargs)
+            timeout_seconds = timeout or self.default_timeout
+            if hasattr(signal, "SIGALRM"):
+                with self.timeout_context(timeout_seconds):
+                    return func(*args, **kwargs)
+
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(func, *args, **kwargs)
+                return future.result(timeout=timeout_seconds)
         except TimeoutError as e:
             raise FluidCLIError(
                 1,
                 "operation_timeout",
                 str(e),
+                suggestions=[
+                    "Try running the operation with a longer timeout",
+                    "Check if the operation is stuck",
+                    "Break down large operations into smaller parts",
+                ],
+            )
+        except FuturesTimeoutError:
+            raise FluidCLIError(
+                1,
+                "operation_timeout",
+                f"Operation timed out after {timeout or self.default_timeout} seconds",
                 suggestions=[
                     "Try running the operation with a longer timeout",
                     "Check if the operation is stuck",
