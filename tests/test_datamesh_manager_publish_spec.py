@@ -1,3 +1,17 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -123,7 +137,10 @@ def test_cmd_publish_passes_provider_hint_to_apply():
         "payload": {"id": "sales-product", "kind": "DataProduct", "apiVersion": "v1.0.0"},
     }
 
-    with patch("fluid_build.cli.datamesh_manager.load_contract_with_overlay", return_value=_sample_contract()):
+    with patch(
+        "fluid_build.cli.datamesh_manager.load_contract_with_overlay",
+        return_value=_sample_contract(),
+    ):
         with patch("fluid_build.cli.datamesh_manager._make_provider", return_value=mock_provider):
             with patch("fluid_build.cli.datamesh_manager._print_dry_run"):
                 code = _cmd_publish(args)
@@ -162,7 +179,10 @@ def test_cmd_publish_fail_on_contract_error_returns_non_zero():
         ],
     }
 
-    with patch("fluid_build.cli.datamesh_manager.load_contract_with_overlay", return_value=_sample_contract()):
+    with patch(
+        "fluid_build.cli.datamesh_manager.load_contract_with_overlay",
+        return_value=_sample_contract(),
+    ):
         with patch("fluid_build.cli.datamesh_manager._make_provider", return_value=mock_provider):
             with patch("fluid_build.cli.datamesh_manager._print_publish_result"):
                 code = _cmd_publish(args)
