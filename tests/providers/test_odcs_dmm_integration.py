@@ -279,7 +279,7 @@ class TestPublishOdcsPerExpose:
             results = provider._publish_odcs_per_expose(_BITCOIN_CONTRACT, _PRODUCT_ID)
 
         for r in results:
-            assert "app.entropy-data.com" in r["url"]
+            assert "entropy-data.com" in r["url"]
             assert r["contract_id"] in r["url"]
 
     def test_partial_failure_still_publishes_other_exposes(self):
@@ -334,8 +334,8 @@ class TestPublishOneOdcsIntegration:
         published_contracts = []
         original = provider._publish_odcs_per_expose
 
-        def capturing_publish(fluid, product_id):
-            result = original(fluid, product_id)
+        def capturing_publish(fluid, product_id, **kwargs):
+            result = original(fluid, product_id, **kwargs)
             published_contracts.extend(result)
             return result
 
@@ -361,23 +361,32 @@ class TestPublishOneOdcsIntegration:
 
 
 class TestOdcsSlaFromQos:
+    @staticmethod
+    def _sla_value(sla, property_name):
+        """Extract the value for a property from the slaProperties list."""
+        return next((item["value"] for item in sla if item["property"] == property_name), None)
+
     def test_qos_availability_parsed_as_float(self):
         prov = OdcsProvider()
         # Scope to the v2 expose that has qos.availability = "99.5%"
         scoped = prov._filter_to_expose(_BITCOIN_CONTRACT, "bitcoin_prices_table_v2")
         sla = prov._extract_sla_properties(scoped)
         assert sla is not None
-        assert "availability" in sla
+        # slaProperties is a list of {property, value} dicts
+        assert any(item["property"] == "availability" for item in sla)
+        avail = self._sla_value(sla, "availability")
         # 99.5% → 0.995
-        assert abs(sla["availability"] - 0.995) < 0.001
+        assert abs(avail - 0.995) < 0.001
 
     def test_qos_freshness_slo_mapped_to_interval(self):
         prov = OdcsProvider()
         sla = prov._extract_sla_properties(_BITCOIN_CONTRACT)
         assert sla is not None
-        assert "interval" in sla
+        # slaProperties is a list of {property, value} dicts
+        assert any(item["property"] == "interval" for item in sla)
+        interval = self._sla_value(sla, "interval")
         # First expose has PT10M, second has PT5M; first one wins
-        assert sla["interval"] in ("PT10M", "PT5M")
+        assert interval in ("PT10M", "PT5M")
 
     def test_qos_labels_become_custom_properties(self):
         prov = OdcsProvider()
@@ -385,16 +394,17 @@ class TestOdcsSlaFromQos:
         scoped = prov._filter_to_expose(_BITCOIN_CONTRACT, "bitcoin_prices_table_v2")
         sla = prov._extract_sla_properties(scoped)
         assert sla is not None
-        custom = sla.get("customProperties", [])
-        assert any(c["property"] == "support_contact" for c in custom)
+        # Labels are embedded in the list as {"property": "label:key", "value": ...}
+        assert any(item["property"] == "label:support_contact" for item in sla)
 
     def test_full_odcs_export_includes_sla(self):
         prov = OdcsProvider()
         odcs = prov.render(_BITCOIN_CONTRACT, expose_id="bitcoin_prices_table_v2")
         assert "slaProperties" in odcs
         sla = odcs["slaProperties"]
-        assert "availability" in sla
-        assert "interval" in sla
+        # slaProperties is a list of {property, value} dicts
+        assert any(item["property"] == "availability" for item in sla)
+        assert any(item["property"] == "interval" for item in sla)
 
 
 # ===========================================================================
@@ -535,12 +545,12 @@ class TestOverlayMergeOdcsServers:
         servers = odcs_a.get("servers", [])
         assert servers, "No servers block in ODCS output"
         for srv in servers:
-            assert (
-                srv.get("project") == "staging-project"
-            ), f"Expected staging-project, got {srv.get('project')}"
-            assert (
-                srv.get("dataset") == "staging_dataset"
-            ), f"Expected staging_dataset, got {srv.get('dataset')}"
+            assert srv.get("project") == "staging-project", (
+                f"Expected staging-project, got {srv.get('project')}"
+            )
+            assert srv.get("dataset") == "staging_dataset", (
+                f"Expected staging_dataset, got {srv.get('dataset')}"
+            )
 
     def test_dmm_dry_run_on_staging_overlay_uses_correct_contract_ids(self):
         """After overlay merge, dry-run ODCS previews carry the right contract URL."""

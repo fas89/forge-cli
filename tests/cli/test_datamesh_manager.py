@@ -113,7 +113,7 @@ class TestCmdSignatures:
         sig = inspect.signature(fn)
         params = list(sig.parameters.keys())
         assert len(params) >= 2, (
-            f"{fn_name} must accept at least 2 params (args, logger), " f"got {params}"
+            f"{fn_name} must accept at least 2 params (args, logger), got {params}"
         )
         assert params[0] == "args"
         assert params[1] == "logger"
@@ -135,9 +135,9 @@ class TestCmdSignatures:
         fn = getattr(dmm_mod, fn_name)
         sig = inspect.signature(fn)
         logger_param = sig.parameters["logger"]
-        assert (
-            logger_param.default is not inspect.Parameter.empty
-        ), f"{fn_name}: logger param must have a default value"
+        assert logger_param.default is not inspect.Parameter.empty, (
+            f"{fn_name}: logger param must have a default value"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -337,7 +337,6 @@ class TestCmdPublish:
 
 
 class TestCmdList:
-
     @patch.object(dmm_mod, "DataMeshManagerProvider")
     def test_list_json(self, MockProvider):
         provider_inst = MagicMock()
@@ -379,7 +378,6 @@ class TestCmdList:
 
 
 class TestCmdGet:
-
     @patch.object(dmm_mod, "DataMeshManagerProvider")
     def test_get_success(self, MockProvider):
         provider_inst = MagicMock()
@@ -410,7 +408,6 @@ class TestCmdGet:
 
 
 class TestCmdDelete:
-
     @patch.object(dmm_mod, "DataMeshManagerProvider")
     def test_delete_with_yes(self, MockProvider):
         provider_inst = MagicMock()
@@ -447,7 +444,6 @@ class TestCmdDelete:
 
 
 class TestCmdTeams:
-
     @patch.object(dmm_mod, "DataMeshManagerProvider")
     def test_teams_json(self, MockProvider):
         provider_inst = MagicMock()
@@ -477,7 +473,6 @@ class TestCmdTeams:
 
 
 class TestMakeProvider:
-
     @patch.object(dmm_mod, "DataMeshManagerProvider")
     def test_api_key_and_url_passed(self, MockProvider):
         args = SimpleNamespace(api_key="my-key", api_url="https://custom.com")
@@ -762,7 +757,6 @@ class TestDataProductSpecConformance:
 
 
 class TestBuildServerObject:
-
     def _build(self, section, provider=""):
         return DataMeshManagerProvider._build_server_object(section, provider)
 
@@ -829,7 +823,6 @@ class TestBuildServerObject:
 
 
 class TestBuildDataContractODCS:
-
     def _make_provider(self):
         return DataMeshManagerProvider(api_key="fake", api_url="https://test.com")
 
@@ -910,7 +903,6 @@ class TestBuildDataContractODCS:
 
 
 class TestBuildDataContractDCS:
-
     def _make_provider(self):
         return DataMeshManagerProvider(api_key="fake", api_url="https://test.com")
 
@@ -941,7 +933,6 @@ class TestBuildDataContractDCS:
 
 
 class TestContractFormatDispatch:
-
     def _make_provider(self):
         return DataMeshManagerProvider(api_key="fake", api_url="https://test.com")
 
@@ -983,7 +974,6 @@ class TestContractFormatDispatch:
 
 
 class TestContractFormatCLI:
-
     @pytest.fixture()
     def dmm_parser(self):
         root = argparse.ArgumentParser()
@@ -1034,7 +1024,6 @@ class TestContractFormatCLI:
 
 
 class TestDataContractIdWiring:
-
     def _make_provider(self):
         return DataMeshManagerProvider(api_key="fake", api_url="https://test.com")
 
@@ -1049,10 +1038,13 @@ class TestDataContractIdWiring:
             contract_format="odcs",
         )
         # The data product PUT should have dataContractId on output ports
+        # dataContractId format is {product_id}.{expose_id}
         dp_call = mock_request.call_args_list[0]
         dp_body = dp_call[1]["json_body"]
+        product_id = RICH_CONTRACT["id"]
         for port in dp_body.get("outputPorts", []):
-            assert port["dataContractId"] == "bronze.bss.accounts-contract"
+            expose_id = port.get("id") or port.get("name")
+            assert port["dataContractId"] == f"{product_id}.{expose_id}"
 
     def test_contract_id_always_present_on_output_ports(self):
         """After rebase, _to_data_product always wires dataContractId on
