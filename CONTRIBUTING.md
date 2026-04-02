@@ -26,6 +26,20 @@ By participating in this project you agree to abide by the [Code of Conduct](COD
 2. Describe the problem you'd like to solve, not just the solution.
 3. If the feature involves a new provider, use the **Provider Request** template instead.
 
+### Branching Strategy
+
+All contributions target the `main` branch. Use the following branch name prefixes:
+
+| Prefix | Use for | Example |
+|--------|---------|---------|
+| `feat/` | New features | `feat/databricks-provider` |
+| `fix/` | Bug fixes | `fix/validate-empty-contract` |
+| `docs/` | Documentation changes (in this repo) | `docs/update-quickstart` |
+| `provider/` | New or updated providers | `provider/azure-support` |
+| `refactor/` | Code cleanup, no behaviour change | `refactor/simplify-loader` |
+| `chore/` | CI, dependencies, maintenance | `chore/bump-ruff-version` |
+| `test/` | Test improvements | `test/add-provider-registry-tests` |
+
 ### Submitting Code
 
 1. **Fork** the repository and create a branch from `main`:
@@ -63,7 +77,37 @@ By participating in this project you agree to abide by the [Code of Conduct](COD
    docs: update quickstart for v0.8
    ```
 
-8. **Push** and open a Pull Request against `main`.
+8. **Address documentation** — see [Documentation Requirements](#documentation-requirements) below.
+
+9. **Push** and open a Pull Request against `main`.
+
+## Documentation Requirements
+
+We maintain documentation in a **separate repository**: [Agentics-Rising/forge_docs](https://github.com/Agentics-Rising/forge_docs).
+
+Every PR that changes user-facing behaviour must be paired with a documentation update. When you open a PR, the template asks you to choose one of:
+
+1. **Link a docs PR** — open a companion PR in [forge_docs](https://github.com/Agentics-Rising/forge_docs) and paste the link in your CLI PR description.
+2. **No docs needed** — check the box and provide a justification (e.g. internal refactor, test-only change, CI config update).
+3. **Docs TODO** — acknowledge that docs are needed and commit to creating the docs PR before your CLI PR is merged.
+
+A GitHub Actions workflow (`docs-reminder`) will automatically label your PR with `needs-docs` if none of these are addressed.
+
+### What counts as needing docs?
+
+- New CLI commands or flags
+- Changed command behaviour or output
+- New or updated providers
+- Configuration changes
+- Breaking changes
+- New environment variables or setup steps
+
+### What does NOT need docs?
+
+- Internal refactors with no behaviour change
+- Test-only changes
+- CI/CD configuration updates
+- Dependency bumps
 
 ## Coding Standards
 
@@ -111,6 +155,18 @@ pytest tests/providers/test_registry.py -v
 ## Contributor License Agreement (CLA)
 
 By submitting a pull request, you agree that your contributions are licensed under the [Apache License 2.0](LICENSE) and that you have the right to license them.
+
+## Your First Contribution
+
+New to FLUID Forge? Here's how to get started:
+
+1. Browse issues labelled [`good first issue`](https://github.com/Agentics-Rising/forge-cli/labels/good%20first%20issue) for beginner-friendly tasks.
+2. Comment on the issue to let maintainers know you'd like to work on it.
+3. Fork the repo, create a branch following the [naming conventions](#branching-strategy), and make your changes.
+4. Open a PR — our welcome bot will guide you through the checklist.
+5. A maintainer will review your PR and provide feedback.
+
+Don't be afraid to ask questions! Open a [Discussion](https://github.com/Agentics-Rising/forge-cli/discussions) if you need help.
 
 ## Getting Help
 

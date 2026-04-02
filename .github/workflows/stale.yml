@@ -21,18 +21,19 @@ jobs:
             activity occurs. If this issue is still relevant, please leave a
             comment or remove the `stale` label.
           stale-pr-message: >
-            This pull request has been automatically marked as stale because it
-            has not had recent activity. It will be closed in 14 days if no
-            further activity occurs.
+            This PR has been automatically marked as stale because it has not
+            had recent activity. It will be closed in 14 days if no
+            further activity occurs. If you're still working on this, please
+            push an update or remove the `stale` label.
           close-issue-message: >
-            This issue was closed because it has been stale for 14 days with no
-            activity. Feel free to reopen if this is still relevant.
+            This issue was closed automatically due to inactivity. Feel free to
+            reopen if it's still relevant.
           close-pr-message: >
-            This pull request was closed because it has been stale for 14 days
-            with no activity.
+            This PR was closed automatically due to inactivity. Feel free to
+            reopen if you'd like to continue working on it.
           days-before-stale: 30
           days-before-close: 14
           stale-issue-label: stale
           stale-pr-label: stale
-          exempt-issue-labels: "pinned,security,good first issue"
-          exempt-pr-labels: "pinned,security"
+          exempt-issue-labels: "pinned,keep-open,security,good first issue"
+          exempt-pr-labels: "pinned,keep-open,security"
