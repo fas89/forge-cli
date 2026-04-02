@@ -9,6 +9,7 @@ import yaml
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 
 
 def load_yaml(relative_path: str):
@@ -22,6 +23,33 @@ def load_yaml(relative_path: str):
 def load_label_names():
     with (REPO_ROOT / ".github/labels.json").open("r", encoding="utf-8") as handle:
         return {item["name"] for item in json.load(handle)}
+
+
+def load_text(relative_path: str) -> str:
+    return (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+
+
+def iter_markdown_links(relative_path: str):
+    for match in MARKDOWN_LINK_RE.finditer(load_text(relative_path)):
+        yield match.group(1), match.group(2)
+
+
+def slugify_heading(heading: str) -> str:
+    heading = heading.strip().lower()
+    heading = re.sub(r"[^\w\s-]", "", heading)
+    heading = re.sub(r"\s+", "-", heading)
+    heading = re.sub(r"-{2,}", "-", heading)
+    return heading.strip("-")
+
+
+def markdown_anchors(relative_path: str) -> Set[str]:
+    anchors = set()
+    for line in load_text(relative_path).splitlines():
+        if line.startswith("#"):
+            heading = line.lstrip("#").strip()
+            if heading:
+                anchors.add(slugify_heading(heading))
+    return anchors
 
 
 def docs_reminder_outcome(body: str, files: List[str]) -> Dict[str, bool]:
@@ -331,6 +359,45 @@ class LabelSyncScenarioTests(unittest.TestCase):
         self.assertEqual(actions["unchanged"], {"needs-docs"})
         self.assertFalse(actions["create"])
         self.assertFalse(actions["update"])
+
+
+class MarkdownValidationTests(unittest.TestCase):
+    def test_changed_markdown_relative_links_resolve(self):
+        files = [
+            ".github/pull_request_template.md",
+            ".github/PULL_REQUEST_TEMPLATE/provider.md",
+            ".github/PULL_REQUEST_TEMPLATE/docs-only.md",
+            "CONTRIBUTING.md",
+        ]
+
+        for relative_path in files:
+            source = REPO_ROOT / relative_path
+            for _label, target in iter_markdown_links(relative_path):
+                if "://" in target or target.startswith("mailto:"):
+                    continue
+
+                path_part, anchor = (target.split("#", 1) + [""])[:2]
+                resolved = (source.parent / path_part).resolve() if path_part else source.resolve()
+
+                self.assertTrue(
+                    resolved.exists(),
+                    f"{relative_path} links to missing file: {target}",
+                )
+
+                if anchor:
+                    target_relative = resolved.relative_to(REPO_ROOT).as_posix()
+                    self.assertIn(
+                        anchor,
+                        markdown_anchors(target_relative),
+                        f"{relative_path} links to missing anchor: {target}",
+                    )
+
+    def test_general_pr_template_matches_docs_reminder_options(self):
+        template = load_text(".github/pull_request_template.md")
+
+        self.assertIn("**Docs PR linked:**", template)
+        self.assertIn("**No docs needed**", template)
+        self.assertIn("**Docs TODO**", template)
 
 
 if __name__ == "__main__":
