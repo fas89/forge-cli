@@ -249,6 +249,17 @@ class TestCreateDagsReadme:
 
 
 class TestCopyTemplate:
+    def test_existing_template_creates_target_dir(self, tmp_path, logger):
+        project_dir = tmp_path / "smoke-test"
+
+        result = copy_template(project_dir, "hello-world", logger)
+
+        assert result is True
+        assert project_dir.is_dir()
+        assert (project_dir / ".template-meta.yaml").exists()
+        assert (project_dir / "README.md").exists()
+        assert (project_dir / "contract.fluid.yaml").exists()
+
     def test_template_not_found(self, tmp_path, logger):
         result = copy_template(tmp_path / "out", "nonexistent-xyz-9999", logger)
         assert result is False
