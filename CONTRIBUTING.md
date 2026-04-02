@@ -122,7 +122,7 @@ A GitHub Actions workflow (`docs-reminder`) will automatically label your PR wit
 
 If you're building a new provider:
 
-1. Read the [Provider SDK documentation](https://fluidhq.io/docs/providers/sdk).
+1. Read the [Provider SDK documentation](https://agentics-rising.github.io/forge_docs/providers/).
 2. Subclass `BaseProvider` from `fluid_provider_sdk`.
 3. Register via entry points in your `pyproject.toml`:
    ```toml
@@ -130,7 +130,7 @@ If you're building a new provider:
    my_provider = "my_package:MyProvider"
    ```
 4. Include at least one working example contract.
-5. See [Architecture Deep-Dive](https://fluidhq.io/docs/providers/architecture) for internals.
+5. See the [provider documentation](https://agentics-rising.github.io/forge_docs/providers/) for internals.
 
 ## Development Setup
 
@@ -172,6 +172,6 @@ Don't be afraid to ask questions! Open a [Discussion](https://github.com/Agentic
 
 - **Discussions:** [GitHub Discussions](https://github.com/Agentics-Rising/forge-cli/discussions)
 - **Bugs:** [Issue Tracker](https://github.com/Agentics-Rising/forge-cli/issues)
-- **Docs:** [fluidhq.io/docs](https://fluidhq.io/docs)
+- **Docs:** [agentics-rising.github.io/forge_docs](https://agentics-rising.github.io/forge_docs/)
 
 Thank you for helping make FLUID Forge better!

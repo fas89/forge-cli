@@ -4,5 +4,5 @@ contact_links:
     url: https://github.com/Agentics-Rising/forge-cli/discussions
     about: Ask questions or start a discussion — please don't open an issue for general help.
   - name: Documentation
-    url: https://fluidhq.io/docs
+    url: https://agentics-rising.github.io/forge_docs/
     about: Check the docs before opening an issue — your answer might already be there.
