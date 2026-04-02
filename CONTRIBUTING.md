@@ -40,6 +40,21 @@ All contributions target the `main` branch. Use the following branch name prefix
 | `chore/` | CI, dependencies, maintenance | `chore/bump-ruff-version` |
 | `test/` | Test improvements | `test/add-provider-registry-tests` |
 
+### CI Gates on `main`
+
+All PRs to `main` must pass these checks before merge:
+
+| Check | What it does |
+|-------|-------------|
+| **Lint & Format** | `ruff check` + `black --check` (Python 3.12) |
+| **Test Matrix** | `pytest` on Python 3.9, 3.10, 3.11, 3.12 |
+| **Security Scan** | `bandit` with medium severity threshold |
+| **Build Smoke Test** | Wheel build + install verification |
+| **License Headers** | All `.py` files must have Apache 2.0 header |
+| **Docs Reminder** | Soft check — adds `needs-docs` label if no docs reference |
+
+PRs also require at least **1 approving review** from a [CODEOWNER](https://github.com/Agentics-Rising/forge-cli/blob/main/.github/CODEOWNERS).
+
 ### Submitting Code
 
 1. **Fork** the repository and create a branch from `main`:
@@ -109,6 +124,19 @@ A GitHub Actions workflow (`docs-reminder`) will automatically label your PR wit
 - CI/CD configuration updates
 - Dependency bumps
 
+### How to create a docs PR
+
+The documentation site lives in a separate repo. To create a companion docs PR:
+
+1. Fork and clone [Agentics-Rising/forge_docs](https://github.com/Agentics-Rising/forge_docs).
+2. Create a branch with the same name as your CLI branch (e.g. `feat/databricks-provider`).
+3. Make your documentation changes (Markdown files under `docs/`).
+4. Preview locally: `pip install mkdocs-material && mkdocs serve`
+5. Push and open a PR against `main` in forge_docs.
+6. Paste the docs PR link in your CLI PR description under the "Documentation" section.
+
+**Tip:** open the docs PR as a draft first, then finalize it alongside your CLI PR review.
+
 ## Coding Standards
 
 - **Python 3.9+** — no walrus operators in hot paths, use `from __future__ import annotations` sparingly.
@@ -166,7 +194,27 @@ New to FLUID Forge? Here's how to get started:
 4. Open a PR — our welcome bot will guide you through the checklist.
 5. A maintainer will review your PR and provide feedback.
 
+### What makes a good first issue?
+
+Maintainers tag issues as `good first issue` when they meet these criteria:
+- Scope is limited to 1–2 files
+- No deep domain knowledge required (e.g. provider internals, policy engine)
+- Clear acceptance criteria in the issue description
+- Existing tests can be used as a pattern
+
+If you find a bug or improvement that fits these criteria, feel free to suggest the `good first issue` label in a comment.
+
 Don't be afraid to ask questions! Open a [Discussion](https://github.com/Agentics-Rising/forge-cli/discussions) if you need help.
+
+## Recognition
+
+We value every contribution. Contributors are recognised in:
+
+- **Release notes** — your name and PR are included in the [CHANGELOG](CHANGELOG.md) for each release.
+- **Git history** — all commits preserve author attribution.
+- **GitHub contributors page** — [see all contributors](https://github.com/Agentics-Rising/forge-cli/graphs/contributors).
+
+Repeat contributors may be invited to join a maintainer team with write access.
 
 ## Getting Help
 
