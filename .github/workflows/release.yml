@@ -21,11 +21,7 @@ on:
         required: true
         type: string
 
-permissions:
-  contents: write      # GitHub Releases
-  id-token: write      # PyPI Trusted Publisher (OIDC)
-  packages: write      # GHCR Docker push
-  attestations: write  # Artifact attestations
+permissions: {}  # Job-level permissions only — least privilege
 
 env:
   PACKAGE_NAME: fluid-forge
@@ -39,6 +35,8 @@ jobs:
   quality-gate:
     name: Quality Gate
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       version: ${{ steps.meta.outputs.version }}
       is_prerelease: ${{ steps.meta.outputs.is_prerelease }}
@@ -112,6 +110,8 @@ jobs:
     name: Build Package
     needs: quality-gate
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v5
 
@@ -128,15 +128,41 @@ jobs:
           FLUID_BUILD_PROFILE: ${{ needs.quality-gate.outputs.profile }}
         run: python -m build
 
-      - name: Verify package
-        run: twine check dist/*
+      - name: Strict metadata check
+        run: twine check --strict dist/*
 
-      - name: Smoke-test wheel install
+      - name: Isolated wheel install and verify
         run: |
           python -m venv /tmp/test-install
           /tmp/test-install/bin/pip install dist/*.whl
-          /tmp/test-install/bin/python -c "import fluid_build; print(f'Version: {fluid_build.__version__}')"
-          /tmp/test-install/bin/python -c "import fluid_build; print(f'Providers: {list(fluid_build.get_enabled_providers())}')"
+
+          # Verify import resolves from site-packages
+          INSTALL_PATH=$(/tmp/test-install/bin/python -I -c "import fluid_build; print(fluid_build.__file__)")
+          echo "Installed at: ${INSTALL_PATH}"
+          if [[ "$INSTALL_PATH" != */site-packages/* ]]; then
+            echo "::error::fluid_build resolved outside site-packages"
+            exit 1
+          fi
+
+          # Verify critical runtime assets
+          /tmp/test-install/bin/python -I -c "
+          from pathlib import Path
+          import fluid_build
+          pkg = Path(fluid_build.__file__).parent
+          assert (pkg / 'build-manifest.yaml').exists(), 'build-manifest.yaml missing'
+          assert (pkg / 'templates' / 'hello-world' / 'contract.fluid.yaml').exists(), 'template missing'
+          assert (pkg / 'schemas').is_dir(), 'schemas dir missing'
+          print('All runtime assets verified')
+          "
+
+          # Verify CLI and version
+          /tmp/test-install/bin/fluid --version
+
+          # Functional scaffold check
+          cd /tmp
+          /tmp/test-install/bin/fluid init release-smoke --template hello-world
+          test -f release-smoke/contract.fluid.yaml || { echo "::error::scaffold failed"; exit 1; }
+          echo "Release smoke test passed"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v5
@@ -171,6 +197,60 @@ jobs:
           repository-url: https://test.pypi.org/legacy/
 
   # ──────────────────────────────────────────────────────────────
+  # 3a-verify. Install from TestPyPI and verify package
+  # ──────────────────────────────────────────────────────────────
+  verify-testpypi:
+    name: Verify TestPyPI Install
+    needs: [quality-gate, publish-testpypi]
+    if: needs.quality-gate.outputs.is_prerelease == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Wait for TestPyPI index
+        run: sleep 30
+
+      - name: Install from TestPyPI
+        run: |
+          python -m venv /tmp/testpypi-verify
+          /tmp/testpypi-verify/bin/pip install \
+            --index-url https://test.pypi.org/simple/ \
+            --extra-index-url https://pypi.org/simple/ \
+            "fluid-forge==${{ needs.quality-gate.outputs.version }}"
+
+      - name: Verify installed package
+        run: |
+          # Verify import and version
+          /tmp/testpypi-verify/bin/python -I -c "
+          import fluid_build
+          assert fluid_build.__version__ == '${{ needs.quality-gate.outputs.version }}', \
+              f'Version mismatch: {fluid_build.__version__}'
+          print(f'Version OK: {fluid_build.__version__}')
+          "
+
+          # Verify runtime assets
+          /tmp/testpypi-verify/bin/python -I -c "
+          from pathlib import Path
+          import fluid_build
+          pkg = Path(fluid_build.__file__).parent
+          assert (pkg / 'build-manifest.yaml').exists(), 'build-manifest.yaml missing from wheel'
+          assert (pkg / 'templates' / 'hello-world' / 'contract.fluid.yaml').exists(), 'template missing from wheel'
+          assert (pkg / 'schemas').is_dir(), 'schemas dir missing from wheel'
+          print('All runtime assets present')
+          "
+
+          # Verify CLI
+          /tmp/testpypi-verify/bin/fluid --version
+
+          # Functional scaffold test
+          cd /tmp
+          /tmp/testpypi-verify/bin/fluid init testpypi-scaffold --template hello-world
+          test -f testpypi-scaffold/contract.fluid.yaml || { echo '::error::scaffold failed'; exit 1; }
+          echo "TestPyPI package verified successfully"
+
+  # ──────────────────────────────────────────────────────────────
   # 3b. Publish to PyPI (stable tags only)
   # ──────────────────────────────────────────────────────────────
   publish-pypi:
@@ -200,6 +280,8 @@ jobs:
     name: GitHub Release
     needs: [quality-gate, build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v5
         with:
@@ -274,6 +356,9 @@ jobs:
     name: Docker Image (GHCR)
     needs: [quality-gate, build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: ${{ github.repository }}
