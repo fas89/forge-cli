@@ -7,7 +7,6 @@ from typing import Dict, List, Optional, Set
 
 import yaml
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 
@@ -91,7 +90,8 @@ def docs_reminder_actions(
 
     return {
         "add_needs_docs": outcome["should_add_needs_docs"] and "needs-docs" not in existing_labels,
-        "remove_needs_docs": outcome["should_remove_needs_docs"] and "needs-docs" in existing_labels,
+        "remove_needs_docs": outcome["should_remove_needs_docs"]
+        and "needs-docs" in existing_labels,
         "create_comment": outcome["should_comment"] and not already_commented,
     }
 
@@ -106,18 +106,16 @@ def compute_labels(files: List[str]) -> Set[str]:
             if isinstance(patterns, str):
                 patterns = [patterns]
 
-            if any(
-                fnmatchcase(file_path, pattern)
-                for file_path in files
-                for pattern in patterns
-            ):
+            if any(fnmatchcase(file_path, pattern) for file_path in files for pattern in patterns):
                 labels.add(label)
                 break
 
     return labels
 
 
-def sync_actions(existing: Dict[str, Dict[str, str]], desired: List[Dict[str, str]]) -> Dict[str, Set[str]]:
+def sync_actions(
+    existing: Dict[str, Dict[str, str]], desired: List[Dict[str, str]]
+) -> Dict[str, Set[str]]:
     actions = {"create": set(), "update": set(), "unchanged": set()}
 
     for label in desired:
@@ -331,12 +329,23 @@ class LabelSyncScenarioTests(unittest.TestCase):
 
     def test_sync_updates_changed_labels_and_leaves_matching_labels_alone(self):
         desired = [
-            {"name": "needs-docs", "color": "5319e7", "description": "Pull request needs a linked docs update or justification"},
-            {"name": "ci", "color": "bfd4f2", "description": "Continuous integration and automation changes"},
+            {
+                "name": "needs-docs",
+                "color": "5319e7",
+                "description": "Pull request needs a linked docs update or justification",
+            },
+            {
+                "name": "ci",
+                "color": "bfd4f2",
+                "description": "Continuous integration and automation changes",
+            },
         ]
         existing = {
             "needs-docs": {"color": "000000", "description": "old"},
-            "ci": {"color": "bfd4f2", "description": "Continuous integration and automation changes"},
+            "ci": {
+                "color": "bfd4f2",
+                "description": "Continuous integration and automation changes",
+            },
         }
 
         actions = sync_actions(existing=existing, desired=desired)
@@ -347,10 +356,17 @@ class LabelSyncScenarioTests(unittest.TestCase):
 
     def test_sync_leaves_unmanaged_existing_labels_untouched(self):
         desired = [
-            {"name": "needs-docs", "color": "5319e7", "description": "Pull request needs a linked docs update or justification"},
+            {
+                "name": "needs-docs",
+                "color": "5319e7",
+                "description": "Pull request needs a linked docs update or justification",
+            },
         ]
         existing = {
-            "needs-docs": {"color": "5319e7", "description": "Pull request needs a linked docs update or justification"},
+            "needs-docs": {
+                "color": "5319e7",
+                "description": "Pull request needs a linked docs update or justification",
+            },
             "legacy-label": {"color": "123456", "description": "left alone"},
         }
 
