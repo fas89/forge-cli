@@ -311,12 +311,12 @@ class TestScanMode:
 
 
 class TestWizardMode:
-    def test_wizard_import_error_no_rich_returns_1(self, logger):
+    def test_wizard_import_error_no_rich_returns_1(self, logger, monkeypatch):
         from fluid_build.cli.init import wizard_mode
 
         args = _make_args(provider="local")
         # Remove wizard module if cached so import fails inside wizard_mode
-        sys.modules.pop("fluid_build.cli.wizard", None)
+        monkeypatch.delitem(sys.modules, "fluid_build.cli.wizard", raising=False)
         with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
             with patch.dict("sys.modules", {"fluid_build.cli.wizard": None}):
                 result = wizard_mode(args, logger)
@@ -357,7 +357,7 @@ class TestBlankMode:
         monkeypatch.chdir(tmp_path)
         args = _make_args(name="blank-new-project", provider="local", dry_run=False)
         # Remove product_new from sys.modules to ensure ImportError inside blank_mode
-        sys.modules.pop("fluid_build.cli.product_new", None)
+        monkeypatch.delitem(sys.modules, "fluid_build.cli.product_new", raising=False)
         with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
             with patch.dict("sys.modules", {"fluid_build.cli.product_new": None}):
                 result = blank_mode(args, logger)
@@ -374,7 +374,7 @@ class TestBlankMode:
         mock_run = MagicMock(return_value=0)
         mock_mod = MagicMock()
         mock_mod.run = mock_run
-        sys.modules.pop("fluid_build.cli.product_new", None)
+        monkeypatch.delitem(sys.modules, "fluid_build.cli.product_new", raising=False)
         with patch.dict("sys.modules", {"fluid_build.cli.product_new": mock_mod}):
             result = blank_mode(args, logger)
         assert result == 0
@@ -385,7 +385,7 @@ class TestBlankMode:
 
         monkeypatch.chdir(tmp_path)
         args = _make_args(provider="local", dry_run=False)
-        sys.modules.pop("fluid_build.cli.product_new", None)
+        monkeypatch.delitem(sys.modules, "fluid_build.cli.product_new", raising=False)
         with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
             with patch.dict("sys.modules", {"fluid_build.cli.product_new": None}):
                 result = blank_mode(args, logger)
@@ -406,7 +406,7 @@ class TestTemplateMode:
         args = _make_args(template="customer-360", name="my-c360", provider="local")
         mock_blueprint = MagicMock()
         mock_blueprint.create_from_template.return_value = True
-        sys.modules.pop("fluid_build.cli.blueprint", None)
+        monkeypatch.delitem(sys.modules, "fluid_build.cli.blueprint", raising=False)
         with patch.dict("sys.modules", {"fluid_build.cli.blueprint": mock_blueprint}):
             result = template_mode(args, logger)
         assert result == 0
@@ -418,7 +418,7 @@ class TestTemplateMode:
         args = _make_args(template="bad-tmpl", name="x", provider="local")
         mock_blueprint = MagicMock()
         mock_blueprint.create_from_template.return_value = False
-        sys.modules.pop("fluid_build.cli.blueprint", None)
+        monkeypatch.delitem(sys.modules, "fluid_build.cli.blueprint", raising=False)
         with patch.dict("sys.modules", {"fluid_build.cli.blueprint": mock_blueprint}):
             result = template_mode(args, logger)
         assert result == 1
@@ -429,7 +429,7 @@ class TestTemplateMode:
 
         monkeypatch.chdir(tmp_path)
         args = _make_args(template="my-tmpl", name="proj", provider="local")
-        sys.modules.pop("fluid_build.cli.blueprint", None)
+        monkeypatch.delitem(sys.modules, "fluid_build.cli.blueprint", raising=False)
         with patch.dict("sys.modules", {"fluid_build.cli.blueprint": None}):
             result = template_mode(args, logger)
         assert result == 0
@@ -440,7 +440,7 @@ class TestTemplateMode:
 
         monkeypatch.chdir(tmp_path)
         args = _make_args(template="bad-tmpl", name="proj", provider="local")
-        sys.modules.pop("fluid_build.cli.blueprint", None)
+        monkeypatch.delitem(sys.modules, "fluid_build.cli.blueprint", raising=False)
         with patch.dict("sys.modules", {"fluid_build.cli.blueprint": None}):
             result = template_mode(args, logger)
         assert result == 1
@@ -452,7 +452,7 @@ class TestTemplateMode:
         args = _make_args(template="sales-analytics", name=None, provider="local")
         mock_blueprint = MagicMock()
         mock_blueprint.create_from_template.return_value = True
-        sys.modules.pop("fluid_build.cli.blueprint", None)
+        monkeypatch.delitem(sys.modules, "fluid_build.cli.blueprint", raising=False)
         with patch.dict("sys.modules", {"fluid_build.cli.blueprint": mock_blueprint}):
             result = template_mode(args, logger)
         assert result == 0
@@ -548,14 +548,14 @@ class TestRunLocalPipeline:
             result = run_local_pipeline(tmp_path, logger)
         assert result is None
 
-    def test_apply_run_called_on_success(self, tmp_path, logger):
+    def test_apply_run_called_on_success(self, tmp_path, logger, monkeypatch):
         from fluid_build.cli.init import run_local_pipeline
 
         (tmp_path / "contract.fluid.yaml").write_text("name: test\n")
         mock_apply = MagicMock(return_value=0)
         mock_apply_mod = MagicMock()
         mock_apply_mod.run = mock_apply
-        sys.modules.pop("fluid_build.cli.apply", None)
+        monkeypatch.delitem(sys.modules, "fluid_build.cli.apply", raising=False)
         with patch.dict("sys.modules", {"fluid_build.cli.apply": mock_apply_mod}):
             with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
                 with patch("fluid_build.cli.init.console") as mock_con:
@@ -563,12 +563,12 @@ class TestRunLocalPipeline:
                     run_local_pipeline(tmp_path, logger)
         mock_apply.assert_called_once()
 
-    def test_exception_handled_gracefully(self, tmp_path, logger):
+    def test_exception_handled_gracefully(self, tmp_path, logger, monkeypatch):
         from fluid_build.cli.init import run_local_pipeline
 
         mock_apply_mod = MagicMock()
         mock_apply_mod.run.side_effect = RuntimeError("apply failed")
-        sys.modules.pop("fluid_build.cli.apply", None)
+        monkeypatch.delitem(sys.modules, "fluid_build.cli.apply", raising=False)
         with patch.dict("sys.modules", {"fluid_build.cli.apply": mock_apply_mod}):
             with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
                 with patch("fluid_build.cli.init.console"):
@@ -918,13 +918,13 @@ class TestInitLocalDb:
             with patch.dict("sys.modules", {"duckdb": None}):
                 init_local_db(tmp_path, "local", logger)
 
-    def test_duckdb_available_creates_db_dir(self, tmp_path, logger):
+    def test_duckdb_available_creates_db_dir(self, tmp_path, logger, monkeypatch):
         from fluid_build.cli.init import init_local_db
 
         mock_conn = MagicMock()
         mock_duckdb = MagicMock()
         mock_duckdb.connect.return_value = mock_conn
-        sys.modules.pop("duckdb", None)
+        monkeypatch.delitem(sys.modules, "duckdb", raising=False)
         with patch.dict("sys.modules", {"duckdb": mock_duckdb}):
             with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
                 init_local_db(tmp_path, "local", logger)
