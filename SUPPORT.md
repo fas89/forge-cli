@@ -6,12 +6,12 @@
 |---------|---------|------|
 | **GitHub Discussions** | Questions, ideas, show & tell | [Discussions](https://github.com/Agentics-Rising/forge-cli/discussions) |
 | **GitHub Issues** | Bug reports and feature requests | [Issues](https://github.com/Agentics-Rising/forge-cli/issues) |
-| **Documentation** | Guides, API reference, examples | [fluidhq.io/docs](https://fluidhq.io/docs) |
+| **Documentation** | Guides, API reference, examples | [agentics-rising.github.io/forge_docs](https://agentics-rising.github.io/forge_docs/) |
 
 ## Before Opening an Issue
 
 1. **Search existing issues** to check if your problem has already been reported.
-2. **Check the docs** at [fluidhq.io/docs](https://fluidhq.io/docs) for guidance.
+2. **Check the docs** at [agentics-rising.github.io/forge_docs](https://agentics-rising.github.io/forge_docs/) for guidance.
 3. **Try the latest version** — your issue may already be fixed:
    ```bash
    pip install --upgrade fluid-forge

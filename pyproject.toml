@@ -106,7 +106,6 @@ dev = [
   "pytest-cov>=4.1",
   "pytest-asyncio>=0.23",        # For async test support
   "pytest-randomly>=3.15",       # Randomize test order to catch hidden deps
-  "pytest-rerunfailures>=14.0",  # Retry flaky tests (network, timing)
   "mypy>=1.10",
   "ruff>=0.5",
   "types-PyYAML>=6.0.12",
@@ -135,7 +134,7 @@ odps = "fluid_build.providers.odps:OdpsProvider"
 Homepage = "https://fluidhq.io"
 Repository = "https://github.com/Agentics-Rising/forge-cli"
 Issues = "https://github.com/Agentics-Rising/forge-cli/issues"
-Documentation = "https://fluidhq.io/docs"
+Documentation = "https://agentics-rising.github.io/forge_docs/"
 
 [tool.setuptools]
 package-dir = {"" = "."}

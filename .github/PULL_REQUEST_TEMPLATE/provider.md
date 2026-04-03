@@ -29,7 +29,7 @@ Closes #
 - [ ] Unit tests are added under `tests/providers/`
 - [ ] All new and existing tests pass (`pytest`)
 - [ ] I have run `ruff check` and `black` with no errors
-- [ ] New Python files include license headers (`python scripts/add_license_headers.py`)
+- [ ] New maintained Python files include license headers (`python scripts/add_license_headers.py`; `examples/**` exempt)
 
 ## Testing
 

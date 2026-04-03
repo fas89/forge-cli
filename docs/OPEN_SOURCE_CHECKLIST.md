@@ -112,7 +112,7 @@ find . -type f \( -name "*.py" -o -name "*.yml" -o -name "*.yaml" \
 Homepage = "https://fluidhq.io"
 Repository = "https://github.com/agentics-rising/forge-cli"
 Issues = "https://github.com/agentics-rising/forge-cli/issues"
-Documentation = "https://fluidhq.io/docs"
+Documentation = "https://agentics-rising.github.io/forge_docs/"
 ```
 
 ### 3d. CODEOWNERS (target state)

@@ -56,6 +56,134 @@ def _make_engine(console=None):
         )
 
 
+class _RoutingEngine(ForgeEngine):
+    """Small harness for behavior-focused public workflow tests."""
+
+    def __init__(
+        self,
+        *,
+        interactive_result=True,
+        non_interactive_result=True,
+        dry_run_result=True,
+        show_welcome_error=None,
+    ):
+        self.calls = []
+        self._interactive_result = interactive_result
+        self._non_interactive_result = non_interactive_result
+        self._dry_run_result = dry_run_result
+        self._show_welcome_error = show_welcome_error
+        with (
+            patch("fluid_build.forge.core.engine.initialize_all_registries"),
+            patch("fluid_build.forge.core.engine.get_registry_status", return_value=_STATUS_OK),
+        ):
+            super().__init__(console=MagicMock(), auto_init_registries=True)
+
+    def _show_welcome(self):
+        self.calls.append("show_welcome")
+        if self._show_welcome_error:
+            raise self._show_welcome_error
+
+    def _run_interactive(self):
+        self.calls.append("run_interactive")
+        return self._interactive_result
+
+    def _run_non_interactive(self):
+        self.calls.append("run_non_interactive")
+        return self._non_interactive_result
+
+    def _run_dry_run(self):
+        self.calls.append("run_dry_run")
+        return self._dry_run_result
+
+
+class _WorkflowHarnessEngine(ForgeEngine):
+    """Behavior-oriented harness for intermediate workflow methods."""
+
+    def __init__(self, **behavior):
+        self.calls = []
+        self.behavior = behavior
+        with (
+            patch("fluid_build.forge.core.engine.initialize_all_registries"),
+            patch("fluid_build.forge.core.engine.get_registry_status", return_value=_STATUS_OK),
+        ):
+            super().__init__(console=MagicMock(), auto_init_registries=True)
+
+    def _apply_intelligent_defaults(self):
+        self.calls.append("apply_defaults")
+        error = self.behavior.get("defaults_error")
+        if error:
+            raise error
+        return super()._apply_intelligent_defaults()
+
+    def _validate_configuration(self):
+        self.calls.append("validate_configuration")
+        error = self.behavior.get("validate_error")
+        if error:
+            raise error
+        return self.behavior.get("validate_result", True)
+
+    def _create_generation_context(self):
+        self.calls.append("create_generation_context")
+        self.generation_context = MagicMock()
+        self.generation_context.target_dir = Path("/tmp/generated")
+
+    def _execute_generation(self):
+        self.calls.append("execute_generation")
+        return self.behavior.get("execute_result", True)
+
+    def _preview_generation(self):
+        self.calls.append("preview_generation")
+        return self.behavior.get("preview_result", True)
+
+    def _run_interactive(self):
+        self.calls.append("run_interactive")
+        error = self.behavior.get("interactive_error")
+        if error:
+            raise error
+        return self.behavior.get("interactive_result", True)
+
+
+class _FakeTemplate:
+    def __init__(self, structure=None, contract=None, validation_result=(True, [])):
+        self.structure = structure or {
+            "src/": {"main.py": "print('hello')"},
+            "docs/": {"README.md": "# Hello"},
+        }
+        self.contract = contract or {
+            "fluidVersion": "0.5.7",
+            "kind": "DataProduct",
+            "name": "demo",
+        }
+        self.validation_result = validation_result
+
+    def validate_configuration(self, _config):
+        return self.validation_result
+
+    def generate_structure(self, _context):
+        return self.structure
+
+    def generate_contract(self, _context):
+        return self.contract
+
+    def post_generation_hooks(self, _context):
+        return None
+
+    def get_metadata(self):
+        return MagicMock(name="starter")
+
+
+class _FakeProvider:
+    def __init__(self, config=None, validation_result=(True, [])):
+        self.config = config or {"provider": "local", "project": "demo"}
+        self.validation_result = validation_result
+
+    def validate_configuration(self, _config):
+        return self.validation_result
+
+    def generate_config(self, _context):
+        return self.config
+
+
 # ---------------------------------------------------------------------------
 # Module-level constant
 # ---------------------------------------------------------------------------
@@ -136,83 +264,42 @@ class TestForgeEngineInit:
 
 
 class TestForgeEngineRun:
-    def test_run_calls_show_welcome(self):
-        engine = _make_engine()
-        with (
-            patch.object(engine, "_show_welcome") as mock_welcome,
-            patch.object(engine, "_run_interactive", return_value=True),
-        ):
-            engine.run()
-        mock_welcome.assert_called_once()
-
-    def test_run_sets_target_dir_as_path(self):
-        engine = _make_engine()
-        with (
-            patch.object(engine, "_show_welcome"),
-            patch.object(engine, "_run_interactive", return_value=True),
-        ):
-            engine.run(target_dir="/tmp/myproject")
+    def test_run_sets_initial_config_and_uses_interactive_path(self):
+        engine = _RoutingEngine(interactive_result=True)
+        result = engine.run(target_dir="/tmp/myproject", template="starter", provider="local")
+        assert result is True
+        assert engine.calls == ["show_welcome", "run_interactive"]
         assert engine.project_config["target_dir"] == Path("/tmp/myproject")
-
-    def test_run_sets_template(self):
-        engine = _make_engine()
-        with (
-            patch.object(engine, "_show_welcome"),
-            patch.object(engine, "_run_interactive", return_value=True),
-        ):
-            engine.run(template="starter")
         assert engine.project_config["template"] == "starter"
-
-    def test_run_sets_provider(self):
-        engine = _make_engine()
-        with (
-            patch.object(engine, "_show_welcome"),
-            patch.object(engine, "_run_interactive", return_value=True),
-        ):
-            engine.run(provider="local")
         assert engine.project_config["provider"] == "local"
 
-    def test_run_calls_dry_run_when_flag_set(self):
-        engine = _make_engine()
-        with (
-            patch.object(engine, "_show_welcome"),
-            patch.object(engine, "_run_dry_run", return_value=True) as mock_dry,
-        ):
-            result = engine.run(dry_run=True)
-        mock_dry.assert_called_once()
+    def test_run_routes_to_dry_run_mode(self):
+        engine = _RoutingEngine(dry_run_result=True)
+        result = engine.run(dry_run=True)
         assert result is True
+        assert engine.calls == ["show_welcome", "run_dry_run"]
 
-    def test_run_calls_non_interactive_when_flag_set(self):
-        engine = _make_engine()
-        with (
-            patch.object(engine, "_show_welcome"),
-            patch.object(engine, "_run_non_interactive", return_value=True) as mock_ni,
-        ):
-            result = engine.run(non_interactive=True)
-        mock_ni.assert_called_once()
+    def test_run_routes_to_non_interactive_mode(self):
+        engine = _RoutingEngine(non_interactive_result=True)
+        result = engine.run(non_interactive=True)
         assert result is True
-
-    def test_run_default_calls_interactive(self):
-        engine = _make_engine()
-        with (
-            patch.object(engine, "_show_welcome"),
-            patch.object(engine, "_run_interactive", return_value=True) as mock_int,
-        ):
-            result = engine.run()
-        mock_int.assert_called_once()
-        assert result is True
+        assert engine.calls == ["show_welcome", "run_non_interactive"]
 
     def test_run_returns_false_on_keyboard_interrupt(self):
-        engine = _make_engine()
-        with patch.object(engine, "_show_welcome", side_effect=KeyboardInterrupt):
+        engine = _RoutingEngine(show_welcome_error=KeyboardInterrupt())
+        with patch("fluid_build.forge.core.engine.rprint") as mock_rprint:
             result = engine.run()
         assert result is False
+        assert engine.calls == ["show_welcome"]
+        assert any("interrupted" in str(call).lower() for call in mock_rprint.call_args_list)
 
     def test_run_returns_false_on_generic_exception(self):
-        engine = _make_engine()
-        with patch.object(engine, "_show_welcome", side_effect=RuntimeError("boom")):
+        engine = _RoutingEngine(show_welcome_error=RuntimeError("boom"))
+        with patch("fluid_build.forge.core.engine.rprint") as mock_rprint:
             result = engine.run()
         assert result is False
+        assert engine.calls == ["show_welcome"]
+        assert any("boom" in str(call) for call in mock_rprint.call_args_list)
 
 
 # ---------------------------------------------------------------------------
@@ -221,45 +308,84 @@ class TestForgeEngineRun:
 
 
 class TestRunWithConfig:
-    def test_updates_project_config(self):
+    def test_returns_false_when_validation_fails(self, tmp_path):
         engine = _make_engine()
-        with patch.object(engine, "_validate_configuration", return_value=False):
-            engine.run_with_config({"name": "hello"})
-        assert engine.project_config["name"] == "hello"
-
-    def test_returns_false_when_validation_fails(self):
-        engine = _make_engine()
-        with patch.object(engine, "_validate_configuration", return_value=False):
-            result = engine.run_with_config({})
-        assert result is False
-
-    def test_calls_execute_generation_on_success(self):
-        engine = _make_engine()
+        config = {
+            "name": "demo",
+            "template": "starter",
+            "provider": "local",
+            "target_dir": tmp_path / "demo",
+        }
         with (
-            patch.object(engine, "_validate_configuration", return_value=True),
-            patch.object(engine, "_create_generation_context"),
-            patch.object(engine, "_execute_generation", return_value=True) as mock_exec,
+            patch("fluid_build.forge.core.engine.validation_registry") as validation_registry,
+            patch("fluid_build.forge.core.engine.template_registry") as template_registry,
+            patch("fluid_build.forge.core.engine.provider_registry") as provider_registry,
         ):
-            result = engine.run_with_config({})
-        mock_exec.assert_called_once()
-        assert result is True
-
-    def test_dry_run_calls_preview(self):
-        engine = _make_engine()
-        with (
-            patch.object(engine, "_validate_configuration", return_value=True),
-            patch.object(engine, "_create_generation_context"),
-            patch.object(engine, "_preview_generation", return_value=True) as mock_prev,
-        ):
-            result = engine.run_with_config({}, dry_run=True)
-        mock_prev.assert_called_once()
-        assert result is True
-
-    def test_exception_returns_false(self):
-        engine = _make_engine()
-        with patch.object(engine, "_validate_configuration", side_effect=RuntimeError("err")):
-            result = engine.run_with_config({})
+            validation_registry.validate_all.return_value = None
+            template_registry.get.return_value = _FakeTemplate(validation_result=(False, ["missing description"]))
+            provider_registry.get.return_value = _FakeProvider()
+            result = engine.run_with_config(config)
         assert result is False
+        assert engine.project_config["name"] == "demo"
+        assert not (tmp_path / "demo").exists()
+
+    def test_run_with_config_generates_files_on_success(self, tmp_path):
+        engine = _make_engine()
+        target_dir = tmp_path / "generated"
+        config = {
+            "name": "demo",
+            "description": "A demo project",
+            "template": "starter",
+            "provider": "local",
+            "target_dir": target_dir,
+            "enable_ci_cd": False,
+            "provider_config": {"region": "eu-west-1"},
+        }
+        template = _FakeTemplate()
+        provider = _FakeProvider()
+        with (
+            patch("fluid_build.forge.core.engine.validation_registry") as validation_registry,
+            patch("fluid_build.forge.core.engine.template_registry") as template_registry,
+            patch("fluid_build.forge.core.engine.provider_registry") as provider_registry,
+            patch("fluid_build.forge.core.engine.generator_registry") as generator_registry,
+            patch("fluid_build.forge.core.engine.extension_registry") as extension_registry,
+        ):
+            validation_registry.validate_all.return_value = None
+            template_registry.get.return_value = template
+            provider_registry.get.return_value = provider
+            generator_registry.list_available.return_value = []
+            generator_registry.get_dependency_order.return_value = []
+            extension_registry.trigger_lifecycle_hook.return_value = None
+            result = engine.run_with_config(config)
+        assert result is True
+        assert (target_dir / "contract.fluid.yaml").exists()
+        assert (target_dir / "config" / "provider.json").exists()
+        assert engine.generation_context is not None
+        assert engine.generation_context.target_dir == target_dir
+
+    def test_run_with_config_dry_run_leaves_filesystem_unchanged(self, tmp_path):
+        engine = _make_engine()
+        target_dir = tmp_path / "preview"
+        config = {
+            "name": "demo",
+            "description": "A demo project",
+            "template": "starter",
+            "provider": "local",
+            "target_dir": target_dir,
+        }
+        with (
+            patch("fluid_build.forge.core.engine.validation_registry") as validation_registry,
+            patch("fluid_build.forge.core.engine.template_registry") as template_registry,
+            patch("fluid_build.forge.core.engine.provider_registry") as provider_registry,
+        ):
+            validation_registry.validate_all.return_value = None
+            template_registry.get.return_value = _FakeTemplate()
+            provider_registry.get.return_value = _FakeProvider()
+            result = engine.run_with_config(config, dry_run=True)
+        assert result is True
+        assert not target_dir.exists()
+        assert engine.generation_context is not None
+        assert engine.generation_context.target_dir == target_dir
 
 
 # ---------------------------------------------------------------------------
@@ -269,31 +395,26 @@ class TestRunWithConfig:
 
 class TestRunNonInteractive:
     def test_applies_defaults_then_validates(self):
-        engine = _make_engine()
-        with (
-            patch.object(engine, "_apply_intelligent_defaults") as mock_def,
-            patch.object(engine, "_validate_configuration", return_value=False),
-        ):
-            result = engine._run_non_interactive()
-        mock_def.assert_called_once()
+        engine = _WorkflowHarnessEngine(validate_result=False)
+        result = engine._run_non_interactive()
         assert result is False
+        assert engine.calls == ["apply_defaults", "validate_configuration"]
+        assert engine.project_config["name"] == "my-data-product"
 
     def test_executes_generation_on_valid_config(self):
-        engine = _make_engine()
-        with (
-            patch.object(engine, "_apply_intelligent_defaults"),
-            patch.object(engine, "_validate_configuration", return_value=True),
-            patch.object(engine, "_create_generation_context"),
-            patch.object(engine, "_execute_generation", return_value=True) as mock_exec,
-        ):
-            result = engine._run_non_interactive()
-        mock_exec.assert_called_once()
+        engine = _WorkflowHarnessEngine(validate_result=True, execute_result=True)
+        result = engine._run_non_interactive()
         assert result is True
+        assert engine.calls == [
+            "apply_defaults",
+            "validate_configuration",
+            "create_generation_context",
+            "execute_generation",
+        ]
 
     def test_exception_returns_false(self):
-        engine = _make_engine()
-        with patch.object(engine, "_apply_intelligent_defaults", side_effect=RuntimeError("bad")):
-            result = engine._run_non_interactive()
+        engine = _WorkflowHarnessEngine(defaults_error=RuntimeError("bad"))
+        result = engine._run_non_interactive()
         assert result is False
 
 
@@ -304,31 +425,21 @@ class TestRunNonInteractive:
 
 class TestRunDryRun:
     def test_calls_interactive_when_no_template(self):
-        engine = _make_engine()
-        with (
-            patch.object(engine, "_run_interactive", return_value=False) as mock_int,
-            patch.object(engine, "_preview_generation", return_value=True),
-        ):
-            # No template set — should fall into interactive path
-            result = engine._run_dry_run()
-        mock_int.assert_called_once()
+        engine = _WorkflowHarnessEngine(interactive_result=False, preview_result=True)
+        result = engine._run_dry_run()
         assert result is False
+        assert engine.calls == ["run_interactive"]
 
     def test_applies_defaults_when_template_set(self):
-        engine = _make_engine()
+        engine = _WorkflowHarnessEngine(preview_result=True)
         engine.project_config["template"] = "starter"
-        with (
-            patch.object(engine, "_apply_intelligent_defaults") as mock_def,
-            patch.object(engine, "_preview_generation", return_value=True),
-        ):
-            result = engine._run_dry_run()
-        mock_def.assert_called_once()
+        result = engine._run_dry_run()
         assert result is True
+        assert engine.calls == ["apply_defaults", "preview_generation"]
 
     def test_returns_false_on_exception(self):
-        engine = _make_engine()
-        with patch.object(engine, "_run_interactive", side_effect=RuntimeError("err")):
-            result = engine._run_dry_run()
+        engine = _WorkflowHarnessEngine(interactive_error=RuntimeError("err"))
+        result = engine._run_dry_run()
         assert result is False
 
 

@@ -28,7 +28,7 @@
 
 | Card | Priority | Status | Evidence |
 |------|----------|:------:|----------|
-| **1.1** Add License Headers | P0 | ✅ | `scripts/add_license_headers.py` exists. 339/339 `.py` files have `Copyright 2024-2026 Agentics Transformation Ltd` Apache 2.0 headers. |
+| **1.1** Add License Headers | P0 | ✅ | `scripts/add_license_headers.py` exists. CI checks tracked Python files repo-wide except illustrative `examples/**`, and maintained source files carry the Apache 2.0 header. |
 | **1.2** Audit Third-Party Dependencies | P0 | ✅ | `THIRD_PARTY_LICENSES.md` generated (46 packages). No GPL-only or AGPL deps. `text-unidecode` is dual-licensed Artistic/GPL — using under Artistic License. |
 | **1.3** Create Community Documents | P0 | ✅ | `CONTRIBUTING.md` (121 lines), `CODE_OF_CONDUCT.md` (133 lines), `SECURITY.md` (63 lines) all exist and are linked from `README.md`. |
 | **1.4** Remove Proprietary References | P0 | ✅ | No "agentics internal", "confidential" (as IP), or "proprietary" references found. One benign reference to Bitol.io's "proprietary ODPS variant" in `odps_standard.py:21` — describes a third-party spec, not Agentics IP. |
