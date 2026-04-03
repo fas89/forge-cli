@@ -183,6 +183,7 @@ class TestAWSCredentialAdapter:
     @patch.object(AWSCredentialAdapter, "get_credential")
     def test_get_session_with_explicit_keys(self, mock_get_cred):
         pytest.importorskip("boto3")
+
         def side_effect(key, **kwargs):
             return {"aws_access_key_id": "AKID", "aws_secret_access_key": "SECRET"}.get(key)
 

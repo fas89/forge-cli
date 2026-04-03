@@ -132,9 +132,7 @@ class TestCommandCenterReporter:
     def test_register_execution_noop_when_disabled(self):
         config = self._make_config(configured=False)
         reporter = CommandCenterReporter(config)
-        reporter.register_execution(
-            execution_id="123", command="validate"
-        )
+        reporter.register_execution(execution_id="123", command="validate")
         assert reporter.queue.empty()
 
     def test_update_execution_noop_when_disabled(self):
