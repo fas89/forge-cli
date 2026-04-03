@@ -311,29 +311,22 @@ class TestRegisterCoreCommands:
         assert True
 
     def test_register_core_commands_adds_validate_fallback(self):
+        from fluid_build.cli import bootstrap as bootstrap_mod
         from fluid_build.cli.bootstrap import register_core_commands
 
         p = argparse.ArgumentParser()
         sp = p.add_subparsers(dest="cmd")
 
-        with patch.dict("os.environ", {"FLUID_BUILD_PROFILE": "stable"}):
-            # Make all module imports fail so we hit the fallback path
-            with patch(
-                "fluid_build.cli.bootstrap.importlib.import_module",
-                side_effect=ImportError("no module"),
-            ):
-                with patch(
-                    "fluid_build.cli.bootstrap.importlib",
-                    **{"import_module.side_effect": ImportError("no module")},
-                ):
-                    # Allow the validate fallback to be registered
-                    try:
-                        from fluid_build.cli import validate  # noqa: F401
+        # Save the real importlib reference, then replace with a mock
+        # that fails on import_module. Using patch.object avoids the
+        # nested-patch issue where patching importlib.import_module globally
+        # breaks the patch() machinery itself.
+        fake_importlib = MagicMock()
+        fake_importlib.import_module.side_effect = ImportError("no module")
 
-                        has_validate = True
-                    except ImportError:
-                        has_validate = False
-                    register_core_commands(sp)
+        with patch.dict("os.environ", {"FLUID_BUILD_PROFILE": "stable"}):
+            with patch.object(bootstrap_mod, "importlib", fake_importlib):
+                register_core_commands(sp)
 
         assert True
 
