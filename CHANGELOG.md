@@ -5,6 +5,16 @@ All notable changes to FLUID Forge CLI will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.8] — 2026-04-03
+
+### Changed
+- **Release version consistency** — aligned the runtime CLI version with package metadata so `fluid --version` and the published package both report `0.7.8`.
+- **Release notes continuity** — added the `0.7.8` changelog section and compare link so the release history matches the version bump.
+
+### Fixed
+- **Windows timeout enforcement** — corrected the non-`SIGALRM` security timeout path so operations time out promptly instead of waiting for the worker to finish.
+- **Regression coverage** — added a targeted test for the Windows timeout path to keep the fallback behavior stable.
+
 ## [0.7.7] — 2026-04-01
 
 ### Added
@@ -104,7 +114,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Contract schema v0.5.7
 - Basic Airflow DAG export
 
-[Unreleased]: https://github.com/Agentics-Rising/forge-cli/compare/v0.7.7...HEAD
+[Unreleased]: https://github.com/Agentics-Rising/forge-cli/compare/v0.7.8...HEAD
+[0.7.8]: https://github.com/Agentics-Rising/forge-cli/compare/v0.7.7...v0.7.8
 [0.7.7]: https://github.com/Agentics-Rising/forge-cli/compare/v0.7.6...v0.7.7
 [0.7.6]: https://github.com/Agentics-Rising/forge-cli/compare/v0.7.1...v0.7.6
 [0.7.1]: https://github.com/Agentics-Rising/forge-cli/compare/v0.5.7...v0.7.1
