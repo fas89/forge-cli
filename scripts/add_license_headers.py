@@ -1,4 +1,18 @@
 #!/usr/bin/env python3
+# Copyright 2024-2026 Agentics Transformation Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Add or replace license headers in all Python source files.
 
@@ -19,8 +33,10 @@ Usage:
     python scripts/add_license_headers.py --remove
 
     # Only process specific directories:
-    python scripts/add_license_headers.py --dirs fluid_build tests
+    python scripts/add_license_headers.py --dirs fluid_build tests scripts tools
 """
+
+from __future__ import annotations
 
 import argparse
 import re
@@ -101,7 +117,7 @@ LICENSES = {
 DEFAULT_HOLDER = "Agentics Transformation Ltd"
 DEFAULT_YEARS = "2024-2026"
 DEFAULT_LICENSE = "apache2"
-DEFAULT_DIRS = ["fluid_build", "tests"]
+DEFAULT_DIRS = ["fluid_build", "tests", "scripts", "tools"]
 
 # Regex that matches any of our known license header blocks (for replacement/removal).
 # Handles single or corrupted dual-header blocks (e.g. MIT + Apache fragments).
@@ -309,7 +325,7 @@ Examples:
   %(prog)s --template header.txt            # Custom template file
   %(prog)s --remove                         # Strip all headers
   %(prog)s --dry-run                        # Preview changes
-  %(prog)s --dirs fluid_build               # Only fluid_build/
+  %(prog)s --dirs fluid_build tests scripts tools  # Only maintained source dirs
         """,
     )
     parser.add_argument(

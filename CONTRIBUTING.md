@@ -51,7 +51,7 @@ All PRs to `main` must pass these checks before merge:
 | **Coverage Gates** | Core 80%, local providers 50%, cloud providers 20% (Python 3.12) |
 | **Security Scan** | `bandit` with medium severity threshold |
 | **Build Smoke Test** | Wheel build + install verification |
-| **License Headers** | All `.py` files must have Apache 2.0 header |
+| **License Headers** | All maintained `.py` files except `examples/**` must have Apache 2.0 header |
 | **Docs Reminder** | Soft check — adds `needs-docs` label if no docs reference |
 
 PRs also require at least **1 approving review** from a [CODEOWNER](https://github.com/Agentics-Rising/forge-cli/blob/main/.github/CODEOWNERS).
@@ -81,7 +81,7 @@ PRs also require at least **1 approving review** from a [CODEOWNER](https://gith
    black fluid_build/ tests/
    ```
 
-6. **Add license headers** to any new Python files:
+6. **Add license headers** to any new maintained Python files (`fluid_build/`, `tests/`, `scripts/`, `tools/`; `examples/**` is exempt illustrative code):
    ```bash
    python scripts/add_license_headers.py
    ```

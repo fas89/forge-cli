@@ -365,7 +365,15 @@ class TestPerformanceMonitor:
         async def search_func(f):
             return []
 
-        _run(pm.monitor_search("gcp", search_func, SearchFilters()))
+        clock_values = iter([10.0, 10.25])
+        with (
+            patch(
+                "fluid_build.cli.market.time_module.time",
+                side_effect=lambda: next(clock_values, 10.25),
+            ),
+            patch.object(pm.logger, "warning"),
+        ):
+            _run(pm.monitor_search("gcp", search_func, SearchFilters()))
         assert len(pm.slow_queries) == 1
         assert pm.slow_queries[0]["catalog_type"] == "gcp"
 
@@ -376,7 +384,15 @@ class TestPerformanceMonitor:
         async def search_func(f):
             return []
 
-        _run(pm.monitor_search("gcp", search_func, SearchFilters()))
+        clock_values = iter([20.0, 20.25])
+        with (
+            patch(
+                "fluid_build.cli.market.time_module.time",
+                side_effect=lambda: next(clock_values, 20.25),
+            ),
+            patch.object(pm.logger, "warning"),
+        ):
+            _run(pm.monitor_search("gcp", search_func, SearchFilters()))
         assert len(pm.slow_queries) == 100  # pruned to last 100
 
     def test_monitor_search_propagates_exception(self):

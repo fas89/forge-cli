@@ -319,15 +319,29 @@ class WorkflowTriggerTests(unittest.TestCase):
         self.assertIn("workflow_dispatch", workflow["on"])
         self.assertIn("push", workflow["on"])
 
-    def test_pull_request_target_workflows_do_not_checkout_pr_code(self):
+    def test_pull_request_target_workflows_only_use_trusted_checkout_patterns(self):
         for relative_path in [
             ".github/workflows/docs-reminder.yml",
             ".github/workflows/labeler.yml",
         ]:
             workflow = load_yaml(relative_path)
             steps = workflow["jobs"][next(iter(workflow["jobs"]))]["steps"]
-            uses = [step.get("uses", "") for step in steps]
-            self.assertFalse(any("actions/checkout" in item for item in uses), relative_path)
+
+            for step in steps:
+                uses = step.get("uses", "")
+                if "actions/checkout" not in uses:
+                    continue
+
+                checkout_config = step.get("with", {})
+                self.assertEqual(
+                    checkout_config.get("ref"),
+                    "${{ github.event.pull_request.base.sha }}",
+                    relative_path,
+                )
+                self.assertFalse(
+                    checkout_config.get("persist-credentials", True),
+                    relative_path,
+                )
 
 
 class LabelSyncScenarioTests(unittest.TestCase):

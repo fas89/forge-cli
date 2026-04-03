@@ -14,3 +14,5 @@
 - [ ] I have read the [Contributing Guide](../../CONTRIBUTING.md)
 - [ ] Links and references are correct
 - [ ] Spelling and grammar are checked
+
+> Changes limited to docs/community files are auto-classified as docs-only by `docs-reminder`; no companion docs PR is required.

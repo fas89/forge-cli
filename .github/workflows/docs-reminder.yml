@@ -13,98 +13,18 @@ jobs:
   check-docs:
     runs-on: ubuntu-latest
     steps:
-      # Safe with pull_request_target because this job only reads pull request
-      # metadata and updates labels/comments through the GitHub API.
+      # Safe with pull_request_target because we only check out the trusted base
+      # revision and use it to read PR metadata plus update labels/comments
+      # through the GitHub API.
+      - name: Checkout base revision
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
       - name: Check for documentation reference
         uses: actions/github-script@v7
         with:
           script: |
-            const pr = context.payload.pull_request;
-            const body = pr.body || '';
-
-            // Check if docs PR is linked (URL to forge_docs repo)
-            const docsLinkPattern = /github\.com\/Agentics-Rising\/forge_docs\/pull\/\d+/i;
-            const hasDocsLink = docsLinkPattern.test(body);
-
-            // Check if "No docs needed" is checked
-            const noDocsPattern = /- \[x\] \*\*No docs needed\*\*/i;
-            const noDocsNeeded = noDocsPattern.test(body);
-
-            // Check if "Docs TODO" is checked
-            const docsTodoPattern = /- \[x\] \*\*Docs TODO\*\*/i;
-            const docsTodo = docsTodoPattern.test(body);
-
-            // Check if this is a docs-only PR (only touches docs/, README, CONTRIBUTING, etc.)
-            const { data: files } = await github.rest.pulls.listFiles({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: pr.number,
-              per_page: 100,
-            });
-            const allDocs = files.every(f =>
-              f.filename.startsWith('docs/') ||
-              f.filename === 'README.md' ||
-              f.filename === 'CONTRIBUTING.md' ||
-              f.filename === 'CODE_OF_CONDUCT.md' ||
-              f.filename === 'SECURITY.md'
-            );
-
-            const documented = hasDocsLink || noDocsNeeded || docsTodo || allDocs;
-
-            // Get current labels
-            const { data: labels } = await github.rest.issues.listLabelsOnIssue({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: pr.number,
-            });
-            const hasNeedsDocsLabel = labels.some(l => l.name === 'needs-docs');
-
-            if (!documented) {
-              // Add label if not present
-              if (!hasNeedsDocsLabel) {
-                await github.rest.issues.addLabels({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: pr.number,
-                  labels: ['needs-docs'],
-                });
-              }
-
-              // Check if we already commented
-              const { data: comments } = await github.rest.issues.listComments({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: pr.number,
-              });
-              const alreadyCommented = comments.some(c =>
-                c.user.type === 'Bot' && c.body.includes('Documentation Reminder')
-              );
-
-              if (!alreadyCommented) {
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: pr.number,
-                  body: [
-                    '### 📄 Documentation Reminder',
-                    '',
-                    'This PR appears to be missing a documentation reference. Our docs live in a [separate repo](https://github.com/Agentics-Rising/forge_docs).',
-                    '',
-                    'Please update the PR description with one of:',
-                    '- **Link a docs PR** — check the "Docs PR linked" box and paste the URL',
-                    '- **Mark as no docs needed** — check "No docs needed" with a justification',
-                    '- **Acknowledge docs TODO** — check "Docs TODO" and create the docs PR before merge',
-                    '',
-                    'See the [Contributing Guide](https://github.com/Agentics-Rising/forge-cli/blob/main/CONTRIBUTING.md#documentation-requirements) for details.',
-                  ].join('\n'),
-                });
-              }
-            } else if (hasNeedsDocsLabel) {
-              // Remove label if docs requirement is now satisfied
-              await github.rest.issues.removeLabel({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: pr.number,
-                name: 'needs-docs',
-              });
-            }
+            const { runDocsReminder } = require('./scripts/docs_reminder.js');
+            await runDocsReminder({ github, context, core });

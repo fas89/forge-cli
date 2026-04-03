@@ -51,47 +51,43 @@ jobs:
       - name: Run tests
         if: matrix.python-version != '3.12'
         run: |
-          pytest \
+          python -m pytest \
             --junitxml=junit.xml \
-            --reruns 2 --reruns-delay 1 \
-            --only-rerun "TimeoutError|ConnectionError|OSError" \
             -q
 
       # ── Tests + Coverage (Python 3.12 only) ─────────────────────
       - name: Run tests with coverage
         if: matrix.python-version == '3.12'
         run: |
-          pytest \
+          python -m pytest \
             --cov=fluid_build \
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing \
             --junitxml=junit.xml \
-            --reruns 2 --reruns-delay 1 \
-            --only-rerun "TimeoutError|ConnectionError|OSError" \
             -q
 
       # ── Coverage Gates (Python 3.12 only) ───────────────────────
       - name: "Coverage gate: core framework (≥80%)"
         if: matrix.python-version == '3.12'
         run: |
-          coverage report --fail-under=80 \
+          python -m coverage report --fail-under=80 \
             --omit="fluid_build/providers/*,fluid_build/cli/provider_action_executor.py"
 
       - name: "Coverage gate: local providers — no credentials (≥50%)"
         if: matrix.python-version == '3.12'
         run: |
-          coverage report --fail-under=50 \
+          python -m coverage report --fail-under=50 \
             --include="fluid_build/providers/__init__.py,fluid_build/providers/base.py,fluid_build/providers/common/*,fluid_build/providers/local/*,fluid_build/providers/catalogs/*,fluid_build/providers/odcs/*,fluid_build/providers/odps_standard/*,fluid_build/providers/quality_engine.py,fluid_build/providers/*_validation.py,fluid_build/providers/validation_*.py,fluid_build/cli/provider_action_executor.py"
 
       - name: "Coverage gate: cloud providers — needs credentials (≥20%)"
         if: matrix.python-version == '3.12'
         run: |
-          coverage report --fail-under=20 \
+          python -m coverage report --fail-under=20 \
             --include="fluid_build/providers/aws/*,fluid_build/providers/gcp/*,fluid_build/providers/snowflake/*,fluid_build/providers/odps/*,fluid_build/providers/datamesh_manager/*,fluid_build/providers/bigquery_validation.py"
 
       - name: "Coverage: total (informational)"
         if: matrix.python-version == '3.12'
-        run: coverage report || true
+        run: python -m coverage report || true
 
       # ── Artifacts ───────────────────────────────────────────────
       - name: Upload test results
@@ -176,14 +172,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
       - name: Check license headers
-        run: |
-          missing=$(grep -rL "Copyright 2024-2026" fluid_build/ tests/ --include="*.py" || true)
-          if [ -n "$missing" ]; then
-            echo "::error::Files missing license headers:"
-            echo "$missing"
-            echo ""
-            echo "Run: python scripts/add_license_headers.py"
-            exit 1
-          fi
-          echo "All Python files have license headers ✅"
+        run: python scripts/check_license_headers.py

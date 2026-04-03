@@ -12,7 +12,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/fluid-forge.svg)](https://pypi.org/project/fluid-forge/)
 
-[Documentation](https://fluidhq.io/docs) · [Quickstart](#-60-seconds-to-magic) · [Community](https://github.com/Agentics-Rising/forge-cli/discussions) · [Enterprise](https://fluidhq.io)
+[Documentation](https://agentics-rising.github.io/forge_docs/) · [Quickstart](#-60-seconds-to-magic) · [Community](https://github.com/Agentics-Rising/forge-cli/discussions) · [Enterprise](https://fluidhq.io)
 
 </div>
 
@@ -345,6 +345,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for style guides and architecture overvie
 
 **Built for the future of data. Built for the Agentic Era.**
 
-[fluidhq.io](https://fluidhq.io) · [Documentation](https://fluidhq.io/docs) · [PyPI](https://pypi.org/project/fluid-forge/) · [Issues](https://github.com/Agentics-Rising/forge-cli/issues)
+[fluidhq.io](https://fluidhq.io) · [Documentation](https://agentics-rising.github.io/forge_docs/) · [PyPI](https://pypi.org/project/fluid-forge/) · [Issues](https://github.com/Agentics-Rising/forge-cli/issues)
 
 </div>

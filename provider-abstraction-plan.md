@@ -773,7 +773,7 @@ requires-python = ">=3.9"
 dependencies = []  # Zero dependencies!
 
 [project.urls]
-Documentation = "https://fluidhq.io/docs/providers/sdk"
+Documentation = "https://agentics-rising.github.io/forge_docs/providers/"
 Repository = "https://github.com/agentics-rising/fluid-provider-sdk"
 ```
 
