@@ -98,7 +98,7 @@
 - [x] **Schedule Lambda TODOs** — all 5 Lambda code generators in `schedule.py` now have real orchestration dispatch (workflow executor, S3/DynamoDB/EventBridge/SQS triggers)
 
 ### Testing & Quality
-- [x] **Coverage threshold** — `--cov-fail-under=80` added to CI (Python 3.12 job)
+- [x] **Coverage threshold** — `--cov-fail-under=40` added to CI (Python 3.12 job), stepping stone to 80%
 - [ ] **Test coverage target** — 125 test files exist but no measured % against 95% goal
 - [ ] **Property-based tests** — hypothesis not installed, 0 property tests (P2)
 
