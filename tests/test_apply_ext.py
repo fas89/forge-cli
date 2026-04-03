@@ -59,9 +59,11 @@ class TestActionsFromSource:
         finally:
             os.unlink(tmp_path)
 
+    @patch("fluid_build.cli._common.load_contract_with_overlay")
     @patch("fluid_build.cli.apply.load_contract_with_overlay")
-    def test_provider_with_plan_method(self, mock_load):
+    def test_provider_with_plan_method(self, mock_load, mock_load_common):
         mock_load.return_value = {"id": "test"}
+        mock_load_common.return_value = {"id": "test"}
         provider = MagicMock()
         provider.plan.return_value = [{"op": "create_table"}]
 
@@ -69,9 +71,11 @@ class TestActionsFromSource:
         assert len(actions) == 1
         assert actions[0]["op"] == "create_table"
 
+    @patch("fluid_build.cli._common.load_contract_with_overlay")
     @patch("fluid_build.cli.apply.load_contract_with_overlay")
-    def test_provider_plan_fails_fallback(self, mock_load):
+    def test_provider_plan_fails_fallback(self, mock_load, mock_load_common):
         mock_load.return_value = {"id": "test"}
+        mock_load_common.return_value = {"id": "test"}
         provider = MagicMock()
         provider.plan.side_effect = Exception("plan failed")
 
@@ -84,9 +88,11 @@ class TestActionsFromSource:
         # Should get final fallback actions
         assert len(actions) >= 1
 
+    @patch("fluid_build.cli._common.load_contract_with_overlay")
     @patch("fluid_build.cli.apply.load_contract_with_overlay")
-    def test_provider_no_plan_method(self, mock_load):
+    def test_provider_no_plan_method(self, mock_load, mock_load_common):
         mock_load.return_value = {"id": "test"}
+        mock_load_common.return_value = {"id": "test"}
         provider = MagicMock(spec=[])  # No plan method
 
         with patch(
