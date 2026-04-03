@@ -20,6 +20,9 @@ import logging
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import pytest
+
+from fluid_build.cli._common import CLIError
 from fluid_build.cli.apply import _actions_from_source, register, run
 
 logger = logging.getLogger("test_apply")
@@ -243,7 +246,7 @@ class TestRunSimpleMode:
         contract = self._minimal_contract()
         actions = [{"op": "ensure_dataset"}]
         fail_provider = Mock()
-        fail_provider.apply.return_value = {"failed": 1, "status": "failed", "error": "boom"}
+        fail_provider.apply.side_effect = RuntimeError("boom")
 
         with patch("fluid_build.cli.apply.load_contract_with_overlay", return_value=contract):
             with patch("fluid_build.cli.apply.build_provider", return_value=fail_provider):
@@ -251,8 +254,9 @@ class TestRunSimpleMode:
                     with patch("fluid_build.cli.apply.RICH_AVAILABLE", False):
                         pre, post, on_err = _patch_hooks()
                         with pre, post, on_err:
-                            result = run(args, logger)
-        assert result == 1
+                            with pytest.raises(CLIError) as exc_info:
+                                run(args, logger)
+        assert exc_info.value.exit_code == 1
 
     def test_run_with_config_override(self, tmp_path):
         contract_file = tmp_path / "contract.fluid.yaml"
