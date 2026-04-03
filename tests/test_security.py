@@ -19,6 +19,7 @@ from unittest.mock import patch
 
 import pytest
 
+import fluid_build.cli.security as security_module
 from fluid_build.cli.core import FluidCLIError
 from fluid_build.cli.security import (
     ALLOWED_FILE_EXTENSIONS,
@@ -204,6 +205,20 @@ class TestProcessManager:
         with pytest.raises(FluidCLIError) as exc:
             pm.run_with_timeout(lambda: time.sleep(5), timeout=1)
         assert exc.value.event == "operation_timeout"
+
+    def test_run_with_timeout_raises_promptly_without_sigalrm(self, monkeypatch):
+        import time
+
+        monkeypatch.delattr(security_module.signal, "SIGALRM", raising=False)
+
+        pm = ProcessManager(default_timeout=1)
+        start = time.monotonic()
+        with pytest.raises(FluidCLIError) as exc:
+            pm.run_with_timeout(lambda: time.sleep(5), timeout=1)
+
+        elapsed = time.monotonic() - start
+        assert exc.value.event == "operation_timeout"
+        assert elapsed < 2
 
 
 class TestGlobalContext:

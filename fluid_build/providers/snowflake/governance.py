@@ -33,11 +33,30 @@ Features:
 """
 
 import logging
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from fluid_build.cli.console import cprint, success
 
 logger = logging.getLogger("fluid_build.providers.snowflake.governance")
+
+# Strict pattern for Snowflake identifiers (database, schema, table, column, tag names).
+# Allows dotted qualified names like "DB.SCHEMA.TABLE".
+_SAFE_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$")
+
+
+def _validate_identifier(value: str, label: str = "identifier") -> str:
+    """Validate that *value* is a safe Snowflake SQL identifier.
+
+    Raises ``ValueError`` if the value contains characters that could
+    enable SQL injection (quotes, semicolons, whitespace, etc.).
+    """
+    if not _SAFE_IDENTIFIER_RE.match(value):
+        raise ValueError(
+            f"Unsafe Snowflake {label}: {value!r}. "
+            "Only alphanumeric characters, underscores, and dots are allowed."
+        )
+    return value
 
 
 class MaskingPolicyTemplates:
@@ -176,13 +195,16 @@ class GovernanceValidator:
     def validate_column_descriptions(self) -> Tuple[int, int]:
         """Validate column descriptions - returns (applied, total)"""
         try:
-            self.cursor.execute(f"""
+            self.cursor.execute(
+                """
                 SELECT COUNT(*) as total,
                        SUM(CASE WHEN COMMENT IS NOT NULL AND COMMENT != '' THEN 1 ELSE 0 END) as with_desc
                 FROM INFORMATION_SCHEMA.COLUMNS
-                WHERE TABLE_SCHEMA = '{self.schema}'
-                  AND TABLE_NAME = '{self.table}'
-            """)
+                WHERE TABLE_SCHEMA = %s
+                  AND TABLE_NAME = %s
+            """,
+                (self.schema, self.table),
+            )
             result = self.cursor.fetchone()
             if result:
                 return (result[1] or 0, result[0] or 0)
@@ -194,7 +216,9 @@ class GovernanceValidator:
     def validate_table_tags(self) -> List[Dict[str, str]]:
         """Get all table-level tags"""
         try:
-            self.cursor.execute(f"""
+            _validate_identifier(self.full_table, "table reference")
+            self.cursor.execute(
+                f"""
                 SELECT TAG_NAME, TAG_VALUE
                 FROM TABLE(
                     INFORMATION_SCHEMA.TAG_REFERENCES_ALL_COLUMNS(
@@ -203,7 +227,8 @@ class GovernanceValidator:
                 )
                 WHERE LEVEL = 'TABLE'
                 ORDER BY TAG_NAME
-            """)
+            """
+            )
             return [{"name": row[0], "value": row[1]} for row in self.cursor.fetchall()]
         except Exception as e:
             logger.error(f"Error validating table tags: {e}")
@@ -212,7 +237,9 @@ class GovernanceValidator:
     def validate_column_tags(self) -> Dict[str, int]:
         """Get column tag counts - returns {column_name: tag_count}"""
         try:
-            self.cursor.execute(f"""
+            _validate_identifier(self.full_table, "table reference")
+            self.cursor.execute(
+                f"""
                 SELECT COLUMN_NAME, COUNT(*) as tag_count
                 FROM TABLE(
                     INFORMATION_SCHEMA.TAG_REFERENCES_ALL_COLUMNS(
@@ -222,7 +249,8 @@ class GovernanceValidator:
                 WHERE LEVEL = 'COLUMN'
                 GROUP BY COLUMN_NAME
                 ORDER BY COLUMN_NAME
-            """)
+            """
+            )
             return {row[0]: row[1] for row in self.cursor.fetchall()}
         except Exception as e:
             logger.error(f"Error validating column tags: {e}")
@@ -231,19 +259,23 @@ class GovernanceValidator:
     def validate_masking_policies(self) -> List[Dict[str, str]]:
         """Get masking policies on columns"""
         try:
-            self.cursor.execute(f"""
+            self.cursor.execute(
+                """
                 SELECT COLUMN_NAME, POLICY_NAME
                 FROM INFORMATION_SCHEMA.POLICY_REFERENCES
-                WHERE POLICY_DB = '{self.database}'
-                  AND REF_DATABASE_NAME = '{self.database}'
-                  AND REF_SCHEMA_NAME = '{self.schema}'
-                  AND REF_ENTITY_NAME = '{self.table}'
+                WHERE POLICY_DB = %s
+                  AND REF_DATABASE_NAME = %s
+                  AND REF_SCHEMA_NAME = %s
+                  AND REF_ENTITY_NAME = %s
                   AND POLICY_KIND = 'MASKING_POLICY'
-            """)
+            """,
+                (self.database, self.database, self.schema, self.table),
+            )
             return [{"column": row[0], "policy": row[1]} for row in self.cursor.fetchall()]
         except Exception as e:
             # Try alternative query
             try:
+                _validate_identifier(self.full_table, "table reference")
                 self.cursor.execute(f"DESC TABLE {self.full_table}")
                 # This is a fallback - not all Snowflake versions support policy queries
                 return []
@@ -560,6 +592,8 @@ class UnifiedGovernanceApplicator:
         """Create a single tag"""
         if not self.dry_run:
             try:
+                _validate_identifier(schema, "schema")
+                _validate_identifier(tag_name, "tag name")
                 self.cursor.execute(f"CREATE TAG IF NOT EXISTS {schema}.{tag_name}")
             except Exception as e:
                 logger.warning(f"Could not create tag {tag_name}: {e}")
@@ -576,8 +610,11 @@ class UnifiedGovernanceApplicator:
         for tag_name, tag_value in tags.items():
             if not self.dry_run:
                 try:
+                    _validate_identifier(full_table, "table reference")
+                    _validate_identifier(tag_name, "tag name")
+                    safe_value = tag_value.replace("'", "''")
                     self.cursor.execute(
-                        f"ALTER TABLE {full_table} SET TAG {tag_name} = '{tag_value}'"
+                        f"ALTER TABLE {full_table} SET TAG {tag_name} = '{safe_value}'"
                     )
                     cprint(f"   ✅ {tag_name} = {tag_value}")
                     self.stats["table_tags_applied"] += 1
@@ -591,9 +628,13 @@ class UnifiedGovernanceApplicator:
         if not self.dry_run:
             try:
                 if isinstance(cluster_by, list):
+                    for col in cluster_by:
+                        _validate_identifier(col, "cluster column")
                     cluster_str = ", ".join(cluster_by)
                 else:
+                    _validate_identifier(cluster_by, "cluster column")
                     cluster_str = cluster_by
+                _validate_identifier(full_table, "table reference")
                 self.cursor.execute(f"ALTER TABLE {full_table} CLUSTER BY ({cluster_str})")
                 cprint(f"   ✅ Clustering: {cluster_str}")
             except Exception as e:
@@ -605,6 +646,9 @@ class UnifiedGovernanceApplicator:
         """Apply data retention"""
         if not self.dry_run:
             try:
+                _validate_identifier(full_table, "table reference")
+                if not isinstance(days, int) or days < 0:
+                    raise ValueError(f"Retention days must be a non-negative integer, got: {days!r}")
                 self.cursor.execute(
                     f"ALTER TABLE {full_table} SET DATA_RETENTION_TIME_IN_DAYS = {days}"
                 )
@@ -618,6 +662,7 @@ class UnifiedGovernanceApplicator:
         """Apply change tracking"""
         if not self.dry_run:
             try:
+                _validate_identifier(full_table, "table reference")
                 value = "TRUE" if enabled else "FALSE"
                 self.cursor.execute(f"ALTER TABLE {full_table} SET CHANGE_TRACKING = {value}")
                 cprint(f"   ✅ Change tracking: {value}")
@@ -630,11 +675,17 @@ class UnifiedGovernanceApplicator:
         """Apply tag to column"""
         if not self.dry_run:
             try:
-                self.cursor.execute(f"""
+                _validate_identifier(full_table, "table reference")
+                _validate_identifier(column_name, "column name")
+                _validate_identifier(tag_name, "tag name")
+                safe_value = tag_value.replace("'", "''")
+                self.cursor.execute(
+                    f"""
                     ALTER TABLE {full_table}
                     MODIFY COLUMN {column_name}
-                    SET TAG {tag_name} = '{tag_value}'
-                """)
+                    SET TAG {tag_name} = '{safe_value}'
+                """
+                )
             except Exception as e:
                 logger.warning(f"Could not apply tag {tag_name} to column {column_name}: {e}")
 
@@ -642,13 +693,16 @@ class UnifiedGovernanceApplicator:
         """Get column data type"""
         try:
             parts = full_table.split(".")
-            self.cursor.execute(f"""
-                SELECT DATA_TYPE 
+            self.cursor.execute(
+                """
+                SELECT DATA_TYPE
                 FROM INFORMATION_SCHEMA.COLUMNS
-                WHERE TABLE_SCHEMA = '{parts[1]}'
-                  AND TABLE_NAME = '{parts[2]}'
-                  AND COLUMN_NAME = '{column_name}'
-            """)
+                WHERE TABLE_SCHEMA = %s
+                  AND TABLE_NAME = %s
+                  AND COLUMN_NAME = %s
+            """,
+                (parts[1], parts[2], column_name),
+            )
             result = self.cursor.fetchone()
             return result[0] if result else "VARCHAR"
         except Exception:
@@ -669,8 +723,10 @@ class UnifiedGovernanceApplicator:
                 # Map Snowflake types to policy signature
                 policy_type = "TIMESTAMP_NTZ" if "TIMESTAMP" in col_type else "VARCHAR"
 
+                _validate_identifier(schema, "schema")
+                _validate_identifier(policy_name, "policy name")
                 ddl = f"""
-                    CREATE MASKING POLICY IF NOT EXISTS {schema}.{policy_name} 
+                    CREATE MASKING POLICY IF NOT EXISTS {schema}.{policy_name}
                     AS (val {policy_type}) RETURNS {policy_type} ->
                     {template}
                 """
@@ -687,13 +743,18 @@ class UnifiedGovernanceApplicator:
         """Apply masking policy to column"""
         if not self.dry_run:
             try:
+                _validate_identifier(full_table, "table reference")
+                _validate_identifier(column_name, "column name")
+                _validate_identifier(policy_name, "policy name")
                 parts = full_table.split(".")
                 schema = parts[1]
-                self.cursor.execute(f"""
+                self.cursor.execute(
+                    f"""
                     ALTER TABLE {full_table}
                     MODIFY COLUMN {column_name}
                     SET MASKING POLICY {schema}.{policy_name}
-                """)
+                """
+                )
                 cprint(f"   ✅ Applied {policy_name} to {column_name}")
                 self.stats["masking_policies_applied"] += 1
             except Exception as e:
