@@ -322,7 +322,9 @@ class TestRunWithConfig:
             patch("fluid_build.forge.core.engine.provider_registry") as provider_registry,
         ):
             validation_registry.validate_all.return_value = None
-            template_registry.get.return_value = _FakeTemplate(validation_result=(False, ["missing description"]))
+            template_registry.get.return_value = _FakeTemplate(
+                validation_result=(False, ["missing description"])
+            )
             provider_registry.get.return_value = _FakeProvider()
             result = engine.run_with_config(config)
         assert result is False
