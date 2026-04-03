@@ -5,6 +5,19 @@ All notable changes to FLUID Forge CLI will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.8] — 2026-04-03
+
+### Changed
+- **Marketplace publishing metadata preservation** — preserved `tags` and product `type` metadata during Entropy Data / Data Mesh Manager publishing by adding metadata fallback handling for ODCS, DCS, and ODPS payload generation.
+- **Cross-platform compatibility hardening** — improved Windows and mixed-platform behavior across file writes, path normalization, home-directory resolution, and timeout handling.
+- **Code quality alignment** — cleaned up generated example lint issues and normalized formatting/import ordering across the touched release files.
+
+### Fixed
+- **ODPS/ODCS output port compatibility** — added `binding.platform` fallback support so FLUID 0.7.1 output ports keep the correct published type when explicit provider metadata is absent.
+- **Windows encoding failures** — forced UTF-8 for report and generated file writes that previously failed under cp1250-style default encodings.
+- **Windows timeout enforcement** — corrected the non-`SIGALRM` security timeout path so operations time out promptly instead of waiting for the worker to finish.
+- **Regression coverage** — added tests covering metadata-preservation fallbacks and the Windows timeout path.
+
 ## [0.7.7] — 2026-04-01
 
 ### Added
@@ -104,7 +117,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Contract schema v0.5.7
 - Basic Airflow DAG export
 
-[Unreleased]: https://github.com/Agentics-Rising/forge-cli/compare/v0.7.7...HEAD
+[Unreleased]: https://github.com/Agentics-Rising/forge-cli/compare/v0.7.8...HEAD
+[0.7.8]: https://github.com/Agentics-Rising/forge-cli/compare/v0.7.7...v0.7.8
 [0.7.7]: https://github.com/Agentics-Rising/forge-cli/compare/v0.7.6...v0.7.7
 [0.7.6]: https://github.com/Agentics-Rising/forge-cli/compare/v0.7.1...v0.7.6
 [0.7.1]: https://github.com/Agentics-Rising/forge-cli/compare/v0.5.7...v0.7.1

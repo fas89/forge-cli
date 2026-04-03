@@ -25,8 +25,7 @@ import logging
 import os
 import re
 import signal
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FuturesTimeoutError
+import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -367,25 +366,28 @@ class ProcessManager:
                 with self.timeout_context(timeout_seconds):
                     return func(*args, **kwargs)
 
-            with ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(func, *args, **kwargs)
-                return future.result(timeout=timeout_seconds)
+            result: dict[str, Any] = {}
+            error: dict[str, BaseException] = {}
+
+            def run_target() -> None:
+                try:
+                    result["value"] = func(*args, **kwargs)
+                except BaseException as exc:  # pragma: no cover - re-raised on caller thread
+                    error["value"] = exc
+
+            worker = threading.Thread(target=run_target, daemon=True)
+            worker.start()
+            worker.join(timeout_seconds)
+            if worker.is_alive():
+                raise TimeoutError(f"Operation timed out after {timeout_seconds} seconds")
+            if "value" in error:
+                raise error["value"]
+            return result.get("value")
         except TimeoutError as e:
             raise FluidCLIError(
                 1,
                 "operation_timeout",
                 str(e),
-                suggestions=[
-                    "Try running the operation with a longer timeout",
-                    "Check if the operation is stuck",
-                    "Break down large operations into smaller parts",
-                ],
-            )
-        except FuturesTimeoutError:
-            raise FluidCLIError(
-                1,
-                "operation_timeout",
-                f"Operation timed out after {timeout or self.default_timeout} seconds",
                 suggestions=[
                     "Try running the operation with a longer timeout",
                     "Check if the operation is stuck",
