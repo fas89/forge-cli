@@ -104,7 +104,9 @@ docs = [
 dev = [
   "pytest>=7.4",
   "pytest-cov>=4.1",
-  "pytest-asyncio>=0.23",  # For async test support
+  "pytest-asyncio>=0.23",        # For async test support
+  "pytest-randomly>=3.15",       # Randomize test order to catch hidden deps
+  "pytest-rerunfailures>=14.0",  # Retry flaky tests (network, timing)
   "mypy>=1.10",
   "ruff>=0.5",
   "types-PyYAML>=6.0.12",
@@ -212,10 +214,25 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 minversion = "7.0"
-addopts = "-q --maxfail=1 --disable-warnings"
 testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short --strict-markers --disable-warnings"
+markers = [
+    "unit: Unit tests (fast, no I/O)",
+    "integration: Integration tests (may need network/files)",
+    "slow: Tests that take significant time (>5s)",
+    "smoke: Quick smoke tests for basic functionality",
+    "aws: Tests requiring AWS credentials",
+    "gcp: Tests requiring GCP credentials",
+    "snowflake: Tests requiring Snowflake credentials",
+    "provider: Tests for provider implementations",
+    "datamesh: Tests for DataMesh Manager provider",
+    "policy: Tests for policy validators",
+    "runtime: Tests for runtime generators",
+]
 
-# Optional: coverage knobs if you use pytest-cov
 [tool.coverage.run]
 branch = true
 source = ["fluid_build"]
@@ -224,3 +241,10 @@ omit = ["fluid_build/**/__main__.py"]
 [tool.coverage.report]
 show_missing = true
 skip_covered = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
+]

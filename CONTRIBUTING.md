@@ -47,7 +47,8 @@ All PRs to `main` must pass these checks before merge:
 | Check | What it does |
 |-------|-------------|
 | **Lint & Format** | `ruff check` + `black --check` (Python 3.12) |
-| **Test Matrix** | `pytest` on Python 3.9, 3.10, 3.11, 3.12 |
+| **Test Matrix** | `pytest` on Python 3.9, 3.10, 3.11, 3.12 (randomized order) |
+| **Coverage Gates** | Core 80%, local providers 50%, cloud providers 20% (Python 3.12) |
 | **Security Scan** | `bandit` with medium severity threshold |
 | **Build Smoke Test** | Wheel build + install verification |
 | **License Headers** | All `.py` files must have Apache 2.0 header |
@@ -145,6 +146,111 @@ The documentation site lives in a separate repo. To create a companion docs PR:
 - **No bare `except:`** — always catch specific exceptions.
 - **Tests** — use `pytest`. Place unit tests in `tests/`, provider integration tests under `tests/providers/`.
 - **Imports** — standard library → third-party → local, separated by blank lines. Use `ruff` to auto-sort.
+
+## Testing Best Practices
+
+### Coverage Gates
+
+CI enforces a **three-tier coverage strategy**:
+
+| Gate | Threshold | What's included |
+|------|-----------|-----------------|
+| **Core framework** | 80% | All `fluid_build/` except providers and `provider_action_executor.py` |
+| **Local providers** | 50% | Providers that don't need cloud credentials (local, catalogs, ODCS, etc.) |
+| **Cloud providers** | 20% | Providers requiring cloud credentials (AWS, GCP, Snowflake, etc.) |
+
+Run coverage locally before pushing:
+
+```bash
+# Full test suite with coverage
+pytest --cov=fluid_build --cov-report=term-missing -q
+
+# Check core gate
+coverage report --fail-under=80 \
+  --omit="fluid_build/providers/*,fluid_build/cli/provider_action_executor.py"
+```
+
+### Writing Good Tests
+
+**Test behaviour, not implementation.** A test should verify *what* a function produces, not *how* it does it internally. If a test breaks when you refactor without changing behaviour, the test is too tightly coupled.
+
+```python
+# BAD: tests implementation details (which internal function was called)
+def test_validate_calls_schema_checker(self):
+    with patch("fluid_build.cli.validate._check_schema") as mock:
+        validate(contract)
+    mock.assert_called_once()
+
+# GOOD: tests observable behaviour (return value, side effects)
+def test_validate_returns_errors_for_invalid_contract(self):
+    result = validate(invalid_contract)
+    assert result.is_valid is False
+    assert "missing required field" in result.errors[0].message
+```
+
+**Use `@pytest.mark.parametrize` for variant testing.** If you're writing multiple test methods that differ only by input/output, combine them:
+
+```python
+# BAD: 5 copy-paste methods
+def test_infer_bool(self):
+    assert infer_type("bool") == "boolean"
+def test_infer_int(self):
+    assert infer_type("int64") == "integer"
+
+# GOOD: 1 parametrized test
+@pytest.mark.parametrize("input_type,expected", [
+    ("bool", "boolean"),
+    ("int64", "integer"),
+    ("float32", "number"),
+    ("timestamp", "datetime"),
+    ("utf8", "string"),
+])
+def test_infer_type(self, input_type, expected):
+    assert infer_type(input_type) == expected
+```
+
+**Mock only at boundaries.** Use real objects when they're cheap (dataclasses, simple classes). Reserve mocking for:
+- Network calls (HTTP, gRPC)
+- File system operations
+- External SDKs (boto3, google-cloud, snowflake-connector)
+- Time-dependent logic (`time.time()`, `datetime.now()`)
+
+**Use helper factories for test data:**
+
+```python
+def _make_contract(name="test", version="1.0", **overrides):
+    defaults = {"id": name, "version": version, "spec": "v1"}
+    defaults.update(overrides)
+    return defaults
+```
+
+### Async Tests
+
+We support Python 3.9+ which requires manual async handling (no `@pytest.mark.asyncio`). Use this pattern:
+
+```python
+import asyncio
+
+def _run(coro):
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+def test_async_function(self):
+    result = _run(my_async_function())
+    assert result == expected
+```
+
+### Test Isolation
+
+Tests run in **randomized order** (via `pytest-randomly`). Every test must:
+- Clean up any files it creates (use `tmp_path` fixture)
+- Not depend on execution order
+- Not leak global state (environment variables, module-level caches)
+
+If a test fails only when run in the full suite, it has a hidden dependency on test ordering.
 
 ## Provider Contributions
 
