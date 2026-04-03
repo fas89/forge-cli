@@ -648,7 +648,9 @@ class UnifiedGovernanceApplicator:
             try:
                 _validate_identifier(full_table, "table reference")
                 if not isinstance(days, int) or days < 0:
-                    raise ValueError(f"Retention days must be a non-negative integer, got: {days!r}")
+                    raise ValueError(
+                        f"Retention days must be a non-negative integer, got: {days!r}"
+                    )
                 self.cursor.execute(
                     f"ALTER TABLE {full_table} SET DATA_RETENTION_TIME_IN_DAYS = {days}"
                 )
