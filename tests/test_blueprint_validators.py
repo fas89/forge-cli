@@ -63,9 +63,7 @@ class TestValidateContract:
         contract = {
             "version": "1.0",
             "metadata": {"name": "test"},
-            "products": {
-                "my_product": {"metadata": {"owner": "me"}, "schema": {"columns": []}}
-            },
+            "products": {"my_product": {"metadata": {"owner": "me"}, "schema": {"columns": []}}},
         }
         bp.contract_path.write_text(yaml.dump(contract))
         v = BlueprintValidator(bp)

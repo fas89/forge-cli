@@ -24,9 +24,7 @@ class TestGetCron:
     def test_returns_cron_when_present(self, mock_gpb):
         from fluid_build.util.cron import get_cron
 
-        mock_gpb.return_value = {
-            "execution": {"trigger": {"cron": "0 6 * * *"}}
-        }
+        mock_gpb.return_value = {"execution": {"trigger": {"cron": "0 6 * * *"}}}
         assert get_cron({}) == "0 6 * * *"
 
     @patch("fluid_build.util.cron.get_primary_build")

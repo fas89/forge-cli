@@ -84,9 +84,11 @@ class TestCommandCenterClient:
 
             mock_home = MagicMock()
             mock_home.__truediv__ = MagicMock(
-                side_effect=lambda x: mock_config_path
-                if "config" in str(x)
-                else MagicMock(exists=MagicMock(return_value=False))
+                side_effect=lambda x: (
+                    mock_config_path
+                    if "config" in str(x)
+                    else MagicMock(exists=MagicMock(return_value=False))
+                )
             )
             mock_path_cls.home.return_value = mock_home
 
@@ -105,12 +107,15 @@ class TestCommandCenterClient:
         mock_version_response.status_code = 200
         mock_version_response.json.return_value = {"version": "2.0.0"}
 
-        with patch(
-            "fluid_build.cli._command_center.requests.get",
-            side_effect=[mock_health_response, mock_version_response],
-        ), patch(
-            "fluid_build.cli._command_center.requests.head",
-            return_value=mock_head_response,
+        with (
+            patch(
+                "fluid_build.cli._command_center.requests.get",
+                side_effect=[mock_health_response, mock_version_response],
+            ),
+            patch(
+                "fluid_build.cli._command_center.requests.head",
+                return_value=mock_head_response,
+            ),
         ):
             client = CommandCenterClient()
             assert client.available is True
