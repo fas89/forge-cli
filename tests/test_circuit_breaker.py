@@ -26,7 +26,6 @@ from fluid_build.observability.reporter import (
     CommandCenterReporter,
 )
 
-
 # ── CircuitState ──────────────────────────────────────────────────────
 
 
