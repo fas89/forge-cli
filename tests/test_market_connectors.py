@@ -360,38 +360,24 @@ class TestPerformanceMonitor:
         assert len(result) == 1
 
     def test_monitor_search_records_slow_query(self):
-        pm = PerformanceMonitor(slow_query_threshold=0.0)
+        pm = PerformanceMonitor(slow_query_threshold=-1.0)
 
         async def search_func(f):
             return []
 
-        clock_values = iter([10.0, 10.25])
-        with (
-            patch(
-                "fluid_build.cli.market.time_module.time",
-                side_effect=lambda: next(clock_values, 10.25),
-            ),
-            patch.object(pm.logger, "warning"),
-        ):
+        with patch.object(pm.logger, "warning"):
             _run(pm.monitor_search("gcp", search_func, SearchFilters()))
         assert len(pm.slow_queries) == 1
         assert pm.slow_queries[0]["catalog_type"] == "gcp"
 
     def test_monitor_search_slow_query_pruned_at_100(self):
-        pm = PerformanceMonitor(slow_query_threshold=0.0)
+        pm = PerformanceMonitor(slow_query_threshold=-1.0)
         pm.slow_queries = [{"x": i} for i in range(100)]
 
         async def search_func(f):
             return []
 
-        clock_values = iter([20.0, 20.25])
-        with (
-            patch(
-                "fluid_build.cli.market.time_module.time",
-                side_effect=lambda: next(clock_values, 20.25),
-            ),
-            patch.object(pm.logger, "warning"),
-        ):
+        with patch.object(pm.logger, "warning"):
             _run(pm.monitor_search("gcp", search_func, SearchFilters()))
         assert len(pm.slow_queries) == 100  # pruned to last 100
 

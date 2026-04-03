@@ -57,9 +57,7 @@ def has_required_header(path: Path) -> bool:
 def find_missing_headers(paths: Iterable[Path], repo_root: Path) -> list[str]:
     """Return repo-relative paths missing the required header."""
     return [
-        path.relative_to(repo_root).as_posix()
-        for path in paths
-        if not has_required_header(path)
+        path.relative_to(repo_root).as_posix() for path in paths if not has_required_header(path)
     ]
 
 
