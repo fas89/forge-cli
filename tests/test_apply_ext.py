@@ -23,6 +23,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import fluid_build.cli.apply as _apply_mod
 from fluid_build.cli.apply import COMMAND, _actions_from_source, register
 
 LOG = logging.getLogger("test_apply_ext")
@@ -59,47 +60,41 @@ class TestActionsFromSource:
         finally:
             os.unlink(tmp_path)
 
-    @patch("fluid_build.cli._common.load_contract_with_overlay")
-    @patch("fluid_build.cli.apply.load_contract_with_overlay")
-    def test_provider_with_plan_method(self, mock_load, mock_load_common):
-        mock_load.return_value = {"id": "test"}
-        mock_load_common.return_value = {"id": "test"}
+    def test_provider_with_plan_method(self):
+        fake_contract = {"id": "test"}
         provider = MagicMock()
         provider.plan.return_value = [{"op": "create_table"}]
 
-        actions = _actions_from_source("test.yaml", None, provider, LOG)
+        with patch.object(_apply_mod, "load_contract_with_overlay", return_value=fake_contract):
+            actions = _actions_from_source("test.yaml", None, provider, LOG)
         assert len(actions) == 1
         assert actions[0]["op"] == "create_table"
 
-    @patch("fluid_build.cli._common.load_contract_with_overlay")
-    @patch("fluid_build.cli.apply.load_contract_with_overlay")
-    def test_provider_plan_fails_fallback(self, mock_load, mock_load_common):
-        mock_load.return_value = {"id": "test"}
-        mock_load_common.return_value = {"id": "test"}
+    def test_provider_plan_fails_fallback(self):
+        fake_contract = {"id": "test"}
         provider = MagicMock()
         provider.plan.side_effect = Exception("plan failed")
 
-        # Fallback path - tries ProviderActionParser then final fallback
-        with patch(
-            "fluid_build.forge.core.provider_actions.ProviderActionParser",
-            side_effect=ImportError,
-        ):
-            actions = _actions_from_source("test.yaml", None, provider, LOG)
+        with patch.object(_apply_mod, "load_contract_with_overlay", return_value=fake_contract):
+            # Fallback path - tries ProviderActionParser then final fallback
+            with patch(
+                "fluid_build.forge.core.provider_actions.ProviderActionParser",
+                side_effect=ImportError,
+            ):
+                actions = _actions_from_source("test.yaml", None, provider, LOG)
         # Should get final fallback actions
         assert len(actions) >= 1
 
-    @patch("fluid_build.cli._common.load_contract_with_overlay")
-    @patch("fluid_build.cli.apply.load_contract_with_overlay")
-    def test_provider_no_plan_method(self, mock_load, mock_load_common):
-        mock_load.return_value = {"id": "test"}
-        mock_load_common.return_value = {"id": "test"}
+    def test_provider_no_plan_method(self):
+        fake_contract = {"id": "test"}
         provider = MagicMock(spec=[])  # No plan method
 
-        with patch(
-            "fluid_build.forge.core.provider_actions.ProviderActionParser",
-            side_effect=ImportError,
-        ):
-            actions = _actions_from_source("test.yaml", None, provider, LOG)
+        with patch.object(_apply_mod, "load_contract_with_overlay", return_value=fake_contract):
+            with patch(
+                "fluid_build.forge.core.provider_actions.ProviderActionParser",
+                side_effect=ImportError,
+            ):
+                actions = _actions_from_source("test.yaml", None, provider, LOG)
         assert len(actions) >= 1
 
 
