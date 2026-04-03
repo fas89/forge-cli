@@ -25,7 +25,6 @@ from fluid_build.credentials.adapters import (
 )
 from fluid_build.credentials.resolver import CredentialConfig, CredentialError
 
-
 # ── SnowflakeCredentialAdapter ────────────────────────────────────────
 
 
