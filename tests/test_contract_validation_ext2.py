@@ -572,7 +572,7 @@ class TestBuildSnowflakeConfigExt(unittest.TestCase):
         with patch.dict(
             "os.environ",
             {"SNOWFLAKE_ACCOUNT": "my-acct", "SNOWFLAKE_USER": "user1", "SNOWFLAKE_PASSWORD": "pw"},
-            clear=False,
+            clear=True,
         ):
             config = v._build_snowflake_config()
         assert config["account"] == "my-acct"

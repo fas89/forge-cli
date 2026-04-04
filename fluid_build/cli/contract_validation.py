@@ -879,30 +879,14 @@ class ContractValidator:
 
     def _build_snowflake_config(self) -> Dict[str, Any]:
         """Build Snowflake provider config from contract bindings + env vars."""
-        import os
+        from fluid_build.providers.snowflake.util.config import resolve_snowflake_settings
 
-        config: Dict[str, Any] = {}
-        # Extract from first expose binding
-        for expose in self.contract.get("exposes", []):
-            binding = expose.get("binding", {})
-            location = binding.get("location", {})
-            if binding.get("platform") == "snowflake":
-                config["account"] = location.get("account", "")
-                config["database"] = location.get("database", "")
-                config["schema"] = location.get("schema", "")
-                break
-        # Override from env vars (standard Snowflake env vars)
-        config["account"] = os.environ.get("SNOWFLAKE_ACCOUNT", config.get("account", ""))
-        config["user"] = os.environ.get("SNOWFLAKE_USER", "")
-        config["password"] = os.environ.get("SNOWFLAKE_PASSWORD")
-        config["warehouse"] = os.environ.get("SNOWFLAKE_WAREHOUSE", config.get("warehouse"))
-        config["role"] = os.environ.get("SNOWFLAKE_ROLE", config.get("role"))
-        config["private_key_path"] = os.environ.get("SNOWFLAKE_PRIVATE_KEY_PATH")
-        config["authenticator"] = os.environ.get("SNOWFLAKE_AUTHENTICATOR")
-        # CLI --server flag overrides account
-        if self.server:
-            config["account"] = self.server
-        return config
+        return resolve_snowflake_settings(
+            contract=self.contract,
+            account=self.server,
+            project_root=self.contract_path.parent if self.contract_path else None,
+            environment=self.env,
+        )
 
     def _validate_consumes(self) -> None:
         """Validate consumed data products (dependencies)."""
