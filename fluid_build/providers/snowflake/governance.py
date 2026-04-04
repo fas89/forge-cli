@@ -36,8 +36,21 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 from fluid_build.cli.console import cprint, success
+from fluid_build.providers._sql_safety import validate_ident
 
 logger = logging.getLogger("fluid_build.providers.snowflake.governance")
+
+
+def _qualified_name(*parts: str) -> str:
+    """Build a fully-qualified identifier after validating each component."""
+    return ".".join(validate_ident(part) for part in parts)
+
+
+def _validated_ident_list(values: Any) -> List[str]:
+    """Normalize a cluster-by style identifier list to validated identifiers."""
+    if isinstance(values, list):
+        return [validate_ident(str(value)) for value in values]
+    return [validate_ident(str(values))]
 
 
 class MaskingPolicyTemplates:
@@ -150,10 +163,10 @@ class GovernanceValidator:
 
     def __init__(self, cursor, database: str, schema: str, table: str):
         self.cursor = cursor
-        self.database = database
-        self.schema = schema
-        self.table = table
-        self.full_table = f"{database}.{schema}.{table}"
+        self.database = validate_ident(database)
+        self.schema = validate_ident(schema)
+        self.table = validate_ident(table)
+        self.full_table = _qualified_name(self.database, self.schema, self.table)
 
     def validate_table_exists(self) -> bool:
         """Check if table exists"""
@@ -262,7 +275,9 @@ class GovernanceValidator:
     def get_table_properties(self) -> Dict[str, Any]:
         """Get table properties (clustering, retention, etc.)"""
         try:
-            self.cursor.execute(f"SHOW TABLES LIKE '{self.table}' IN {self.database}.{self.schema}")
+            self.cursor.execute(
+                f"SHOW TABLES LIKE '{self.table}' IN {_qualified_name(self.database, self.schema)}"
+            )
             result = self.cursor.fetchone()
             if result:
                 # Parse result - varies by Snowflake version
@@ -307,7 +322,14 @@ class UnifiedGovernanceApplicator:
         """Apply all governance from contract"""
         try:
             # Get expose configuration
-            expose = self.contract.get("exposes", [])[0]
+            exposes = self.contract.get("exposes") or []
+            if not exposes:
+                raise SnowflakeGovernanceError(
+                    "Missing expose configuration",
+                    "Ensure the contract defines at least one expose with Snowflake binding.location.",
+                )
+
+            expose = exposes[0]
             binding = expose.get("binding", {})
             location = binding.get("location", {})
 
@@ -321,7 +343,10 @@ class UnifiedGovernanceApplicator:
                     "Ensure contract has binding.location with database, schema, and table",
                 )
 
-            full_table = f"{database}.{schema}.{table}"
+            database = validate_ident(database)
+            schema = validate_ident(schema)
+            table = validate_ident(table)
+            full_table = _qualified_name(database, schema, table)
 
             cprint(f"\n🎯 Applying governance to {full_table}\n")
             cprint("=" * 90)
@@ -420,17 +445,17 @@ class UnifiedGovernanceApplicator:
         schema_fields = expose.get("contract", {}).get("schema", [])
         properties = expose.get("binding", {}).get("properties", {})
 
-        ddl_parts = [f"CREATE TABLE IF NOT EXISTS {database}.{schema}.{table} ("]
+        ddl_parts = [f"CREATE TABLE IF NOT EXISTS {_qualified_name(database, schema, table)} ("]
 
         # Add columns with descriptions
         column_defs = []
         for field in schema_fields:
-            col_name = field["name"].upper()
+            col_name = validate_ident(field["name"].upper())
             col_type = self._map_type(field.get("type", "VARCHAR"))
             nullable = "" if field.get("required", True) == False else ""
-            comment = (
-                f" COMMENT '{field.get('description', '')}'" if field.get("description") else ""
-            )
+            description = field.get("description")
+            escaped_description = str(description).replace("'", "''") if description else ""
+            comment = f" COMMENT '{escaped_description}'" if description else ""
 
             column_defs.append(f"  {col_name} {col_type}{nullable}{comment}")
 
@@ -439,11 +464,7 @@ class UnifiedGovernanceApplicator:
 
         # Add table properties
         if properties.get("cluster_by"):
-            cluster_cols = properties["cluster_by"]
-            if isinstance(cluster_cols, list):
-                cluster_str = ", ".join(cluster_cols)
-            else:
-                cluster_str = cluster_cols
+            cluster_str = ", ".join(_validated_ident_list(properties["cluster_by"]))
             ddl_parts.append(f"CLUSTER BY ({cluster_str})")
 
         if properties.get("comment"):
@@ -528,7 +549,7 @@ class UnifiedGovernanceApplicator:
 
         # Apply to each column
         for field in schema_fields:
-            col_name = field["name"].upper()
+            col_name = validate_ident(field["name"].upper())
 
             # Apply tags
             for tag in field.get("tags", []):
@@ -550,7 +571,7 @@ class UnifiedGovernanceApplicator:
         masking_rules = expose.get("policy", {}).get("privacy", {}).get("masking", [])
 
         for rule in masking_rules:
-            column_name = rule["column"].upper()
+            column_name = validate_ident(rule["column"].upper())
             strategy = rule.get("strategy", "hash")
             params = rule.get("params", {})
 
@@ -558,7 +579,7 @@ class UnifiedGovernanceApplicator:
             col_type = self._get_column_type(full_table, column_name)
 
             # Create masking policy from template
-            policy_name = f"{column_name}_{strategy.upper()}_MASK"
+            policy_name = validate_ident(f"{column_name}_{strategy.upper()}_MASK")
             self._create_masking_policy(schema, policy_name, col_type, strategy, params)
 
             # Apply to column
@@ -566,13 +587,15 @@ class UnifiedGovernanceApplicator:
 
     def _create_tag(self, schema: str, tag_name: str):
         """Create a single tag"""
+        schema = validate_ident(schema)
+        tag_name = validate_ident(tag_name)
         if not self.dry_run:
             try:
-                self.cursor.execute(f"CREATE TAG IF NOT EXISTS {schema}.{tag_name}")
+                self.cursor.execute(f"CREATE TAG IF NOT EXISTS {_qualified_name(schema, tag_name)}")
             except Exception as e:
                 logger.warning(f"Could not create tag {tag_name}: {e}")
         else:
-            cprint(f"   🔍 [DRY RUN] Would create tag: {schema}.{tag_name}")
+            cprint(f"   🔍 [DRY RUN] Would create tag: {_qualified_name(schema, tag_name)}")
 
     def _create_tags(self, schema: str, tags: Dict[str, str]):
         """Create all tags"""
@@ -582,26 +605,25 @@ class UnifiedGovernanceApplicator:
     def _apply_tags_to_table(self, full_table: str, tags: Dict[str, str]):
         """Apply tags to table"""
         for tag_name, tag_value in tags.items():
+            safe_tag_name = validate_ident(tag_name)
+            safe_tag_value = str(tag_value).replace("'", "''")
             if not self.dry_run:
                 try:
                     self.cursor.execute(
-                        f"ALTER TABLE {full_table} SET TAG {tag_name} = '{tag_value}'"
+                        f"ALTER TABLE {full_table} SET TAG {safe_tag_name} = '{safe_tag_value}'"
                     )
-                    cprint(f"   ✅ {tag_name} = {tag_value}")
+                    cprint(f"   ✅ {safe_tag_name} = {tag_value}")
                     self.stats["table_tags_applied"] += 1
                 except Exception as e:
-                    logger.warning(f"Could not apply tag {tag_name}: {e}")
+                    logger.warning(f"Could not apply tag {safe_tag_name}: {e}")
             else:
-                cprint(f"   🔍 [DRY RUN] Would set tag: {tag_name} = {tag_value}")
+                cprint(f"   🔍 [DRY RUN] Would set tag: {safe_tag_name} = {tag_value}")
 
     def _apply_clustering(self, full_table: str, cluster_by):
         """Apply clustering to table"""
         if not self.dry_run:
             try:
-                if isinstance(cluster_by, list):
-                    cluster_str = ", ".join(cluster_by)
-                else:
-                    cluster_str = cluster_by
+                cluster_str = ", ".join(_validated_ident_list(cluster_by))
                 self.cursor.execute(f"ALTER TABLE {full_table} CLUSTER BY ({cluster_str})")
                 cprint(f"   ✅ Clustering: {cluster_str}")
             except Exception as e:
@@ -636,17 +658,22 @@ class UnifiedGovernanceApplicator:
 
     def _apply_column_tag(self, full_table: str, column_name: str, tag_name: str, tag_value: str):
         """Apply tag to column"""
+        safe_column_name = validate_ident(column_name)
+        safe_tag_name = validate_ident(tag_name)
+        safe_tag_value = str(tag_value).replace("'", "''")
         if not self.dry_run:
             try:
                 self.cursor.execute(
                     f"""
                     ALTER TABLE {full_table}
-                    MODIFY COLUMN {column_name}
-                    SET TAG {tag_name} = '{tag_value}'
+                    MODIFY COLUMN {safe_column_name}
+                    SET TAG {safe_tag_name} = '{safe_tag_value}'
                 """
                 )
             except Exception as e:
-                logger.warning(f"Could not apply tag {tag_name} to column {column_name}: {e}")
+                logger.warning(
+                    f"Could not apply tag {safe_tag_name} to column {safe_column_name}: {e}"
+                )
 
     def _get_column_type(self, full_table: str, column_name: str) -> str:
         """Get column data type"""
@@ -658,7 +685,7 @@ class UnifiedGovernanceApplicator:
                 FROM INFORMATION_SCHEMA.COLUMNS
                 WHERE TABLE_SCHEMA = '{parts[1]}'
                   AND TABLE_NAME = '{parts[2]}'
-                  AND COLUMN_NAME = '{column_name}'
+                  AND COLUMN_NAME = '{validate_ident(column_name)}'
             """
             )
             result = self.cursor.fetchone()
@@ -670,6 +697,8 @@ class UnifiedGovernanceApplicator:
         self, schema: str, policy_name: str, col_type: str, strategy: str, params: Dict
     ):
         """Create masking policy from template"""
+        schema = validate_ident(schema)
+        policy_name = validate_ident(policy_name)
         template = MaskingPolicyTemplates.get_template(strategy, col_type, params)
 
         if not template:
@@ -682,7 +711,7 @@ class UnifiedGovernanceApplicator:
                 policy_type = "TIMESTAMP_NTZ" if "TIMESTAMP" in col_type else "VARCHAR"
 
                 ddl = f"""
-                    CREATE MASKING POLICY IF NOT EXISTS {schema}.{policy_name} 
+                    CREATE MASKING POLICY IF NOT EXISTS {_qualified_name(schema, policy_name)} 
                     AS (val {policy_type}) RETURNS {policy_type} ->
                     {template}
                 """
@@ -697,23 +726,25 @@ class UnifiedGovernanceApplicator:
 
     def _apply_masking_policy(self, full_table: str, column_name: str, policy_name: str):
         """Apply masking policy to column"""
+        safe_column_name = validate_ident(column_name)
+        safe_policy_name = validate_ident(policy_name)
         if not self.dry_run:
             try:
                 parts = full_table.split(".")
-                schema = parts[1]
+                schema = validate_ident(parts[1])
                 self.cursor.execute(
                     f"""
                     ALTER TABLE {full_table}
-                    MODIFY COLUMN {column_name}
-                    SET MASKING POLICY {schema}.{policy_name}
+                    MODIFY COLUMN {safe_column_name}
+                    SET MASKING POLICY {_qualified_name(schema, safe_policy_name)}
                 """
                 )
-                cprint(f"   ✅ Applied {policy_name} to {column_name}")
+                cprint(f"   ✅ Applied {safe_policy_name} to {safe_column_name}")
                 self.stats["masking_policies_applied"] += 1
             except Exception as e:
-                logger.warning(f"Could not apply masking policy to {column_name}: {e}")
+                logger.warning(f"Could not apply masking policy to {safe_column_name}: {e}")
         else:
-            cprint(f"   🔍 [DRY RUN] Would apply {policy_name} to {column_name}")
+            cprint(f"   🔍 [DRY RUN] Would apply {safe_policy_name} to {safe_column_name}")
 
     def _validate_application(self, validator: GovernanceValidator):
         """Validate that governance was applied correctly"""

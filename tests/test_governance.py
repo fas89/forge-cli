@@ -14,6 +14,7 @@
 
 """Tests for providers/snowflake/governance.py — masking templates, errors, validator, applicator."""
 
+import pytest
 from unittest.mock import MagicMock
 
 from fluid_build.providers.snowflake.governance import (
@@ -237,6 +238,19 @@ class TestGovernanceValidator:
         props = v.get_table_properties()
         assert props["exists"] is False
 
+    @pytest.mark.parametrize(
+        ("database", "schema", "table"),
+        [
+            ("DB", "SCH;DROP", "TBL"),
+            ("DB", "SCH", "TBL bad"),
+            ("DB-1", "SCH", "TBL"),
+        ],
+    )
+    def test_rejects_invalid_identifiers(self, database, schema, table):
+        cursor = MagicMock()
+        with pytest.raises(ValueError, match="Invalid SQL identifier"):
+            GovernanceValidator(cursor, database, schema, table)
+
 
 # ── UnifiedGovernanceApplicator ──────────────────────────────────────
 class TestUnifiedGovernanceApplicator:
@@ -318,12 +332,38 @@ class TestUnifiedGovernanceApplicator:
         ddl = app._generate_create_table_ddl("DB", "SCH", "TBL", contract["exposes"][0])
         assert "COMMENT = 'Bob''s table'" in ddl
 
+    def test_generate_create_table_rejects_invalid_column_identifier(self):
+        contract = self._minimal_contract()
+        contract["exposes"][0]["contract"]["schema"][0]["name"] = "bad-name"
+        cursor = MagicMock()
+        app = UnifiedGovernanceApplicator(cursor, contract)
+        with pytest.raises(ValueError, match="Invalid SQL identifier"):
+            app._generate_create_table_ddl("DB", "SCH", "TBL", contract["exposes"][0])
+
     def test_apply_all_missing_location(self):
         cursor = MagicMock()
         contract = {"exposes": [{"binding": {"location": {}}}]}
         app = UnifiedGovernanceApplicator(cursor, contract)
         result = app.apply_all()
         assert result["status"] == "error"
+
+    def test_apply_all_missing_exposes(self):
+        cursor = MagicMock()
+        app = UnifiedGovernanceApplicator(cursor, {"exposes": []})
+        result = app.apply_all()
+        assert result["status"] == "error"
+        assert "Missing expose configuration" in result["error"]
+        cursor.execute.assert_not_called()
+
+    def test_apply_all_rejects_invalid_schema_identifier_without_execute(self):
+        cursor = MagicMock()
+        contract = self._minimal_contract()
+        contract["exposes"][0]["binding"]["location"]["schema"] = "SCH;DROP"
+        app = UnifiedGovernanceApplicator(cursor, contract)
+        result = app.apply_all()
+        assert result["status"] == "error"
+        assert "Invalid SQL identifier" in result["error"]
+        cursor.execute.assert_not_called()
 
     def test_apply_all_dry_run(self):
         cursor = MagicMock()
@@ -366,6 +406,12 @@ class TestUnifiedGovernanceApplicator:
         app = UnifiedGovernanceApplicator(cursor, {}, dry_run=False)
         # Should not raise
         app._create_tag("SCH", "BAD_TAG")
+
+    def test_create_tag_rejects_invalid_identifier(self):
+        cursor = MagicMock()
+        app = UnifiedGovernanceApplicator(cursor, {}, dry_run=False)
+        with pytest.raises(ValueError, match="Invalid SQL identifier"):
+            app._create_tag("SCH", "BAD-TAG")
 
     def test_apply_tags_to_table_dry_run(self):
         cursor = MagicMock()
@@ -438,3 +484,19 @@ class TestUnifiedGovernanceApplicator:
         cursor.execute.side_effect = Exception("err")
         app = UnifiedGovernanceApplicator(cursor, {})
         assert app._get_column_type("DB.SCH.TBL", "ID") == "VARCHAR"
+
+    def test_apply_security_policies_rejects_invalid_column_identifier(self):
+        cursor = MagicMock()
+        app = UnifiedGovernanceApplicator(cursor, {}, dry_run=False)
+        expose = {
+            "policy": {
+                "privacy": {
+                    "masking": [
+                        {"column": "email;DROP", "strategy": "hash"},
+                    ]
+                }
+            }
+        }
+        with pytest.raises(ValueError, match="Invalid SQL identifier"):
+            app._apply_security_policies("DB", "SCH", "DB.SCH.TBL", expose)
+        cursor.execute.assert_not_called()

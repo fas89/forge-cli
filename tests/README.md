@@ -61,6 +61,24 @@ python tests/test_runner.py diff wizard product_add
 python tests/cli/test_diff.py
 ```
 
+### Optional Live Snowflake Smoke Test
+
+```bash
+# Required env vars:
+#   SNOWFLAKE_ACCOUNT
+#   SNOWFLAKE_USER
+#   SNOWFLAKE_PASSWORD
+#   SNOWFLAKE_WAREHOUSE
+#   FLUID_TEST_SNOWFLAKE_DATABASE
+# Optional:
+#   SNOWFLAKE_ROLE
+
+.venv/bin/pytest tests/providers/test_snowflake_governance_live.py -q
+```
+
+Use a disposable Snowflake database for `FLUID_TEST_SNOWFLAKE_DATABASE`. The smoke
+test creates and drops a temporary schema inside that database.
+
 ## New Test Coverage (Recent Additions)
 
 ### ✅ diff Command Tests (`tests/cli/test_diff.py`)

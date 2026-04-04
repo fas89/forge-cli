@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from fluid_build.providers.base import ApplyResult, BaseProvider, ProviderMetadata
+from fluid_build.providers._sql_safety import validate_ident
 
 from .util.logging import (
     duration_ms,
@@ -97,15 +98,9 @@ def _now_iso() -> str:
     )
 
 
-# Regex for safe SQL identifiers (letters, digits, underscores)
-_SAFE_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
-
 def _validate_ident(name: str) -> str:
-    """Validate a SQL identifier to prevent injection. Returns the name if safe."""
-    if not _SAFE_IDENT.match(name):
-        raise ValueError(f"Invalid SQL identifier: {name!r}")
-    return name
+    """Compatibility wrapper around the shared SQL identifier validator."""
+    return validate_ident(name)
 
 
 def _mkdir(p: PathLike) -> Path:
