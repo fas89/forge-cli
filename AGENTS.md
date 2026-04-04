@@ -274,7 +274,7 @@ For MCP (Model Context Protocol) tool servers, these JSON outputs can be piped d
 
 ## Links
 
-- **Documentation**: [https://fluidhq.io/docs](https://fluidhq.io/docs)
+- **Documentation**: [https://agentics-rising.github.io/forge_docs/](https://agentics-rising.github.io/forge_docs/)
 - **PyPI**: [https://pypi.org/project/fluid-forge](https://pypi.org/project/fluid-forge/)
 - **Repository**: [https://github.com/Agentics-Rising/forge-cli](https://github.com/Agentics-Rising/forge-cli)
 - **Agent Policy Examples**: `examples/0.7.1/ai-restricted-data.yaml`

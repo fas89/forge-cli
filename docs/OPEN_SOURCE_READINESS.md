@@ -16,11 +16,11 @@
 | CLI Consolidation | 0 | 5 | 0% |
 | Provider Modularization | 1 | 1 | 50% |
 | Airflow & Glue | 6 | 0 | 100% |
-| Testing & Quality | 3 | 3 | 50% |
+| Testing & Quality | 4 | 2 | 67% |
 | Documentation | 2 | 2 | 50% |
-| Community Setup | 3 | 1 | 75% |
+| Community Setup | 7 | 1 | 88% |
 | Release Preparation | 4 | 2 | 67% |
-| **Total** | **27** | **16** | **63%** |
+| **Total** | **32** | **12** | **73%** |
 
 ---
 
@@ -61,6 +61,10 @@
 - [x] Issue templates — `bug_report.yml`, `feature_request.yml`, `provider_request.yml`
 - [x] CODEOWNERS — team ownership rules for core, providers, security
 - [x] PR template — `pull_request_template.md` with checklist
+- [x] GOVERNANCE.md — roles (user → contributor → committer → maintainer), decision-making process, conflict resolution
+- [x] SUPPORT.md — how to get help, response time expectations, channel guide
+- [x] Stale issue bot — `.github/workflows/stale.yml` (30-day stale, 14-day close, exempts pinned/security/good-first-issue)
+- [x] Dependabot — `.github/dependabot.yml` for pip + github-actions (weekly)
 
 ### Release Preparation
 - [x] Version consistent — `pyproject.toml` and `__init__.py` both at `0.7.7`
@@ -94,7 +98,7 @@
 - [x] **Schedule Lambda TODOs** — all 5 Lambda code generators in `schedule.py` now have real orchestration dispatch (workflow executor, S3/DynamoDB/EventBridge/SQS triggers)
 
 ### Testing & Quality
-- [ ] **Coverage threshold** — no `--cov-fail-under` in CI. Add `80` as stepping stone to 95%.
+- [x] **Coverage threshold** — `--cov-fail-under=40` added to CI (Python 3.12 job), stepping stone to 80%
 - [ ] **Test coverage target** — 125 test files exist but no measured % against 95% goal
 - [ ] **Property-based tests** — hypothesis not installed, 0 property tests (P2)
 
@@ -103,7 +107,7 @@
 - [ ] **Architecture diagram** — README has simple ASCII flow, no Mermaid diagram
 
 ### Community Setup
-- [ ] **Discord/Slack** — no community chat link in README (only GitHub Discussions)
+- [ ] **Community chat** — no Discord/Slack link in README (only GitHub Discussions)
 
 ### Release Preparation
 - [ ] **Version bump to 1.0.0** — still at 0.7.7. Bump `pyproject.toml` + `__init__.py` when ready.

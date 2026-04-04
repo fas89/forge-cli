@@ -1228,7 +1228,7 @@ Duration: {report.duration:.2f}s"""
 
     # Save to file if requested
     if output_file:
-        with open(output_file, "w") as f:
+        with open(output_file, "w", encoding="utf-8") as f:
             f.write(report.get_summary())
             f.write("\n\n")
             for issue in report.issues:
@@ -1257,7 +1257,7 @@ def output_plain_report(report: ValidationReport, output_file: Optional[str] = N
     report_text = "\n".join(output)
 
     if output_file:
-        with open(output_file, "w") as f:
+        with open(output_file, "w", encoding="utf-8") as f:
             f.write(report_text)
         success(f"Report saved to: {output_file}")
     else:

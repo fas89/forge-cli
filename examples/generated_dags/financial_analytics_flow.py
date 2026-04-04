@@ -35,7 +35,7 @@ def create_bucket() -> Dict[str, Any]:
     params = {
         "bucket": "financial-data-lake-{{account_id}}",
         "region": "us-east-1",
-        "versioning": true,
+        "versioning": True,
         "encryption": "AES256",
     }
 

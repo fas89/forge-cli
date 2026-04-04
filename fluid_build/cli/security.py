@@ -25,6 +25,7 @@ import logging
 import os
 import re
 import signal
+import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -109,6 +110,7 @@ class SecurePathValidator:
             return
 
         path_str = str(path)
+        normalized_path = re.sub(r"/+", "/", path_str.replace("\\", "/"))
 
         # Check for path traversal attempts
         if ".." in path.parts:
@@ -138,7 +140,8 @@ class SecurePathValidator:
 
         # Check for forbidden system paths
         for forbidden in self.security_context.forbidden_paths:
-            if path_str.startswith(forbidden):
+            normalized_forbidden = re.sub(r"/+", "/", forbidden.replace("\\", "/"))
+            if normalized_path.startswith(normalized_forbidden):
                 raise FluidCLIError(
                     1,
                     "forbidden_path_access",
@@ -358,8 +361,28 @@ class ProcessManager:
         kwargs = kwargs or {}
 
         try:
-            with self.timeout_context(timeout):
-                return func(*args, **kwargs)
+            timeout_seconds = timeout or self.default_timeout
+            if hasattr(signal, "SIGALRM"):
+                with self.timeout_context(timeout_seconds):
+                    return func(*args, **kwargs)
+
+            result: dict[str, Any] = {}
+            error: dict[str, BaseException] = {}
+
+            def run_target() -> None:
+                try:
+                    result["value"] = func(*args, **kwargs)
+                except BaseException as exc:  # pragma: no cover - re-raised on caller thread
+                    error["value"] = exc
+
+            worker = threading.Thread(target=run_target, daemon=True)
+            worker.start()
+            worker.join(timeout_seconds)
+            if worker.is_alive():
+                raise TimeoutError(f"Operation timed out after {timeout_seconds} seconds")
+            if "value" in error:
+                raise error["value"]
+            return result.get("value")
         except TimeoutError as e:
             raise FluidCLIError(
                 1,

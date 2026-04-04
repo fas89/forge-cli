@@ -96,7 +96,7 @@ jobs:
           fi
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: coverage
           path: |
@@ -128,7 +128,7 @@ jobs:
           ls -lh dist/
 
       - name: Upload alpha wheel
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: wheel-alpha
           path: dist/
@@ -157,7 +157,7 @@ jobs:
           ls -lh dist/
 
       - name: Upload beta wheel
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: wheel-beta
           path: dist/
@@ -198,7 +198,7 @@ jobs:
           /tmp/test-install/bin/python -c "import fluid_build; print(f'Providers: {list(fluid_build.get_enabled_providers())}')"
 
       - name: Upload stable wheel
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: wheel-stable
           path: dist/
