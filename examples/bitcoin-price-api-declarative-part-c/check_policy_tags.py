@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Check if policy tags are attached to table fields"""
+
 from google.cloud import bigquery
 
 client = bigquery.Client(project="<<YOUR_PROJECT_HERE>>")

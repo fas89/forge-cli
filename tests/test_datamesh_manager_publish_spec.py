@@ -56,6 +56,51 @@ def _sample_contract_with_exposes():
     }
 
 
+def _sample_odps_alias_contract():
+    return {
+        "id": "sales-product",
+        "metadata": {
+            "name": "Sales Product",
+            "description": "demo",
+            "status": "active",
+            "owner": {"team": "analytics"},
+            "type": "analytical",
+        },
+        "tags": ["sales", "gold"],
+        "owner": {"team": "analytics"},
+        "exposes": [],
+        "expects": [],
+    }
+
+
+def _sample_odps_binding_platform_contract():
+    return {
+        "id": "sales-product",
+        "metadata": {
+            "name": "Sales Product",
+            "description": "demo",
+            "status": "active",
+            "owner": {"team": "analytics"},
+        },
+        "owner": {"team": "analytics"},
+        "exposes": [
+            {
+                "id": "orders",
+                "binding": {
+                    "platform": "gcp",
+                    "location": {
+                        "project": "demo-project",
+                        "dataset": "sales",
+                        "table": "orders",
+                    },
+                },
+                "contract": {"schema": []},
+            }
+        ],
+        "expects": [],
+    }
+
+
 def test_apply_dry_run_defaults_to_dps_spec():
     provider = DataMeshManagerProvider(api_key="dummy", api_url="https://api.entropy-data.com")
 
@@ -111,6 +156,45 @@ def test_apply_dry_run_sets_per_expose_contract_ids_for_odps():
     output_ports = result["payload"].get("outputPorts", [])
     contract_ids = [port.get("contractId") for port in output_ports]
     assert contract_ids == ["sales-product.orders", "sales-product.customers"]
+
+
+def test_apply_dry_run_odps_includes_top_level_tags_when_metadata_missing():
+    provider = DataMeshManagerProvider(api_key="dummy", api_url="https://api.entropy-data.com")
+
+    result = provider.apply(
+        _sample_odps_alias_contract(),
+        dry_run=True,
+        provider_hint="odps",
+    )
+
+    payload = result["payload"]
+    assert payload["tags"] == ["sales", "gold"]
+
+
+def test_apply_dry_run_odps_maps_metadata_type_to_custom_property_type():
+    provider = DataMeshManagerProvider(api_key="dummy", api_url="https://api.entropy-data.com")
+
+    result = provider.apply(
+        _sample_odps_alias_contract(),
+        dry_run=True,
+        provider_hint="odps",
+    )
+
+    custom_props = result["payload"].get("customProperties", [])
+    assert {"property": "type", "value": "analytical"} in custom_props
+
+
+def test_apply_dry_run_odps_sets_output_port_type_from_binding_platform():
+    provider = DataMeshManagerProvider(api_key="dummy", api_url="https://api.entropy-data.com")
+
+    result = provider.apply(
+        _sample_odps_binding_platform_contract(),
+        dry_run=True,
+        provider_hint="odps",
+    )
+
+    output_ports = result["payload"].get("outputPorts", [])
+    assert output_ports[0]["type"] == "bigquery"
 
 
 def test_cmd_publish_passes_provider_hint_to_apply():

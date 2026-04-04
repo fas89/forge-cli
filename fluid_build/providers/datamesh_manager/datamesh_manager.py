@@ -1349,7 +1349,7 @@ class DataMeshManagerProvider(BaseProvider):
             if properties:
                 schema_entry: Dict[str, Any] = {
                     "name": model_id,
-                    "physicalType": expose.get("kind", "table"),
+                    "physicalType": expose.get("kind") or expose.get("type", "table"),
                     "properties": properties,
                 }
                 schema_array.append(schema_entry)
@@ -1391,8 +1391,16 @@ class DataMeshManagerProvider(BaseProvider):
                 dc["serviceLevelObjectives"] = slo
 
         # Tags
-        tags = fluid.get("tags", [])
-        if isinstance(tags, list) and tags:
+        tags: List[str] = []
+        top_tags = fluid.get("tags", [])
+        if isinstance(top_tags, list):
+            tags.extend(top_tags)
+        meta_tags = meta.get("tags", [])
+        if isinstance(meta_tags, list):
+            for tag in meta_tags:
+                if tag not in tags:
+                    tags.append(tag)
+        if tags:
             dc["tags"] = tags
 
         # Custom properties — ODCS uses a list of {property, value} dicts
@@ -1503,7 +1511,10 @@ class DataMeshManagerProvider(BaseProvider):
                     fdef["classification"] = f["sensitivity"]
                 fields_out[fname] = fdef
             if fields_out:
-                models[model_id] = {"type": expose.get("kind", "table"), "fields": fields_out}
+                models[model_id] = {
+                    "type": expose.get("kind") or expose.get("type", "table"),
+                    "fields": fields_out,
+                }
 
             # Server definition from binding
             binding = expose.get("binding", {})
@@ -1581,6 +1592,8 @@ class DataMeshManagerProvider(BaseProvider):
 
         # Governance tags & labels as custom metadata
         tags = fluid.get("tags", [])
+        if not tags:
+            tags = meta.get("tags", [])
         labels = fluid.get("labels", {})
         if tags or labels:
             dc["custom"] = dc.get("custom", {})

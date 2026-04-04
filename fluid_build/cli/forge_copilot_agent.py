@@ -514,7 +514,7 @@ class CopilotAgentBase(CopilotProjectMemoryMixin, CopilotLegacyScaffoldMixin, AI
             "owner": suggestions.get("owner") or "data-team",
             "template": normalize_template_name(suggestions["recommended_template"]),
             "provider": normalize_provider_name(suggestions["recommended_provider"]),
-            "target_dir": str(target_dir),
+            "target_dir": target_dir.as_posix(),
             "ai_context": context,
             "ai_suggestions": suggestions,
         }

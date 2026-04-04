@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Load Bitcoin data and query results from BigQuery."""
+
 import json
 from datetime import datetime
 

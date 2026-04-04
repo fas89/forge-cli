@@ -157,7 +157,7 @@ class OdpsStandardProvider(BaseProvider):
         if team:
             odps_product["team"] = team
 
-        tags = metadata.get("tags", [])
+        tags = metadata.get("tags") or fluid.get("tags") or []
         if tags:
             odps_product["tags"] = tags
 
@@ -322,6 +322,10 @@ class OdpsStandardProvider(BaseProvider):
 
         # Map provider to type
         provider = expose.get("provider")
+        if not provider:
+            binding = expose.get("binding")
+            if isinstance(binding, dict):
+                provider = binding.get("platform")
         if provider:
             port["type"] = self._map_provider_to_type(provider)
 
@@ -441,7 +445,12 @@ class OdpsStandardProvider(BaseProvider):
         metadata = fluid.get("metadata", {})
 
         # Product type (if specified)
-        product_type = metadata.get("product_type")
+        product_type = (
+            metadata.get("product_type")
+            or metadata.get("type")
+            or fluid.get("product_type")
+            or fluid.get("type")
+        )
         if product_type:
             custom_props.append({"property": "type", "value": product_type})
 
