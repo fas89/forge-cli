@@ -256,7 +256,7 @@ class TestRegister:
 class TestRunFunction:
     @patch("fluid_build.cli.viz_graph._write_output")
     @patch("fluid_build.cli.viz_graph.load_contract_with_overlay")
-    def test_run_dot_format(self, mock_load, mock_write, tmp_path):
+    def test_run_dot_format(self, mock_load, _mock_write, tmp_path):
         from fluid_build.cli.viz_graph import run
 
         contract_file = tmp_path / "contract.yaml"
@@ -297,7 +297,7 @@ class TestRunFunction:
         "fluid_build.cli.viz_graph.load_contract_with_overlay",
         side_effect=FileNotFoundError("nope"),
     )
-    def test_run_missing_contract(self, mock_load, tmp_path):
+    def test_run_missing_contract(self, _mock_load, tmp_path):
         from fluid_build.cli._common import CLIError
         from fluid_build.cli.viz_graph import run
 

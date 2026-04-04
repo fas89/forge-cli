@@ -236,7 +236,7 @@ class TestRun:
         assert result == 1
 
     @patch("fluid_build.cli.test._output_rich")
-    def test_valid_contract_returns_0(self, mock_output, logger, tmp_path):
+    def test_valid_contract_returns_0(self, _mock_output, logger, tmp_path):
         contract = tmp_path / "contract.fluid.yaml"
         contract.write_text("apiVersion: 0.5.7")
         report = _make_report(valid=True, issues=[])
@@ -317,7 +317,7 @@ class TestRun:
         mock_output.assert_called_once()
 
     @patch("fluid_build.cli.test._output_rich")
-    def test_invalid_returns_1(self, mock_output, logger, tmp_path):
+    def test_invalid_returns_1(self, _mock_output, logger, tmp_path):
         contract = tmp_path / "contract.fluid.yaml"
         contract.write_text("apiVersion: 0.5.7")
         report = _make_report(valid=False, issues=[_make_issue()])
@@ -344,7 +344,7 @@ class TestRun:
         assert result == 1
 
     @patch("fluid_build.cli.test._output_rich")
-    def test_strict_with_warnings_returns_1(self, mock_output, logger, tmp_path):
+    def test_strict_with_warnings_returns_1(self, _mock_output, logger, tmp_path):
         contract = tmp_path / "contract.fluid.yaml"
         contract.write_text("apiVersion: 0.5.7")
         warn = _make_issue(severity="warning")
@@ -372,7 +372,7 @@ class TestRun:
         assert result == 1
 
     @patch("fluid_build.cli.test._output_rich")
-    def test_validate_exception_returns_1(self, mock_output, logger, tmp_path):
+    def test_validate_exception_returns_1(self, _mock_output, logger, tmp_path):
         contract = tmp_path / "contract.fluid.yaml"
         contract.write_text("apiVersion: 0.5.7")
         with patch("fluid_build.cli.contract_validation.ContractValidator") as mock_cls:

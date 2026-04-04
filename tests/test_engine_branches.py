@@ -22,7 +22,7 @@ class TestForgeEngineInit:
 
     @patch("fluid_build.forge.core.engine.initialize_all_registries")
     @patch("fluid_build.forge.core.engine.get_registry_status")
-    def test_init_with_console(self, mock_status, mock_init):
+    def test_init_with_console(self, mock_status, _mock_init):
         mock_status.return_value = {"templates": {"count": 3}, "providers": {"count": 2}}
         from fluid_build.forge.core.engine import ForgeEngine
 
@@ -33,7 +33,7 @@ class TestForgeEngineInit:
 
     @patch("fluid_build.forge.core.engine.initialize_all_registries")
     @patch("fluid_build.forge.core.engine.get_registry_status")
-    def test_init_without_console(self, mock_status, mock_init):
+    def test_init_without_console(self, mock_status, _mock_init):
         mock_status.return_value = {"templates": {"count": 3}, "providers": {"count": 2}}
         from fluid_build.forge.core.engine import ForgeEngine
 
@@ -51,7 +51,7 @@ class TestForgeEngineInit:
 
     @patch("fluid_build.forge.core.engine.initialize_all_registries")
     @patch("fluid_build.forge.core.engine.get_registry_status")
-    def test_init_empty_registries(self, mock_status, mock_init):
+    def test_init_empty_registries(self, mock_status, _mock_init):
         mock_status.return_value = {"templates": {"count": 0}, "providers": {"count": 0}}
         from fluid_build.forge.core.engine import ForgeEngine
 
@@ -192,7 +192,7 @@ class TestRunInteractive:
             return ForgeEngine(console=MagicMock())
 
     @patch("fluid_build.forge.core.engine.extension_registry")
-    def test_interactive_success(self, mock_ext):
+    def test_interactive_success(self, _mock_ext):
         engine = self._make_engine()
         engine._show_step_progress = MagicMock()
         engine._gather_project_info = MagicMock(return_value=True)
@@ -206,7 +206,7 @@ class TestRunInteractive:
         assert result is True
 
     @patch("fluid_build.forge.core.engine.extension_registry")
-    def test_interactive_step_fails(self, mock_ext):
+    def test_interactive_step_fails(self, _mock_ext):
         engine = self._make_engine()
         engine._show_step_progress = MagicMock()
         engine._gather_project_info = MagicMock(return_value=False)
@@ -214,7 +214,7 @@ class TestRunInteractive:
         assert result is False
 
     @patch("fluid_build.forge.core.engine.extension_registry")
-    def test_interactive_exception(self, mock_ext):
+    def test_interactive_exception(self, _mock_ext):
         engine = self._make_engine()
         engine._show_step_progress = MagicMock()
         engine._gather_project_info = MagicMock(side_effect=RuntimeError("fail"))
@@ -348,7 +348,7 @@ class TestValidateConfiguration:
     @patch("fluid_build.forge.core.engine.template_registry")
     @patch("fluid_build.forge.core.engine.provider_registry")
     @patch("fluid_build.forge.core.engine.validation_registry")
-    def test_missing_required_fields(self, mock_val, mock_prov, mock_tmpl):
+    def test_missing_required_fields(self, mock_val, _mock_prov, _mock_tmpl):
         engine = self._make_engine()
         engine.project_config = {"name": "test"}
         mock_val.validate_all.return_value = []
@@ -410,7 +410,7 @@ class TestExecuteGeneration:
     @patch("fluid_build.forge.core.engine.template_registry")
     @patch("fluid_build.forge.core.engine.provider_registry")
     @patch("fluid_build.forge.core.engine.extension_registry")
-    def test_execute_generation_success(self, mock_ext, mock_prov, mock_tmpl, tmp_path):
+    def test_execute_generation_success(self, _mock_ext, mock_prov, mock_tmpl, tmp_path):
         engine = self._make_engine()
         engine.project_config = {
             "name": "test",

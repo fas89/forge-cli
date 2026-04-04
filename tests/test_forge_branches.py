@@ -713,7 +713,7 @@ class TestRunFunction:
         mock_memory.assert_called_once()
 
     @patch("fluid_build.cli.forge.run_ai_copilot_mode", return_value=0)
-    def test_run_copilot_mode(self, mock_copilot):
+    def test_run_copilot_mode(self, _mock_copilot):
         from fluid_build.cli.forge import run
 
         args = MagicMock()
@@ -724,7 +724,7 @@ class TestRunFunction:
         assert result == 0
 
     @patch("fluid_build.cli.forge.run_template_mode", return_value=0)
-    def test_run_template_mode(self, mock_tmpl):
+    def test_run_template_mode(self, _mock_tmpl):
         from fluid_build.cli.forge import run
 
         args = MagicMock()
@@ -735,7 +735,7 @@ class TestRunFunction:
         assert result == 0
 
     @patch("fluid_build.cli.forge.run_domain_agent_mode", return_value=0)
-    def test_run_agent_mode(self, mock_agent):
+    def test_run_agent_mode(self, _mock_agent):
         from fluid_build.cli.forge import run
 
         args = MagicMock()
@@ -746,7 +746,7 @@ class TestRunFunction:
         assert result == 0
 
     @patch("fluid_build.cli.forge.run_blueprint_mode", return_value=0)
-    def test_run_blueprint_mode(self, mock_bp):
+    def test_run_blueprint_mode(self, _mock_bp):
         from fluid_build.cli.forge import run
 
         args = MagicMock()
@@ -1095,13 +1095,15 @@ class TestGetEnhancedTemplates:
 
 class TestCreateLegacyBootstrapper:
     def test_returns_object(self):
-        try:
-            from fluid_build.cli.forge import create_legacy_bootstrapper
+        from fluid_build.cli.forge import create_legacy_bootstrapper
 
+        try:
             result = create_legacy_bootstrapper(target_dir="/tmp/test")
-            assert result is not None
-        except (ImportError, Exception):
-            pass  # May not be available
+        except (ImportError, ModuleNotFoundError):
+            pytest.skip("forge_legacy not available")
+
+        assert result is not None
+        assert callable(getattr(result, "run", None)) or hasattr(result, "target_dir")
 
 
 class TestRunForgeBlueprint:

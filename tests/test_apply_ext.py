@@ -12,137 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Extended tests for apply.py: _actions_from_source, run, register."""
+"""Extended tests for apply.py: run() paths, display helpers, reports, notifications.
+
+Note: basic _actions_from_source and register tests are in test_apply.py.
+This file covers run() integration paths, display helpers, report generation,
+notification dispatch, and metric export.
+"""
 
 import json
 import logging
-import os
-import tempfile
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 import fluid_build.cli.apply as _apply_mod
-from fluid_build.cli.apply import COMMAND, _actions_from_source, register
+from fluid_build.cli.apply import COMMAND, _actions_from_source
 
 LOG = logging.getLogger("test_apply_ext")
-
-
-# ---------------------------------------------------------------------------
-# _actions_from_source
-# ---------------------------------------------------------------------------
-
-
-class TestActionsFromSource:
-    def test_json_source(self):
-        data = {"actions": [{"op": "ensure_dataset"}, {"op": "ensure_table"}]}
-        with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as f:
-            json.dump(data, f)
-            tmp_path = f.name
-
-        try:
-            actions = _actions_from_source(tmp_path, None, MagicMock(), LOG)
-            assert len(actions) == 2
-            assert actions[0]["op"] == "ensure_dataset"
-        finally:
-            os.unlink(tmp_path)
-
-    def test_json_source_no_actions(self):
-        data = {"plan": {}}
-        with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as f:
-            json.dump(data, f)
-            tmp_path = f.name
-
-        try:
-            actions = _actions_from_source(tmp_path, None, MagicMock(), LOG)
-            assert actions == []
-        finally:
-            os.unlink(tmp_path)
-
-    def test_provider_with_plan_method(self):
-        fake_contract = {"id": "test"}
-        provider = MagicMock()
-        provider.plan.return_value = [{"op": "create_table"}]
-
-        with patch.object(_apply_mod, "load_contract_with_overlay", return_value=fake_contract):
-            actions = _actions_from_source("test.yaml", None, provider, LOG)
-        assert len(actions) == 1
-        assert actions[0]["op"] == "create_table"
-
-    def test_provider_plan_fails_fallback(self):
-        fake_contract = {"id": "test"}
-        provider = MagicMock()
-        provider.plan.side_effect = Exception("plan failed")
-
-        with patch.object(_apply_mod, "load_contract_with_overlay", return_value=fake_contract):
-            # Fallback path - tries ProviderActionParser then final fallback
-            with patch(
-                "fluid_build.forge.core.provider_actions.ProviderActionParser",
-                side_effect=ImportError,
-            ):
-                actions = _actions_from_source("test.yaml", None, provider, LOG)
-        # Should get final fallback actions
-        assert len(actions) >= 1
-
-    def test_provider_no_plan_method(self):
-        fake_contract = {"id": "test"}
-        provider = MagicMock(spec=[])  # No plan method
-
-        with patch.object(_apply_mod, "load_contract_with_overlay", return_value=fake_contract):
-            with patch(
-                "fluid_build.forge.core.provider_actions.ProviderActionParser",
-                side_effect=ImportError,
-            ):
-                actions = _actions_from_source("test.yaml", None, provider, LOG)
-        assert len(actions) >= 1
-
-
-# ---------------------------------------------------------------------------
-# register
-# ---------------------------------------------------------------------------
-
-
-class TestRegister:
-    def test_register_adds_apply_command(self):
-        import argparse
-
-        parser = argparse.ArgumentParser()
-        subparsers = parser.add_subparsers()
-        register(subparsers)
-        # Should parse without error
-        ns = parser.parse_args(["apply", "contract.yaml"])
-        assert ns.contract == "contract.yaml"
-
-    def test_register_with_options(self):
-        import argparse
-
-        parser = argparse.ArgumentParser()
-        subparsers = parser.add_subparsers()
-        register(subparsers)
-        ns = parser.parse_args(["apply", "c.yaml", "--dry-run", "--yes", "--timeout", "60"])
-        assert ns.dry_run is True
-        assert ns.yes is True
-        assert ns.timeout == 60
-
-    def test_register_rollback_strategy(self):
-        import argparse
-
-        parser = argparse.ArgumentParser()
-        subparsers = parser.add_subparsers()
-        register(subparsers)
-        ns = parser.parse_args(["apply", "c.yaml", "--rollback-strategy", "immediate"])
-        assert ns.rollback_strategy == "immediate"
-
-
-# ---------------------------------------------------------------------------
-# COMMAND constant
-# ---------------------------------------------------------------------------
-
-
-class TestCommand:
-    def test_command_value(self):
-        assert COMMAND == "apply"
 
 
 # ---------------------------------------------------------------------------
@@ -151,140 +37,11 @@ class TestCommand:
 
 
 class TestRun:
-    @patch("fluid_build.cli.apply.RICH_AVAILABLE", False)
-    @patch("fluid_build.cli.apply.load_contract_with_overlay")
-    @patch("fluid_build.cli.apply.build_provider")
-    @patch("fluid_build.cli.apply._actions_from_source")
-    @patch("fluid_build.cli.hooks.run_pre_apply", side_effect=lambda p, a, l: a)
-    @patch("fluid_build.cli.hooks.run_post_apply")
-    @patch("fluid_build.cli.hooks.run_on_error")
-    @patch("fluid_build.cli.apply.log_operation_start")
-    @patch("fluid_build.cli.apply.log_operation_success")
-    @patch("fluid_build.cli.apply.log_metric")
-    def test_run_simple_dry_run(
-        self,
-        mock_metric,
-        mock_success,
-        mock_start,
-        mock_on_error,
-        mock_post,
-        mock_pre,
-        mock_actions,
-        mock_build,
-        mock_load,
-    ):
-        from fluid_build.cli.apply import run
+    """Tests for run() paths not covered in test_apply.py::TestRunSimpleMode.
 
-        mock_load.return_value = {"id": "test", "name": "Test"}
-        mock_build.return_value = MagicMock()
-        mock_actions.return_value = [{"op": "ensure_dataset"}]
-
-        args = MagicMock()
-        args.contract = "test.yaml"
-        args.env = None
-        args.dry_run = True
-        args.yes = True
-        args.timeout = 120
-        args.parallel_phases = False
-        args.rollback_strategy = "phase_complete"
-        args.config_override = None
-        args.provider_config = None
-        args.verbose = False
-        args.debug = False
-        args.report = "report.html"
-
-        result = run(args, LOG)
-        assert result == 0
-
-    @patch("fluid_build.cli.apply.RICH_AVAILABLE", False)
-    @patch("fluid_build.cli.apply.load_contract_with_overlay")
-    @patch("fluid_build.cli.apply.build_provider")
-    @patch("fluid_build.cli.apply._actions_from_source")
-    @patch("fluid_build.cli.hooks.run_pre_apply", side_effect=lambda p, a, l: a)
-    @patch("fluid_build.cli.hooks.run_post_apply")
-    @patch("fluid_build.cli.hooks.run_on_error")
-    @patch("fluid_build.cli.apply.log_operation_start")
-    @patch("fluid_build.cli.apply.log_operation_success")
-    @patch("fluid_build.cli.apply.log_metric")
-    def test_run_no_actions(
-        self,
-        mock_metric,
-        mock_success,
-        mock_start,
-        mock_on_error,
-        mock_post,
-        mock_pre,
-        mock_actions,
-        mock_build,
-        mock_load,
-    ):
-        from fluid_build.cli.apply import run
-
-        mock_load.return_value = {"id": "test"}
-        mock_build.return_value = MagicMock()
-        mock_actions.return_value = []
-
-        args = MagicMock()
-        args.contract = "test.yaml"
-        args.env = None
-        args.dry_run = False
-        args.yes = True
-        args.timeout = 120
-        args.parallel_phases = False
-        args.rollback_strategy = "phase_complete"
-        args.config_override = None
-        args.provider_config = None
-        args.verbose = False
-        args.debug = False
-        args.report = "report.html"
-
-        result = run(args, LOG)
-        assert result == 0
-
-    @patch("fluid_build.cli.apply.RICH_AVAILABLE", False)
-    @patch("fluid_build.cli.apply.load_contract_with_overlay")
-    @patch("fluid_build.cli.apply.build_provider")
-    @patch("fluid_build.cli.apply._actions_from_source")
-    @patch("fluid_build.cli.hooks.run_pre_apply", side_effect=lambda p, a, l: a)
-    @patch("fluid_build.cli.hooks.run_post_apply")
-    @patch("fluid_build.cli.hooks.run_on_error")
-    @patch("fluid_build.cli.apply.log_operation_start")
-    @patch("fluid_build.cli.apply.log_operation_success")
-    @patch("fluid_build.cli.apply.log_metric")
-    def test_run_with_config_override(
-        self,
-        mock_metric,
-        mock_success,
-        mock_start,
-        mock_on_error,
-        mock_post,
-        mock_pre,
-        mock_actions,
-        mock_build,
-        mock_load,
-    ):
-        from fluid_build.cli.apply import run
-
-        mock_load.return_value = {"id": "test"}
-        mock_build.return_value = MagicMock()
-        mock_actions.return_value = [{"op": "x"}]
-
-        args = MagicMock()
-        args.contract = "test.yaml"
-        args.env = None
-        args.dry_run = True
-        args.yes = True
-        args.timeout = 120
-        args.parallel_phases = False
-        args.rollback_strategy = "phase_complete"
-        args.config_override = '{"extra": "value"}'
-        args.provider_config = None
-        args.verbose = False
-        args.debug = False
-        args.report = "report.html"
-
-        result = run(args, LOG)
-        assert result == 0
+    Basic dry_run, no_actions, config_override, and provider detection are
+    tested in test_apply.py. This class covers execute success/failure paths.
+    """
 
     @patch("fluid_build.cli.apply.RICH_AVAILABLE", False)
     @patch("fluid_build.cli.apply.load_contract_with_overlay")
@@ -299,13 +56,13 @@ class TestRun:
     @patch("os.isatty", return_value=False)
     def test_run_simple_execute_success(
         self,
-        mock_isatty,
-        mock_metric,
-        mock_success,
-        mock_start,
-        mock_on_error,
-        mock_post,
-        mock_pre,
+        _mock_isatty,
+        _mock_metric,
+        _mock_success,
+        _mock_start,
+        _mock_on_error,
+        _mock_post,
+        _mock_pre,
         mock_actions,
         mock_build,
         mock_load,
@@ -334,6 +91,7 @@ class TestRun:
 
         result = run(args, LOG)
         assert result == 0
+        mock_provider.apply.assert_called_once()
 
     @patch("fluid_build.cli.apply.RICH_AVAILABLE", False)
     @patch("fluid_build.cli.apply.load_contract_with_overlay")
@@ -348,13 +106,13 @@ class TestRun:
     @patch("os.isatty", return_value=False)
     def test_run_simple_execute_failure(
         self,
-        mock_isatty,
-        mock_metric,
-        mock_failure,
-        mock_start,
-        mock_on_error,
-        mock_post,
-        mock_pre,
+        _mock_isatty,
+        _mock_metric,
+        _mock_failure,
+        _mock_start,
+        _mock_on_error,
+        _mock_post,
+        _mock_pre,
         mock_actions,
         mock_build,
         mock_load,
@@ -383,49 +141,7 @@ class TestRun:
 
         result = run(args, LOG)
         assert result == 1
-
-    @patch("fluid_build.cli.apply.load_contract_with_overlay")
-    def test_run_aws_provider_detection(self, mock_load):
-        """Test that AWS provider is detected from contract exposes."""
-        from fluid_build.cli.apply import run
-
-        mock_load.return_value = {
-            "id": "test",
-            "exposes": [
-                {
-                    "binding": {
-                        "platform": "aws",
-                        "location": {"region": "us-east-1"},
-                    }
-                }
-            ],
-        }
-
-        args = MagicMock()
-        args.contract = "test.yaml"
-        args.env = None
-        args.dry_run = True
-        args.yes = True
-        args.timeout = 120
-        args.parallel_phases = False
-        args.rollback_strategy = "phase_complete"
-        args.config_override = None
-        args.provider_config = None
-        args.verbose = False
-        args.debug = False
-        args.report = "report.html"
-
-        with (
-            patch("fluid_build.cli.apply.RICH_AVAILABLE", False),
-            patch("fluid_build.cli.apply.build_provider") as mock_bp,
-            patch("fluid_build.cli.apply._actions_from_source", return_value=[{"op": "x"}]),
-            patch("fluid_build.cli.apply.log_operation_start"),
-            patch("fluid_build.cli.apply.log_operation_success"),
-            patch("fluid_build.cli.apply.log_metric"),
-        ):
-            mock_bp.return_value = MagicMock()
-            result = run(args, LOG)
-        assert result == 0
+        mock_provider.apply.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -486,7 +202,7 @@ class TestRunJsonPlanLoading:
     @patch("fluid_build.cli.apply.log_operation_start")
     @patch("fluid_build.cli.apply.log_operation_success")
     @patch("fluid_build.cli.apply.log_metric")
-    def test_json_plan_dry_run(self, mock_metric, mock_success, mock_start, tmp_path):
+    def test_json_plan_dry_run(self, _mock_metric, _mock_success, _mock_start, tmp_path):
         """run() with a .json contract loads ExecutionPlan and returns 0 in dry-run."""
         from fluid_build.cli.apply import run
         from fluid_build.cli.orchestration import ExecutionPlan
@@ -541,7 +257,7 @@ class TestRunSimpleModeProviderDetection:
     @patch("fluid_build.cli.apply.build_provider")
     @patch("fluid_build.cli.apply.load_contract_with_overlay")
     def test_gcp_provider_detected(
-        self, mock_load, mock_bp, mock_actions, mock_metric, mock_success, mock_start
+        self, mock_load, mock_bp, _mock_actions, _mock_metric, _mock_success, _mock_start
     ):
         """Lines 411-450: GCP provider detected from exposes.binding.platform."""
         from fluid_build.cli.apply import run
@@ -573,7 +289,7 @@ class TestRunSimpleModeProviderDetection:
     @patch("fluid_build.cli.apply.build_provider")
     @patch("fluid_build.cli.apply.load_contract_with_overlay")
     def test_builds_fallback_provider_detection(
-        self, mock_load, mock_bp, mock_actions, mock_metric, mock_success, mock_start
+        self, mock_load, mock_bp, _mock_actions, _mock_metric, _mock_success, _mock_start
     ):
         """Lines 419-424: provider detected from builds[].execution.runtime.platform."""
         from fluid_build.cli.apply import run
@@ -597,7 +313,7 @@ class TestRunSimpleModeProviderDetection:
     @patch("fluid_build.cli.apply.build_provider")
     @patch("fluid_build.cli.apply.load_contract_with_overlay")
     def test_no_actions_returns_0(
-        self, mock_load, mock_bp, mock_actions, mock_metric, mock_success, mock_start
+        self, mock_load, mock_bp, _mock_actions, _mock_metric, _mock_success, _mock_start
     ):
         """Lines 455-457: no actions returns 0 early."""
         from fluid_build.cli.apply import run
@@ -641,7 +357,7 @@ class TestRunSimpleModeDryRunDisplay:
     @patch("fluid_build.cli.apply.build_provider")
     @patch("fluid_build.cli.apply.load_contract_with_overlay")
     def test_dry_run_plain_logging(
-        self, mock_load, mock_bp, mock_actions, mock_metric, mock_success, mock_start
+        self, mock_load, mock_bp, mock_actions, _mock_metric, _mock_success, _mock_start
     ):
         """Lines 514-518: plain-text dry-run logs each action."""
         from fluid_build.cli.apply import run
@@ -671,11 +387,11 @@ class TestRunSimpleModeDryRunDisplay:
         mock_load,
         mock_bp,
         mock_actions,
-        mock_metric,
-        mock_success,
-        mock_start,
-        mock_table,
-        mock_panel,
+        _mock_metric,
+        _mock_success,
+        _mock_start,
+        _mock_table,
+        _mock_panel,
         mock_console_cls,
     ):
         """Lines 500-518: rich dry-run shows Panel and Table."""
@@ -733,13 +449,13 @@ class TestRunReportGeneration:
         mock_load,
         mock_bp,
         mock_actions,
-        mock_on_error,
-        mock_post,
-        mock_pre,
-        mock_metric,
-        mock_failure,
-        mock_success,
-        mock_start,
+        _mock_on_error,
+        _mock_post,
+        _mock_pre,
+        _mock_metric,
+        _mock_failure,
+        _mock_success,
+        _mock_start,
         tmp_path,
     ):
         """Lines 628-656: HTML report is written to disk after successful apply."""
@@ -776,13 +492,13 @@ class TestRunReportGeneration:
         mock_load,
         mock_bp,
         mock_actions,
-        mock_on_error,
-        mock_post,
-        mock_pre,
-        mock_metric,
-        mock_failure,
-        mock_success,
-        mock_start,
+        _mock_on_error,
+        _mock_post,
+        _mock_pre,
+        _mock_metric,
+        _mock_failure,
+        _mock_success,
+        _mock_start,
         tmp_path,
     ):
         """Lines 657-673: JSON report is written with execution metadata."""
@@ -822,13 +538,13 @@ class TestRunReportGeneration:
         mock_load,
         mock_bp,
         mock_actions,
-        mock_on_error,
-        mock_post,
-        mock_pre,
-        mock_metric,
-        mock_failure,
-        mock_success,
-        mock_start,
+        _mock_on_error,
+        _mock_post,
+        _mock_pre,
+        _mock_metric,
+        _mock_failure,
+        _mock_success,
+        _mock_start,
     ):
         """Lines 688-695: failed apply returns exit code 1."""
         from fluid_build.cli.apply import run

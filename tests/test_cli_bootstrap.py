@@ -73,7 +73,7 @@ class TestIsCommandEnabled:
 class TestGetReporter:
     @patch("fluid_build.cli.bootstrap.CommandCenterReporter", create=True)
     @patch("fluid_build.cli.bootstrap.CommandCenterConfig", create=True)
-    def test_returns_none_on_import_error(self, mock_config, mock_reporter):
+    def test_returns_none_on_import_error(self, mock_config, _mock_reporter):
         import fluid_build.cli.bootstrap as bootstrap
 
         # Reset global

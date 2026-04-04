@@ -82,7 +82,7 @@ class TestRun:
 
     @patch("fluid_build.cli.marketplace.get_api_url", return_value="http://test")
     @patch("fluid_build.cli.marketplace.search_blueprints", return_value=0)
-    def test_search_dispatch(self, mock_search, mock_url, logger):
+    def test_search_dispatch(self, mock_search, _mock_url, logger):
         args = SimpleNamespace(marketplace_action="search")
         result = run(args, logger)
         assert result == 0
@@ -90,33 +90,33 @@ class TestRun:
 
     @patch("fluid_build.cli.marketplace.get_api_url", return_value="http://test")
     @patch("fluid_build.cli.marketplace.show_blueprint_info", return_value=0)
-    def test_info_dispatch(self, mock_info, mock_url, logger):
+    def test_info_dispatch(self, _mock_info, _mock_url, logger):
         args = SimpleNamespace(marketplace_action="info")
         result = run(args, logger)
         assert result == 0
 
     @patch("fluid_build.cli.marketplace.get_api_url", return_value="http://test")
     @patch("fluid_build.cli.marketplace.instantiate_blueprint", return_value=0)
-    def test_instantiate_dispatch(self, mock_inst, mock_url, logger):
+    def test_instantiate_dispatch(self, _mock_inst, _mock_url, logger):
         args = SimpleNamespace(marketplace_action="instantiate")
         result = run(args, logger)
         assert result == 0
 
     @patch("fluid_build.cli.marketplace.get_api_url", return_value="http://test")
     @patch("fluid_build.cli.marketplace.list_categories", return_value=0)
-    def test_categories_dispatch(self, mock_cats, mock_url, logger):
+    def test_categories_dispatch(self, _mock_cats, _mock_url, logger):
         args = SimpleNamespace(marketplace_action="categories")
         result = run(args, logger)
         assert result == 0
 
     @patch("fluid_build.cli.marketplace.get_api_url", return_value="http://test")
-    def test_unknown_action_returns_1(self, mock_url, logger):
+    def test_unknown_action_returns_1(self, _mock_url, logger):
         args = SimpleNamespace(marketplace_action="unknown_action")
         result = run(args, logger)
         assert result == 1
 
     @patch("fluid_build.cli.marketplace.get_api_url", side_effect=Exception("boom"))
-    def test_exception_returns_1(self, mock_url, logger):
+    def test_exception_returns_1(self, _mock_url, logger):
         args = SimpleNamespace(marketplace_action="search")
         with patch("fluid_build.cli.marketplace.console", MagicMock()):
             result = run(args, logger)

@@ -250,13 +250,15 @@ class TestFindCompatibleVersion:
     def test_uses_bundled_versions_when_none_given(self, tmp_path):
         m = self._make_manager(tmp_path)
         result = m.find_compatible_version(">=0.4.0")
-        assert result is not None
+        assert result is not None, "expected a matching bundled version for >=0.4.0"
+        assert hasattr(result, "version"), "result should be a SchemaVersion"
 
     def test_skips_invalid_version_strings(self, tmp_path):
         m = self._make_manager(tmp_path)
         # Only pass valid version strings
         result = m.find_compatible_version(">=0.4.0", ["0.4.0", "0.5.7"])
         assert result is not None
+        assert result.version in ("0.4.0", "0.5.7")
 
     def test_constraint_object_passed_directly(self, tmp_path):
         m = self._make_manager(tmp_path)

@@ -112,7 +112,7 @@ class TestRun:
 
     @patch("fluid_build.cli.blueprint.list_blueprints", return_value=0)
     @patch("fluid_build.cli.blueprint.blueprint_registry")
-    def test_list_dispatch(self, mock_reg, mock_list, logger):
+    def test_list_dispatch(self, _mock_reg, mock_list, logger):
         args = SimpleNamespace(blueprint_action="list")
         result = run(args, logger)
         mock_list.assert_called_once()
@@ -120,28 +120,28 @@ class TestRun:
 
     @patch("fluid_build.cli.blueprint.describe_blueprint", return_value=0)
     @patch("fluid_build.cli.blueprint.blueprint_registry")
-    def test_describe_dispatch(self, mock_reg, mock_desc, logger):
+    def test_describe_dispatch(self, _mock_reg, mock_desc, logger):
         args = SimpleNamespace(blueprint_action="describe")
         run(args, logger)
         mock_desc.assert_called_once()
 
     @patch("fluid_build.cli.blueprint.create_project", return_value=0)
     @patch("fluid_build.cli.blueprint.blueprint_registry")
-    def test_create_dispatch(self, mock_reg, mock_create, logger):
+    def test_create_dispatch(self, _mock_reg, mock_create, logger):
         args = SimpleNamespace(blueprint_action="create")
         run(args, logger)
         mock_create.assert_called_once()
 
     @patch("fluid_build.cli.blueprint.search_blueprints", return_value=0)
     @patch("fluid_build.cli.blueprint.blueprint_registry")
-    def test_search_dispatch(self, mock_reg, mock_search, logger):
+    def test_search_dispatch(self, _mock_reg, mock_search, logger):
         args = SimpleNamespace(blueprint_action="search")
         run(args, logger)
         mock_search.assert_called_once()
 
     @patch("fluid_build.cli.blueprint.validate_blueprints", return_value=0)
     @patch("fluid_build.cli.blueprint.blueprint_registry")
-    def test_validate_dispatch(self, mock_reg, mock_val, logger):
+    def test_validate_dispatch(self, _mock_reg, mock_val, logger):
         args = SimpleNamespace(blueprint_action="validate")
         run(args, logger)
         mock_val.assert_called_once()
@@ -336,7 +336,7 @@ class TestCreateProject:
 
     @patch("builtins.input", return_value="n")
     @patch("fluid_build.cli.blueprint.blueprint_registry")
-    def test_existing_dir_user_cancels(self, mock_reg, mock_input, logger, tmp_path):
+    def test_existing_dir_user_cancels(self, mock_reg, _mock_input, logger, tmp_path):
         bp = _make_blueprint()
         mock_reg.get_blueprint.return_value = bp
         target = tmp_path / "existing"

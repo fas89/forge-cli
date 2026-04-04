@@ -66,11 +66,11 @@ class TestQuickstartMode:
     def test_happy_path(
         self,
         mock_copy,
-        mock_data,
-        mock_db,
-        mock_run,
-        mock_cicd,
-        mock_success,
+        _mock_data,
+        _mock_db,
+        _mock_run,
+        _mock_cicd,
+        _mock_success,
         tmp_path,
         logger,
     ):
@@ -82,7 +82,7 @@ class TestQuickstartMode:
         mock_copy.assert_called_once()
 
     @patch("fluid_build.cli.init.copy_template", return_value=False)
-    def test_copy_template_fails_returns_1(self, mock_copy, tmp_path, logger):
+    def test_copy_template_fails_returns_1(self, _mock_copy, tmp_path, logger):
         from fluid_build.cli.init import quickstart_mode
 
         args = _make_args(name=str(tmp_path / "qs-fail"), no_run=True, no_dag=True)
@@ -114,12 +114,12 @@ class TestQuickstartMode:
     @patch("fluid_build.cli.init.copy_template", return_value=True)
     def test_auto_name_my_first_product(
         self,
-        mock_copy,
-        mock_data,
-        mock_db,
-        mock_run,
-        mock_cicd,
-        mock_success,
+        _mock_copy,
+        _mock_data,
+        _mock_db,
+        _mock_run,
+        _mock_cicd,
+        _mock_success,
         tmp_path,
         logger,
         monkeypatch,
@@ -139,12 +139,12 @@ class TestQuickstartMode:
     @patch("fluid_build.cli.init.copy_template", return_value=True)
     def test_pipeline_runs_when_no_run_false(
         self,
-        mock_copy,
-        mock_data,
-        mock_db,
+        _mock_copy,
+        _mock_data,
+        _mock_db,
         mock_run_pipeline,
-        mock_cicd,
-        mock_success,
+        _mock_cicd,
+        _mock_success,
         tmp_path,
         logger,
     ):
@@ -162,12 +162,12 @@ class TestQuickstartMode:
     @patch("fluid_build.cli.init.copy_template", return_value=True)
     def test_no_run_skips_pipeline(
         self,
-        mock_copy,
-        mock_data,
-        mock_db,
+        _mock_copy,
+        _mock_data,
+        _mock_db,
         mock_run_pipeline,
-        mock_cicd,
-        mock_success,
+        _mock_cicd,
+        _mock_success,
         tmp_path,
         logger,
     ):
@@ -178,7 +178,7 @@ class TestQuickstartMode:
         mock_run_pipeline.assert_not_called()
 
     @patch("fluid_build.cli.init.copy_template", side_effect=RuntimeError("boom"))
-    def test_exception_returns_1(self, mock_copy, tmp_path, logger):
+    def test_exception_returns_1(self, _mock_copy, tmp_path, logger):
         from fluid_build.cli.init import quickstart_mode
 
         args = _make_args(name=str(tmp_path / "qs-exc"), no_run=True, no_dag=True)
@@ -194,13 +194,13 @@ class TestQuickstartMode:
     @patch("fluid_build.cli.init.should_generate_dag", return_value=True)
     def test_dag_generated_when_contract_exists(
         self,
-        mock_should,
-        mock_dag,
-        mock_data,
-        mock_db,
-        mock_run,
-        mock_cicd,
-        mock_success,
+        _mock_should,
+        _mock_dag,
+        _mock_data,
+        _mock_db,
+        _mock_run,
+        _mock_cicd,
+        _mock_success,
         tmp_path,
         logger,
     ):
@@ -239,7 +239,7 @@ class TestScanMode:
     @patch("fluid_build.cli.init.generate_contracts_from_scan")
     @patch("fluid_build.cli.init.show_scan_results")
     def test_scan_success_no_sensitive(
-        self, mock_results, mock_gen, mock_cicd, mock_summary, tmp_path, logger
+        self, _mock_results, mock_gen, _mock_cicd, _mock_summary, tmp_path, logger
     ):
         from fluid_build.cli.init import scan_mode
 
@@ -261,7 +261,7 @@ class TestScanMode:
         assert result == 0
 
     @patch("fluid_build.cli.init.detect_project_type", side_effect=RuntimeError("scan boom"))
-    def test_exception_returns_1(self, mock_detect, logger):
+    def test_exception_returns_1(self, _mock_detect, logger):
         from fluid_build.cli.init import scan_mode
 
         args = _make_args()
@@ -275,11 +275,11 @@ class TestScanMode:
     @patch("fluid_build.cli.init.show_scan_results")
     def test_scan_with_sensitive_columns_calls_governance(
         self,
-        mock_show,
+        _mock_show,
         mock_gen,
         mock_governance,
-        mock_cicd,
-        mock_summary,
+        _mock_cicd,
+        _mock_summary,
         tmp_path,
         logger,
     ):
@@ -424,7 +424,7 @@ class TestTemplateMode:
         assert result == 1
 
     @patch("fluid_build.cli.init.copy_template", return_value=True)
-    def test_fallback_copy_template_success(self, mock_copy, tmp_path, logger, monkeypatch):
+    def test_fallback_copy_template_success(self, _mock_copy, tmp_path, logger, monkeypatch):
         from fluid_build.cli.init import template_mode
 
         monkeypatch.chdir(tmp_path)
@@ -435,7 +435,7 @@ class TestTemplateMode:
         assert result == 0
 
     @patch("fluid_build.cli.init.copy_template", return_value=False)
-    def test_fallback_copy_template_failure(self, mock_copy, tmp_path, logger, monkeypatch):
+    def test_fallback_copy_template_failure(self, _mock_copy, tmp_path, logger, monkeypatch):
         from fluid_build.cli.init import template_mode
 
         monkeypatch.chdir(tmp_path)
@@ -1319,59 +1319,59 @@ class TestShowMigrationSummary:
 class TestRunRouting:
     @patch("fluid_build.cli.init.quickstart_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="quickstart")
-    def test_routes_quickstart(self, mock_detect, mock_qs, logger):
+    def test_routes_quickstart(self, _mock_detect, _mock_qs, logger):
         from fluid_build.cli.init import run
 
         assert run(_make_args(quickstart=True), logger) == 0
 
     @patch("fluid_build.cli.init.scan_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="scan")
-    def test_routes_scan(self, mock_detect, mock_scan, logger):
+    def test_routes_scan(self, _mock_detect, _mock_scan, logger):
         from fluid_build.cli.init import run
 
         assert run(_make_args(scan=True), logger) == 0
 
     @patch("fluid_build.cli.init.wizard_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="wizard")
-    def test_routes_wizard(self, mock_detect, mock_wiz, logger):
+    def test_routes_wizard(self, _mock_detect, _mock_wiz, logger):
         from fluid_build.cli.init import run
 
         assert run(_make_args(wizard=True), logger) == 0
 
     @patch("fluid_build.cli.init.blank_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="blank")
-    def test_routes_blank(self, mock_detect, mock_blank, logger):
+    def test_routes_blank(self, _mock_detect, _mock_blank, logger):
         from fluid_build.cli.init import run
 
         assert run(_make_args(blank=True), logger) == 0
 
     @patch("fluid_build.cli.init.template_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="template")
-    def test_routes_template(self, mock_detect, mock_tmpl, logger):
+    def test_routes_template(self, _mock_detect, _mock_tmpl, logger):
         from fluid_build.cli.init import run
 
         assert run(_make_args(template="customer-360"), logger) == 0
 
     @patch("fluid_build.cli.init.detect_mode", return_value=None)
-    def test_none_mode_returns_1(self, mock_detect, logger):
+    def test_none_mode_returns_1(self, _mock_detect, logger):
         from fluid_build.cli.init import run
 
         assert run(_make_args(), logger) == 1
 
     @patch("fluid_build.cli.init.detect_mode", return_value="unknown-mode")
-    def test_unknown_mode_returns_1(self, mock_detect, logger):
+    def test_unknown_mode_returns_1(self, _mock_detect, logger):
         from fluid_build.cli.init import run
 
         assert run(_make_args(), logger) == 1
 
     @patch("fluid_build.cli.init.detect_mode", side_effect=KeyboardInterrupt)
-    def test_keyboard_interrupt_returns_130(self, mock_detect, logger):
+    def test_keyboard_interrupt_returns_130(self, _mock_detect, logger):
         from fluid_build.cli.init import run
 
         assert run(_make_args(), logger) == 130
 
     @patch("fluid_build.cli.init.detect_mode", side_effect=RuntimeError("boom"))
-    def test_exception_returns_1(self, mock_detect, logger):
+    def test_exception_returns_1(self, _mock_detect, logger):
         from fluid_build.cli.init import run
 
         assert run(_make_args(), logger) == 1

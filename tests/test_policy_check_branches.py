@@ -275,7 +275,7 @@ class TestPolicyCheckRun:
 
     @patch("fluid_build.cli.policy_check.SchemaBasedPolicyEngine")
     @patch("fluid_build.cli.policy_check.load_contract_with_overlay")
-    def test_run_exception(self, mock_load, mock_engine, tmp_path):
+    def test_run_exception(self, mock_load, _mock_engine, tmp_path):
         from fluid_build.cli.policy_check import run
 
         contract_file = tmp_path / "c.yaml"
