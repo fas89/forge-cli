@@ -49,6 +49,7 @@ except ImportError as e:
 VERSION_PATTERN = re.compile(r"^(\d+)\.(\d+)(?:\.(\d+))?(?:-(.+))?$")
 SCHEMA_FILE_PATTERN = re.compile(r"^fluid-schema-(\d+\.\d+(?:\.\d+)?)\.json$")
 SCHEMA_REPO_BASE = "https://raw.githubusercontent.com/open-data-protocol/fluid/main/schema"
+LOG = logging.getLogger(__name__)
 
 
 def _schema_version_sort_key(version: str) -> tuple[int, int, int]:
@@ -257,8 +258,12 @@ class SchemaCache:
         try:
             with open(self.cache_index_file, "w") as f:
                 json.dump(self._cache_index, f, indent=2, default=str)
-        except OSError:
-            pass  # Fail silently if we can't write to cache
+        except OSError as exc:
+            LOG.debug(
+                "schema_cache_index_write_failed: path=%s error=%s",
+                self.cache_index_file,
+                exc,
+            )
 
     def get_cached_schema(
         self, version: SchemaVersion, max_age_hours: int = 24
@@ -304,8 +309,13 @@ class SchemaCache:
                 "schema_url": version.schema_url,
             }
             self._save_cache_index()
-        except OSError:
-            pass  # Fail silently if we can't write to cache
+        except OSError as exc:
+            LOG.debug(
+                "schema_cache_write_failed: version=%s path=%s error=%s",
+                version_key,
+                cached_file,
+                exc,
+            )
 
     def clear_cache(self) -> int:
         """Clear all cached schemas. Returns number of files removed."""
@@ -314,8 +324,8 @@ class SchemaCache:
             try:
                 file.unlink()
                 removed += 1
-            except OSError:
-                pass
+            except OSError as exc:
+                LOG.debug("schema_cache_remove_failed: path=%s error=%s", file, exc)
 
         self._cache_index.clear()
         self._save_cache_index()

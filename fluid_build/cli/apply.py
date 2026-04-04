@@ -393,7 +393,16 @@ def run(args, logger: logging.Logger) -> int:
 
         # Apply configuration overrides
         if args.config_override:
-            override_config = json.loads(args.config_override)
+            try:
+                override_config = json.loads(args.config_override)
+            except json.JSONDecodeError as exc:
+                error = CLIError(
+                    2,
+                    "invalid_config_override",
+                    {"error": str(exc), "config_override": args.config_override},
+                )
+                error.message = "Invalid --config-override JSON"
+                raise error from exc
             contract.update(override_config)
 
         # Simple mode execution
