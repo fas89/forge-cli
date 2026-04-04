@@ -1,10 +1,10 @@
 # Open-Sourcing Fluid Forge CLI — Step-by-Step Checklist
 
-This document walks through every step required to take the `fluid-forge-cli`
+This document walks through every step required to take the `forge-cli`
 project from its current private state to a public repository under the
 **agentics-rising** GitHub organisation.
 
-**Target repository:** `https://github.com/agentics-rising/forge-cli`
+**Target repository:** `https://github.com/Agentics-Rising/forge-cli`
 
 ---
 
@@ -57,10 +57,10 @@ project from its current private state to a public repository under the
 
 - [ ] Add from local machine:
   ```bash
-  cd fluid-forge-cli
+  cd forge-cli
 
   # Add the new public remote
-  git remote add public git@github.com:agentics-rising/forge-cli.git
+  git remote add public git@github.com:Agentics-Rising/forge-cli.git
 
   # Push main branch
   git push public main
@@ -102,16 +102,16 @@ grep -rn "agentics-rising/fluid-forge-cli" --include="*.py" --include="*.yml" \
 # Apply (macOS/Linux)
 find . -type f \( -name "*.py" -o -name "*.yml" -o -name "*.yaml" \
   -o -name "*.toml" -o -name "*.md" -o -name "Dockerfile" \) \
-  -exec sed -i 's|agentics-rising/fluid-forge-cli|agentics-rising/forge-cli|g' {} +
+  -exec sed -i 's|agentics-rising/fluid-forge-cli|Agentics-Rising/forge-cli|g' {} +
 ```
 
 ### 3c. pyproject.toml URLs (target state)
 
 ```toml
 [project.urls]
-Homepage = "https://fluidhq.io"
-Repository = "https://github.com/agentics-rising/forge-cli"
-Issues = "https://github.com/agentics-rising/forge-cli/issues"
+Homepage = "https://agentics-rising.github.io/forge_docs/"
+Repository = "https://github.com/Agentics-Rising/forge-cli"
+Issues = "https://github.com/Agentics-Rising/forge-cli/issues"
 Documentation = "https://agentics-rising.github.io/forge_docs/"
 ```
 
@@ -210,7 +210,7 @@ The following workflow files should already be in `.github/workflows/`:
 grep -rn "agentics-rising\|fluid-forge-cli" .github/workflows/
 ```
 
-All references should point to `agentics-rising/forge-cli`.
+All references should point to `Agentics-Rising/forge-cli`.
 
 ---
 
@@ -268,7 +268,7 @@ GHCR uses `GITHUB_TOKEN` — no additional setup needed for public repos.
 - [ ] Verify the `Dockerfile` exists in the repo root.
 - [ ] First time only: after the first image push, go to the package settings
       and set visibility to **Public**:
-  - `https://github.com/orgs/agentics-rising/packages/container/forge-cli/settings`
+  - `https://github.com/orgs/Agentics-Rising/packages/container/forge-cli/settings`
 - [ ] Users will pull with:
   ```bash
   docker pull ghcr.io/agentics-rising/forge-cli:latest
@@ -300,7 +300,7 @@ These should already exist — verify they're up to date:
 
 - [ ] `README.md` — updated badges pointing to new repo
   ```markdown
-  [![CI](https://github.com/agentics-rising/forge-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/agentics-rising/forge-cli/actions/workflows/ci.yml)
+  [![CI](https://github.com/Agentics-Rising/forge-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/Agentics-Rising/forge-cli/actions/workflows/ci.yml)
   [![PyPI](https://img.shields.io/pypi/v/fluid-forge)](https://pypi.org/project/fluid-forge/)
   [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
   ```
@@ -328,7 +328,7 @@ git tag v0.7.7a1
 git push public v0.7.7a1
 
 # 2. Watch the release workflow:
-#    https://github.com/agentics-rising/forge-cli/actions/workflows/release.yml
+#    https://github.com/Agentics-Rising/forge-cli/actions/workflows/release.yml
 
 # 3. Verify TestPyPI:
 pip install --index-url https://test.pypi.org/simple/ \
@@ -405,7 +405,7 @@ docker run --rm ghcr.io/agentics-rising/forge-cli:latest --version
 |------|-------------------|----------------|
 | **Org** | `agentics-rising` | `agentics-rising` |
 | **Repo** | `fluid-forge-cli` | `forge-cli` |
-| **Full URL** | `github.com/agentics-rising/fluid-forge-cli` | `github.com/agentics-rising/forge-cli` |
+| **Full URL** | `github.com/agentics-rising/fluid-forge-cli` | `github.com/Agentics-Rising/forge-cli` |
 | **CI** | Jenkins + GitHub Actions | GitHub Actions only |
 | **PyPI** | Private NAS PyPI | pypi.org (Trusted Publisher) |
 | **Docker** | `localhost:5000` | `ghcr.io/agentics-rising/forge-cli` |
