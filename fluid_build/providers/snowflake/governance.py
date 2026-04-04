@@ -46,6 +46,21 @@ def _qualified_name(*parts: str) -> str:
     return ".".join(validate_ident(part) for part in parts)
 
 
+def _parse_qualified_name(full_table: str) -> Tuple[str, str, str]:
+    """Parse and validate a fully-qualified 'database.schema.table' string.
+
+    Returns a tuple of validated (database, schema, table) identifiers.
+    Raises ValueError if the input is not exactly three dot-separated parts
+    or if any part fails identifier validation.
+    """
+    parts = full_table.split(".")
+    if len(parts) != 3:
+        raise ValueError(
+            f"Expected fully-qualified name 'database.schema.table', got: {full_table!r}"
+        )
+    return validate_ident(parts[0]), validate_ident(parts[1]), validate_ident(parts[2])
+
+
 def _validated_ident_list(values: Any) -> List[str]:
     """Normalize a cluster-by style identifier list to validated identifiers."""
     if isinstance(values, list):
@@ -122,9 +137,20 @@ class MaskingPolicyTemplates:
     @staticmethod
     def partial_mask_template(visible_chars: int = 4) -> str:
         """Partial masking - shows last N characters"""
+        # bool is a subclass of int in Python, so reject it explicitly.
+        if (
+            isinstance(visible_chars, bool)
+            or not isinstance(visible_chars, int)
+            or visible_chars < 0
+            or visible_chars > 1000
+        ):
+            raise ValueError(
+                f"Invalid visible_chars: {visible_chars!r}. "
+                "Must be a non-negative integer <= 1000."
+            )
         return f"""
             CASE
-                WHEN CURRENT_ROLE() IN ('SYSADMIN', 'DATA_ENGINEER', 'ACCOUNTADMIN') 
+                WHEN CURRENT_ROLE() IN ('SYSADMIN', 'DATA_ENGINEER', 'ACCOUNTADMIN')
                     THEN val
                 ELSE CONCAT(REPEAT('*', GREATEST(LENGTH(val) - {visible_chars}, 0)), RIGHT(val, {visible_chars}))
             END
@@ -473,12 +499,11 @@ class UnifiedGovernanceApplicator:
         for field in schema_fields:
             col_name = validate_ident(field["name"].upper())
             col_type = self._map_type(field.get("type", "VARCHAR"))
-            nullable = "" if field.get("required", True) == False else ""
             description = field.get("description")
             escaped_description = str(description).replace("'", "''") if description else ""
             comment = f" COMMENT '{escaped_description}'" if description else ""
 
-            column_defs.append(f"  {col_name} {col_type}{nullable}{comment}")
+            column_defs.append(f"  {col_name} {col_type}{comment}")
 
         ddl_parts.append(",\n".join(column_defs))
         ddl_parts.append(")")
@@ -699,7 +724,7 @@ class UnifiedGovernanceApplicator:
     def _get_column_type(self, full_table: str, column_name: str) -> str:
         """Get column data type"""
         try:
-            parts = full_table.split(".")
+            _, schema, table = _parse_qualified_name(full_table)
             self.cursor.execute(
                 """
                 SELECT DATA_TYPE
@@ -708,7 +733,7 @@ class UnifiedGovernanceApplicator:
                   AND TABLE_NAME = %s
                   AND COLUMN_NAME = %s
             """,
-                (validate_ident(parts[1]), validate_ident(parts[2]), validate_ident(column_name)),
+                (schema, table, validate_ident(column_name)),
             )
             result = self.cursor.fetchone()
             return result[0] if result else "VARCHAR"
@@ -752,8 +777,7 @@ class UnifiedGovernanceApplicator:
         safe_policy_name = validate_ident(policy_name)
         if not self.dry_run:
             try:
-                parts = full_table.split(".")
-                schema = validate_ident(parts[1])
+                _, schema, _ = _parse_qualified_name(full_table)
                 self.cursor.execute(
                     f"""
                     ALTER TABLE {full_table}

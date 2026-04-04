@@ -23,6 +23,7 @@ from fluid_build.providers.snowflake.governance import (
     MaskingPolicyTemplates,
     SnowflakeGovernanceError,
     UnifiedGovernanceApplicator,
+    _parse_qualified_name,
 )
 
 
@@ -84,6 +85,22 @@ class TestMaskingPolicyTemplates:
         tpl = MaskingPolicyTemplates.partial_mask_template(visible_chars=2)
         assert "2" in tpl
 
+    def test_partial_mask_rejects_float_string(self):
+        with pytest.raises(ValueError, match="Invalid visible_chars"):
+            MaskingPolicyTemplates.partial_mask_template(visible_chars="4.5")
+
+    def test_partial_mask_rejects_negative(self):
+        with pytest.raises(ValueError, match="Invalid visible_chars"):
+            MaskingPolicyTemplates.partial_mask_template(visible_chars=-1)
+
+    def test_partial_mask_rejects_bool(self):
+        with pytest.raises(ValueError, match="Invalid visible_chars"):
+            MaskingPolicyTemplates.partial_mask_template(visible_chars=True)
+
+    def test_partial_mask_rejects_out_of_range(self):
+        with pytest.raises(ValueError, match="Invalid visible_chars"):
+            MaskingPolicyTemplates.partial_mask_template(visible_chars=10_000)
+
     def test_get_template_hash(self):
         t = MaskingPolicyTemplates.get_template("hash", "VARCHAR")
         assert t is not None
@@ -133,6 +150,24 @@ class TestSnowflakeGovernanceError:
         assert e.message == "m"
         assert e.suggestion == "s"
         assert e.details == {"k": "v"}
+
+
+# ── _parse_qualified_name ────────────────────────────────────────────
+class TestParseQualifiedName:
+    def test_valid(self):
+        assert _parse_qualified_name("DB.SCH.TBL") == ("DB", "SCH", "TBL")
+
+    def test_too_few_parts(self):
+        with pytest.raises(ValueError, match="Expected fully-qualified name"):
+            _parse_qualified_name("DB.SCH")
+
+    def test_too_many_parts(self):
+        with pytest.raises(ValueError, match="Expected fully-qualified name"):
+            _parse_qualified_name("DB.SCH.TBL.EXTRA")
+
+    def test_invalid_identifier_in_part(self):
+        with pytest.raises(ValueError, match="Invalid SQL identifier"):
+            _parse_qualified_name("DB.SCH;DROP.TBL")
 
 
 # ── GovernanceValidator ──────────────────────────────────────────────
