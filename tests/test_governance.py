@@ -16,11 +16,14 @@
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from fluid_build.providers.snowflake.governance import (
     GovernanceValidator,
     MaskingPolicyTemplates,
     SnowflakeGovernanceError,
     UnifiedGovernanceApplicator,
+    _parse_qualified_name,
 )
 
 
@@ -34,6 +37,22 @@ class TestMaskingPolicyTemplates:
     def test_hash_custom_algorithm(self):
         tpl = MaskingPolicyTemplates.hash_template("VARCHAR", "MD5")
         assert "MD5" in tpl
+
+    def test_hash_algorithm_case_insensitive(self):
+        tpl = MaskingPolicyTemplates.hash_template("VARCHAR", "sha1")
+        assert "SHA1(val)" in tpl
+
+    def test_hash_algorithm_rejects_unknown(self):
+        with pytest.raises(ValueError, match="Invalid hash algorithm"):
+            MaskingPolicyTemplates.hash_template("VARCHAR", "BLAKE3")
+
+    def test_hash_algorithm_rejects_injection(self):
+        with pytest.raises(ValueError, match="Invalid hash algorithm"):
+            MaskingPolicyTemplates.hash_template("VARCHAR", "SHA256; DROP TABLE users; --")
+
+    def test_hash_algorithm_rejects_non_string(self):
+        with pytest.raises(ValueError, match="Invalid hash algorithm"):
+            MaskingPolicyTemplates.hash_template("VARCHAR", None)
 
     def test_hash_timestamp(self):
         tpl = MaskingPolicyTemplates.hash_template("TIMESTAMP_NTZ")
@@ -65,6 +84,22 @@ class TestMaskingPolicyTemplates:
     def test_partial_mask_custom(self):
         tpl = MaskingPolicyTemplates.partial_mask_template(visible_chars=2)
         assert "2" in tpl
+
+    def test_partial_mask_rejects_float_string(self):
+        with pytest.raises(ValueError, match="Invalid visible_chars"):
+            MaskingPolicyTemplates.partial_mask_template(visible_chars="4.5")
+
+    def test_partial_mask_rejects_negative(self):
+        with pytest.raises(ValueError, match="Invalid visible_chars"):
+            MaskingPolicyTemplates.partial_mask_template(visible_chars=-1)
+
+    def test_partial_mask_rejects_bool(self):
+        with pytest.raises(ValueError, match="Invalid visible_chars"):
+            MaskingPolicyTemplates.partial_mask_template(visible_chars=True)
+
+    def test_partial_mask_rejects_out_of_range(self):
+        with pytest.raises(ValueError, match="Invalid visible_chars"):
+            MaskingPolicyTemplates.partial_mask_template(visible_chars=10_000)
 
     def test_get_template_hash(self):
         t = MaskingPolicyTemplates.get_template("hash", "VARCHAR")
@@ -115,6 +150,24 @@ class TestSnowflakeGovernanceError:
         assert e.message == "m"
         assert e.suggestion == "s"
         assert e.details == {"k": "v"}
+
+
+# ── _parse_qualified_name ────────────────────────────────────────────
+class TestParseQualifiedName:
+    def test_valid(self):
+        assert _parse_qualified_name("DB.SCH.TBL") == ("DB", "SCH", "TBL")
+
+    def test_too_few_parts(self):
+        with pytest.raises(ValueError, match="Expected fully-qualified name"):
+            _parse_qualified_name("DB.SCH")
+
+    def test_too_many_parts(self):
+        with pytest.raises(ValueError, match="Expected fully-qualified name"):
+            _parse_qualified_name("DB.SCH.TBL.EXTRA")
+
+    def test_invalid_identifier_in_part(self):
+        with pytest.raises(ValueError, match="Invalid SQL identifier"):
+            _parse_qualified_name("DB.SCH;DROP.TBL")
 
 
 # ── GovernanceValidator ──────────────────────────────────────────────
@@ -237,6 +290,19 @@ class TestGovernanceValidator:
         props = v.get_table_properties()
         assert props["exists"] is False
 
+    @pytest.mark.parametrize(
+        ("database", "schema", "table"),
+        [
+            ("DB", "SCH;DROP", "TBL"),
+            ("DB", "SCH", "TBL bad"),
+            ("DB-1", "SCH", "TBL"),
+        ],
+    )
+    def test_rejects_invalid_identifiers(self, database, schema, table):
+        cursor = MagicMock()
+        with pytest.raises(ValueError, match="Invalid SQL identifier"):
+            GovernanceValidator(cursor, database, schema, table)
+
 
 # ── UnifiedGovernanceApplicator ──────────────────────────────────────
 class TestUnifiedGovernanceApplicator:
@@ -318,12 +384,38 @@ class TestUnifiedGovernanceApplicator:
         ddl = app._generate_create_table_ddl("DB", "SCH", "TBL", contract["exposes"][0])
         assert "COMMENT = 'Bob''s table'" in ddl
 
+    def test_generate_create_table_rejects_invalid_column_identifier(self):
+        contract = self._minimal_contract()
+        contract["exposes"][0]["contract"]["schema"][0]["name"] = "bad-name"
+        cursor = MagicMock()
+        app = UnifiedGovernanceApplicator(cursor, contract)
+        with pytest.raises(ValueError, match="Invalid SQL identifier"):
+            app._generate_create_table_ddl("DB", "SCH", "TBL", contract["exposes"][0])
+
     def test_apply_all_missing_location(self):
         cursor = MagicMock()
         contract = {"exposes": [{"binding": {"location": {}}}]}
         app = UnifiedGovernanceApplicator(cursor, contract)
         result = app.apply_all()
         assert result["status"] == "error"
+
+    def test_apply_all_missing_exposes(self):
+        cursor = MagicMock()
+        app = UnifiedGovernanceApplicator(cursor, {"exposes": []})
+        result = app.apply_all()
+        assert result["status"] == "error"
+        assert "Missing expose configuration" in result["error"]
+        cursor.execute.assert_not_called()
+
+    def test_apply_all_rejects_invalid_schema_identifier_without_execute(self):
+        cursor = MagicMock()
+        contract = self._minimal_contract()
+        contract["exposes"][0]["binding"]["location"]["schema"] = "SCH;DROP"
+        app = UnifiedGovernanceApplicator(cursor, contract)
+        result = app.apply_all()
+        assert result["status"] == "error"
+        assert "Invalid SQL identifier" in result["error"]
+        cursor.execute.assert_not_called()
 
     def test_apply_all_dry_run(self):
         cursor = MagicMock()
@@ -366,6 +458,12 @@ class TestUnifiedGovernanceApplicator:
         app = UnifiedGovernanceApplicator(cursor, {}, dry_run=False)
         # Should not raise
         app._create_tag("SCH", "BAD_TAG")
+
+    def test_create_tag_rejects_invalid_identifier(self):
+        cursor = MagicMock()
+        app = UnifiedGovernanceApplicator(cursor, {}, dry_run=False)
+        with pytest.raises(ValueError, match="Invalid SQL identifier"):
+            app._create_tag("SCH", "BAD-TAG")
 
     def test_apply_tags_to_table_dry_run(self):
         cursor = MagicMock()
@@ -438,3 +536,19 @@ class TestUnifiedGovernanceApplicator:
         cursor.execute.side_effect = Exception("err")
         app = UnifiedGovernanceApplicator(cursor, {})
         assert app._get_column_type("DB.SCH.TBL", "ID") == "VARCHAR"
+
+    def test_apply_security_policies_rejects_invalid_column_identifier(self):
+        cursor = MagicMock()
+        app = UnifiedGovernanceApplicator(cursor, {}, dry_run=False)
+        expose = {
+            "policy": {
+                "privacy": {
+                    "masking": [
+                        {"column": "email;DROP", "strategy": "hash"},
+                    ]
+                }
+            }
+        }
+        with pytest.raises(ValueError, match="Invalid SQL identifier"):
+            app._apply_security_policies("DB", "SCH", "DB.SCH.TBL", expose)
+        cursor.execute.assert_not_called()

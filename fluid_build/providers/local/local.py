@@ -37,6 +37,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from fluid_build.providers._sql_safety import validate_ident
 from fluid_build.providers.base import ApplyResult, BaseProvider, ProviderMetadata
 
 from .util.logging import (
@@ -97,15 +98,9 @@ def _now_iso() -> str:
     )
 
 
-# Regex for safe SQL identifiers (letters, digits, underscores)
-_SAFE_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
-
 def _validate_ident(name: str) -> str:
-    """Validate a SQL identifier to prevent injection. Returns the name if safe."""
-    if not _SAFE_IDENT.match(name):
-        raise ValueError(f"Invalid SQL identifier: {name!r}")
-    return name
+    """Compatibility wrapper around the shared SQL identifier validator."""
+    return validate_ident(name)
 
 
 def _mkdir(p: PathLike) -> Path:
@@ -462,7 +457,7 @@ class LocalProvider(BaseProvider):
         # Fallback SQL if none found
         if not sql_text:
             if inputs_spec:
-                tbl = _validate_ident(inputs_spec[0].get("table") or "t")
+                tbl = validate_ident(inputs_spec[0].get("table") or "t")
                 sql_text = f"SELECT * FROM {tbl}"
             else:
                 sql_text = "SELECT 1 AS demo_col"
@@ -547,9 +542,9 @@ class LocalProvider(BaseProvider):
             with_retry(_register_with_retry, logger=self.logger, max_attempts=3)
 
             # Get row count for reporting
-            rowcount = con.execute(
-                f"SELECT COUNT(*) FROM {_validate_ident(table_name)}"
-            ).fetchone()[0]
+            rowcount = con.execute(f"SELECT COUNT(*) FROM {validate_ident(table_name)}").fetchone()[
+                0
+            ]
 
             self._log_info(
                 "local_load_data_complete",
@@ -634,7 +629,7 @@ class LocalProvider(BaseProvider):
         if output_table and rel is not None:
             try:
                 con.execute(
-                    f"CREATE OR REPLACE TABLE {_validate_ident(output_table)} AS SELECT * FROM ({sql})"
+                    f"CREATE OR REPLACE TABLE {validate_ident(output_table)} AS SELECT * FROM ({sql})"
                 )
             except Exception as e:
                 self._log_warn(
@@ -718,16 +713,16 @@ class LocalProvider(BaseProvider):
                 for k, v in opt.items()
             )
             con.execute(
-                f"CREATE OR REPLACE VIEW {_validate_ident(table)} AS SELECT * FROM read_csv_auto({repr(str(path))}, {opt_sql});"
+                f"CREATE OR REPLACE VIEW {validate_ident(table)} AS SELECT * FROM read_csv_auto({repr(str(path))}, {opt_sql});"
             )
         elif fmt in {"parquet", "pq"} or path.suffix.lower() == ".parquet":
             con.execute(
-                f"CREATE OR REPLACE VIEW {_validate_ident(table)} AS SELECT * FROM read_parquet({repr(str(path))});"
+                f"CREATE OR REPLACE VIEW {validate_ident(table)} AS SELECT * FROM read_parquet({repr(str(path))});"
             )
         else:
             # try csv auto as fallback
             con.execute(
-                f"CREATE OR REPLACE VIEW {_validate_ident(table)} AS SELECT * FROM read_csv_auto({repr(str(path))});"
+                f"CREATE OR REPLACE VIEW {validate_ident(table)} AS SELECT * FROM read_csv_auto({repr(str(path))});"
             )
 
     # ------------------ COPY / materialize (helper) --------------------- #
@@ -749,7 +744,7 @@ class LocalProvider(BaseProvider):
                 duckdb = _Duck.get()
                 db_path = self._get_db_path()
                 con = duckdb.connect(database=db_path)
-                rel = con.sql(f"SELECT * FROM {_validate_ident(source_table)}")
+                rel = con.sql(f"SELECT * FROM {validate_ident(source_table)}")
                 self._write_relation(rel, dst, fmt)
                 rowcount = rel.count("*").fetchone()[0] if hasattr(rel, "count") else -1
                 self._log_info(
