@@ -40,7 +40,7 @@ class TestAIAgentBase:
         assert agent.domain == "domain"
 
     @patch("fluid_build.cli.forge_agents.AIAgentBase.__init__", return_value=None)
-    def test_init_no_rich(self, mock_init):
+    def test_init_no_rich(self, _mock_init):
         agent = AIAgentBase.__new__(AIAgentBase)
         agent.console = None
         agent.name = "test"
@@ -77,7 +77,7 @@ class TestAIAgentBase:
         assert result == "a-b-c"
 
     @patch("fluid_build.cli.forge_agents.ForgeEngine", create=True)
-    def test_create_project_success(self, MockForge):
+    def test_create_project_success(self, _MockForge):
         agent = AIAgentBase("t", "desc", "dom")
         agent.console = None  # No Rich
         agent.analyze_requirements = MagicMock(
@@ -96,7 +96,7 @@ class TestAIAgentBase:
         assert result is True
 
     @patch("fluid_build.cli.forge_agents.ForgeEngine", create=True)
-    def test_create_project_failure(self, MockForge):
+    def test_create_project_failure(self, _MockForge):
         agent = AIAgentBase("t", "desc", "dom")
         agent.console = MagicMock()
         agent.analyze_requirements = MagicMock(

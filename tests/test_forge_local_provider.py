@@ -184,7 +184,7 @@ class TestLocalProviderValidateConfiguration(unittest.TestCase):
         self.provider = LocalProvider()
 
     @patch("fluid_build.forge.providers.local.shutil.which", return_value=None)
-    def test_docker_not_found_is_warning(self, mock_which):
+    def test_docker_not_found_is_warning(self, _mock_which):
         config = {"use_docker": True}
         is_valid, messages = self.provider.validate_configuration(config)
         self.assertTrue(is_valid)
@@ -192,7 +192,7 @@ class TestLocalProviderValidateConfiguration(unittest.TestCase):
         self.assertIn("Docker", combined)
 
     @patch("fluid_build.forge.providers.local.shutil.which", return_value="/usr/bin/docker")
-    def test_valid_config_with_docker_present(self, mock_which):
+    def test_valid_config_with_docker_present(self, _mock_which):
         config = {"use_docker": True, "python_version": "3.9"}
         is_valid, errors = self.provider.validate_configuration(config)
         self.assertTrue(is_valid)

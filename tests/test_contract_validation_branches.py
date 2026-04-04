@@ -566,7 +566,7 @@ class TestContractValidator:
 
 class TestRunFunction:
     @patch("fluid_build.cli.contract_validation.ContractValidator")
-    def test_run_contract_not_found(self, MockCV):
+    def test_run_contract_not_found(self, _MockCV):
         args = argparse.Namespace(
             contract="nonexistent.yaml",
             output_format="text",
@@ -588,7 +588,7 @@ class TestRunFunction:
         assert result == 1
 
     @patch("fluid_build.cli.contract_validation.ContractValidator")
-    def test_run_cache_stats(self, MockCV):
+    def test_run_cache_stats(self, _MockCV):
         args = argparse.Namespace(
             contract="test.yaml",
             output_format="text",
@@ -644,7 +644,7 @@ class TestRunFunction:
 
     @patch("fluid_build.cli.contract_validation.output_text_report")
     @patch("fluid_build.cli.contract_validation.ContractValidator")
-    def test_run_strict_with_warnings(self, MockCV, mock_text_out):
+    def test_run_strict_with_warnings(self, MockCV, _mock_text_out):
         mock_report = MagicMock()
         mock_report.is_valid.return_value = True
         mock_report.get_warnings.return_value = [MagicMock()]

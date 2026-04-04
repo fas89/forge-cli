@@ -249,6 +249,17 @@ class TestCreateDagsReadme:
 
 
 class TestCopyTemplate:
+    def test_existing_template_creates_target_dir(self, tmp_path, logger):
+        project_dir = tmp_path / "smoke-test"
+
+        result = copy_template(project_dir, "hello-world", logger)
+
+        assert result is True
+        assert project_dir.is_dir()
+        assert (project_dir / ".template-meta.yaml").exists()
+        assert (project_dir / "README.md").exists()
+        assert (project_dir / "contract.fluid.yaml").exists()
+
     def test_template_not_found(self, tmp_path, logger):
         result = copy_template(tmp_path / "out", "nonexistent-xyz-9999", logger)
         assert result is False
@@ -264,7 +275,7 @@ class TestInitLocalDb:
         assert not (tmp_path / ".fluid").exists()
 
     @patch("fluid_build.cli.init.duckdb", create=True)
-    def test_local_provider_creates_db(self, mock_duckdb, tmp_path, logger):
+    def test_local_provider_creates_db(self, _mock_duckdb, tmp_path, logger):
         # The import is inside the function, mock it at module level after import
         with patch.dict("sys.modules", {"duckdb": MagicMock()}):
             # Re-call init_local_db directly, duckdb imported lazily
@@ -431,7 +442,7 @@ class TestSqlFileDetector:
 
 class TestRun:
     @patch("fluid_build.cli.init.detect_mode", return_value=None)
-    def test_none_mode_returns_1(self, mock_dm, logger):
+    def test_none_mode_returns_1(self, _mock_dm, logger):
         args = SimpleNamespace()
         from fluid_build.cli.init import run
 
@@ -439,53 +450,53 @@ class TestRun:
 
     @patch("fluid_build.cli.init.quickstart_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="quickstart")
-    def test_quickstart_dispatch(self, mock_dm, mock_qs, logger):
+    def test_quickstart_dispatch(self, _mock_dm, _mock_qs, logger):
         from fluid_build.cli.init import run
 
         assert run(SimpleNamespace(), logger) == 0
 
     @patch("fluid_build.cli.init.scan_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="scan")
-    def test_scan_dispatch(self, mock_dm, mock_sc, logger):
+    def test_scan_dispatch(self, _mock_dm, _mock_sc, logger):
         from fluid_build.cli.init import run
 
         assert run(SimpleNamespace(), logger) == 0
 
     @patch("fluid_build.cli.init.wizard_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="wizard")
-    def test_wizard_dispatch(self, mock_dm, mock_wiz, logger):
+    def test_wizard_dispatch(self, _mock_dm, _mock_wiz, logger):
         from fluid_build.cli.init import run
 
         assert run(SimpleNamespace(), logger) == 0
 
     @patch("fluid_build.cli.init.blank_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="blank")
-    def test_blank_dispatch(self, mock_dm, mock_bl, logger):
+    def test_blank_dispatch(self, _mock_dm, _mock_bl, logger):
         from fluid_build.cli.init import run
 
         assert run(SimpleNamespace(), logger) == 0
 
     @patch("fluid_build.cli.init.template_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="template")
-    def test_template_dispatch(self, mock_dm, mock_tm, logger):
+    def test_template_dispatch(self, _mock_dm, _mock_tm, logger):
         from fluid_build.cli.init import run
 
         assert run(SimpleNamespace(), logger) == 0
 
     @patch("fluid_build.cli.init.detect_mode", return_value="unknown_xyz")
-    def test_unknown_mode_returns_1(self, mock_dm, logger):
+    def test_unknown_mode_returns_1(self, _mock_dm, logger):
         from fluid_build.cli.init import run
 
         assert run(SimpleNamespace(), logger) == 1
 
     @patch("fluid_build.cli.init.detect_mode", side_effect=KeyboardInterrupt)
-    def test_keyboard_interrupt_returns_130(self, mock_dm, logger):
+    def test_keyboard_interrupt_returns_130(self, _mock_dm, logger):
         from fluid_build.cli.init import run
 
         assert run(SimpleNamespace(), logger) == 130
 
     @patch("fluid_build.cli.init.detect_mode", side_effect=RuntimeError("boom"))
-    def test_exception_returns_1(self, mock_dm, logger):
+    def test_exception_returns_1(self, _mock_dm, logger):
         from fluid_build.cli.init import run
 
         assert run(SimpleNamespace(), logger) == 1
@@ -498,7 +509,7 @@ class TestGenerateDagForProject:
     @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
     @patch("fluid_build.cli.init.create_dags_readme")
     @patch("fluid_build.cli.init.create_basic_dag")
-    def test_subprocess_failure_creates_basic(self, mock_basic, mock_readme, tmp_path, logger):
+    def test_subprocess_failure_creates_basic(self, mock_basic, _mock_readme, tmp_path, logger):
         from fluid_build.cli.init import generate_dag_for_project
 
         contract = {"name": "test-dag"}
@@ -510,7 +521,7 @@ class TestGenerateDagForProject:
 
     @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
     @patch("fluid_build.cli.init.create_dags_readme")
-    def test_subprocess_success(self, mock_readme, tmp_path, logger):
+    def test_subprocess_success(self, _mock_readme, tmp_path, logger):
         from fluid_build.cli.init import generate_dag_for_project
 
         contract = {"name": "ok-dag", "orchestration": {"schedule": "@hourly"}}

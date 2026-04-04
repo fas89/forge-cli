@@ -88,7 +88,7 @@ class TestCmdOpdsExport:
     @patch("fluid_build.cli.opds.cprint")
     @patch("fluid_build.cli.bootstrap.build_provider")
     @patch("fluid_build.cli.bootstrap.load_contract_with_overlay")
-    def test_export_stdout_compact(self, mock_load, mock_build, mock_cprint):
+    def test_export_stdout_compact(self, mock_load, mock_build, _mock_cprint):
         mock_load.return_value = {"id": "test"}
         mock_provider = MagicMock()
         mock_provider.render.return_value = {"data": "value"}
@@ -107,7 +107,7 @@ class TestCmdOpdsExport:
     @patch("fluid_build.cli.opds.cprint")
     @patch("fluid_build.cli.bootstrap.build_provider")
     @patch("fluid_build.cli.bootstrap.load_contract_with_overlay")
-    def test_export_to_file(self, mock_load, mock_build, mock_cprint):
+    def test_export_to_file(self, mock_load, mock_build, _mock_cprint):
         mock_load.return_value = {"id": "test"}
         mock_provider = MagicMock()
         mock_provider.render.return_value = {"data": "value"}
@@ -134,7 +134,7 @@ class TestCmdOpdsExport:
     @patch(
         "fluid_build.cli.bootstrap.load_contract_with_overlay", side_effect=Exception("bad file")
     )
-    def test_export_contract_load_error(self, mock_load, mock_err):
+    def test_export_contract_load_error(self, _mock_load, _mock_err):
         args = MagicMock()
         args.contract = "bad.yaml"
         args.version = "4.1"
@@ -146,7 +146,7 @@ class TestCmdOpdsExport:
     @patch("fluid_build.cli.opds.console_error")
     @patch("fluid_build.cli.bootstrap.build_provider", side_effect=Exception("no provider"))
     @patch("fluid_build.cli.bootstrap.load_contract_with_overlay", return_value={})
-    def test_export_provider_error(self, mock_load, mock_build, mock_err):
+    def test_export_provider_error(self, _mock_load, _mock_build, _mock_err):
         args = MagicMock()
         args.contract = "test.yaml"
         args.version = "4.1"
@@ -158,7 +158,7 @@ class TestCmdOpdsExport:
     @patch("fluid_build.cli.opds.console_error")
     @patch("fluid_build.cli.bootstrap.build_provider")
     @patch("fluid_build.cli.bootstrap.load_contract_with_overlay", return_value={})
-    def test_export_render_error(self, mock_load, mock_build, mock_err):
+    def test_export_render_error(self, _mock_load, mock_build, _mock_err):
         mock_provider = MagicMock()
         mock_provider.render.side_effect = Exception("render failed")
         mock_build.return_value = mock_provider
@@ -410,7 +410,7 @@ class TestCmdOpdsValidate:
 
 class TestCmdOpdsInfo:
     @patch("fluid_build.cli.opds.cprint")
-    def test_info_all_versions(self, mock_cprint):
+    def test_info_all_versions(self, _mock_cprint):
         args = MagicMock()
         args.version = None
         args.json = False
@@ -421,7 +421,7 @@ class TestCmdOpdsInfo:
         assert result == 0
 
     @patch("fluid_build.cli.opds.cprint")
-    def test_info_specific_version(self, mock_cprint):
+    def test_info_specific_version(self, _mock_cprint):
         args = MagicMock()
         args.version = "4.1"
         args.json = False
@@ -430,7 +430,7 @@ class TestCmdOpdsInfo:
         assert result == 0
 
     @patch("fluid_build.cli.opds.cprint")
-    def test_info_json_output(self, mock_cprint):
+    def test_info_json_output(self, _mock_cprint):
         args = MagicMock()
         args.version = "4.1"
         args.json = True
@@ -439,7 +439,7 @@ class TestCmdOpdsInfo:
         assert result == 0
 
     @patch("fluid_build.cli.opds.cprint")
-    def test_info_all_json(self, mock_cprint):
+    def test_info_all_json(self, _mock_cprint):
         args = MagicMock()
         args.version = None
         args.json = True
@@ -448,7 +448,7 @@ class TestCmdOpdsInfo:
         assert result == 0
 
     @patch("fluid_build.cli.opds.console_error")
-    def test_info_invalid_version(self, mock_err):
+    def test_info_invalid_version(self, _mock_err):
         args = MagicMock()
         args.version = "99.99"
         args.json = False

@@ -311,8 +311,8 @@ class TestRun(unittest.TestCase):
         mock_load,
         mock_should_use,
         mock_legacy,
-        mock_display,
-        mock_write,
+        _mock_display,
+        _mock_write,
     ):
         from fluid_build.cli._common import CLIError
 

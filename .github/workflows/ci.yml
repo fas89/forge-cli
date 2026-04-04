@@ -105,7 +105,7 @@ jobs:
         uses: codecov/codecov-action@v6
         with:
           files: coverage.xml
-          fail_ci_if_error: false
+          fail_ci_if_error: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
 
   build-check:
     name: Build Smoke Test
@@ -116,15 +116,44 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Build wheel
+      - name: Build wheel and sdist
         run: |
-          pip install --upgrade pip build
+          pip install --upgrade pip build twine
           python -m build
-      - name: Verify wheel installs
+      - name: Strict metadata check
+        run: twine check --strict dist/*
+      - name: Isolated wheel install and verify
         run: |
           python -m venv /tmp/smoke
           /tmp/smoke/bin/pip install dist/*.whl
-          /tmp/smoke/bin/python -c "import fluid_build; print(fluid_build.__version__)"
+
+          # Verify import resolves from site-packages, not checkout
+          INSTALL_PATH=$(/tmp/smoke/bin/python -I -c "import fluid_build; print(fluid_build.__file__)")
+          echo "Installed at: ${INSTALL_PATH}"
+          if [[ "$INSTALL_PATH" != */site-packages/* ]]; then
+            echo "::error::fluid_build resolved outside site-packages"
+            exit 1
+          fi
+
+          # Verify critical runtime assets exist in installed package
+          /tmp/smoke/bin/python -I -c "
+          from pathlib import Path
+          import fluid_build
+          pkg = Path(fluid_build.__file__).parent
+          assert (pkg / 'build-manifest.yaml').exists(), 'build-manifest.yaml missing'
+          assert (pkg / 'templates' / 'hello-world' / 'contract.fluid.yaml').exists(), 'template missing'
+          assert (pkg / 'schemas').is_dir(), 'schemas dir missing'
+          print('All runtime assets verified')
+          "
+
+          # Verify CLI entry point works
+          /tmp/smoke/bin/fluid --version
+
+          # Functional scaffold check
+          cd /tmp
+          /tmp/smoke/bin/fluid init smoke-test --template hello-world
+          test -f smoke-test/contract.fluid.yaml || { echo "::error::scaffold failed"; exit 1; }
+          echo "Scaffold verified"
 
   security:
     name: Security Scan

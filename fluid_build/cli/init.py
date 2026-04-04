@@ -845,6 +845,8 @@ def copy_template(project_dir: Path, template_name: str, logger: logging.Logger)
         return False
 
     try:
+        project_dir.mkdir(parents=True, exist_ok=True)
+
         # Copy all files from template
         for item in templates_dir.iterdir():
             if item.is_file():

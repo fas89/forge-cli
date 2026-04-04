@@ -78,7 +78,7 @@ class TestTestResult:
 class TestTemplateTestSuite:
     @patch("fluid_build.forge.core.testing.get_template_registry")
     @patch("fluid_build.forge.core.testing.get_provider_registry")
-    def test_template_not_found(self, mock_prov_reg, mock_tmpl_reg):
+    def test_template_not_found(self, _mock_prov_reg, mock_tmpl_reg):
         mock_tmpl_reg.return_value = MagicMock()
         mock_tmpl_reg.return_value.get.return_value = None
 
@@ -90,7 +90,7 @@ class TestTemplateTestSuite:
 
     @patch("fluid_build.forge.core.testing.get_template_registry")
     @patch("fluid_build.forge.core.testing.get_provider_registry")
-    def test_template_metadata_error(self, mock_prov_reg, mock_tmpl_reg):
+    def test_template_metadata_error(self, _mock_prov_reg, mock_tmpl_reg):
         mock_template_cls = MagicMock()
         mock_template = MagicMock()
         mock_template.get_metadata.side_effect = Exception("meta error")
@@ -104,7 +104,7 @@ class TestTemplateTestSuite:
 
     @patch("fluid_build.forge.core.testing.get_template_registry")
     @patch("fluid_build.forge.core.testing.get_provider_registry")
-    def test_unexpected_exception(self, mock_prov_reg, mock_tmpl_reg):
+    def test_unexpected_exception(self, _mock_prov_reg, mock_tmpl_reg):
         mock_tmpl_reg.return_value.get.side_effect = Exception("unexpected")
 
         suite = TemplateTestSuite("test")
@@ -169,14 +169,14 @@ class TestTemplateTestSuite:
 class TestForgeTestRunner:
     @patch("fluid_build.forge.core.testing.get_template_registry")
     @patch("fluid_build.forge.core.testing.get_provider_registry")
-    def test_init(self, mock_prov, mock_tmpl):
+    def test_init(self, _mock_prov, _mock_tmpl):
         runner = ForgeTestRunner()
         assert runner.template_registry is not None
         assert runner.provider_registry is not None
 
     @patch("fluid_build.forge.core.testing.get_template_registry")
     @patch("fluid_build.forge.core.testing.get_provider_registry")
-    def test_run_all_empty(self, mock_prov, mock_tmpl):
+    def test_run_all_empty(self, _mock_prov, mock_tmpl):
         mock_tmpl.return_value.list_available.return_value = []
         runner = ForgeTestRunner()
         results = runner.run_all_template_tests()
@@ -185,7 +185,7 @@ class TestForgeTestRunner:
     @patch("fluid_build.forge.core.testing.cprint")
     @patch("fluid_build.forge.core.testing.get_template_registry")
     @patch("fluid_build.forge.core.testing.get_provider_registry")
-    def test_run_all_with_template(self, mock_prov, mock_tmpl, mock_cprint):
+    def test_run_all_with_template(self, _mock_prov, mock_tmpl, _mock_cprint):
         mock_tmpl.return_value.list_available.return_value = ["test_tmpl"]
         # The test suite will fail because template not found
         mock_tmpl.return_value.get.return_value = None
@@ -228,7 +228,7 @@ class TestForgeTestRunner:
 class TestAllTemplatesFunc:
     @patch("fluid_build.forge.core.testing.cprint")
     @patch("fluid_build.forge.core.testing.ForgeTestRunner")
-    def test_test_all_templates(self, mock_runner_cls, mock_cprint):
+    def test_test_all_templates(self, mock_runner_cls, _mock_cprint):
         from fluid_build.forge.core.testing import test_all_templates
 
         # Mock runner to return one result to avoid division-by-zero in source

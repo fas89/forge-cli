@@ -247,7 +247,7 @@ class TestMarkFirstRunComplete:
 class TestRunFunction:
     @patch("fluid_build.cli.init.quickstart_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="quickstart")
-    def test_quickstart_route(self, mock_detect, mock_qs):
+    def test_quickstart_route(self, _mock_detect, _mock_qs):
         from fluid_build.cli.init import run
 
         args = _make_init_args(quickstart=True)
@@ -255,7 +255,7 @@ class TestRunFunction:
 
     @patch("fluid_build.cli.init.scan_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="scan")
-    def test_scan_route(self, mock_detect, mock_scan):
+    def test_scan_route(self, _mock_detect, _mock_scan):
         from fluid_build.cli.init import run
 
         args = _make_init_args(scan=True)
@@ -263,7 +263,7 @@ class TestRunFunction:
 
     @patch("fluid_build.cli.init.wizard_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="wizard")
-    def test_wizard_route(self, mock_detect, mock_wiz):
+    def test_wizard_route(self, _mock_detect, _mock_wiz):
         from fluid_build.cli.init import run
 
         args = _make_init_args(wizard=True)
@@ -271,7 +271,7 @@ class TestRunFunction:
 
     @patch("fluid_build.cli.init.blank_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="blank")
-    def test_blank_route(self, mock_detect, mock_blank):
+    def test_blank_route(self, _mock_detect, _mock_blank):
         from fluid_build.cli.init import run
 
         args = _make_init_args(blank=True)
@@ -279,35 +279,35 @@ class TestRunFunction:
 
     @patch("fluid_build.cli.init.template_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="template")
-    def test_template_route(self, mock_detect, mock_tmpl):
+    def test_template_route(self, _mock_detect, _mock_tmpl):
         from fluid_build.cli.init import run
 
         args = _make_init_args(template="customer-360")
         assert run(args, logging.getLogger("test")) == 0
 
     @patch("fluid_build.cli.init.detect_mode", return_value=None)
-    def test_none_mode(self, mock_detect):
+    def test_none_mode(self, _mock_detect):
         from fluid_build.cli.init import run
 
         args = _make_init_args()
         assert run(args, logging.getLogger("test")) == 1
 
     @patch("fluid_build.cli.init.detect_mode", return_value="bogus_mode")
-    def test_unknown_mode(self, mock_detect):
+    def test_unknown_mode(self, _mock_detect):
         from fluid_build.cli.init import run
 
         args = _make_init_args()
         assert run(args, logging.getLogger("test")) == 1
 
     @patch("fluid_build.cli.init.detect_mode", side_effect=KeyboardInterrupt())
-    def test_keyboard_interrupt(self, mock_detect):
+    def test_keyboard_interrupt(self, _mock_detect):
         from fluid_build.cli.init import run
 
         args = _make_init_args()
         assert run(args, logging.getLogger("test")) == 130
 
     @patch("fluid_build.cli.init.detect_mode", side_effect=RuntimeError("boom"))
-    def test_exception(self, mock_detect):
+    def test_exception(self, _mock_detect):
         from fluid_build.cli.init import run
 
         args = _make_init_args()

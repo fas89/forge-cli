@@ -96,7 +96,7 @@ class TestRun:
 
     @patch("fluid_build.cli.doctor._check_fluid_features")
     @patch("fluid_build.cli.doctor._print_feature_checks")
-    def test_features_only_returns_1_on_failure(self, mock_print, mock_check):
+    def test_features_only_returns_1_on_failure(self, _mock_print, mock_check):
         from fluid_build.cli.doctor import run
 
         mock_check.return_value = (False, [{"check": "test", "status": "fail", "ok": False}])
@@ -110,7 +110,7 @@ class TestRun:
 
     @patch("fluid_build.cli.doctor._check_fluid_features")
     @patch("fluid_build.cli.doctor.validate_input_file", side_effect=FileNotFoundError)
-    def test_missing_diagnostic_script(self, mock_validate, mock_check):
+    def test_missing_diagnostic_script(self, _mock_validate, mock_check):
         from fluid_build.cli.doctor import run
 
         mock_check.return_value = (True, [])
