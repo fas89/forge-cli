@@ -419,12 +419,14 @@ def _quote_qualified_snowflake_name(database: str, schema: str, table: str) -> s
     return f'"{validate_ident(database)}"."{validate_ident(schema)}"."{validate_ident(table)}"'
 
 
-def _fetch_snowflake_columns(conn, database: str, schema: str, table: str) -> Dict[str, Dict[str, Any]]:
+def _fetch_snowflake_columns(
+    conn, database: str, schema: str, table: str
+) -> Dict[str, Dict[str, Any]]:
     """Return ``{col_name: {type, mode}}`` for the live table, using bind params for values."""
     # `database` is validated by the caller, so interpolating it into the FROM
     # clause is safe. `schema` and `table` flow through as bind parameters.
     rows = conn.execute(
-        f'SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE '
+        f"SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE "
         f'FROM "{validate_ident(database)}".INFORMATION_SCHEMA.COLUMNS '
         "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s "
         "ORDER BY ORDINAL_POSITION",
