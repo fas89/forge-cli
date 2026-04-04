@@ -31,10 +31,62 @@ Enhanced with governance:
 
 from __future__ import annotations
 
+import os
+import re
 from collections.abc import Mapping
 from typing import Any, Dict, List, Optional
 
 from ..util.metadata import extract_snowflake_tags
+
+_ENV_TEMPLATE_RE = re.compile(r"\{\{\s*env\.(\S+?)\s*\}\}")
+
+
+def _resolve_env_templates(value: Any) -> Any:
+    if not isinstance(value, str) or "{{" not in value:
+        return value
+
+    def _replace(match: re.Match[str]) -> str:
+        env_name = match.group(1).strip()
+        return os.environ.get(env_name, match.group(0))
+
+    return _ENV_TEMPLATE_RE.sub(_replace, value).strip()
+
+
+def _first_contract_value(contract: Mapping[str, Any], key: str) -> Optional[str]:
+    binding = contract.get("binding", {})
+    if isinstance(binding, Mapping) and binding.get("platform") == "snowflake":
+        location = binding.get("location", {})
+        properties = binding.get("properties", {})
+        for source in (location, properties):
+            if isinstance(source, Mapping) and source.get(key):
+                return _resolve_env_templates(source.get(key))
+
+    for expose in contract.get("exposes", []) or []:
+        if not isinstance(expose, Mapping):
+            continue
+        binding = expose.get("binding", {})
+        if not isinstance(binding, Mapping) or binding.get("platform") != "snowflake":
+            continue
+        location = binding.get("location", expose.get("location", {}))
+        properties = binding.get("properties", {})
+        location_properties = (
+            location.get("properties", {}) if isinstance(location, Mapping) else {}
+        )
+        for source in (location, properties, location_properties):
+            if isinstance(source, Mapping) and source.get(key):
+                return _resolve_env_templates(source.get(key))
+
+    for build in contract.get("builds", []) or []:
+        if not isinstance(build, Mapping):
+            continue
+        execution = build.get("execution", {})
+        runtime = execution.get("runtime", {}) if isinstance(execution, Mapping) else {}
+        resources = runtime.get("resources", {}) if isinstance(runtime, Mapping) else {}
+        if runtime.get("platform") == "snowflake" and isinstance(resources, Mapping):
+            if resources.get(key):
+                return _resolve_env_templates(resources.get(key))
+
+    return None
 
 
 def plan_actions(
@@ -86,18 +138,14 @@ def _plan_infrastructure(
     """Phase 1: Create databases and schemas."""
     actions: List[Dict[str, Any]] = []
 
-    # Extract binding information
-    binding = contract.get("binding", {})
-    location = binding.get("location", {})
-
     # Resolve database from multiple sources
     db_name = (
-        location.get("database")
+        _first_contract_value(contract, "database")
         or database
         or contract.get("metadata", {}).get("name", "").upper().replace("-", "_")
     )
 
-    schema_name = location.get("schema") or schema
+    schema_name = _first_contract_value(contract, "schema") or schema
 
     # Ensure database exists
     if db_name:
@@ -200,6 +248,8 @@ def _plan_build(
 ) -> List[Dict[str, Any]]:
     """Phase 3: Create stored procedures, UDFs, tasks."""
     actions: List[Dict[str, Any]] = []
+    resolved_database = _first_contract_value(contract, "database") or database
+    resolved_schema = _first_contract_value(contract, "schema") or schema
 
     # Extract build configuration
     build = contract.get("build", {})
@@ -219,8 +269,8 @@ def _plan_build(
                     "op": "sf.procedure.ensure",
                     "phase": "build",
                     "account": account,
-                    "database": database,
-                    "schema": schema,
+                    "database": resolved_database,
+                    "schema": resolved_schema,
                     "name": name,
                     "language": language,
                     "parameters": params,
@@ -244,8 +294,8 @@ def _plan_build(
                     "op": "sf.udf.ensure",
                     "phase": "build",
                     "account": account,
-                    "database": database,
-                    "schema": schema,
+                    "database": resolved_database,
+                    "schema": resolved_schema,
                     "name": name,
                     "language": language,
                     "return_type": return_type,
@@ -273,10 +323,49 @@ def _plan_build(
                     "op": "sf.sql.execute",
                     "phase": "build",
                     "account": account,
-                    "database": database,
-                    "sql": sql_text,
+                    "database": resolved_database,
+                    "schema": resolved_schema,
+                    "sql": _resolve_env_templates(sql_text),
                 }
             )
+
+    # Modern builds[] support for native SQL happy-path contracts.
+    for index, build_entry in enumerate(contract.get("builds", []) or []):
+        if not isinstance(build_entry, Mapping):
+            continue
+
+        properties = build_entry.get("properties", {})
+        if not isinstance(properties, Mapping):
+            properties = {}
+
+        execution = build_entry.get("execution", {})
+        runtime = execution.get("runtime", {}) if isinstance(execution, Mapping) else {}
+        resources = runtime.get("resources", {}) if isinstance(runtime, Mapping) else {}
+
+        build_database = (
+            resources.get("database") if isinstance(resources, Mapping) else None
+        ) or resolved_database
+        build_schema = (
+            resources.get("schema") if isinstance(resources, Mapping) else None
+        ) or resolved_schema
+
+        sql_text = build_entry.get("sql") or properties.get("sql")
+        if not sql_text:
+            continue
+
+        build_id = build_entry.get("id", f"build_{index}")
+        actions.append(
+            {
+                "id": build_id,
+                "op": "sf.sql.execute",
+                "phase": "build",
+                "account": account,
+                "database": _resolve_env_templates(build_database),
+                "schema": _resolve_env_templates(build_schema),
+                "sql": _resolve_env_templates(sql_text),
+                "comment": build_entry.get("description") or build_entry.get("name"),
+            }
+        )
 
     return actions
 
@@ -290,6 +379,8 @@ def _plan_expose(
 ) -> List[Dict[str, Any]]:
     """Phase 4: Create tables, views, streams with governance metadata."""
     actions: List[Dict[str, Any]] = []
+    resolved_database = _first_contract_value(contract, "database") or database
+    resolved_schema = _first_contract_value(contract, "schema") or schema
 
     # Process exposes array (0.5.7/0.7.1 pattern)
     for expose in contract.get("exposes", []):
@@ -300,17 +391,21 @@ def _plan_expose(
 
         # Get binding information
         binding = expose.get("binding", {})
-        location = binding.get("location", {})
-        format_type = binding.get("format", "snowflake_table")
+        location = binding.get("location", expose.get("location", {}))
+        properties = binding.get("properties", {})
+        location_properties = (
+            location.get("properties", {}) if isinstance(location, Mapping) else {}
+        )
+        format_type = binding.get("format") or location.get("format") or "snowflake_table"
 
         # Resolve names
-        db_name = location.get("database") or database
-        schema_name = location.get("schema") or schema
-        table_name = location.get("table") or expose_id
+        db_name = _resolve_env_templates(location.get("database")) or resolved_database
+        schema_name = _resolve_env_templates(location.get("schema")) or resolved_schema
+        table_name = _resolve_env_templates(location.get("table")) or expose_id
 
         # Tables from contract schema
         contract_schema = expose.get("contract", {})
-        fields = contract_schema.get("schema", [])
+        fields = contract_schema.get("schema") or expose.get("schema", [])
 
         if table_name and fields and format_type == "snowflake_table":
             # Convert FLUID fields to Snowflake columns with tags
@@ -318,7 +413,7 @@ def _plan_expose(
             for field in fields:
                 col_name = field.get("name")
                 col_type = _map_fluid_type_to_snowflake(field.get("type", "string"))
-                nullable = field.get("nullable", True)
+                nullable = field.get("nullable", not field.get("required", False))
                 description = field.get("description")
 
                 col_def = {
@@ -343,8 +438,13 @@ def _plan_expose(
                     "schema": schema_name,
                     "table": table_name,
                     "columns": columns,
-                    "cluster_by": contract_schema.get("cluster_by", []),
-                    "comment": expose.get("description") or expose.get("title"),
+                    "cluster_by": contract_schema.get("cluster_by")
+                    or properties.get("cluster_by")
+                    or location_properties.get("cluster_by")
+                    or expose.get("cluster_by", []),
+                    "comment": expose.get("description")
+                    or expose.get("title")
+                    or properties.get("comment"),
                     "tags": table_tags,  # Table-level tags
                     "contract": contract,  # Full contract for metadata
                 }
@@ -352,6 +452,8 @@ def _plan_expose(
 
     # Views
     views = contract.get("views", [])
+    db_name = resolved_database
+    schema_name = resolved_schema
     for view in views:
         view_name = view.get("name")
         query = view.get("query")
@@ -368,7 +470,7 @@ def _plan_expose(
                     "database": db_name,
                     "schema": schema_name,
                     "name": view_name,
-                    "query": query,
+                    "query": _resolve_env_templates(query),
                     "secure": view.get("secure", False),
                 }
             )

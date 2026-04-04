@@ -570,46 +570,167 @@ class SnowflakeAuthProvider(AuthProvider):
         self.user = config.get("user")
         self.warehouse = config.get("warehouse")
         self.database = config.get("database")
+        self.schema = config.get("schema")
         self.role = config.get("role")
+        self.authenticator = config.get("authenticator")
+        self.password = config.get("password")
+        self.private_key_path = config.get("private_key_path")
+        self.private_key_passphrase = config.get("private_key_passphrase")
+        self.oauth_token = config.get("oauth_token")
 
-    async def login(self, **kwargs) -> AuthResult:
-        """Initiate Snowflake authentication using SnowSQL"""
+    def _resolve_settings(self) -> Dict[str, Any]:
+        from fluid_build.providers.snowflake.util.config import resolve_snowflake_settings
+
+        return resolve_snowflake_settings(
+            account=self.account,
+            user=self.user,
+            warehouse=self.warehouse,
+            database=self.database,
+            schema=self.schema,
+            role=self.role,
+            authenticator=self.authenticator,
+            password=self.password,
+            private_key_path=self.private_key_path,
+            private_key_passphrase=self.private_key_passphrase,
+            oauth_token=self.oauth_token,
+        )
+
+    @staticmethod
+    def _has_connector_auth(settings: Dict[str, Any]) -> bool:
+        return any(
+            settings.get(key)
+            for key in ["password", "private_key_path", "oauth_token", "authenticator"]
+        )
+
+    def _check_auth_with_connector(self, settings: Dict[str, Any]) -> AuthResult:
+        from fluid_build.providers.snowflake.connection import SnowflakeConnection
+        from fluid_build.providers.snowflake.util.config import get_connection_params
+
+        params = get_connection_params(
+            account=settings.get("account"),
+            warehouse=settings.get("warehouse"),
+            database=settings.get("database"),
+            schema=settings.get("schema"),
+            user=settings.get("user"),
+            role=settings.get("role"),
+            authenticator=settings.get("authenticator"),
+            password=settings.get("password"),
+            private_key_path=settings.get("private_key_path"),
+            private_key_passphrase=settings.get("private_key_passphrase"),
+            oauth_token=settings.get("oauth_token"),
+        )
+
+        with SnowflakeConnection(**params) as conn:
+            rows = conn.execute(
+                "SELECT CURRENT_USER(), CURRENT_ROLE(), CURRENT_WAREHOUSE(), CURRENT_DATABASE(), CURRENT_SCHEMA()"
+            )
+            current_user, current_role, current_warehouse, current_database, current_schema = (
+                rows[0] if rows else ("unknown", "unknown", "unknown", "unknown", "unknown")
+            )
+
+        return AuthResult(
+            provider=self.name,
+            status=AuthStatus.AUTHENTICATED,
+            user_info={
+                "account": settings.get("account"),
+                "user": current_user or settings.get("user"),
+                "warehouse": current_warehouse or settings.get("warehouse"),
+                "database": current_database or settings.get("database"),
+                "schema": current_schema or settings.get("schema"),
+                "role": current_role or settings.get("role"),
+                "authenticator": settings.get("authenticator") or "password",
+            },
+        )
+
+    def _login_with_snowsql(self) -> AuthResult:
+        """Fallback interactive SnowSQL login for SSO/browser-first setups."""
+        # Check if SnowSQL is installed
         try:
-            # Check if SnowSQL is installed
-            try:
-                self._run_command(["snowsql", "--version"], capture_output=True)
-            except CLIError:
+            self._run_command(["snowsql", "--version"], capture_output=True)
+        except CLIError:
+            return AuthResult(
+                provider=self.name,
+                status=AuthStatus.ERROR,
+                error_message="SnowSQL CLI not installed. Please install SnowSQL from Snowflake.",
+            )
+
+        if self.console:
+            self.console.print(
+                Panel(
+                    f"🏔️ Snowflake Authentication\n\n"
+                    f"Account: [cyan]{self.account or 'Not specified'}[/cyan]\n"
+                    f"User: [cyan]{self.user or 'Not specified'}[/cyan]\n"
+                    f"Warehouse: [cyan]{self.warehouse or 'Not specified'}[/cyan]\n\n"
+                    "This will prompt for your Snowflake credentials.",
+                    border_style="blue",
+                )
+            )
+
+            if not Confirm.ask("\nProceed with Snowflake authentication?", default=True):
                 return AuthResult(
                     provider=self.name,
-                    status=AuthStatus.ERROR,
-                    error_message="SnowSQL CLI not installed. Please install SnowSQL from Snowflake.",
+                    status=AuthStatus.NOT_AUTHENTICATED,
+                    error_message="User cancelled authentication",
                 )
 
-            if self.console:
-                self.console.print(
-                    Panel(
-                        f"🏔️ Snowflake Authentication\n\n"
-                        f"Account: [cyan]{self.account or 'Not specified'}[/cyan]\n"
-                        f"User: [cyan]{self.user or 'Not specified'}[/cyan]\n"
-                        f"Warehouse: [cyan]{self.warehouse or 'Not specified'}[/cyan]\n\n"
-                        "This will prompt for your Snowflake credentials.",
-                        border_style="blue",
-                    )
-                )
+        connection_params = []
+        if self.account:
+            connection_params.extend(["-a", self.account])
+        if self.user:
+            connection_params.extend(["-u", self.user])
+        if self.warehouse:
+            connection_params.extend(["-w", self.warehouse])
+        if self.database:
+            connection_params.extend(["-d", self.database])
+        if self.role:
+            connection_params.extend(["-r", self.role])
 
-                if not Confirm.ask("\nProceed with Snowflake authentication?", default=True):
-                    return AuthResult(
-                        provider=self.name,
-                        status=AuthStatus.NOT_AUTHENTICATED,
-                        error_message="User cancelled authentication",
-                    )
+        if self.console:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=self.console,
+            ) as progress:
+                task = progress.add_task("Connecting to Snowflake...", total=1)
+                command = ["snowsql"] + connection_params + ["-q", "SELECT CURRENT_USER();"]
+                result = self._run_command(command, capture_output=True, check=False)
+                progress.update(task, completed=1)
+        else:
+            command = ["snowsql"] + connection_params + ["-q", "SELECT CURRENT_USER();"]
+            result = self._run_command(command, capture_output=True, check=False)
 
-            # Build connection parameters
-            connection_params = []
-            if self.account:
-                connection_params.extend(["-a", self.account])
-            if self.user:
-                connection_params.extend(["-u", self.user])
+        if result.returncode == 0:
+            return AuthResult(
+                provider=self.name,
+                status=AuthStatus.AUTHENTICATED,
+                user_info={
+                    "account": self.account,
+                    "user": self.user,
+                    "warehouse": self.warehouse,
+                    "database": self.database,
+                    "role": self.role,
+                    "cli_version": "installed",
+                },
+            )
+
+        error_msg = result.stderr.strip() if result.stderr else "Authentication failed"
+        return AuthResult(
+            provider=self.name, status=AuthStatus.NOT_AUTHENTICATED, error_message=error_msg
+        )
+
+    def _check_auth_with_snowsql(self) -> AuthResult:
+        """Fallback status check using SnowSQL when no connector auth is configured."""
+        try:
+            self._run_command(["snowsql", "--version"], capture_output=True)
+        except CLIError:
+            return AuthResult(
+                provider=self.name,
+                status=AuthStatus.ERROR,
+                error_message="SnowSQL CLI not installed. Please install SnowSQL from Snowflake.",
+            )
+
+        if self.account and self.user:
+            connection_params = ["-a", self.account, "-u", self.user]
             if self.warehouse:
                 connection_params.extend(["-w", self.warehouse])
             if self.database:
@@ -617,22 +738,8 @@ class SnowflakeAuthProvider(AuthProvider):
             if self.role:
                 connection_params.extend(["-r", self.role])
 
-            if self.console:
-                with Progress(
-                    SpinnerColumn(),
-                    TextColumn("[progress.description]{task.description}"),
-                    console=self.console,
-                ) as progress:
-                    task = progress.add_task("Connecting to Snowflake...", total=1)
-
-                    # Test connection with a simple query
-                    command = ["snowsql"] + connection_params + ["-q", "SELECT CURRENT_USER();"]
-                    result = self._run_command(command, capture_output=True, check=False)
-
-                    progress.update(task, completed=1)
-            else:
-                command = ["snowsql"] + connection_params + ["-q", "SELECT CURRENT_USER();"]
-                result = self._run_command(command, capture_output=True, check=False)
+            command = ["snowsql"] + connection_params + ["-q", "SELECT CURRENT_USER();"]
+            result = self._run_command(command, capture_output=True, check=False)
 
             if result.returncode == 0:
                 return AuthResult(
@@ -644,15 +751,47 @@ class SnowflakeAuthProvider(AuthProvider):
                         "warehouse": self.warehouse,
                         "database": self.database,
                         "role": self.role,
-                        "cli_version": "installed",
                     },
                 )
-            else:
-                error_msg = result.stderr.strip() if result.stderr else "Authentication failed"
+
+            return AuthResult(
+                provider=self.name,
+                status=AuthStatus.NOT_AUTHENTICATED,
+                error_message="Snowflake credentials not configured or invalid",
+            )
+
+        return AuthResult(
+            provider=self.name,
+            status=AuthStatus.NOT_AUTHENTICATED,
+            error_message="Snowflake account and user not configured",
+        )
+
+    async def login(self, **kwargs) -> AuthResult:
+        """Validate Snowflake authentication using the same connector path as the provider."""
+        try:
+            settings = self._resolve_settings()
+            self.account = settings.get("account")
+            self.user = settings.get("user")
+            self.warehouse = settings.get("warehouse")
+            self.database = settings.get("database")
+            self.schema = settings.get("schema")
+            self.role = settings.get("role")
+            missing = [key for key in ["account", "user"] if not settings.get(key)]
+            if missing and self._has_connector_auth(settings):
                 return AuthResult(
-                    provider=self.name, status=AuthStatus.NOT_AUTHENTICATED, error_message=error_msg
+                    provider=self.name,
+                    status=AuthStatus.NOT_AUTHENTICATED,
+                    error_message=(
+                        "Snowflake connection is missing required settings: "
+                        + ", ".join(missing)
+                        + ". Set them in the contract binding, credential store, or SNOWFLAKE_* env vars."
+                    ),
                 )
 
+            if self._has_connector_auth(settings):
+                return self._check_auth_with_connector(settings)
+
+            return self._login_with_snowsql()
         except Exception as e:
             return AuthResult(provider=self.name, status=AuthStatus.ERROR, error_message=str(e))
 
@@ -666,54 +805,27 @@ class SnowflakeAuthProvider(AuthProvider):
     async def check_auth(self) -> AuthResult:
         """Check Snowflake authentication status"""
         try:
-            # Check if SnowSQL is installed
-            try:
-                self._run_command(["snowsql", "--version"], capture_output=True)
-            except CLIError:
-                return AuthResult(
-                    provider=self.name,
-                    status=AuthStatus.ERROR,
-                    error_message="SnowSQL CLI not installed. Please install SnowSQL from Snowflake.",
-                )
+            settings = self._resolve_settings()
+            self.account = settings.get("account")
+            self.user = settings.get("user")
+            self.warehouse = settings.get("warehouse")
+            self.database = settings.get("database")
+            self.schema = settings.get("schema")
+            self.role = settings.get("role")
 
-            # Test connection if we have basic params
-            if self.account and self.user:
-                connection_params = ["-a", self.account, "-u", self.user]
-                if self.warehouse:
-                    connection_params.extend(["-w", self.warehouse])
-                if self.database:
-                    connection_params.extend(["-d", self.database])
-                if self.role:
-                    connection_params.extend(["-r", self.role])
-
-                command = ["snowsql"] + connection_params + ["-q", "SELECT CURRENT_USER();"]
-                result = self._run_command(command, capture_output=True, check=False)
-
-                if result.returncode == 0:
-                    return AuthResult(
-                        provider=self.name,
-                        status=AuthStatus.AUTHENTICATED,
-                        user_info={
-                            "account": self.account,
-                            "user": self.user,
-                            "warehouse": self.warehouse,
-                            "database": self.database,
-                            "role": self.role,
-                        },
-                    )
-                else:
-                    return AuthResult(
-                        provider=self.name,
-                        status=AuthStatus.NOT_AUTHENTICATED,
-                        error_message="Snowflake credentials not configured or invalid",
-                    )
-            else:
+            if not (settings.get("account") and settings.get("user")) and self._has_connector_auth(
+                settings
+            ):
                 return AuthResult(
                     provider=self.name,
                     status=AuthStatus.NOT_AUTHENTICATED,
                     error_message="Snowflake account and user not configured",
                 )
 
+            if self._has_connector_auth(settings):
+                return self._check_auth_with_connector(settings)
+
+            return self._check_auth_with_snowsql()
         except Exception as e:
             return AuthResult(provider=self.name, status=AuthStatus.ERROR, error_message=str(e))
 
