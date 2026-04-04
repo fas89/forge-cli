@@ -38,32 +38,45 @@ from fluid_build.providers.snowflake.types import ProviderOptions
 REQUIRED_ENV_VARS = [
     "SNOWFLAKE_ACCOUNT",
     "SNOWFLAKE_USER",
-    "SNOWFLAKE_PASSWORD",
     "SNOWFLAKE_WAREHOUSE",
 ]
 MISSING_ENV_VARS = [name for name in REQUIRED_ENV_VARS if not os.getenv(name)]
+HAS_KEY_PAIR_AUTH = bool(os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH"))
+HAS_OAUTH_AUTH = bool(os.getenv("SNOWFLAKE_OAUTH_TOKEN"))
+HAS_SECURE_AUTH = HAS_KEY_PAIR_AUTH or HAS_OAUTH_AUTH
 
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.snowflake,
     pytest.mark.skipif(
-        not HAS_SNOWFLAKE or MISSING_ENV_VARS,
+        not HAS_SNOWFLAKE or MISSING_ENV_VARS or not HAS_SECURE_AUTH,
         reason=(
             "Snowflake live happy-path test requires snowflake-connector-python and env vars: "
             + ", ".join(REQUIRED_ENV_VARS)
+            + " plus secure auth via SNOWFLAKE_PRIVATE_KEY_PATH or SNOWFLAKE_OAUTH_TOKEN"
         ),
     ),
 ]
 
 
 def _bootstrap_options() -> ProviderOptions:
-    return ProviderOptions(
+    options = ProviderOptions(
         account=os.environ["SNOWFLAKE_ACCOUNT"],
         user=os.environ["SNOWFLAKE_USER"],
-        password=os.environ["SNOWFLAKE_PASSWORD"],
         warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
         role=os.getenv("SNOWFLAKE_ROLE"),
     )
+    if os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH"):
+        options.private_key_path = os.environ["SNOWFLAKE_PRIVATE_KEY_PATH"]
+        options.private_key_passphrase = os.getenv("SNOWFLAKE_PRIVATE_KEY_PASSPHRASE")
+    elif os.getenv("SNOWFLAKE_OAUTH_TOKEN"):
+        options.oauth_token = os.environ["SNOWFLAKE_OAUTH_TOKEN"]
+    else:
+        raise AssertionError(
+            "Live Snowflake test requires secure auth via "
+            "SNOWFLAKE_PRIVATE_KEY_PATH or SNOWFLAKE_OAUTH_TOKEN"
+        )
+    return options
 
 
 def _write_contract(path: Path) -> None:
@@ -144,6 +157,34 @@ def _run_cli(
     )
 
 
+def _build_secure_cli_env(*, warehouse: str, database: str, schema: str) -> dict[str, str]:
+    env = {
+        **os.environ,
+        "SNOWFLAKE_ACCOUNT": os.environ["SNOWFLAKE_ACCOUNT"],
+        "SNOWFLAKE_USER": os.environ["SNOWFLAKE_USER"],
+        "SNOWFLAKE_WAREHOUSE": warehouse,
+        "SNOWFLAKE_DATABASE": database,
+        "SNOWFLAKE_SCHEMA": schema,
+    }
+    env.pop("SNOWFLAKE_PASSWORD", None)
+    env.pop("SF_PASSWORD", None)
+
+    if os.getenv("SNOWFLAKE_ROLE"):
+        env["SNOWFLAKE_ROLE"] = os.environ["SNOWFLAKE_ROLE"]
+    if os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH"):
+        env["SNOWFLAKE_PRIVATE_KEY_PATH"] = os.environ["SNOWFLAKE_PRIVATE_KEY_PATH"]
+        if os.getenv("SNOWFLAKE_PRIVATE_KEY_PASSPHRASE"):
+            env["SNOWFLAKE_PRIVATE_KEY_PASSPHRASE"] = os.environ["SNOWFLAKE_PRIVATE_KEY_PASSPHRASE"]
+    elif os.getenv("SNOWFLAKE_OAUTH_TOKEN"):
+        env["SNOWFLAKE_OAUTH_TOKEN"] = os.environ["SNOWFLAKE_OAUTH_TOKEN"]
+    else:
+        raise AssertionError(
+            "Live Snowflake test requires secure auth via "
+            "SNOWFLAKE_PRIVATE_KEY_PATH or SNOWFLAKE_OAUTH_TOKEN"
+        )
+    return env
+
+
 def test_snowflake_live_happy_path(tmp_path: Path):
     suffix = uuid4().hex[:8].upper()
     warehouse = f"FLUID_HP_WH_{suffix}"
@@ -154,17 +195,7 @@ def test_snowflake_live_happy_path(tmp_path: Path):
     plan_file.parent.mkdir(parents=True, exist_ok=True)
     _write_contract(contract_file)
 
-    cli_env = {
-        **os.environ,
-        "SNOWFLAKE_ACCOUNT": os.environ["SNOWFLAKE_ACCOUNT"],
-        "SNOWFLAKE_USER": os.environ["SNOWFLAKE_USER"],
-        "SNOWFLAKE_PASSWORD": os.environ["SNOWFLAKE_PASSWORD"],
-        "SNOWFLAKE_WAREHOUSE": warehouse,
-        "SNOWFLAKE_DATABASE": database,
-        "SNOWFLAKE_SCHEMA": schema,
-    }
-    if os.getenv("SNOWFLAKE_ROLE"):
-        cli_env["SNOWFLAKE_ROLE"] = os.environ["SNOWFLAKE_ROLE"]
+    cli_env = _build_secure_cli_env(warehouse=warehouse, database=database, schema=schema)
 
     with SnowflakeConnection(_bootstrap_options()) as conn:
         conn.execute(
