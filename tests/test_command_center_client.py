@@ -63,14 +63,14 @@ class TestCommandCenterClient:
         mock_check.assert_not_called()
 
     @patch.object(CommandCenterClient, "_check_availability")
-    def test_detect_url_from_env(self, mock_check):
+    def test_detect_url_from_env(self, _mock_check):
         with patch.dict("os.environ", {"FLUID_COMMAND_CENTER_URL": "http://cc.example.com"}):
             client = CommandCenterClient()
             assert client.url == "http://cc.example.com"
 
     @patch.object(CommandCenterClient, "_check_availability")
     @patch("fluid_build.cli._command_center.Path")
-    def test_detect_url_from_config_file(self, mock_path_cls, mock_check):
+    def test_detect_url_from_config_file(self, mock_path_cls, _mock_check):
         with patch.dict("os.environ", {}, clear=False):
             import os
 
@@ -96,7 +96,7 @@ class TestCommandCenterClient:
             # Should attempt to read config file
 
     @patch.object(CommandCenterClient, "_detect_url", return_value="http://localhost:8000")
-    def test_check_availability_success(self, mock_detect):
+    def test_check_availability_success(self, _mock_detect):
         mock_health_response = MagicMock()
         mock_health_response.status_code = 200
 
@@ -121,7 +121,7 @@ class TestCommandCenterClient:
             assert client.available is True
 
     @patch.object(CommandCenterClient, "_detect_url", return_value="http://localhost:8000")
-    def test_check_availability_failure(self, mock_detect):
+    def test_check_availability_failure(self, _mock_detect):
         with patch(
             "fluid_build.cli._command_center.requests.get",
             side_effect=Exception("connection refused"),
@@ -130,7 +130,7 @@ class TestCommandCenterClient:
             assert client.available is False
 
     @patch.object(CommandCenterClient, "_detect_url", return_value="http://localhost:8000")
-    def test_check_availability_requests_not_available(self, mock_detect):
+    def test_check_availability_requests_not_available(self, _mock_detect):
         with patch("fluid_build.cli._command_center.REQUESTS_AVAILABLE", False):
             client = CommandCenterClient()
             assert client.available is False

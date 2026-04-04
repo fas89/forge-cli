@@ -105,7 +105,7 @@ jobs:
         uses: codecov/codecov-action@v6
         with:
           files: coverage.xml
-          fail_ci_if_error: false
+          fail_ci_if_error: true
 
   build-check:
     name: Build Smoke Test

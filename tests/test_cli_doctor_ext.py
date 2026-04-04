@@ -333,16 +333,13 @@ class TestRunExtra(unittest.TestCase):
     @patch("fluid_build.cli.doctor._check_fluid_features")
     @patch("fluid_build.cli.doctor.validate_input_file")
     @patch("fluid_build.cli.doctor.validate_output_file")
-    @patch("fluid_build.cli.doctor.ProcessManager")
-    def test_run_with_script_succeeds(self, mock_pm_cls, mock_val_out, mock_val_in, mock_check):
+    @patch("fluid_build.cli.doctor.subprocess.run")
+    def test_run_with_script_succeeds(self, mock_run, _mock_val_out, mock_val_in, mock_check):
         from fluid_build.cli.doctor import run
 
         mock_check.return_value = (True, [])
         mock_val_in.return_value = "/fake/scripts/diagnose.sh"
-
-        mock_pm = MagicMock()
-        mock_pm.run_with_timeout.return_value = None
-        mock_pm_cls.return_value = mock_pm
+        mock_run.return_value = None
 
         args = self._make_args(verbose=False)
 
@@ -352,14 +349,14 @@ class TestRunExtra(unittest.TestCase):
         ):
             result = run(args, MagicMock())
 
-        # script was found, process manager used → success
+        # script was found and executed → success
         assert result == 0
 
     @patch("fluid_build.cli.doctor._check_fluid_features")
     @patch("fluid_build.cli.doctor.validate_input_file")
     @patch("fluid_build.cli.doctor.validate_output_file")
-    @patch("fluid_build.cli.doctor.ProcessManager")
-    def test_run_timeout_raises_cli_error(self, mock_pm_cls, mock_val_out, mock_val_in, mock_check):
+    @patch("fluid_build.cli.doctor.subprocess.run")
+    def test_run_timeout_raises_cli_error(self, mock_run, _mock_val_out, mock_val_in, mock_check):
         import subprocess
 
         from fluid_build.cli._common import CLIError
@@ -367,10 +364,7 @@ class TestRunExtra(unittest.TestCase):
 
         mock_check.return_value = (True, [])
         mock_val_in.return_value = "/fake/scripts/diagnose.sh"
-
-        mock_pm = MagicMock()
-        mock_pm.run_with_timeout.side_effect = subprocess.TimeoutExpired(cmd="bash", timeout=300)
-        mock_pm_cls.return_value = mock_pm
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="bash", timeout=300)
 
         args = self._make_args(verbose=False)
 
@@ -384,9 +378,9 @@ class TestRunExtra(unittest.TestCase):
     @patch("fluid_build.cli.doctor._check_fluid_features")
     @patch("fluid_build.cli.doctor.validate_input_file")
     @patch("fluid_build.cli.doctor.validate_output_file")
-    @patch("fluid_build.cli.doctor.ProcessManager")
+    @patch("fluid_build.cli.doctor.subprocess.run")
     def test_run_called_process_error_raises_cli_error(
-        self, mock_pm_cls, mock_val_out, mock_val_in, mock_check
+        self, mock_run, _mock_val_out, mock_val_in, mock_check
     ):
         import subprocess
 
@@ -396,10 +390,8 @@ class TestRunExtra(unittest.TestCase):
         mock_check.return_value = (True, [])
         mock_val_in.return_value = "/fake/scripts/diagnose.sh"
 
-        mock_pm = MagicMock()
         error = subprocess.CalledProcessError(returncode=1, cmd="bash")
-        mock_pm.run_with_timeout.side_effect = error
-        mock_pm_cls.return_value = mock_pm
+        mock_run.side_effect = error
 
         args = self._make_args(verbose=False)
 
@@ -413,19 +405,16 @@ class TestRunExtra(unittest.TestCase):
     @patch("fluid_build.cli.doctor._check_fluid_features")
     @patch("fluid_build.cli.doctor.validate_input_file")
     @patch("fluid_build.cli.doctor.validate_output_file")
-    @patch("fluid_build.cli.doctor.ProcessManager")
+    @patch("fluid_build.cli.doctor.subprocess.run")
     def test_run_unexpected_error_raises_cli_error(
-        self, mock_pm_cls, mock_val_out, mock_val_in, mock_check
+        self, mock_run, _mock_val_out, mock_val_in, mock_check
     ):
         from fluid_build.cli._common import CLIError
         from fluid_build.cli.doctor import run
 
         mock_check.return_value = (True, [])
         mock_val_in.return_value = "/fake/scripts/diagnose.sh"
-
-        mock_pm = MagicMock()
-        mock_pm.run_with_timeout.side_effect = RuntimeError("unexpected")
-        mock_pm_cls.return_value = mock_pm
+        mock_run.side_effect = RuntimeError("unexpected")
 
         args = self._make_args(verbose=False)
 

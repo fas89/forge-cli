@@ -49,7 +49,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from ._common import CLIError, load_contract_with_overlay
 from ._logging import error, info, warn
 from .security import (
-    ProcessManager,
     ProductionLogger,
     read_file_secure,
     validate_input_file,
@@ -330,29 +329,22 @@ def _shell_open(path: Path, logger: logging.Logger) -> None:
         warn(logger, "invalid_file_for_opening", file=str(path), error=str(e))
         return
 
-    # Get secure logger
     secure_logger = ProductionLogger(logger)
-    process_manager = ProcessManager(default_timeout=10)  # 10 second timeout for opening files
 
     try:
         system = platform.system()
 
-        def open_file():
-            if system == "Darwin":
-                return subprocess.run(
-                    ["open", str(validated_path)], check=True, capture_output=True, timeout=10
-                )
-            elif system == "Windows":
-                # Use startfile which is safer than subprocess for Windows
-                os.startfile(str(validated_path))  # type: ignore[attr-defined]
-                return None
-            else:
-                return subprocess.run(
-                    ["xdg-open", str(validated_path)], check=True, capture_output=True, timeout=10
-                )
+        if system == "Darwin":
+            subprocess.run(
+                ["open", str(validated_path)], check=True, capture_output=True, timeout=10
+            )
+        elif system == "Windows":
+            os.startfile(str(validated_path))  # type: ignore[attr-defined]
+        else:
+            subprocess.run(
+                ["xdg-open", str(validated_path)], check=True, capture_output=True, timeout=10
+            )
 
-        # Run with timeout protection
-        process_manager.run_with_timeout(open_file, timeout=10)
         secure_logger.log_safe("info", f"Opened file in system viewer: {validated_path}")
 
     except subprocess.TimeoutExpired:
@@ -365,23 +357,17 @@ def _shell_open(path: Path, logger: logging.Logger) -> None:
 
 def _check_graphviz_installation() -> Tuple[bool, Optional[str]]:
     """Securely check if Graphviz is installed and return version info."""
-    process_manager = ProcessManager(default_timeout=5)
-
     if not shutil.which("dot"):
         return False, None
 
     try:
-
-        def check_version():
-            return subprocess.run(
-                ["dot", "-V"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                check=False,  # Don't raise on non-zero exit
-            )
-
-        result = process_manager.run_with_timeout(check_version, timeout=5)
+        result = subprocess.run(
+            ["dot", "-V"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
 
         # Graphviz outputs version to stderr
         if result and result.stderr:
@@ -970,7 +956,6 @@ def _write_output(
 ) -> None:
     """Enhanced output writer with security hardening and better error handling."""
     secure_logger = ProductionLogger(logger)
-    process_manager = ProcessManager(default_timeout=30)  # 30 second timeout for Graphviz
 
     try:
         out_path = _prepare_output_directory(config.output_path, config.force_overwrite)
@@ -1050,19 +1035,15 @@ def _write_output(
                     # Insert custom args before the -o option
                     cmd = cmd[:-2] + sanitized_args + cmd[-2:]
 
-            # Run Graphviz with security constraints
-            def run_graphviz():
-                return subprocess.run(
-                    cmd,
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                    cwd=Path.cwd(),  # Ensure known working directory
-                    env={**os.environ, "PATH": os.environ.get("PATH", "")},  # Minimal environment
-                )
-
-            process_manager.run_with_timeout(run_graphviz, timeout=30)
+            subprocess.run(
+                cmd,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                cwd=Path.cwd(),
+                env={**os.environ, "PATH": os.environ.get("PATH", "")},
+            )
 
             if config.format == "html":
                 # Wrap SVG into HTML with secure file operations

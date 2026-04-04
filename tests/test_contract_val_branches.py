@@ -221,7 +221,7 @@ class TestContractValidator:
         "fluid_build.cli.contract_validation.load_contract_with_overlay",
         side_effect=FileNotFoundError("nope"),
     )
-    def test_validate_contract_not_found(self, mock_load):
+    def test_validate_contract_not_found(self, _mock_load):
         from fluid_build.cli.contract_validation import ContractValidator
 
         v = ContractValidator(

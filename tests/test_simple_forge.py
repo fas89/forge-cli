@@ -33,7 +33,7 @@ class TestSimplifiedForgeInit:
         mock_init.assert_called_once()
 
     @patch("fluid_build.forge.simple_forge.initialize_registries", side_effect=RuntimeError("fail"))
-    def test_initialize_failure(self, mock_init):
+    def test_initialize_failure(self, _mock_init):
         forge = SimplifiedForge()
         assert forge.initialize() is False
         assert forge._initialized is False
@@ -45,7 +45,7 @@ class TestGetAvailableTemplatesProviders:
         return_value=["analytics-basic", "ml-pipeline"],
     )
     @patch("fluid_build.forge.simple_forge.initialize_registries")
-    def test_get_available_templates(self, mock_init, mock_list):
+    def test_get_available_templates(self, _mock_init, _mock_list):
         forge = SimplifiedForge()
         result = forge.get_available_templates()
         assert result == ["analytics-basic", "ml-pipeline"]
@@ -54,7 +54,7 @@ class TestGetAvailableTemplatesProviders:
 
     @patch("fluid_build.forge.simple_forge.list_providers", return_value=["local", "gcp"])
     @patch("fluid_build.forge.simple_forge.initialize_registries")
-    def test_get_available_providers(self, mock_init, mock_list):
+    def test_get_available_providers(self, _mock_init, _mock_list):
         forge = SimplifiedForge()
         result = forge.get_available_providers()
         assert result == ["local", "gcp"]
@@ -135,7 +135,7 @@ class TestCreateProject:
     @patch("fluid_build.forge.simple_forge.initialize_registries")
     @patch("fluid_build.forge.simple_forge.get_template")
     @patch("fluid_build.forge.simple_forge.get_provider")
-    def test_template_not_found(self, mock_prov, mock_tmpl, mock_init):
+    def test_template_not_found(self, _mock_prov, mock_tmpl, _mock_init):
         mock_tmpl.return_value = None
         forge = SimplifiedForge()
         assert forge.create_project("bad", "local", "proj", "/tmp/out") is False
@@ -143,7 +143,7 @@ class TestCreateProject:
     @patch("fluid_build.forge.simple_forge.initialize_registries")
     @patch("fluid_build.forge.simple_forge.get_template")
     @patch("fluid_build.forge.simple_forge.get_provider")
-    def test_provider_not_found(self, mock_prov, mock_tmpl, mock_init):
+    def test_provider_not_found(self, mock_prov, mock_tmpl, _mock_init):
         mock_tmpl.return_value = MagicMock()
         mock_prov.return_value = None
         forge = SimplifiedForge()
@@ -152,7 +152,7 @@ class TestCreateProject:
     @patch("fluid_build.forge.simple_forge.initialize_registries")
     @patch("fluid_build.forge.simple_forge.get_template")
     @patch("fluid_build.forge.simple_forge.get_provider")
-    def test_provider_unavailable(self, mock_prov, mock_tmpl, mock_init):
+    def test_provider_unavailable(self, mock_prov, mock_tmpl, _mock_init):
         mock_tmpl.return_value = MagicMock()
         provider = MagicMock()
         provider.check_prerequisites.return_value = (False, ["docker not found"])
@@ -164,7 +164,7 @@ class TestCreateProject:
     @patch("fluid_build.forge.simple_forge.initialize_registries")
     @patch("fluid_build.forge.simple_forge.get_template")
     @patch("fluid_build.forge.simple_forge.get_provider")
-    def test_successful_create(self, mock_prov, mock_tmpl, mock_init):
+    def test_successful_create(self, mock_prov, mock_tmpl, _mock_init):
         template = MagicMock()
         template.get_metadata.return_value = MagicMock()
         template.generate_project.return_value = True
@@ -185,7 +185,7 @@ class TestListAllComponents:
         "fluid_build.forge.simple_forge.get_registry_status",
         return_value={"templates": ["a"], "providers": ["b"], "extensions": [], "generators": []},
     )
-    def test_list_all(self, mock_status, mock_init):
+    def test_list_all(self, _mock_status, _mock_init):
         forge = SimplifiedForge()
         result = forge.list_all_components()
         assert result["templates"] == ["a"]
@@ -199,7 +199,7 @@ class TestGetSystemStatus:
         return_value={"templates": ["t1"], "providers": ["p1"]},
     )
     @patch("fluid_build.forge.simple_forge.get_provider")
-    def test_system_status(self, mock_get_prov, mock_status, mock_init):
+    def test_system_status(self, mock_get_prov, _mock_status, _mock_init):
         provider = MagicMock()
         provider.check_prerequisites.return_value = (True, [])
         provider.get_required_tools.return_value = []

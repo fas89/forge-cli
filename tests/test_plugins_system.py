@@ -232,7 +232,7 @@ class TestRunDispatcher:
 
     @patch("fluid_build.cli.plugins.get_plugin_manager")
     @patch("fluid_build.cli.plugins.handle_list_plugins", return_value=0)
-    def test_list_action(self, mock_handler, mock_gpm):
+    def test_list_action(self, _mock_handler, mock_gpm):
         mock_gpm.return_value = MagicMock()
         args = self._make_args(plugin_action="list")
         result = run(args, logging.getLogger())
@@ -240,7 +240,7 @@ class TestRunDispatcher:
 
     @patch("fluid_build.cli.plugins.get_plugin_manager")
     @patch("fluid_build.cli.plugins.handle_install_plugin", return_value=0)
-    def test_install_action(self, mock_handler, mock_gpm):
+    def test_install_action(self, _mock_handler, mock_gpm):
         mock_gpm.return_value = MagicMock()
         args = self._make_args(plugin_action="install")
         result = run(args, logging.getLogger())

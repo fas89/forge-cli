@@ -48,7 +48,7 @@ class TestTestResult:
 class TestTemplateTestSuiteMetadata:
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
-    def test_metadata_all_present(self, mock_tr, mock_pr):
+    def test_metadata_all_present(self, _mock_tr, _mock_pr):
         suite = TemplateTestSuite("test-tmpl")
         tmpl = MagicMock()
         meta = MagicMock()
@@ -63,7 +63,7 @@ class TestTemplateTestSuiteMetadata:
 
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
-    def test_metadata_missing_name(self, mock_tr, mock_pr):
+    def test_metadata_missing_name(self, _mock_tr, _mock_pr):
         suite = TemplateTestSuite("t")
         tmpl = MagicMock()
         meta = MagicMock()
@@ -78,7 +78,7 @@ class TestTemplateTestSuiteMetadata:
 
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
-    def test_metadata_missing_description(self, mock_tr, mock_pr):
+    def test_metadata_missing_description(self, _mock_tr, _mock_pr):
         suite = TemplateTestSuite("t")
         tmpl = MagicMock()
         meta = MagicMock()
@@ -93,7 +93,7 @@ class TestTemplateTestSuiteMetadata:
 
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
-    def test_metadata_missing_provider_support(self, mock_tr, mock_pr):
+    def test_metadata_missing_provider_support(self, _mock_tr, _mock_pr):
         suite = TemplateTestSuite("t")
         tmpl = MagicMock()
         meta = MagicMock()
@@ -108,7 +108,7 @@ class TestTemplateTestSuiteMetadata:
 
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
-    def test_metadata_missing_use_cases(self, mock_tr, mock_pr):
+    def test_metadata_missing_use_cases(self, _mock_tr, _mock_pr):
         suite = TemplateTestSuite("t")
         tmpl = MagicMock()
         meta = MagicMock()
@@ -123,7 +123,7 @@ class TestTemplateTestSuiteMetadata:
 
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
-    def test_metadata_invalid_complexity(self, mock_tr, mock_pr):
+    def test_metadata_invalid_complexity(self, _mock_tr, _mock_pr):
         suite = TemplateTestSuite("t")
         tmpl = MagicMock()
         meta = MagicMock()
@@ -138,7 +138,7 @@ class TestTemplateTestSuiteMetadata:
 
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
-    def test_metadata_exception(self, mock_tr, mock_pr):
+    def test_metadata_exception(self, _mock_tr, _mock_pr):
         suite = TemplateTestSuite("t")
         tmpl = MagicMock()
         tmpl.get_metadata.side_effect = RuntimeError("boom")
@@ -152,7 +152,7 @@ class TestTemplateTestSuiteMetadata:
 class TestCreateProjectStructure:
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
-    def test_dict_content_creates_dir(self, mock_tr, mock_pr, tmp_path):
+    def test_dict_content_creates_dir(self, _mock_tr, _mock_pr, tmp_path):
         suite = TemplateTestSuite("t")
         structure = {"subdir": {"file.txt": "hello"}}
         files = suite._create_project_structure(tmp_path, structure)
@@ -161,7 +161,7 @@ class TestCreateProjectStructure:
 
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
-    def test_str_content_creates_file(self, mock_tr, mock_pr, tmp_path):
+    def test_str_content_creates_file(self, _mock_tr, _mock_pr, tmp_path):
         suite = TemplateTestSuite("t")
         structure = {"readme.md": "# Hello"}
         files = suite._create_project_structure(tmp_path, structure)
@@ -170,7 +170,7 @@ class TestCreateProjectStructure:
 
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
-    def test_empty_list_creates_empty_dir(self, mock_tr, mock_pr, tmp_path):
+    def test_empty_list_creates_empty_dir(self, _mock_tr, _mock_pr, tmp_path):
         suite = TemplateTestSuite("t")
         structure = {"empty_dir": []}
         files = suite._create_project_structure(tmp_path, structure)
@@ -179,7 +179,7 @@ class TestCreateProjectStructure:
 
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
-    def test_empty_dict_creates_dir(self, mock_tr, mock_pr, tmp_path):
+    def test_empty_dict_creates_dir(self, _mock_tr, _mock_pr, tmp_path):
         suite = TemplateTestSuite("t")
         structure = {"empty": {}}
         files = suite._create_project_structure(tmp_path, structure)
@@ -193,7 +193,7 @@ class TestCreateProjectStructure:
 class TestFileValidation:
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
-    def test_missing_required_files(self, mock_tr, mock_pr, tmp_path):
+    def test_missing_required_files(self, _mock_tr, _mock_pr, tmp_path):
         suite = TemplateTestSuite("t")
         errors = suite._test_file_validation(tmp_path)
         assert any("contract.fluid.yaml" in e for e in errors)
@@ -201,7 +201,7 @@ class TestFileValidation:
 
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
-    def test_all_present(self, mock_tr, mock_pr, tmp_path):
+    def test_all_present(self, _mock_tr, _mock_pr, tmp_path):
         (tmp_path / "contract.fluid.yaml").write_text(
             "apiVersion: 0.5.7\nkind: DataContract\nmetadata:\n  name: t\nspec:\n  inputs: []"
         )
@@ -213,7 +213,7 @@ class TestFileValidation:
 
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
-    def test_bad_python_syntax(self, mock_tr, mock_pr, tmp_path):
+    def test_bad_python_syntax(self, _mock_tr, _mock_pr, tmp_path):
         (tmp_path / "contract.fluid.yaml").write_text("apiVersion: 0.5.7")
         (tmp_path / "README.md").write_text("# test")
         (tmp_path / "requirements.txt").write_text("")
@@ -224,7 +224,7 @@ class TestFileValidation:
 
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
-    def test_bad_yaml(self, mock_tr, mock_pr, tmp_path):
+    def test_bad_yaml(self, _mock_tr, _mock_pr, tmp_path):
         (tmp_path / "README.md").write_text("# test")
         (tmp_path / "requirements.txt").write_text("")
         (tmp_path / "contract.fluid.yaml").write_text(": :\n  bad: [")
@@ -240,14 +240,14 @@ class TestFileValidation:
 class TestContractValidation:
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
-    def test_no_contract_file(self, mock_tr, mock_pr, tmp_path):
+    def test_no_contract_file(self, _mock_tr, _mock_pr, tmp_path):
         suite = TemplateTestSuite("t")
         errors = suite._test_contract_validation(tmp_path)
         assert any("not found" in e for e in errors)
 
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
-    def test_valid_contract(self, mock_tr, mock_pr, tmp_path):
+    def test_valid_contract(self, _mock_tr, _mock_pr, tmp_path):
         contract = {
             "apiVersion": "0.5.7",
             "kind": "DataContract",
@@ -263,7 +263,7 @@ class TestContractValidation:
 
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
-    def test_missing_required_fields(self, mock_tr, mock_pr, tmp_path):
+    def test_missing_required_fields(self, _mock_tr, _mock_pr, tmp_path):
         (tmp_path / "contract.fluid.yaml").write_text("foo: bar\n")
         suite = TemplateTestSuite("t")
         errors = suite._test_contract_validation(tmp_path)
@@ -271,7 +271,7 @@ class TestContractValidation:
 
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
-    def test_missing_metadata_name(self, mock_tr, mock_pr, tmp_path):
+    def test_missing_metadata_name(self, _mock_tr, _mock_pr, tmp_path):
         import yaml as real_yaml
 
         contract = {"apiVersion": "0.5.7", "kind": "DC", "metadata": {}, "spec": {"inputs": []}}
@@ -282,7 +282,7 @@ class TestContractValidation:
 
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
-    def test_no_inputs_or_outputs(self, mock_tr, mock_pr, tmp_path):
+    def test_no_inputs_or_outputs(self, _mock_tr, _mock_pr, tmp_path):
         import yaml as real_yaml
 
         contract = {"apiVersion": "0.5.7", "kind": "DC", "metadata": {"name": "t"}, "spec": {}}
@@ -298,7 +298,7 @@ class TestContractValidation:
 class TestRunFullTest:
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
-    def test_template_not_found(self, mock_tr, mock_pr):
+    def test_template_not_found(self, mock_tr, _mock_pr):
         mock_tr.return_value.get.return_value = None
         suite = TemplateTestSuite("missing")
         result = suite.run_full_test({})
@@ -307,7 +307,7 @@ class TestRunFullTest:
 
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
-    def test_unexpected_exception(self, mock_tr, mock_pr):
+    def test_unexpected_exception(self, mock_tr, _mock_pr):
         mock_tr.return_value.get.side_effect = RuntimeError("crash")
         suite = TemplateTestSuite("bad")
         result = suite.run_full_test({})
@@ -322,7 +322,7 @@ class TestForgeTestRunner:
     @patch("fluid_build.forge.core.testing.cprint")
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
-    def test_run_all_empty(self, mock_tr, mock_pr, mock_cprint):
+    def test_run_all_empty(self, mock_tr, _mock_pr, _mock_cprint):
         mock_tr.return_value.list_available.return_value = []
         runner = ForgeTestRunner()
         results = runner.run_all_template_tests()
@@ -331,7 +331,7 @@ class TestForgeTestRunner:
     @patch("fluid_build.forge.core.testing.cprint")
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
-    def test_run_all_with_template(self, mock_tr, mock_pr, mock_cprint):
+    def test_run_all_with_template(self, mock_tr, _mock_pr, _mock_cprint):
         mock_tr.return_value.list_available.return_value = ["basic"]
         mock_tr.return_value.get.return_value = None  # triggers not found
         runner = ForgeTestRunner()
@@ -341,7 +341,7 @@ class TestForgeTestRunner:
 
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
-    def test_generate_report_all_pass(self, mock_tr, mock_pr):
+    def test_generate_report_all_pass(self, _mock_tr, _mock_pr):
         runner = ForgeTestRunner()
         results = {
             "tmpl1": TestResult(True, [], [], ["a.py"], 0.5),
@@ -353,7 +353,7 @@ class TestForgeTestRunner:
 
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
-    def test_generate_report_with_failures(self, mock_tr, mock_pr):
+    def test_generate_report_with_failures(self, _mock_tr, _mock_pr):
         runner = ForgeTestRunner()
         results = {
             "tmpl1": TestResult(False, ["err1"], ["warn1"], [], 1.0),
@@ -365,7 +365,7 @@ class TestForgeTestRunner:
 
     @patch("fluid_build.forge.core.testing.get_provider_registry")
     @patch("fluid_build.forge.core.testing.get_template_registry")
-    def test_generate_report_mixed(self, mock_tr, mock_pr):
+    def test_generate_report_mixed(self, _mock_tr, _mock_pr):
         runner = ForgeTestRunner()
         results = {
             "ok": TestResult(True, [], [], ["a"], 0.1),

@@ -37,7 +37,6 @@ from ._common import CLIError
 from ._logging import info
 from .security import (
     InputSanitizer,
-    ProcessManager,
     ProductionLogger,
     validate_input_file,
     validate_output_file,
@@ -105,8 +104,6 @@ def run(args, logger: logging.Logger) -> int:
         _print_feature_checks(feature_checks, getattr(args, "verbose", False))
         cprint()  # Spacing
 
-    # Run infrastructure diagnostics
-    process_manager = ProcessManager()
     script_path = Path("./scripts/diagnose.sh")
 
     # Validate script exists and is safe to execute
@@ -150,19 +147,14 @@ def run(args, logger: logging.Logger) -> int:
     env["FLUID_DIAG_OUT_DIR"] = str(out_dir.resolve())
 
     try:
-        # Execute with timeout and security constraints
-        def run_diagnostic():
-            return subprocess.run(
-                ["bash", str(validated_script)],
-                env=env,
-                check=True,
-                cwd=Path.cwd(),
-                capture_output=False,  # Allow real-time output
-                timeout=300,  # 5 minute timeout
-            )
-
-        # Run with process manager for timeout handling
-        process_manager.run_with_timeout(run_diagnostic, timeout=300)
+        subprocess.run(
+            ["bash", str(validated_script)],
+            env=env,
+            check=True,
+            cwd=Path.cwd(),
+            capture_output=False,
+            timeout=300,
+        )
 
         secure_logger.log_safe("info", "Diagnostic completed successfully", out_dir=str(out_dir))
         info(logger, "doctor_ok")

@@ -17,6 +17,7 @@
 Pytest configuration and shared fixtures for FLUID tests.
 """
 
+import argparse
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -32,6 +33,22 @@ def mock_logger():
     logger.error = Mock()
     logger.exception = Mock()
     return logger
+
+
+@pytest.fixture
+def make_cli_args():
+    """Factory fixture: build an argparse.Namespace with sensible defaults.
+
+    Usage::
+
+        def test_something(make_cli_args):
+            args = make_cli_args(contract="my.yaml", dry_run=True)
+    """
+
+    def _factory(**overrides):
+        return argparse.Namespace(**overrides)
+
+    return _factory
 
 
 @pytest.fixture

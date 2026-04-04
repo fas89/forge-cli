@@ -291,9 +291,8 @@ class TestRegisterCoreCommands:
             ):
                 register_core_commands(sp)
 
-        # Should have registered fallback parsers for stable commands
-        # The fact that it ran without error is the key assertion
-        assert True
+        # Fallback parsers should have been registered for stable commands
+        assert sp.choices, "expected at least one subparser registered"
 
     def test_register_core_commands_experimental_profile(self):
         from fluid_build.cli.bootstrap import register_core_commands
@@ -308,7 +307,7 @@ class TestRegisterCoreCommands:
             ):
                 register_core_commands(sp)
 
-        assert True
+        assert sp.choices, "expected at least one subparser registered"
 
     def test_register_core_commands_adds_validate_fallback(self):
         from fluid_build.cli import bootstrap as bootstrap_mod
@@ -328,7 +327,8 @@ class TestRegisterCoreCommands:
             with patch.object(bootstrap_mod, "importlib", fake_importlib):
                 register_core_commands(sp)
 
-        assert True
+        assert sp.choices, "expected at least one subparser registered"
+        assert "validate" in sp.choices, "expected validate fallback parser"
 
 
 # ── _try_register helper ──────────────────────────────────────────────

@@ -266,7 +266,7 @@ class TestApplyRegister:
 
 class TestActionsFromSource:
     @patch("fluid_build.cli.apply.load_contract_with_overlay")
-    def test_json_source(self, mock_load):
+    def test_json_source(self, _mock_load):
         from fluid_build.cli.apply import _actions_from_source
 
         with patch("fluid_build.cli.apply.read_json", return_value={"actions": [{"op": "test"}]}):
@@ -389,7 +389,7 @@ class TestApplyRunSimple:
     @patch("fluid_build.cli.apply._actions_from_source", return_value=[])
     @patch("fluid_build.cli.apply.build_provider")
     @patch("fluid_build.cli.apply.load_contract_with_overlay")
-    def test_run_no_actions(self, mock_load, mock_build, mock_actions):
+    def test_run_no_actions(self, mock_load, mock_build, _mock_actions):
         from fluid_build.cli.apply import run
 
         mock_load.return_value = {"name": "test", "version": "1.0"}
@@ -542,7 +542,7 @@ class TestApplyRunSimple:
         "fluid_build.cli.apply.load_contract_with_overlay",
         side_effect=FileNotFoundError("not found"),
     )
-    def test_run_contract_not_found(self, mock_load):
+    def test_run_contract_not_found(self, _mock_load):
         from fluid_build.cli.apply import run
 
         args = _make_simple_args()
@@ -556,7 +556,7 @@ class TestApplyRunComplex:
     @patch("fluid_build.cli.apply.FluidOrchestrationEngine")
     @patch("fluid_build.cli.apply.FluidPlanGenerator")
     @patch("fluid_build.cli.apply.load_contract_with_overlay")
-    def test_complex_dry_run(self, mock_load, mock_plangen, mock_engine_cls):
+    def test_complex_dry_run(self, mock_load, mock_plangen, _mock_engine_cls):
         from fluid_build.cli.apply import run
 
         mock_load.return_value = {
@@ -576,7 +576,7 @@ class TestApplyRunComplex:
     @patch("fluid_build.cli.apply.FluidOrchestrationEngine")
     @patch("fluid_build.cli.apply.FluidPlanGenerator")
     @patch("fluid_build.cli.apply.load_contract_with_overlay")
-    def test_complex_success(self, mock_load, mock_plangen, mock_engine_cls, mock_loop, mock_arun):
+    def test_complex_success(self, mock_load, mock_plangen, _mock_engine_cls, mock_loop, mock_arun):
         from fluid_build.cli.apply import run
 
         mock_load.return_value = {
@@ -601,7 +601,7 @@ class TestApplyRunComplex:
     @patch("fluid_build.cli.apply.FluidOrchestrationEngine")
     @patch("fluid_build.cli.apply.FluidPlanGenerator")
     @patch("fluid_build.cli.apply.load_contract_with_overlay")
-    def test_complex_failure(self, mock_load, mock_plangen, mock_engine_cls, mock_loop, mock_arun):
+    def test_complex_failure(self, mock_load, mock_plangen, _mock_engine_cls, mock_loop, mock_arun):
         from fluid_build.cli.apply import run
 
         mock_load.return_value = {"name": "test", "version": "1.0", "sources": [{"type": "kafka"}]}
@@ -627,7 +627,7 @@ class TestApplyRunComplex:
             assert result == 130
 
     @patch("fluid_build.cli.apply.load_contract_with_overlay")
-    def test_json_plan_input(self, mock_load):
+    def test_json_plan_input(self, _mock_load):
         from fluid_build.cli.apply import run
 
         args = _make_simple_args(contract="plan.json", dry_run=True)

@@ -180,7 +180,7 @@ class TestGoogleCloudExt2:
         assert _run(provider.logout()) is True
 
     @patch.object(GoogleCloudAuthProvider, "_run_command", side_effect=Exception("fail"))
-    def test_logout_swallows_inner_exceptions(self, mock_cmd):
+    def test_logout_swallows_inner_exceptions(self, _mock_cmd):
         # Inner try/except swallows _run_command exceptions, so logout returns True
         provider = GoogleCloudAuthProvider({}, LOG)
         assert _run(provider.logout()) is True
@@ -231,7 +231,7 @@ class TestAWSExt2:
         assert _run(provider.logout()) is True
 
     @patch.object(AWSAuthProvider, "_run_command", side_effect=Exception("fail"))
-    def test_logout_swallows_inner_exceptions(self, mock_cmd):
+    def test_logout_swallows_inner_exceptions(self, _mock_cmd):
         # Inner try/except swallows _run_command exceptions, so logout returns True
         provider = AWSAuthProvider({}, LOG)
         assert _run(provider.logout()) is True
@@ -291,7 +291,7 @@ class TestAzureExt2:
         assert _run(provider.logout()) is True
 
     @patch.object(AzureAuthProvider, "_run_command", side_effect=Exception("fail"))
-    def test_logout_failure(self, mock_cmd):
+    def test_logout_failure(self, _mock_cmd):
         provider = AzureAuthProvider({}, LOG)
         assert _run(provider.logout()) is False
 
@@ -427,13 +427,13 @@ class TestDatabricksExt2:
 
     @patch("os.path.exists", return_value=True)
     @patch("os.remove")
-    def test_logout_clears_config(self, mock_remove, mock_exists):
+    def test_logout_clears_config(self, mock_remove, _mock_exists):
         provider = DatabricksAuthProvider({}, LOG)
         assert _run(provider.logout()) is True
         mock_remove.assert_called_once()
 
     @patch("os.path.exists", return_value=False)
-    def test_logout_no_config(self, mock_exists):
+    def test_logout_no_config(self, _mock_exists):
         provider = DatabricksAuthProvider({}, LOG)
         assert _run(provider.logout()) is True
 

@@ -414,7 +414,7 @@ class TestWorkspaceCLI:
 
 class TestHandleFunctions:
     @patch("fluid_build.cli.workspace.WorkspaceManager")
-    def test_handle_init_success(self, mock_ws_cls):
+    def test_handle_init_success(self, _mock_ws_cls):
         from fluid_build.cli.workspace import handle_init_workspace
 
         mock_ws = MagicMock()
@@ -428,7 +428,7 @@ class TestHandleFunctions:
         assert result == 0
 
     @patch("fluid_build.cli.workspace.WorkspaceManager")
-    def test_handle_init_failure(self, mock_ws_cls):
+    def test_handle_init_failure(self, _mock_ws_cls):
         from fluid_build.cli.workspace import handle_init_workspace
 
         mock_ws = MagicMock()
