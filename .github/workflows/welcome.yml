@@ -17,7 +17,7 @@ jobs:
       - uses: actions/first-interaction@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          issue-message: |
+          issue_message: |
             Welcome to FLUID Forge! Thanks for opening your first issue.
 
             A maintainer will review this shortly. In the meantime:
@@ -26,7 +26,7 @@ jobs:
             - Join the [discussion board](https://github.com/Agentics-Rising/forge-cli/discussions) for general questions
 
             We appreciate your contribution!
-          pr-message: |
+          pr_message: |
             Welcome to FLUID Forge! Thanks for opening your first pull request.
 
             Before we review, please make sure:
