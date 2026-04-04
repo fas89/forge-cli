@@ -145,7 +145,7 @@ class ForgeEngine:
 
             # Set up initial configuration
             if target_dir:
-                self.project_config["target_dir"] = target_dir
+                self.project_config["target_dir"] = Path(target_dir)
             if template:
                 self.project_config["template"] = template
             if provider:
