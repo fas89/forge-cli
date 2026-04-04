@@ -20,7 +20,7 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, Optional
 
-from .config import get_connection_params, resolve_snowflake_settings
+from .config import SECRET_KEYS, get_connection_params, resolve_snowflake_settings
 
 
 def _normalize_auth_config(
@@ -97,6 +97,11 @@ def get_auth_report(
 
     readiness = _required_actions(config)
 
+    # Defensively strip any secret entries from `sources`. The resolver
+    # already filters these, but callers may pass a hand-built config dict
+    # directly as `account_or_config`.
+    sources = {k: v for k, v in (config.get("_sources") or {}).items() if k not in SECRET_KEYS}
+
     report = {
         "provider": "snowflake",
         "status": "success",
@@ -107,7 +112,7 @@ def get_auth_report(
         "role": config.get("role"),
         "user": config.get("user"),
         "authenticator": config.get("authenticator"),
-        "sources": config.get("_sources", {}),
+        "sources": sources,
         "environment_variables": {},
         "readiness": {
             "auth_ready": not readiness["auth_ready_missing"],

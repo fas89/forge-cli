@@ -160,3 +160,106 @@ def test_run_routes_snowflake_table_to_verify_function(tmp_path: Path):
 
     assert exit_code == 0
     verify_mock.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# SQL injection defense (PR follow-up to #44)
+# ---------------------------------------------------------------------------
+
+
+class _TrackingConnection:
+    """Mock connection that records every SQL statement it sees."""
+
+    statements: list = []
+
+    def __init__(self, **kwargs):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return None
+
+    def execute(self, sql, params=None):
+        type(self).statements.append(sql)
+        if "INFORMATION_SCHEMA.COLUMNS" in sql:
+            return [("ID", "NUMBER", "NO")]
+        if "COUNT(*)" in sql:
+            return [(1,)]
+        return []
+
+
+def test_verify_rejects_injection_in_database_identifier():
+    """A malicious database name must be rejected before any SQL runs."""
+    _TrackingConnection.statements = []
+    with patch(
+        "fluid_build.providers.snowflake.util.config.get_connection_params", return_value={}
+    ):
+        with patch(
+            "fluid_build.providers.snowflake.connection.SnowflakeConnection",
+            _TrackingConnection,
+        ):
+            result = verify_snowflake_table(
+                account="acme-account",
+                warehouse="TRANSFORM_WH",
+                database='FOO"; DROP TABLE users;--',
+                schema="CURATED",
+                table="CUSTOMERS",
+                expected_schema=[{"name": "ID", "type": "INTEGER"}],
+                user="svc_forge",
+                password="secret",
+            )
+
+    assert result["status"] == "error"
+    assert "Invalid SQL identifier" in result["error"]
+    # Critically: no SQL was ever issued.
+    assert _TrackingConnection.statements == []
+
+
+def test_verify_rejects_injection_in_schema_identifier():
+    _TrackingConnection.statements = []
+    with patch(
+        "fluid_build.providers.snowflake.util.config.get_connection_params", return_value={}
+    ):
+        with patch(
+            "fluid_build.providers.snowflake.connection.SnowflakeConnection",
+            _TrackingConnection,
+        ):
+            result = verify_snowflake_table(
+                account="acme-account",
+                warehouse="TRANSFORM_WH",
+                database="ANALYTICS",
+                schema="CURATED; DROP DATABASE PROD",
+                table="CUSTOMERS",
+                expected_schema=[{"name": "ID", "type": "INTEGER"}],
+                user="svc_forge",
+                password="secret",
+            )
+
+    assert result["status"] == "error"
+    assert _TrackingConnection.statements == []
+
+
+def test_verify_rejects_injection_in_table_identifier():
+    _TrackingConnection.statements = []
+    with patch(
+        "fluid_build.providers.snowflake.util.config.get_connection_params", return_value={}
+    ):
+        with patch(
+            "fluid_build.providers.snowflake.connection.SnowflakeConnection",
+            _TrackingConnection,
+        ):
+            result = verify_snowflake_table(
+                account="acme-account",
+                warehouse="TRANSFORM_WH",
+                database="ANALYTICS",
+                schema="CURATED",
+                table='CUSTOMERS" UNION SELECT * FROM SECRETS --',
+                expected_schema=[{"name": "ID", "type": "INTEGER"}],
+                user="svc_forge",
+                password="secret",
+            )
+
+    assert result["status"] == "error"
+    assert _TrackingConnection.statements == []

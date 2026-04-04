@@ -31,25 +31,11 @@ Enhanced with governance:
 
 from __future__ import annotations
 
-import os
-import re
 from collections.abc import Mapping
 from typing import Any, Dict, List, Optional
 
+from ..util.config import resolve_env_templates as _resolve_env_templates
 from ..util.metadata import extract_snowflake_tags
-
-_ENV_TEMPLATE_RE = re.compile(r"\{\{\s*env\.(\S+?)\s*\}\}")
-
-
-def _resolve_env_templates(value: Any) -> Any:
-    if not isinstance(value, str) or "{{" not in value:
-        return value
-
-    def _replace(match: re.Match[str]) -> str:
-        env_name = match.group(1).strip()
-        return os.environ.get(env_name, match.group(0))
-
-    return _ENV_TEMPLATE_RE.sub(_replace, value).strip()
 
 
 def _first_contract_value(contract: Mapping[str, Any], key: str) -> Optional[str]:

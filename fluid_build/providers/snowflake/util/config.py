@@ -31,17 +31,23 @@ DEFAULT_SCHEMA = "PUBLIC"
 _ENV_TEMPLATE_RE = re.compile(r"\{\{\s*env\.(\S+?)\s*\}\}")
 _ACCOUNT_HOST_RE = re.compile(r"^https?://", re.IGNORECASE)
 
+# Keys that carry secret material. These MUST never appear in the `_sources`
+# map returned to callers, nor be echoed into diagnostic reports.
+SECRET_KEYS = frozenset({"password", "private_key_passphrase", "oauth_token"})
+
 
 def _is_present(value: Any) -> bool:
     return value is not None and value != ""
 
 
-def _resolve_env_templates(value: Any) -> Any:
+def resolve_env_templates(value: Any) -> Any:
     """
     Resolve ``{{ env.VAR }}`` placeholders from environment variables.
 
     Unresolved placeholders are left intact so callers can decide whether to
-    error, warn, or fall back.
+    error, warn, or fall back. This is the single source of truth for env
+    template resolution across the Snowflake provider and CLI — other modules
+    should import this rather than redefining the regex.
     """
     if not isinstance(value, str) or "{{" not in value:
         return value
@@ -51,6 +57,10 @@ def _resolve_env_templates(value: Any) -> Any:
         return os.environ.get(var_name, match.group(0))
 
     return _ENV_TEMPLATE_RE.sub(_replace, value).strip()
+
+
+# Backwards-compatible private alias for existing internal call sites.
+_resolve_env_templates = resolve_env_templates
 
 
 def _normalize_account_identifier(account: Optional[str]) -> Optional[str]:
@@ -104,7 +114,9 @@ def _iter_snowflake_bindings(
         binding = expose.get("binding", {})
         if isinstance(binding, Mapping) and binding.get("platform") == "snowflake":
             legacy_location = expose.get("location", {})
-            location = binding.get("location", legacy_location or {})
+            # Fall back to legacy when binding.location is missing OR empty;
+            # `binding.get("location", ...)` alone doesn't handle empty dicts.
+            location = binding.get("location") or legacy_location or {}
             bindings.append((f"exposes[{index}].binding", dict(binding), dict(location or {})))
 
     return bindings
@@ -285,7 +297,11 @@ def resolve_snowflake_settings(
     if _is_present(resolved.get("account")):
         resolved["account"] = _normalize_account_identifier(resolved["account"])
 
-    resolved["_sources"] = sources
+    # Never echo the provenance of secret values — avoids leaking, for
+    # example, that a passphrase came from `env:SNOWFLAKE_PRIVATE_KEY_PASSPHRASE`
+    # into logs or auth reports. The raw secret values are still carried
+    # through `resolved` for downstream connection building.
+    resolved["_sources"] = {k: v for k, v in sources.items() if k not in SECRET_KEYS}
     return resolved
 
 
@@ -389,20 +405,61 @@ def get_connection_params(
     if resolved.get("role"):
         params["role"] = resolved["role"]
 
-    if resolved.get("password"):
-        params["password"] = resolved["password"]
-    elif resolved.get("private_key_path"):
+    # Authentication preference (highest to lowest trust for automation):
+    #   1. Key-pair  — the standard for service accounts at regulated shops
+    #   2. OAuth     — federated identity, short-lived tokens
+    #   3. Explicit authenticator (e.g. SSO/externalbrowser, oauth, okta)
+    #   4. Password  — discouraged for automation; warn when used non-interactively
+    #   5. externalbrowser default — only when stdin is a TTY
+    if resolved.get("private_key_path"):
         params["private_key_path"] = resolved["private_key_path"]
         if resolved.get("private_key_passphrase"):
             params["private_key_passphrase"] = resolved["private_key_passphrase"]
     elif resolved.get("oauth_token"):
         params["oauth_token"] = resolved["oauth_token"]
+        params["authenticator"] = "oauth"
     elif resolved.get("authenticator"):
         params["authenticator"] = resolved["authenticator"]
+        if resolved.get("password"):
+            params["password"] = resolved["password"]
+    elif resolved.get("password"):
+        params["password"] = resolved["password"]
+        if not os.isatty(0):
+            logger.warning(
+                "Snowflake password auth used in a non-interactive session. "
+                "Prefer key-pair or OAuth for automation."
+            )
     else:
+        # No explicit credential material — only acceptable when a human is
+        # at the terminal to complete the SSO browser flow. In CI or any
+        # non-TTY context this should fail fast rather than hang.
+        if not os.isatty(0):
+            raise ValueError(
+                "No Snowflake credentials found and stdin is not a TTY. "
+                "Set SNOWFLAKE_PRIVATE_KEY_PATH, SNOWFLAKE_OAUTH_TOKEN, "
+                "SNOWFLAKE_PASSWORD, or SNOWFLAKE_AUTHENTICATOR, or run "
+                "interactively to use the browser SSO flow."
+            )
         params["authenticator"] = "externalbrowser"
 
-    for key in ["application", "insecure_mode", "ocsp_response_cache_filename", "session_params"]:
+    # Attach a QUERY_TAG so every statement issued on this session is
+    # attributable in Snowflake's QUERY_HISTORY view. This is the single
+    # highest-leverage change for cost/ops observability — without it,
+    # platform teams cannot attribute warehouse spend back to contracts.
+    query_tag_parts = ["forge"]
+    if contract is not None and isinstance(contract, Mapping):
+        contract_id = contract.get("id") or contract.get("metadata", {}).get("name")
+        if contract_id:
+            query_tag_parts.append(str(contract_id))
+    if kwargs.get("environment"):
+        query_tag_parts.append(str(kwargs["environment"]))
+    query_tag = ":".join(query_tag_parts)
+
+    session_params = dict(kwargs.get("session_params") or {})
+    session_params.setdefault("QUERY_TAG", query_tag)
+    params["session_params"] = session_params
+
+    for key in ["application", "insecure_mode", "ocsp_response_cache_filename"]:
         if key in kwargs and kwargs[key] is not None:
             params[key] = kwargs[key]
 

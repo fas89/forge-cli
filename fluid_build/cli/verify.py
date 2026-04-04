@@ -29,21 +29,23 @@ Provides severity-based drift assessment with clear remediation guidance.
 import argparse
 import json
 import logging
-import os
-import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fluid_build.cli.console import cprint, success, warning
 from fluid_build.cli.console import error as console_error
+from fluid_build.providers._sql_safety import validate_ident
+from fluid_build.providers.snowflake.util.config import resolve_env_templates
 
 from ._common import CLIError, load_contract_with_overlay
 
 LOG = logging.getLogger("fluid.cli.verify")
 
 COMMAND = "verify"
-_ENV_TEMPLATE_RE = re.compile(r"\{\{\s*env\.(\S+?)\s*\}\}")
+
+# Backwards-compatible alias for any legacy callers in this module.
+_resolve_env_templates = resolve_env_templates
 
 _SNOWFLAKE_TYPE_FAMILIES = {
     "STRING": {"VARCHAR", "CHAR", "CHARACTER", "TEXT", "STRING"},
@@ -405,15 +407,83 @@ def _normalize_snowflake_type(value: str) -> str:
     return base
 
 
-def _resolve_env_templates(value: Optional[str]) -> Optional[str]:
-    if not isinstance(value, str) or "{{" not in value:
-        return value
+def _quote_qualified_snowflake_name(database: str, schema: str, table: str) -> str:
+    """
+    Build a fully-qualified, quoted Snowflake object name from validated parts.
 
-    def _replace(match: re.Match[str]) -> str:
-        env_name = match.group(1).strip()
-        return os.environ.get(env_name, match.group(0))
+    Identifier positions in SQL cannot be bound with parameters, so we must
+    validate each component before interpolation. `validate_ident` restricts
+    inputs to ``[A-Za-z_][A-Za-z0-9_]*``, which eliminates every character
+    that could break out of a double-quoted identifier.
+    """
+    return f'"{validate_ident(database)}"."{validate_ident(schema)}"."{validate_ident(table)}"'
 
-    return _ENV_TEMPLATE_RE.sub(_replace, value).strip()
+
+def _fetch_snowflake_columns(conn, database: str, schema: str, table: str) -> Dict[str, Dict[str, Any]]:
+    """Return ``{col_name: {type, mode}}`` for the live table, using bind params for values."""
+    # `database` is validated by the caller, so interpolating it into the FROM
+    # clause is safe. `schema` and `table` flow through as bind parameters.
+    rows = conn.execute(
+        f'SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE '
+        f'FROM "{validate_ident(database)}".INFORMATION_SCHEMA.COLUMNS '
+        "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s "
+        "ORDER BY ORDINAL_POSITION",
+        [schema, table],
+    )
+    if not rows:
+        return {}
+    return {
+        row[0]: {
+            "type": _normalize_snowflake_type(row[1]),
+            "mode": "required" if str(row[2]).upper() == "NO" else "nullable",
+        }
+        for row in rows
+    }
+
+
+def _expected_snowflake_fields(expected_schema: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    expected_fields: Dict[str, Dict[str, Any]] = {}
+    for field in expected_schema:
+        field_name = field.get("name")
+        if not field_name:
+            continue
+        expected_fields[field_name] = {
+            "type": _normalize_snowflake_type(field.get("type", "STRING")),
+            "mode": (
+                "required"
+                if field.get("required", False) or field.get("nullable") is False
+                else "nullable"
+            ),
+        }
+    return expected_fields
+
+
+def _compare_snowflake_shapes(
+    actual: Dict[str, Dict[str, Any]],
+    expected: Dict[str, Dict[str, Any]],
+) -> Dict[str, List[Any]]:
+    matching, missing, extra, type_mismatches, mode_mismatches = [], [], [], [], []
+    for name, props in expected.items():
+        if name in actual:
+            matching.append(name)
+        else:
+            missing.append({"field": name, "expected": props})
+    for name, props in actual.items():
+        if name not in expected:
+            extra.append({"field": name, "actual": props})
+    for name in matching:
+        exp, act = expected[name], actual[name]
+        if act["type"] != exp["type"]:
+            type_mismatches.append({"field": name, "expected": exp["type"], "actual": act["type"]})
+        if act["mode"] != exp["mode"]:
+            mode_mismatches.append({"field": name, "expected": exp["mode"], "actual": act["mode"]})
+    return {
+        "matching": matching,
+        "missing": missing,
+        "extra": extra,
+        "type_mismatches": type_mismatches,
+        "mode_mismatches": mode_mismatches,
+    }
 
 
 def verify_snowflake_table(
@@ -432,7 +502,21 @@ def verify_snowflake_table(
     private_key_passphrase: Optional[str] = None,
     oauth_token: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Verify Snowflake table shape and constraints using the provider connection path."""
+    """Verify a Snowflake table's shape and constraints.
+
+    All SQL identifiers are validated via ``validate_ident`` before any
+    statement is issued, so a malicious database/schema/table value (for
+    example from an expanded ``{{ env.VAR }}`` template) is rejected before
+    it reaches Snowflake.
+    """
+    # Validate identifiers up front so an injection attempt fails fast,
+    # before we open a connection or spend a warehouse credit.
+    try:
+        qualified = _quote_qualified_snowflake_name(database, schema, table)
+    except ValueError as exc:
+        LOG.error("Rejected invalid Snowflake identifier for verify: %s", exc)
+        return {"status": "error", "error": str(exc), "exists": False}
+
     try:
         from fluid_build.providers.snowflake.connection import SnowflakeConnection
         from fluid_build.providers.snowflake.util.config import get_connection_params
@@ -452,83 +536,24 @@ def verify_snowflake_table(
         )
 
         with SnowflakeConnection(**params) as conn:
-            rows = conn.execute(
-                f"SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE "
-                f"FROM {database}.INFORMATION_SCHEMA.COLUMNS "
-                "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s "
-                "ORDER BY ORDINAL_POSITION",
-                [schema, table],
-            )
-            if not rows:
+            actual_fields = _fetch_snowflake_columns(conn, database, schema, table)
+            if not actual_fields:
                 return {
                     "status": "error",
-                    "error": f'Table not found: "{database}"."{schema}"."{table}"',
+                    "error": f"Table not found: {qualified}",
                     "exists": False,
                 }
 
-            actual_fields = {
-                row[0]: {
-                    "type": _normalize_snowflake_type(row[1]),
-                    "mode": "required" if str(row[2]).upper() == "NO" else "nullable",
-                }
-                for row in rows
-            }
+            expected_fields = _expected_snowflake_fields(expected_schema)
+            diff = _compare_snowflake_shapes(actual_fields, expected_fields)
 
-            expected_fields = {}
-            for field in expected_schema:
-                field_name = field.get("name")
-                if not field_name:
-                    continue
-                expected_fields[field_name] = {
-                    "type": _normalize_snowflake_type(field.get("type", "STRING")),
-                    "mode": (
-                        "required"
-                        if field.get("required", False) or field.get("nullable") is False
-                        else "nullable"
-                    ),
-                }
-
-            matching_fields = []
-            missing_fields = []
-            extra_fields = []
-
-            for field_name in expected_fields:
-                if field_name in actual_fields:
-                    matching_fields.append(field_name)
-                else:
-                    missing_fields.append(
-                        {"field": field_name, "expected": expected_fields[field_name]}
-                    )
-
-            for field_name in actual_fields:
-                if field_name not in expected_fields:
-                    extra_fields.append({"field": field_name, "actual": actual_fields[field_name]})
-
-            type_mismatches = []
-            mode_mismatches = []
-            for field_name in matching_fields:
-                expected_props = expected_fields[field_name]
-                actual_props = actual_fields[field_name]
-                if actual_props["type"] != expected_props["type"]:
-                    type_mismatches.append(
-                        {
-                            "field": field_name,
-                            "expected": expected_props["type"],
-                            "actual": actual_props["type"],
-                        }
-                    )
-                if actual_props["mode"] != expected_props["mode"]:
-                    mode_mismatches.append(
-                        {
-                            "field": field_name,
-                            "expected": expected_props["mode"],
-                            "actual": actual_props["mode"],
-                        }
-                    )
-
-            count_rows = conn.execute(f'SELECT COUNT(*) FROM "{database}"."{schema}"."{table}"')
+            count_rows = conn.execute(f"SELECT COUNT(*) FROM {qualified}")
             num_rows = count_rows[0][0] if count_rows else 0
 
+        missing_fields = diff["missing"]
+        extra_fields = diff["extra"]
+        type_mismatches = diff["type_mismatches"]
+        mode_mismatches = diff["mode_mismatches"]
         severity = assess_drift_severity(
             missing_fields=missing_fields,
             extra_fields=extra_fields,
@@ -541,12 +566,12 @@ def verify_snowflake_table(
         return {
             "status": "mismatch" if has_issues else "match",
             "exists": True,
-            "table_id": f'"{database}"."{schema}"."{table}"',
+            "table_id": qualified,
             "severity": severity,
             "dimensions": {
                 "structure": {
                     "status": "pass" if not (missing_fields or extra_fields) else "fail",
-                    "matching_fields": matching_fields,
+                    "matching_fields": diff["matching"],
                     "missing_fields": missing_fields,
                     "extra_fields": extra_fields,
                     "total_expected": len(expected_fields),
