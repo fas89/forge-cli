@@ -37,6 +37,22 @@ class TestMaskingPolicyTemplates:
         tpl = MaskingPolicyTemplates.hash_template("VARCHAR", "MD5")
         assert "MD5" in tpl
 
+    def test_hash_algorithm_case_insensitive(self):
+        tpl = MaskingPolicyTemplates.hash_template("VARCHAR", "sha1")
+        assert "SHA1(val)" in tpl
+
+    def test_hash_algorithm_rejects_unknown(self):
+        with pytest.raises(ValueError, match="Invalid hash algorithm"):
+            MaskingPolicyTemplates.hash_template("VARCHAR", "BLAKE3")
+
+    def test_hash_algorithm_rejects_injection(self):
+        with pytest.raises(ValueError, match="Invalid hash algorithm"):
+            MaskingPolicyTemplates.hash_template("VARCHAR", "SHA256; DROP TABLE users; --")
+
+    def test_hash_algorithm_rejects_non_string(self):
+        with pytest.raises(ValueError, match="Invalid hash algorithm"):
+            MaskingPolicyTemplates.hash_template("VARCHAR", None)
+
     def test_hash_timestamp(self):
         tpl = MaskingPolicyTemplates.hash_template("TIMESTAMP_NTZ")
         assert "1970-01-01" in tpl

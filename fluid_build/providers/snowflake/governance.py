@@ -56,23 +56,37 @@ def _validated_ident_list(values: Any) -> List[str]:
 class MaskingPolicyTemplates:
     """Built-in masking policy templates for common use cases"""
 
+    #: Allowlist of hash functions that may be interpolated into masking policy DDL.
+    #: Only single-argument Snowflake hash functions are permitted to keep the
+    #: generated SQL well-formed and to prevent function-name injection.
+    ALLOWED_HASH_ALGORITHMS = frozenset({"SHA256", "SHA1", "MD5", "HASH"})
+
     @staticmethod
     def hash_template(column_type: str, algorithm: str = "SHA256") -> str:
         """Hash-based masking - shows hash for non-privileged users"""
         if column_type in ["TIMESTAMP_NTZ", "TIMESTAMP_LTZ", "TIMESTAMP_TZ", "DATE"]:
             return """
                 CASE
-                    WHEN CURRENT_ROLE() IN ('SYSADMIN', 'DATA_ENGINEER', 'ACCOUNTADMIN') 
+                    WHEN CURRENT_ROLE() IN ('SYSADMIN', 'DATA_ENGINEER', 'ACCOUNTADMIN')
                         THEN val
                     ELSE TO_TIMESTAMP_NTZ('1970-01-01 00:00:00')
                 END
             """
         else:  # STRING or other types
+            if (
+                not isinstance(algorithm, str)
+                or algorithm.upper() not in MaskingPolicyTemplates.ALLOWED_HASH_ALGORITHMS
+            ):
+                raise ValueError(
+                    f"Invalid hash algorithm: {algorithm!r}. "
+                    f"Allowed values: {sorted(MaskingPolicyTemplates.ALLOWED_HASH_ALGORITHMS)}"
+                )
+            safe_algorithm = algorithm.upper()
             return f"""
                 CASE
-                    WHEN CURRENT_ROLE() IN ('SYSADMIN', 'DATA_ENGINEER', 'ACCOUNTADMIN') 
+                    WHEN CURRENT_ROLE() IN ('SYSADMIN', 'DATA_ENGINEER', 'ACCOUNTADMIN')
                         THEN val
-                    ELSE {algorithm}(val)
+                    ELSE {safe_algorithm}(val)
                 END
             """
 
