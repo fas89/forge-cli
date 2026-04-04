@@ -283,6 +283,22 @@ class TestRunSimpleMode:
                         result = run(args, logger)
         assert result == 0
 
+    def test_run_with_invalid_config_override_raises_cli_error(self, tmp_path):
+        contract_file = tmp_path / "contract.fluid.yaml"
+        contract_file.write_text("id: test\nname: Test\n")
+        args = _make_args(contract=str(contract_file), yes=True, config_override="{invalid-json")
+        contract = self._minimal_contract()
+
+        with patch("fluid_build.cli.apply.load_contract_with_overlay", return_value=contract):
+            with patch("fluid_build.cli.apply.build_provider") as mock_build_provider:
+                with pytest.raises(CLIError) as excinfo:
+                    run(args, logger)
+
+        assert excinfo.value.exit_code == 2
+        assert excinfo.value.event == "invalid_config_override"
+        assert excinfo.value.message == "Invalid --config-override JSON"
+        mock_build_provider.assert_not_called()
+
     def test_run_with_gcp_provider_detection(self, tmp_path):
         contract_file = tmp_path / "contract.fluid.yaml"
         contract_file.write_text("id: test\n")

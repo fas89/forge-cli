@@ -14,6 +14,7 @@
 
 """Tests for fluid_build.tools (visualizer, diff, diagnostics)."""
 
+import io
 import json
 from unittest.mock import MagicMock, patch
 
@@ -96,6 +97,22 @@ class TestDiff:
 
         with pytest.raises(FileNotFoundError):
             plan_diff(str(tmp_path / "missing.json"), str(tmp_path / "also_missing.json"))
+
+    def test_plan_diff_closes_opened_files(self):
+        from fluid_build.tools.diff import plan_diff
+
+        opened_files = [
+            io.StringIO(json.dumps({"actions": [{"op": "create"}]})),
+            io.StringIO(json.dumps({"actions": [{"op": "delete"}]})),
+        ]
+
+        with patch("builtins.open", side_effect=opened_files):
+            result = plan_diff("plan-a.json", "plan-b.json")
+
+        assert "create" in result
+        assert "delete" in result
+        assert opened_files[0].closed is True
+        assert opened_files[1].closed is True
 
 
 class TestDiagnostics:

@@ -16,6 +16,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from fluid_build.cli.forge import (
     BlueprintNotFoundError,
     ContextValidationError,
@@ -37,8 +39,8 @@ class TestForgeExceptions:
         # so we test the attributes that are set correctly.
         try:
             TemplateNotFoundError("foo", ["bar", "baz"])
-        except TypeError:
-            pass  # Known: CLIError signature mismatch
+        except TypeError as exc:
+            pytest.skip(f"CLIError signature mismatch: {exc}")
         # At minimum, the class exists and is a ForgeError subclass
         assert issubclass(TemplateNotFoundError, ForgeError)
 

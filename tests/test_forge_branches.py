@@ -26,6 +26,10 @@ import pytest
 # ---- Custom exceptions ----
 
 
+def _skip_clierror_signature_mismatch(exc: TypeError) -> None:
+    pytest.skip(f"CLIError signature mismatch: {exc}")
+
+
 class TestForgeExceptions:
     def test_forge_error(self):
         from fluid_build.cli.forge import ForgeError
@@ -39,8 +43,8 @@ class TestForgeExceptions:
         try:
             err = TemplateNotFoundError("missing-tmpl", ["starter", "etl"])
             assert "missing-tmpl" in str(err)
-        except TypeError:
-            pass  # CLIError signature mismatch
+        except TypeError as exc:
+            _skip_clierror_signature_mismatch(exc)
 
     def test_blueprint_not_found(self):
         from fluid_build.cli.forge import BlueprintNotFoundError
@@ -48,8 +52,8 @@ class TestForgeExceptions:
         try:
             err = BlueprintNotFoundError("bad-bp", ["quickstart", "enterprise"])
             assert "bad-bp" in str(err)
-        except TypeError:
-            pass
+        except TypeError as exc:
+            _skip_clierror_signature_mismatch(exc)
 
     def test_invalid_project_name(self):
         from fluid_build.cli.forge import InvalidProjectNameError
@@ -57,8 +61,8 @@ class TestForgeExceptions:
         try:
             err = InvalidProjectNameError("a b c", "contains spaces")
             assert "a b c" in str(err)
-        except TypeError:
-            pass
+        except TypeError as exc:
+            _skip_clierror_signature_mismatch(exc)
 
     def test_project_generation_error(self):
         from fluid_build.cli.forge import ProjectGenerationError

@@ -454,6 +454,37 @@ class TestSchemaCache:
         versions = cache.list_cached_versions()
         assert "0.5.7" in versions
 
+    def test_save_cache_index_logs_debug_when_write_fails(self, tmp_path, caplog):
+        cache = SchemaCache(cache_dir=Path(tmp_path))
+
+        with patch("builtins.open", side_effect=OSError("disk full")):
+            with caplog.at_level(logging.DEBUG, logger="fluid_build.schema_manager"):
+                cache._save_cache_index()
+
+        assert "schema_cache_index_write_failed" in caplog.text
+
+    def test_cache_schema_logs_debug_when_write_fails(self, tmp_path, caplog):
+        cache = SchemaCache(cache_dir=Path(tmp_path))
+        version = SchemaVersion.parse("0.5.7")
+
+        with patch("builtins.open", side_effect=OSError("read only")):
+            with caplog.at_level(logging.DEBUG, logger="fluid_build.schema_manager"):
+                cache.cache_schema(version, {"type": "object"})
+
+        assert "schema_cache_write_failed" in caplog.text
+
+    def test_clear_cache_logs_debug_when_remove_fails(self, tmp_path, caplog):
+        cache = SchemaCache(cache_dir=Path(tmp_path))
+        version = SchemaVersion.parse("0.5.7")
+        cache.cache_schema(version, {"type": "object"})
+
+        with patch("pathlib.Path.unlink", side_effect=OSError("busy")):
+            with caplog.at_level(logging.DEBUG, logger="fluid_build.schema_manager"):
+                removed = cache.clear_cache()
+
+        assert removed == 0
+        assert "schema_cache_remove_failed" in caplog.text
+
 
 # ── create_schema_manager convenience function ────────────────────────
 
