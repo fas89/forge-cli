@@ -190,13 +190,14 @@ class GovernanceValidator:
         """Validate column descriptions - returns (applied, total)"""
         try:
             self.cursor.execute(
-                f"""
+                """
                 SELECT COUNT(*) as total,
                        SUM(CASE WHEN COMMENT IS NOT NULL AND COMMENT != '' THEN 1 ELSE 0 END) as with_desc
                 FROM INFORMATION_SCHEMA.COLUMNS
-                WHERE TABLE_SCHEMA = '{self.schema}'
-                  AND TABLE_NAME = '{self.table}'
-            """
+                WHERE TABLE_SCHEMA = %s
+                  AND TABLE_NAME = %s
+            """,
+                (self.schema, self.table),
             )
             result = self.cursor.fetchone()
             if result:
@@ -251,15 +252,16 @@ class GovernanceValidator:
         """Get masking policies on columns"""
         try:
             self.cursor.execute(
-                f"""
+                """
                 SELECT COLUMN_NAME, POLICY_NAME
                 FROM INFORMATION_SCHEMA.POLICY_REFERENCES
-                WHERE POLICY_DB = '{self.database}'
-                  AND REF_DATABASE_NAME = '{self.database}'
-                  AND REF_SCHEMA_NAME = '{self.schema}'
-                  AND REF_ENTITY_NAME = '{self.table}'
+                WHERE POLICY_DB = %s
+                  AND REF_DATABASE_NAME = %s
+                  AND REF_SCHEMA_NAME = %s
+                  AND REF_ENTITY_NAME = %s
                   AND POLICY_KIND = 'MASKING_POLICY'
-            """
+            """,
+                (self.database, self.database, self.schema, self.table),
             )
             return [{"column": row[0], "policy": row[1]} for row in self.cursor.fetchall()]
         except Exception as e:
@@ -276,7 +278,10 @@ class GovernanceValidator:
         """Get table properties (clustering, retention, etc.)"""
         try:
             self.cursor.execute(
-                f"SHOW TABLES LIKE '{self.table}' IN {_qualified_name(self.database, self.schema)}"
+                "SHOW TABLES LIKE '{}' IN {}".format(
+                    self.table.replace("_", "\\_"),
+                    _qualified_name(self.database, self.schema),
+                )
             )
             result = self.cursor.fetchone()
             if result:
@@ -408,7 +413,9 @@ class UnifiedGovernanceApplicator:
         # Create schema
         if not self.dry_run:
             try:
-                self.cursor.execute(f"CREATE SCHEMA IF NOT EXISTS {database}.{schema}")
+                self.cursor.execute(
+                    f"CREATE SCHEMA IF NOT EXISTS {_qualified_name(database, schema)}"
+                )
                 cprint(f"   ✅ Schema: {database}.{schema}")
             except Exception:
                 raise SnowflakeGovernanceError(
@@ -680,13 +687,14 @@ class UnifiedGovernanceApplicator:
         try:
             parts = full_table.split(".")
             self.cursor.execute(
-                f"""
-                SELECT DATA_TYPE 
+                """
+                SELECT DATA_TYPE
                 FROM INFORMATION_SCHEMA.COLUMNS
-                WHERE TABLE_SCHEMA = '{parts[1]}'
-                  AND TABLE_NAME = '{parts[2]}'
-                  AND COLUMN_NAME = '{validate_ident(column_name)}'
-            """
+                WHERE TABLE_SCHEMA = %s
+                  AND TABLE_NAME = %s
+                  AND COLUMN_NAME = %s
+            """,
+                (validate_ident(parts[1]), validate_ident(parts[2]), validate_ident(column_name)),
             )
             result = self.cursor.fetchone()
             return result[0] if result else "VARCHAR"

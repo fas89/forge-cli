@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+from fluid_build.providers._sql_safety import validate_ident
 from fluid_build.providers.local.local import (
     RESERVED_LOG_KEYS,
     _ext,
@@ -25,7 +26,6 @@ from fluid_build.providers.local.local import (
     _has_glob,
     _mkdir,
     _safe_extra,
-    _validate_ident,
 )
 
 
@@ -49,19 +49,19 @@ class TestSafeExtra:
 
 class TestValidateIdent:
     def test_valid_identifiers(self):
-        assert _validate_ident("my_table") == "my_table"
-        assert _validate_ident("_private") == "_private"
-        assert _validate_ident("Table123") == "Table123"
+        assert validate_ident("my_table") == "my_table"
+        assert validate_ident("_private") == "_private"
+        assert validate_ident("Table123") == "Table123"
 
     def test_invalid_identifiers(self):
         with pytest.raises(ValueError, match="Invalid SQL identifier"):
-            _validate_ident("123start")
+            validate_ident("123start")
         with pytest.raises(ValueError, match="Invalid SQL identifier"):
-            _validate_ident("has space")
+            validate_ident("has space")
         with pytest.raises(ValueError, match="Invalid SQL identifier"):
-            _validate_ident("drop;table")
+            validate_ident("drop;table")
         with pytest.raises(ValueError, match="Invalid SQL identifier"):
-            _validate_ident("")
+            validate_ident("")
 
 
 class TestExt:

@@ -28,6 +28,7 @@ try:
 except ImportError:
     HAS_SNOWFLAKE = False
 
+from fluid_build.providers._sql_safety import validate_ident
 from fluid_build.providers.snowflake.connection import SnowflakeConnection
 from fluid_build.providers.snowflake.governance import UnifiedGovernanceApplicator
 from fluid_build.providers.snowflake.types import ProviderOptions
@@ -159,4 +160,6 @@ def test_snowflake_governance_live_smoke():
                 assert invalid_cursor.execute_calls == 0
         finally:
             with conn._conn.cursor() as cleanup_cursor:
-                cleanup_cursor.execute(f"DROP SCHEMA IF EXISTS {database}.{schema} CASCADE")
+                cleanup_cursor.execute(
+                    f"DROP SCHEMA IF EXISTS {validate_ident(database)}.{validate_ident(schema)} CASCADE"
+                )
