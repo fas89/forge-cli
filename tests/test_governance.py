@@ -14,8 +14,9 @@
 
 """Tests for providers/snowflake/governance.py — masking templates, errors, validator, applicator."""
 
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
 
 from fluid_build.providers.snowflake.governance import (
     GovernanceValidator,

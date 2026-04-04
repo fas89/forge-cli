@@ -37,8 +37,8 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from fluid_build.providers.base import ApplyResult, BaseProvider, ProviderMetadata
 from fluid_build.providers._sql_safety import validate_ident
+from fluid_build.providers.base import ApplyResult, BaseProvider, ProviderMetadata
 
 from .util.logging import (
     duration_ms,
