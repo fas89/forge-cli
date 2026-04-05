@@ -98,7 +98,7 @@ def _first_present(values: list[tuple[Any, str]]) -> tuple[Any, Optional[str]]:
 
 
 def _iter_snowflake_bindings(
-    contract: Mapping[str, Any]
+    contract: Mapping[str, Any],
 ) -> list[tuple[str, Dict[str, Any], Dict[str, Any]]]:
     bindings: list[tuple[str, Dict[str, Any], Dict[str, Any]]] = []
 
@@ -123,7 +123,7 @@ def _iter_snowflake_bindings(
 
 
 def _extract_contract_settings(
-    contract: Optional[Mapping[str, Any]]
+    contract: Optional[Mapping[str, Any]],
 ) -> tuple[Dict[str, Any], Dict[str, str]]:
     if not contract:
         return {}, {}
