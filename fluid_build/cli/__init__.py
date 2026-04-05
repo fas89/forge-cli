@@ -196,6 +196,32 @@ def main(argv: Optional[List[str]] = None) -> int:
         if argv is None:
             argv = sys.argv[1:]
 
+        # UX overhaul (worktree A: repl-full): if the user just runs `fluid`
+        # on a TTY with no arguments, drop them into the persistent REPL
+        # instead of printing the wall-of-commands help. Explicit `-h`,
+        # `--help`, or `help` still gets the traditional help page.
+        if not argv and sys.stdin.isatty() and sys.stdout.isatty():
+            try:
+                from .forge_repl import run as _run_repl
+
+                return _run_repl()
+            except Exception as _repl_exc:  # noqa: BLE001
+                # Fall through to legacy help on any REPL init failure so
+                # users are never left stuck.
+                LOG.debug("forge REPL failed to launch: %s", _repl_exc)
+
+        # Progressive-disclosure help (worktree A): `fluid help` shows the
+        # 6 core commands + a pointer; `fluid help all` shows the full list;
+        # `fluid help <topic>` shows a topic deep-dive.
+        if argv and argv[0] == "help":
+            try:
+                from .help_v2 import print_help_v2
+
+                topic = argv[1] if len(argv) > 1 else None
+                return print_help_v2(parser, topic)
+            except Exception as _h_exc:  # noqa: BLE001
+                LOG.debug("help_v2 failed, falling back: %s", _h_exc)
+
         if not argv or argv[0] in ("-h", "--help", "help"):
             if HELP_RICH_AVAILABLE:
                 # First-run? Show compact onboarding instead of the full wall of commands
