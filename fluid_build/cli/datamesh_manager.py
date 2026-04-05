@@ -185,6 +185,15 @@ def _validate_fluid_contract(
 ) -> int:
     """Validate an already-loaded FLUID contract on the publish path.
 
+    **Validation target is the contract's own declared ``fluidVersion``**,
+    not a hardcoded master version. A contract with ``fluidVersion: 0.5.7``
+    is validated against ``fluid-schema-0.5.7.json``, a 0.7.1 contract
+    against 0.7.1, a 0.7.2 contract against 0.7.2, and so on — whichever
+    bundled schema matches. This is the backward-compatibility guarantee:
+    upgrading the CLI never invalidates a contract that was valid against
+    its own declared version. The CLI acts as coordinator for the whole
+    FLUID version range, not just the latest.
+
     Delegates to :func:`fluid_build.cli.validate.run_on_contract_dict`, the
     public one-call wrapper around the native ``fluid validate`` flow, and
     translates its exit code into publish-specific semantics:

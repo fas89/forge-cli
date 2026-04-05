@@ -644,11 +644,21 @@ def run_on_contract_dict(
 ) -> Tuple[ValidationResult, int]:
     """Validate an already-loaded FLUID contract and emit the native output.
 
+    **The schema version is auto-detected from the contract's own
+    ``fluidVersion`` field.** A 0.5.7 contract is validated against the
+    bundled 0.5.7 schema, a 0.7.1 contract against 0.7.1, a 0.7.2 contract
+    against 0.7.2, and so on. Callers that want to force a specific
+    validation target should construct a ``FluidSchemaManager`` and call
+    ``validate_contract(contract, schema_version=...)`` directly — but the
+    default here is backward-compatible auto-detection, which is what
+    ``fluid dmm publish`` and every other CLI embedding needs.
+
     This is the one-call convenience wrapper for embedding schema validation
     into other CLI commands (publish, apply, …). It:
 
-      1. runs :meth:`FluidSchemaManager.validate_contract` with the given
-         ``offline_only`` and auto-detected ``fluidVersion``
+      1. runs :meth:`FluidSchemaManager.validate_contract` with
+         ``offline_only=True`` and no explicit ``schema_version`` (so the
+         contract's declared ``fluidVersion`` is honored)
       2. prints errors/warnings via :func:`output_text_results` so the UX
          is identical to ``fluid validate``
       3. returns both the raw ``ValidationResult`` (for callers that want

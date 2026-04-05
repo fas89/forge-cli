@@ -523,6 +523,117 @@ class TestCmdPublishSchemaValidation:
 
 
 # ---------------------------------------------------------------------------
+# 3b-bis. Backward-compat: publish validates against the contract's own
+#          declared fluidVersion, NOT a hardcoded master version.
+# ---------------------------------------------------------------------------
+
+
+class TestCmdPublishBackwardCompatibleValidation:
+    """``fluid dmm publish`` must honor the contract's declared
+    ``fluidVersion`` when validating. Upgrading the CLI must never
+    invalidate a contract that was valid against its own version — the
+    CLI coordinates publishes across the whole FLUID version range, not
+    just the latest.
+
+    These tests exercise the real publish path (loader → validator →
+    provider dry-run) on the three FLUID versions that ship a usable
+    lineage/minimal contract fixture: 0.5.7, 0.7.1, 0.7.2.
+    """
+
+    _FIXTURES_DIR = (
+        Path(__file__).resolve().parents[1]
+        / "fixtures"
+        / "contracts"
+        / "compatibility"
+    )
+
+    @pytest.mark.parametrize(
+        "fixture_name,expected_version",
+        [
+            ("minimal_057.yaml", "0.5.7"),
+            ("minimal_071.yaml", "0.7.1"),
+            ("minimal_072.yaml", "0.7.2"),
+            ("lineage_071.yaml", "0.7.1"),
+            ("lineage_072.yaml", "0.7.2"),
+        ],
+    )
+    def test_strict_publish_succeeds_for_every_bundled_fluid_version(
+        self, fixture_name, expected_version, caplog
+    ):
+        """Strict-mode publish on a contract that conforms to its own
+        declared version must succeed — regardless of whether that
+        version matches the CLI's ``latest_bundled_version``."""
+        import logging as stdlib_logging
+
+        fixture_path = self._FIXTURES_DIR / fixture_name
+        assert fixture_path.exists(), f"missing fixture: {fixture_path}"
+
+        args = SimpleNamespace(
+            contract=str(fixture_path),
+            overlay=None,
+            dry_run=True,
+            with_contract=False,
+            no_create_team=True,
+            team_id=None,
+            contract_format="odcs",
+            data_product_spec=None,
+            validate_generated_contracts=False,
+            validation_mode="strict",
+            fail_on_contract_error=False,
+            provider="odps",
+            api_key="dummy-key",
+            api_url="https://api.entropy-data.com",
+        )
+
+        with caplog.at_level(stdlib_logging.INFO):
+            code = dmm_mod._cmd_publish(
+                args,
+                stdlib_logging.getLogger(f"test_bc_{expected_version}"),
+            )
+
+        # Strict mode must accept the fixture against ITS OWN version.
+        assert code == 0, (
+            f"{fixture_name} was rejected in strict mode even though it "
+            f"conforms to its declared fluidVersion={expected_version}"
+        )
+
+    def test_validation_uses_contracts_own_version_not_latest(self):
+        """Direct assertion via the public ``run_on_contract_dict`` API:
+        the ``ValidationResult.schema_version`` must equal whatever the
+        contract declared, not the CLI's latest bundled version. This is
+        the guardrail that prevents a future contributor from hardcoding
+        ``schema_version=latest`` on the publish path."""
+        import logging as stdlib_logging
+
+        from fluid_build.cli.validate import run_on_contract_dict
+        from fluid_build.schema_manager import FluidSchemaManager
+
+        latest = FluidSchemaManager.latest_bundled_version()
+
+        for fixture_name, expected in [
+            ("minimal_057.yaml", "0.5.7"),
+            ("minimal_071.yaml", "0.7.1"),
+            ("minimal_072.yaml", "0.7.2"),
+        ]:
+            with (self._FIXTURES_DIR / fixture_name).open() as f:
+                contract = yaml.safe_load(f)
+
+            result, rc = run_on_contract_dict(
+                contract,
+                strict=False,
+                logger=stdlib_logging.getLogger("test_bc_direct"),
+                offline_only=True,
+            )
+            assert rc == 0
+            # The critical assertion: validated against the DECLARED version
+            # even when that version is not the latest bundled.
+            assert str(result.schema_version) == expected
+            if expected != latest:
+                # Sanity: we really did exercise a non-latest path.
+                assert str(result.schema_version) != latest
+
+
+# ---------------------------------------------------------------------------
 # 3c. End-to-end publish integration (no provider mock)
 # ---------------------------------------------------------------------------
 
