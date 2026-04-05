@@ -363,6 +363,19 @@ class TestConsumesToCanonicalPorts:
         assert p["kind"] == "data"
         assert p["constraints"] == {"min_rows": 1000}
 
+    def test_source_system_extension_preserved_when_set(self):
+        contract = {
+            "consumes": [
+                {
+                    "productId": "x.y",
+                    "exposeId": "z",
+                    "sourceSystem": "bss-crm",
+                }
+            ]
+        }
+        p = consumes_to_canonical_ports(contract)[0]
+        assert p["source_system_id"] == "bss-crm"
+
     def test_contract_id_alternate_spellings(self):
         """Both ``contractId`` and ``contract_id`` are accepted on read."""
         assert (

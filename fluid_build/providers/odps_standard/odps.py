@@ -325,6 +325,8 @@ class OdpsStandardProvider(BaseProvider):
                 port["contractId"] = canonical["contract_id"]
             if canonical["required"] is not None:
                 port["required"] = bool(canonical["required"])
+            if canonical["source_system_id"]:
+                port["sourceSystemId"] = canonical["source_system_id"]
             input_ports.append(port)
 
         return input_ports

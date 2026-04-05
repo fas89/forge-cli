@@ -23,13 +23,17 @@ import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
+from urllib.parse import urlsplit
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_WAREHOUSE = "COMPUTE_WH"
 DEFAULT_SCHEMA = "PUBLIC"
 _ENV_TEMPLATE_RE = re.compile(r"\{\{\s*env\.(\S+?)\s*\}\}")
-_ACCOUNT_HOST_RE = re.compile(r"^https?://", re.IGNORECASE)
+_ACCOUNT_HOST_RE = re.compile(r"\.snowflakecomputing\.com$", re.IGNORECASE)
+_ACCOUNT_SEGMENT_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_ACCOUNT_REGION_SEGMENT_RE = re.compile(r"^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+$")
+_ACCOUNT_CLOUD_SUFFIXES = frozenset({"aws", "azure", "gcp"})
 
 # Keys that carry secret material. These MUST never appear in the `_sources`
 # map returned to callers, nor be echoed into diagnostic reports.
@@ -68,10 +72,83 @@ def _normalize_account_identifier(account: Optional[str]) -> Optional[str]:
         return None
 
     value = str(account).strip()
+    if "{{" in value and "}}" in value:
+        return value
+
+    if "://" in value:
+        parsed = urlsplit(value)
+        value = parsed.netloc or parsed.path
+    elif "/" in value.strip("/"):
+        raise ValueError(
+            "Invalid Snowflake account identifier. Accepted forms include "
+            "'org-account', 'xy12345', 'xy12345.region', "
+            "'xy12345.region.aws', and full *.snowflakecomputing.com hostnames."
+        )
+
+    value = value.split("@")[-1]
+    value = value.split("/", 1)[0]
+    value = value.split("?", 1)[0]
+    value = value.split("#", 1)[0]
+    value = value.rstrip(".")
     value = _ACCOUNT_HOST_RE.sub("", value)
-    if value.endswith(".snowflakecomputing.com"):
-        value = value[: -len(".snowflakecomputing.com")]
-    return value or None
+    value = value.strip()
+    if not value:
+        return None
+
+    if value.lower().startswith("app-"):
+        value = value[4:]
+
+    segments = value.split(".")
+    if any(not segment for segment in segments):
+        raise ValueError(
+            "Invalid Snowflake account identifier. Accepted forms include "
+            "'org-account', 'xy12345', 'xy12345.region', "
+            "'xy12345.region.aws', and full *.snowflakecomputing.com hostnames."
+        )
+
+    if not all(_ACCOUNT_SEGMENT_RE.match(segment) for segment in segments):
+        raise ValueError(
+            "Invalid Snowflake account identifier. Accepted forms include "
+            "'org-account', 'xy12345', 'xy12345.region', "
+            "'xy12345.region.aws', and full *.snowflakecomputing.com hostnames."
+        )
+
+    has_privatelink = False
+    if segments and segments[-1].lower() == "privatelink":
+        has_privatelink = True
+        segments = segments[:-1]
+
+    if not segments:
+        raise ValueError(
+            "Invalid Snowflake account identifier. Accepted forms include "
+            "'org-account', 'xy12345', 'xy12345.region', "
+            "'xy12345.region.aws', and full *.snowflakecomputing.com hostnames."
+        )
+
+    if len(segments) > 1 and segments[-1].lower() in _ACCOUNT_CLOUD_SUFFIXES:
+        segments = segments[:-1]
+
+    normalized = ".".join(segments)
+    if "-" in segments[0] and len(segments) > 2:
+        raise ValueError(
+            "Invalid Snowflake organization/account identifier. Expected "
+            "'org-account' or 'org-account.privatelink'."
+        )
+    if (
+        "-" not in segments[0]
+        and len(segments) > 1
+        and not _ACCOUNT_REGION_SEGMENT_RE.match(segments[1])
+    ):
+        raise ValueError(
+            "Invalid Snowflake account identifier. Accepted forms include "
+            "'org-account', 'xy12345', 'xy12345.region', "
+            "'xy12345.region.aws', and full *.snowflakecomputing.com hostnames."
+        )
+
+    if has_privatelink:
+        normalized = f"{normalized}.privatelink"
+
+    return normalized or None
 
 
 def _normalize_value(key: str, value: Any) -> Any:

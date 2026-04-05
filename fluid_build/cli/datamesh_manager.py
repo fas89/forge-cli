@@ -204,8 +204,14 @@ def _validate_fluid_contract(contract: dict, validation_mode: str, logger: loggi
     """
     try:
         _result, rc = run_on_contract_dict(contract, strict=False, logger=logger)
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.warning("fluid_contract_validation_failed_to_run: %s", exc)
+    except Exception as exc:  # noqa: BLE001
+        log_method = logger.error if validation_mode == "strict" else logger.warning
+        log_method(
+            "fluid_contract_validation_failed_to_run type=%s msg=%s",
+            type(exc).__name__,
+            exc,
+            exc_info=True,
+        )
         if validation_mode == "strict":
             console_error(f"Error: FLUID schema validation could not run: {exc}")
             return 1

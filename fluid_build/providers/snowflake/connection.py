@@ -27,6 +27,8 @@ except ImportError:
     SNOWFLAKE_AVAILABLE = False
     snowflake = None
 
+from fluid_build.providers._sql_safety import validate_ident
+
 from .types import ProviderOptions
 
 log = logging.getLogger("fluid.provider.snowflake")
@@ -124,7 +126,71 @@ class SnowflakeConnection:
             kwargs.get("database"),
             kwargs.get("schema"),
         )
-        return snowflake.connector.connect(**kwargs)
+        conn = snowflake.connector.connect(**kwargs)
+        self._initialize_session(conn, self.opts)
+        return conn
+
+    @staticmethod
+    def _validate_qualified_ident(value: str) -> str:
+        """Validate a possibly dot-qualified Snowflake identifier.
+
+        Snowflake permits dotted forms such as ``DB.SCHEMA`` for ``USE
+        DATABASE``/``USE SCHEMA``. Each segment must independently pass
+        ``validate_ident``, so no quoting, whitespace, or injection metacharacter
+        can slip through the relaxation.
+        """
+        segments = str(value).split(".")
+        if not segments or any(segment == "" for segment in segments):
+            raise ValueError(f"Invalid qualified SQL identifier: {value!r}")
+        return ".".join(validate_ident(segment) for segment in segments)
+
+    @classmethod
+    def _initialize_session(cls, conn: Any, opts: ProviderOptions) -> None:
+        """Pin the active Snowflake session context explicitly after connect."""
+        statements = []
+        # ROLE and WAREHOUSE are single-segment in Snowflake; DATABASE and
+        # SCHEMA may be dot-qualified (e.g. ``MY_DB.MY_SCHEMA``).
+        label_validators = {
+            "ROLE": validate_ident,
+            "WAREHOUSE": validate_ident,
+            "DATABASE": cls._validate_qualified_ident,
+            "SCHEMA": cls._validate_qualified_ident,
+        }
+        for label, value in (
+            ("ROLE", opts.role),
+            ("WAREHOUSE", opts.warehouse),
+            ("DATABASE", opts.database),
+            ("SCHEMA", opts.schema),
+        ):
+            if not value:
+                continue
+            try:
+                safe = label_validators[label](str(value))
+            except ValueError as exc:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                raise RuntimeError(
+                    f"Invalid Snowflake {label.lower()} configured for session initialization: {value!r}"
+                ) from exc
+            statements.append(f"USE {label} {safe}")
+
+        if not statements:
+            return
+
+        try:
+            with conn.cursor() as cur:
+                for sql in statements:
+                    cur.execute(sql)
+        except Exception as exc:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"Snowflake session initialization failed after connect: {exc}"
+            ) from exc
 
     def execute(self, sql: str, params: Optional[Iterable] = None, many: bool = False):
         log.debug("Executing SQL:\n%s", sql)

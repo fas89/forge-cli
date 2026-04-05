@@ -205,6 +205,24 @@ class TestParserRegistration:
         assert args.team_id == "my-team"
         assert args.overlay == "overlay.yaml"
 
+    def test_publish_parser_wiring_strict_invalid_contract_returns_nonzero(self, tmp_path):
+        invalid_path = tmp_path / "invalid.yaml"
+        invalid_path.write_text(yaml.dump(INVALID_072_CONTRACT), encoding="utf-8")
+
+        root = argparse.ArgumentParser()
+        sp = root.add_subparsers(dest="cmd")
+        dmm_mod.add_parser(sp)
+        args = root.parse_args(
+            ["dmm", "publish", str(invalid_path), "--dry-run", "--validation-mode", "strict"]
+        )
+        args.api_key = "dummy-key"
+        args.api_url = "https://api.entropy-data.com"
+
+        with patch.object(dmm_mod, "load_contract_with_overlay", return_value=INVALID_072_CONTRACT):
+            code = args.func(args, logging.getLogger("test_dmm_parser_wiring"))
+
+        assert code == 1
+
 
 # ---------------------------------------------------------------------------
 # 3. Publish command
@@ -463,6 +481,32 @@ class TestCmdPublishSchemaValidation:
 
         assert result == 0
         provider_inst.apply.assert_called_once()
+
+    @patch.object(dmm_mod, "run_on_contract_dict", side_effect=RuntimeError("schema exploded"))
+    def test_validation_fallback_logs_type_and_traceback_warn_mode(self, _mock_validate, caplog):
+        logger = logging.getLogger("test_dmm_warn_fallback")
+
+        with caplog.at_level(logging.WARNING, logger=logger.name):
+            result = dmm_mod._validate_fluid_contract({}, "warn", logger)
+
+        assert result == 0
+        record = caplog.records[-1]
+        assert "fluid_contract_validation_failed_to_run" in record.getMessage()
+        assert "RuntimeError" in record.getMessage()
+        assert record.exc_info is not None
+
+    @patch.object(dmm_mod, "run_on_contract_dict", side_effect=RuntimeError("schema exploded"))
+    def test_validation_fallback_logs_error_in_strict_mode(self, _mock_validate, caplog):
+        logger = logging.getLogger("test_dmm_strict_fallback")
+
+        with caplog.at_level(logging.ERROR, logger=logger.name):
+            result = dmm_mod._validate_fluid_contract({}, "strict", logger)
+
+        assert result == 1
+        record = caplog.records[-1]
+        assert record.levelno == logging.ERROR
+        assert "RuntimeError" in record.getMessage()
+        assert record.exc_info is not None
 
     @patch.object(dmm_mod, "load_contract_with_overlay")
     @patch.object(dmm_mod, "DataMeshManagerProvider")

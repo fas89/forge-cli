@@ -34,6 +34,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Dict, List, Optional
 
+from fluid_build.providers._sql_safety import (
+    quote_string_literal,
+    validate_ident,
+    validate_sql_expression_allowlist,
+)
+
 from ..util.config import resolve_env_templates as _resolve_env_templates
 from ..util.metadata import extract_snowflake_tags
 
@@ -210,15 +216,36 @@ def _plan_iam(
         condition = policy.get("condition")
 
         if table and role and condition:
+            try:
+                safe_table = validate_ident(str(table))
+                safe_role_name = validate_ident(str(role))
+                safe_role = quote_string_literal(safe_role_name)
+                safe_condition = validate_sql_expression_allowlist(str(condition))
+            except ValueError as exc:
+                if logger is not None:
+                    logger.warning(
+                        "snowflake_row_level_security_skipped table=%r role=%r error=%s",
+                        table,
+                        role,
+                        exc,
+                    )
+                continue
+
+            safe_role_id = safe_role_name.lower()
             actions.append(
                 {
-                    "id": f"rls_{table}_{role}",
+                    "id": f"rls_{safe_table}_{safe_role_id}",
                     "op": "sf.sql.execute",
                     "phase": "iam",
                     "account": account,
                     "database": database,
-                    "sql": f"CREATE OR REPLACE ROW ACCESS POLICY {table}_rls AS (val VARCHAR) RETURNS BOOLEAN -> CASE WHEN CURRENT_ROLE() = '{role}' THEN {condition} ELSE FALSE END",
-                    "comment": f"Row-level security for {table}",
+                    "sql": (
+                        f"CREATE OR REPLACE ROW ACCESS POLICY {safe_table}_rls "
+                        "AS (val VARCHAR) RETURNS BOOLEAN -> "
+                        f"CASE WHEN CURRENT_ROLE() = {safe_role} "
+                        f"THEN {safe_condition} ELSE FALSE END"
+                    ),
+                    "comment": f"Row-level security for {safe_table}",
                 }
             )
 
