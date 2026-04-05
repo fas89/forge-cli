@@ -131,9 +131,31 @@ class SnowflakeConnection:
         return conn
 
     @staticmethod
-    def _initialize_session(conn: Any, opts: ProviderOptions) -> None:
+    def _validate_qualified_ident(value: str) -> str:
+        """Validate a possibly dot-qualified Snowflake identifier.
+
+        Snowflake permits dotted forms such as ``DB.SCHEMA`` for ``USE
+        DATABASE``/``USE SCHEMA``. Each segment must independently pass
+        ``validate_ident``, so no quoting, whitespace, or injection metacharacter
+        can slip through the relaxation.
+        """
+        segments = str(value).split(".")
+        if not segments or any(segment == "" for segment in segments):
+            raise ValueError(f"Invalid qualified SQL identifier: {value!r}")
+        return ".".join(validate_ident(segment) for segment in segments)
+
+    @classmethod
+    def _initialize_session(cls, conn: Any, opts: ProviderOptions) -> None:
         """Pin the active Snowflake session context explicitly after connect."""
         statements = []
+        # ROLE and WAREHOUSE are single-segment in Snowflake; DATABASE and
+        # SCHEMA may be dot-qualified (e.g. ``MY_DB.MY_SCHEMA``).
+        label_validators = {
+            "ROLE": validate_ident,
+            "WAREHOUSE": validate_ident,
+            "DATABASE": cls._validate_qualified_ident,
+            "SCHEMA": cls._validate_qualified_ident,
+        }
         for label, value in (
             ("ROLE", opts.role),
             ("WAREHOUSE", opts.warehouse),
@@ -143,7 +165,7 @@ class SnowflakeConnection:
             if not value:
                 continue
             try:
-                statements.append(f"USE {label} {validate_ident(str(value))}")
+                safe = label_validators[label](str(value))
             except ValueError as exc:
                 try:
                     conn.close()
@@ -152,6 +174,7 @@ class SnowflakeConnection:
                 raise RuntimeError(
                     f"Invalid Snowflake {label.lower()} configured for session initialization: {value!r}"
                 ) from exc
+            statements.append(f"USE {label} {safe}")
 
         if not statements:
             return

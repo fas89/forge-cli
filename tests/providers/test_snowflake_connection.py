@@ -125,3 +125,65 @@ def test_connect_fails_fast_on_invalid_configured_session_identifier(monkeypatch
 
     assert conn.closed is True
     assert conn.statements == []
+
+
+def test_connect_accepts_dotted_database_and_schema(monkeypatch):
+    """Regression: Snowflake accepts dotted ``DB.SCHEMA`` identifiers in
+    ``USE`` statements, so the session initializer must not reject them."""
+    conn = _ConnectionStub()
+
+    monkeypatch.setattr(connection_mod, "SNOWFLAKE_AVAILABLE", True)
+    monkeypatch.setattr(
+        connection_mod,
+        "snowflake",
+        SimpleNamespace(connector=SimpleNamespace(connect=lambda **kwargs: conn)),
+    )
+
+    result = SnowflakeConnection(
+        _opts(database="ANALYTICS.RAW", schema="STAGING.INBOUND")
+    )._connect()
+
+    assert result is conn
+    assert conn.statements == [
+        "USE ROLE TRANSFORMER",
+        "USE WAREHOUSE TRANSFORM_WH",
+        "USE DATABASE ANALYTICS.RAW",
+        "USE SCHEMA STAGING.INBOUND",
+    ]
+
+
+def test_connect_rejects_dotted_identifier_with_invalid_segment(monkeypatch):
+    """Each segment of a dotted identifier must still pass validate_ident —
+    an empty segment (``ANALYTICS..RAW``) or an injection-like segment is
+    rejected and the connection closed."""
+    conn = _ConnectionStub()
+
+    monkeypatch.setattr(connection_mod, "SNOWFLAKE_AVAILABLE", True)
+    monkeypatch.setattr(
+        connection_mod,
+        "snowflake",
+        SimpleNamespace(connector=SimpleNamespace(connect=lambda **kwargs: conn)),
+    )
+
+    with pytest.raises(RuntimeError, match="Invalid Snowflake database configured"):
+        SnowflakeConnection(_opts(database="ANALYTICS..RAW"))._connect()
+
+    assert conn.closed is True
+
+
+def test_connect_rejects_quoted_segment_in_dotted_identifier(monkeypatch):
+    """A dotted identifier segment containing a quote or injection metacharacter
+    must be rejected — the relaxation must not open an injection surface."""
+    conn = _ConnectionStub()
+
+    monkeypatch.setattr(connection_mod, "SNOWFLAKE_AVAILABLE", True)
+    monkeypatch.setattr(
+        connection_mod,
+        "snowflake",
+        SimpleNamespace(connector=SimpleNamespace(connect=lambda **kwargs: conn)),
+    )
+
+    with pytest.raises(RuntimeError, match="Invalid Snowflake schema configured"):
+        SnowflakeConnection(_opts(schema='PUBLIC."EVIL; DROP"'))._connect()
+
+    assert conn.closed is True

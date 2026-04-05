@@ -1284,6 +1284,32 @@ class TestApplyGovernancePolicies:
         masking = out[0]["exposes"][0]["policy"]["masking"]
         assert masking[0]["method"] == "SHA256"
 
+    def test_logs_warning_for_legacy_produces_only_contract(self):
+        """Regression guard: callers that still emit the legacy ``produces[]``
+        shape must get a loud warning rather than a silent governance skip."""
+        from fluid_build.cli.init_scan import apply_governance_policies
+
+        mock_logger = MagicMock()
+        contracts = [{"name": "legacy-c1", "produces": [{"name": "orders"}]}]
+        results = {
+            "sensitive_columns": [
+                {"model": "orders", "column": "email", "type": "EMAIL", "confidence": 0.9}
+            ],
+            "metadata": {},
+        }
+        with patch("fluid_build.cli.init_scan.RICH_AVAILABLE", True):
+            with patch("fluid_build.cli.init_scan.console"):
+                with patch("fluid_build.cli.init_scan.Confirm") as mock_confirm:
+                    mock_confirm.ask.return_value = True
+                    out = apply_governance_policies(contracts, results, mock_logger)
+
+        mock_logger.warning.assert_called_once()
+        warning_args = mock_logger.warning.call_args
+        assert "legacy 'produces[]'" in warning_args[0][0]
+        assert "legacy-c1" in warning_args[0]
+        # Contract unchanged — no policy added to the legacy produces entry.
+        assert "policy" not in out[0]["produces"][0]
+
 
 class TestShowMigrationSummary:
     def test_no_rich_prints_count(self, logger):

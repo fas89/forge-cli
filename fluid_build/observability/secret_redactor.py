@@ -50,11 +50,20 @@ _ASSIGNMENT_RE = re.compile(
     r"(?P<value>.*?)(?P=quote)"
     r"(?=(?:[\s,;}\]]|$))"
 )
-_SENSITIVE_PLACEHOLDER_RE = re.compile(
+# Matches a single printf-style placeholder. We use this to walk a log message
+# left-to-right so we can map placeholder *positions* to positional args.
+# Group 1 = named placeholder name (``%(name)s``), empty for positional.
+_PLACEHOLDER_RE = re.compile(
+    r"%(?:\(([^)]+)\))?[#0\- +]*(?:\d+|\*)?(?:\.(?:\d+|\*))?[hlL]?[diouxXeEfFgGcrsa%]"
+)
+# Matches the key-like token sitting just before a ``%`` placeholder. We only
+# inspect the last ~64 characters before each placeholder so the regex stays
+# linear in the message length.
+_PRECEDING_SENSITIVE_KEY_RE = re.compile(
     r"(?ix)\b(?:[A-Za-z0-9_]*_)?(?:"
     r"api[_-]?key|authorization|aws_secret_access_key|client_secret|"
     r"oauth[_-]?token|password|private[_-]?key(?:_passphrase)?|secret|token"
-    r")\b\s*[:=]\s*%"
+    r")\b\s*[:=]\s*$"
 )
 
 
@@ -98,27 +107,87 @@ def redact_value(value: Any) -> Any:
     return value
 
 
-def _redact_template_args(args: Any) -> Any:
-    if isinstance(args, tuple):
-        return tuple(_redact_template_arg(arg) for arg in args)
-    if isinstance(args, list):
-        return [_redact_template_arg(arg) for arg in args]
-    return _redact_template_arg(args)
+def _scan_sensitive_placeholders(msg: str) -> tuple[set[int], set[str]]:
+    """Return the positional indices and named keys whose placeholder is
+    preceded by a sensitive-key token in ``msg``.
+
+    Walks placeholders left-to-right so positional indices line up with
+    ``record.args`` in the same order Python's logging formatter would consume
+    them. ``%%`` literals are skipped and do not consume an argument.
+    """
+    positional_hits: set[int] = set()
+    named_hits: set[str] = set()
+    positional_index = 0
+    for match in _PLACEHOLDER_RE.finditer(msg):
+        token = match.group(0)
+        if token == "%%":
+            continue
+        name = match.group(1)
+        preceding = msg[max(0, match.start() - 64) : match.start()]
+        is_sensitive = bool(_PRECEDING_SENSITIVE_KEY_RE.search(preceding))
+        if name is None:
+            if is_sensitive:
+                positional_hits.add(positional_index)
+            positional_index += 1
+        else:
+            if is_sensitive or _is_sensitive_key(name):
+                named_hits.add(name)
+    return positional_hits, named_hits
 
 
-def _redact_template_arg(arg: Any) -> Any:
-    if isinstance(arg, (Mapping, list, tuple, set)):
-        return redact_value(arg)
-    return _REDACTED
+def _redact_positional_args(args: Any, sensitive_indices: set[int]) -> Any:
+    """Redact only the positional args whose index is marked sensitive."""
+    if not isinstance(args, (tuple, list)):
+        return args
+
+    redacted_items = []
+    for index, arg in enumerate(args):
+        if index in sensitive_indices:
+            redacted_items.append(_REDACTED)
+        elif isinstance(arg, (Mapping, list, tuple, set)):
+            redacted_items.append(redact_value(arg))
+        elif isinstance(arg, str):
+            redacted_items.append(redact_secret_text(arg))
+        else:
+            # Non-string scalars (int, float, bool, None, custom objects) are
+            # preserved so observability metrics aren't clobbered.
+            redacted_items.append(arg)
+    return tuple(redacted_items) if isinstance(args, tuple) else redacted_items
+
+
+def _redact_named_args(args: Mapping[str, Any], sensitive_names: set[str]) -> dict[str, Any]:
+    """Redact only the named args whose key is sensitive (by placeholder
+    adjacency or by key name)."""
+    redacted: dict[str, Any] = {}
+    for key, value in args.items():
+        if key in sensitive_names or _is_sensitive_key(key):
+            redacted[key] = _REDACTED
+        elif isinstance(value, (Mapping, list, tuple, set)):
+            redacted[key] = redact_value(value)
+        elif isinstance(value, str):
+            redacted[key] = redact_secret_text(value)
+        else:
+            redacted[key] = value
+    return redacted
 
 
 class SecretRedactingFilter(logging.Filter):
-    """Best-effort log filter that scrubs common credential leaks."""
+    """Best-effort log filter that scrubs common credential leaks.
+
+    The filter is precision-scoped: only args bound to a placeholder sitting
+    immediately after a sensitive-key token (``password=%s``) — or args whose
+    own mapping key is sensitive — are replaced with ``***REDACTED***``. Other
+    args are left intact for unrelated fields to keep observability signal.
+    """
 
     def filter(self, record: logging.LogRecord) -> bool:
         if hasattr(record, "args") and record.args:
-            if isinstance(record.msg, str) and _SENSITIVE_PLACEHOLDER_RE.search(record.msg):
-                record.args = _redact_template_args(record.args)
+            msg = record.msg if isinstance(record.msg, str) else ""
+            positional_hits, named_hits = _scan_sensitive_placeholders(msg)
+            if isinstance(record.args, Mapping):
+                record.args = _redact_named_args(record.args, named_hits)
+            elif isinstance(record.args, (tuple, list)):
+                record.args = _redact_positional_args(record.args, positional_hits)
             else:
                 record.args = redact_value(record.args)
         elif hasattr(record, "msg"):

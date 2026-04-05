@@ -214,8 +214,21 @@ def generate_contracts_from_scan(
 def apply_governance_policies(
     contracts: List[Dict[str, Any]], results: Dict[str, Any], logger: logging.Logger
 ) -> List[Dict[str, Any]]:
-    """Apply governance policies based on scan-time PII detection."""
-    del logger
+    """Apply governance policies based on scan-time PII detection.
+
+    Only contracts in the 0.7.2 ``exposes[]`` shape are processed. Callers that
+    still hand in the legacy ``produces[]`` shape get a ``logger.warning`` and
+    the contract is returned unchanged, so silent no-ops are surfaced instead
+    of swallowed.
+    """
+    for contract in contracts:
+        if not contract.get("exposes") and contract.get("produces"):
+            logger.warning(
+                "apply_governance_policies received a legacy 'produces[]' "
+                "contract (name=%s); skipping governance. Migrate the caller "
+                "to the 0.7.2 'exposes[]' shape.",
+                contract.get("name", "<unnamed>"),
+            )
     if not RICH_AVAILABLE:
         return contracts
 
@@ -281,8 +294,20 @@ def apply_governance_policies(
 def show_migration_summary(
     contracts: List[Dict[str, Any]], results: Dict[str, Any], logger: logging.Logger
 ) -> None:
-    """Show a scan migration summary after contract generation."""
-    del results, logger
+    """Show a scan migration summary after contract generation.
+
+    Emits a ``logger.warning`` for any legacy ``produces[]``-only contract
+    since the migration summary only enumerates ``exposes[]``.
+    """
+    del results
+    for contract in contracts:
+        if not contract.get("exposes") and contract.get("produces"):
+            logger.warning(
+                "show_migration_summary received a legacy 'produces[]' "
+                "contract (name=%s); summary will list 0 exposes. Migrate "
+                "the caller to the 0.7.2 'exposes[]' shape.",
+                contract.get("name", "<unnamed>"),
+            )
     if not RICH_AVAILABLE:
         cprint(f"\n✅ Generated {len(contracts)} FLUID contract(s)")
         return

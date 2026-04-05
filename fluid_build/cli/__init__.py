@@ -469,9 +469,12 @@ def _setup_enhanced_logging(
             # Simple format for console
             formatter = logging.Formatter("%(message)s")
 
-    # Setup root logger
-    logging.basicConfig(level=numeric, format="%(message)s" if not log_file else None, handlers=[])
+    # Setup root logger — clear any pre-existing handlers (from a prior CLI
+    # invocation in the same interpreter or from ``logging.basicConfig``
+    # side-effects elsewhere) so the CLI always owns the output pipeline.
     root_logger = logging.getLogger()
+    for existing_handler in list(root_logger.handlers):
+        root_logger.removeHandler(existing_handler)
     root_logger.setLevel(numeric)
 
     # Console handler — send to stderr so stdout stays clean for command output
