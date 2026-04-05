@@ -25,6 +25,7 @@ from fluid_build.cli.init import (
     generate_gitlab_ci,
     generate_jenkinsfile,
 )
+from fluid_build.schema_manager import FluidSchemaManager
 
 
 @pytest.fixture
@@ -134,20 +135,36 @@ class TestGenerateContractsFromScan:
         assert len(contracts) == 1
         c = contracts[0]
         assert c["name"] == "my-dbt"
-        assert c["version"] == "0.7.1"
-        assert len(c["produces"]) == 2
-        assert c["produces"][0]["name"] == "orders"
-        assert c["binding"]["provider"] == "gcp"
-        assert c["binding"]["location"]["project"] == "proj"
+        assert c["fluidVersion"] == FluidSchemaManager.latest_bundled_version()
+        assert c["kind"] == "DataProduct"
+        assert len(c["exposes"]) == 2
+        assert c["exposes"][0]["exposeId"] == "orders"
+        # 0.7.2 canonical: binding lives per-expose.
+        assert c["exposes"][0]["binding"]["platform"] == "gcp"
+        assert c["exposes"][0]["binding"]["location"]["project"] == "proj"
 
     def test_dbt_with_local_provider(self, logger):
+        """Zero-model dbt scans must fail instead of emitting invalid 0.7.2 contracts."""
         results = {
             "project_type": "dbt",
             "metadata": {"project_name": "local-dbt", "target_platform": "duckdb"},
             "models": [],
         }
-        contracts = generate_contracts_from_scan(results, "local", logger)
-        assert contracts[0]["binding"]["provider"] == "local"
+        with pytest.raises(ValueError, match="requires at least one expose"):
+            generate_contracts_from_scan(results, "local", logger)
+
+        invalid_candidate = {
+            "fluidVersion": FluidSchemaManager.latest_bundled_version(),
+            "kind": "DataProduct",
+            "id": "scan.dbt.local-dbt",
+            "name": "local-dbt",
+            "description": "Imported from dbt project on test",
+            "domain": "imported",
+            "metadata": {"owner": {"team": "data-team"}},
+            "exposes": [],
+        }
+        validation = FluidSchemaManager().validate_contract(invalid_candidate, offline_only=True)
+        assert "exposes: [] should be non-empty" in validation.errors
 
     def test_terraform_project(self, logger):
         results = {
@@ -157,7 +174,7 @@ class TestGenerateContractsFromScan:
         contracts = generate_contracts_from_scan(results, "aws", logger)
         assert len(contracts) == 1
         assert contracts[0]["name"] == "terraform-import"
-        assert contracts[0]["binding"]["provider"] == "aws"
+        assert contracts[0]["exposes"][0]["binding"]["platform"] == "aws"
 
     def test_sql_project(self, logger):
         results = {
@@ -167,7 +184,7 @@ class TestGenerateContractsFromScan:
         contracts = generate_contracts_from_scan(results, "local", logger)
         assert len(contracts) == 1
         assert contracts[0]["name"] == "sql-import"
-        assert contracts[0]["binding"]["provider"] == "local"
+        assert contracts[0]["exposes"][0]["binding"]["platform"] == "local"
 
     def test_dbt_schema_columns(self, logger):
         results = {
@@ -178,7 +195,7 @@ class TestGenerateContractsFromScan:
             ],
         }
         contracts = generate_contracts_from_scan(results, "local", logger)
-        schema = contracts[0]["produces"][0]["schema"]
+        schema = contracts[0]["exposes"][0]["contract"]["schema"]
         assert schema[0]["name"] == "a"
         assert schema[0]["type"] == "varchar"
         assert schema[1]["type"] == "string"  # default
@@ -191,4 +208,26 @@ class TestGenerateContractsFromScan:
         }
         contracts = generate_contracts_from_scan(results, "local", logger)
         # Only first 5 models
-        assert len(contracts[0]["produces"]) == 5
+        assert len(contracts[0]["exposes"]) == 5
+
+    def test_dbt_redshift_target_preserves_warehouse_location(self, logger):
+        results = {
+            "project_type": "dbt",
+            "metadata": {
+                "project_name": "redshift-dbt",
+                "target_platform": "redshift",
+                "target_database": "analytics",
+                "target_schema": "mart",
+                "target_table": "orders",
+            },
+            "models": [{"name": "orders", "columns": []}],
+        }
+        contracts = generate_contracts_from_scan(results, "aws", logger)
+        binding = contracts[0]["exposes"][0]["binding"]
+        assert binding["platform"] == "aws"
+        assert binding["format"] == "other"
+        assert binding["location"] == {
+            "database": "analytics",
+            "schema": "mart",
+            "table": "orders",
+        }

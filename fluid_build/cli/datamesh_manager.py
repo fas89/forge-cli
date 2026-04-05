@@ -45,6 +45,7 @@ except ImportError:
     RICH_AVAILABLE = False
 
 from fluid_build.cli.bootstrap import load_contract_with_overlay
+from fluid_build.cli.validate import run_on_contract_dict
 from fluid_build.providers.base import ProviderError
 from fluid_build.providers.datamesh_manager import DataMeshManagerProvider
 
@@ -179,12 +180,69 @@ def _make_provider(args) -> DataMeshManagerProvider:
     return DataMeshManagerProvider(**kwargs)
 
 
+def _validate_fluid_contract(contract: dict, validation_mode: str, logger: logging.Logger) -> int:
+    """Validate an already-loaded FLUID contract on the publish path.
+
+    **Validation target is the contract's own declared ``fluidVersion``**,
+    not a hardcoded master version. A contract with ``fluidVersion: 0.5.7``
+    is validated against ``fluid-schema-0.5.7.json``, a 0.7.1 contract
+    against 0.7.1, a 0.7.2 contract against 0.7.2, and so on — whichever
+    bundled schema matches. This is the backward-compatibility guarantee:
+    upgrading the CLI never invalidates a contract that was valid against
+    its own declared version. The CLI acts as coordinator for the whole
+    FLUID version range, not just the latest.
+
+    Delegates to :func:`fluid_build.cli.validate.run_on_contract_dict`, the
+    public one-call wrapper around the native ``fluid validate`` flow, and
+    translates its exit code into publish-specific semantics:
+
+      * ``strict`` — a non-zero exit code aborts publish
+      * ``warn``   — a non-zero exit code is logged and publish proceeds
+        (errors have already been printed by the native output path),
+        preserving backward compatibility for contracts that carry
+        extension fields the bundled schema doesn't yet recognize
+    """
+    try:
+        _result, rc = run_on_contract_dict(contract, strict=False, logger=logger)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("fluid_contract_validation_failed_to_run: %s", exc)
+        if validation_mode == "strict":
+            console_error(f"Error: FLUID schema validation could not run: {exc}")
+            return 1
+        return 0
+
+    if rc == 0:
+        return 0
+
+    if validation_mode == "strict":
+        console_error(
+            "Publish aborted: contract does not conform to the bundled FLUID schema. "
+            "Re-run with --validation-mode warn to publish anyway."
+        )
+        return rc
+
+    cprint("⚠️  Publishing despite FLUID schema errors (--validation-mode is 'warn').")
+    return 0
+
+
 def _cmd_publish(args, logger=None):
     """Execute publish command."""
+    log = logger or logging.getLogger(__name__)
     try:
-        contract = load_contract_with_overlay(
-            args.contract, getattr(args, "overlay", None), logger or logging.getLogger(__name__)
-        )
+        contract = load_contract_with_overlay(args.contract, getattr(args, "overlay", None), log)
+
+        # Enforce the CLI's role as master coordinator: the loaded FLUID
+        # contract must conform to ``fluid-schema-0.7.2.json`` (or whatever
+        # ``fluidVersion`` it declares) BEFORE any provider payload is
+        # constructed. Delegates to the native validation + output
+        # formatters so we never re-implement what ``fluid validate`` does.
+        # Gated by ``--validation-mode`` (strict aborts on errors; warn logs
+        # and continues, preserving backward compatibility).
+        validation_mode = getattr(args, "validation_mode", "warn")
+        rc = _validate_fluid_contract(contract, validation_mode, log)
+        if rc != 0:
+            return rc
+
         provider = _make_provider(args)
 
         data_product_spec = getattr(args, "data_product_spec", None)

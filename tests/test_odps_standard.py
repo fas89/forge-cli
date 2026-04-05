@@ -21,6 +21,206 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from fluid_build.providers.odps_standard import OdpsStandardProvider
+
+
+def _sample_fluid_contract_with_consumes_and_expose_id():
+    return {
+        "fluidVersion": "0.7.1",
+        "kind": "DataProduct",
+        "id": "bizlab.teleforge.subscriber_health_360_lineage_local",
+        "name": "TeleForge Subscriber Health 360 Local",
+        "description": (
+            "Gold subscriber health mart built from the Silver usage and billing daily products."
+        ),
+        "domain": "telco",
+        "metadata": {
+            "layer": "Gold",
+            "owner": {"team": "bizlab", "email": "bizlab@example.com"},
+        },
+        "consumes": [
+            {
+                "productId": "bizlab.teleforge.subscriber_usage_daily_lineage_local",
+                "exposeId": "subscriber_usage_daily",
+                "purpose": "Supply daily subscriber usage features to the health model.",
+            },
+            {
+                "productId": "bizlab.teleforge.billing_health_daily_lineage_local",
+                "exposeId": "billing_health_daily",
+                "purpose": "Supply payment behavior and overdue indicators to the health model.",
+            },
+        ],
+        "exposes": [
+            {
+                "exposeId": "subscriber_health_360",
+                "title": "Subscriber Health 360",
+                "version": "1.0.0",
+                "kind": "table",
+                "binding": {
+                    "platform": "local",
+                    "format": "parquet",
+                    "location": {"path": "runtime/lineage-sim/subscriber_health_360.parquet"},
+                },
+                "contract": {
+                    "schema": [
+                        {"name": "subscriber_id", "type": "STRING", "required": True},
+                        {"name": "overall_health_score", "type": "INTEGER", "required": True},
+                    ]
+                },
+            }
+        ],
+    }
+
+
+def test_provider_render_supports_expose_id_only_contracts():
+    provider = OdpsStandardProvider()
+
+    result = provider.render(_sample_fluid_contract_with_consumes_and_expose_id())
+
+    assert result["id"] == "bizlab.teleforge.subscriber_health_360_lineage_local"
+    assert result["description"] == {
+        "purpose": (
+            "Gold subscriber health mart built from the Silver usage and billing daily products."
+        )
+    }
+    assert result["team"]["name"] == "bizlab"
+    assert result["outputPorts"][0]["id"] == "subscriber_health_360"
+    assert result["outputPorts"][0]["name"] == "subscriber_health_360"
+    assert result["outputPorts"][0]["type"] == "local"
+
+
+def test_provider_render_prefers_expose_id_over_legacy_id():
+    provider = OdpsStandardProvider()
+    contract = _sample_fluid_contract_with_consumes_and_expose_id()
+    contract["exposes"][0]["id"] = "legacy_output_id"
+
+    result = provider.render(contract)
+
+    assert result["outputPorts"][0]["id"] == "subscriber_health_360"
+    assert result["outputPorts"][0]["name"] == "subscriber_health_360"
+
+
+def test_provider_render_maps_consumes_to_input_ports():
+    provider = OdpsStandardProvider()
+
+    result = provider.render(_sample_fluid_contract_with_consumes_and_expose_id())
+
+    # Only fields explicitly present on the consume entries are emitted —
+    # the provider deliberately does NOT fabricate a ``contractId`` suffix
+    # or a default ``required: True`` (see CHANGELOG for rationale).
+    assert result["inputPorts"] == [
+        {
+            "id": "subscriber_usage_daily",
+            "name": "subscriber_usage_daily",
+            "description": "Supply daily subscriber usage features to the health model.",
+            "version": "1",
+            "reference": "bizlab.teleforge.subscriber_usage_daily_lineage_local",
+        },
+        {
+            "id": "billing_health_daily",
+            "name": "billing_health_daily",
+            "description": "Supply payment behavior and overdue indicators to the health model.",
+            "version": "1",
+            "reference": "bizlab.teleforge.billing_health_daily_lineage_local",
+        },
+    ]
+
+
+def test_provider_render_emits_input_port_contract_id_and_required_only_when_set():
+    """Explicit ``contractId`` and ``required`` on a consume should pass through;
+    omission should NOT fabricate a default value.
+
+    The contract is labelled as FLUID 0.7.1 rather than 0.7.2 because the
+    0.7.2 ``consumeRef`` schema has ``additionalProperties: false`` and does
+    not include ``contractId`` / ``required`` — this test exercises the
+    provider's *extension-field tolerance* for older or custom contracts,
+    not a conforming 0.7.2 document.
+    """
+    provider = OdpsStandardProvider()
+
+    contract = {
+        "fluidVersion": "0.7.1",
+        "kind": "DataProduct",
+        "id": "test.explicit.lineage",
+        "name": "Explicit Lineage",
+        "metadata": {"owner": {"team": "platform"}},
+        "consumes": [
+            {
+                "productId": "test.upstream.a",
+                "exposeId": "upstream_a",
+                "contractId": "test.upstream.a.contract.v1",
+                "required": False,
+            },
+            {
+                "productId": "test.upstream.b",
+                "exposeId": "upstream_b",
+            },
+        ],
+        "exposes": [],
+    }
+
+    result = provider.render(contract)
+
+    assert result["inputPorts"][0]["contractId"] == "test.upstream.a.contract.v1"
+    assert result["inputPorts"][0]["required"] is False
+    # Second port: neither field was set → neither appears in the output.
+    assert "contractId" not in result["inputPorts"][1]
+    assert "required" not in result["inputPorts"][1]
+
+
+def test_provider_render_skips_malformed_consume_entries(caplog):
+    """Non-mapping or id-less consume entries are skipped with a warning,
+    not silently dropped."""
+    import logging
+
+    provider = OdpsStandardProvider()
+
+    contract = {
+        "fluidVersion": "0.7.1",
+        "kind": "DataProduct",
+        "id": "test.skip.lineage",
+        "name": "Skip Lineage",
+        "metadata": {"owner": {"team": "platform"}},
+        "consumes": [
+            "not-a-mapping",  # will be skipped
+            {"productId": "test.no-id"},  # no exposeId/id → skipped
+            {"exposeId": "valid", "productId": "test.valid"},
+        ],
+        "exposes": [],
+    }
+
+    with caplog.at_level(logging.WARNING):
+        result = provider.render(contract)
+
+    ids = [port["id"] for port in result["inputPorts"]]
+    assert ids == ["valid"]
+    # Two warnings for the two malformed entries.
+    skip_warnings = [r for r in caplog.records if "Skipping consumes" in r.getMessage()]
+    assert len(skip_warnings) == 2
+
+
+def test_provider_render_raises_provider_error_for_expose_without_id():
+    """Exposes missing both ``id`` and ``exposeId`` should raise a typed
+    ``ProviderError`` rather than a generic KeyError."""
+    from fluid_build.providers.base import ProviderError
+
+    provider = OdpsStandardProvider()
+
+    contract = {
+        "fluidVersion": "0.7.1",
+        "kind": "DataProduct",
+        "id": "test.bad.expose",
+        "name": "Bad Expose",
+        "metadata": {"owner": {"team": "platform"}},
+        "exposes": [{"title": "no-id-here", "contract": {"schema": []}}],
+    }
+
+    with pytest.raises(ProviderError, match="id/exposeId"):
+        provider.render(contract)
+
+
 # ---------------------------------------------------------------------------
 # register()
 # ---------------------------------------------------------------------------

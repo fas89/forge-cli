@@ -71,7 +71,7 @@ def _discover_bundled_versions() -> List[str]:
                 versions.add(match.group(1))
 
     if not versions:
-        versions.update(["0.4.0", "0.5.7", "0.7.1"])
+        versions.update(["0.4.0", "0.5.7", "0.7.1", "0.7.2"])
 
     return sorted(versions, key=_schema_version_sort_key)
 
@@ -343,6 +343,13 @@ class FluidSchemaManager:
 
     # Bundled schema versions (embedded in package)
     BUNDLED_VERSIONS = _discover_bundled_versions()
+
+    @classmethod
+    def latest_bundled_version(cls) -> str:
+        """Return the newest bundled FLUID schema version."""
+        if cls.BUNDLED_VERSIONS:
+            return cls.BUNDLED_VERSIONS[-1]
+        return "0.7.2"
 
     def __init__(
         self,

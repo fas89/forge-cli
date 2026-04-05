@@ -75,7 +75,7 @@ Each template includes a `.template-meta.yaml` file:
 ```yaml
 name: "Template Display Name"
 id: "template-id"
-version: "0.7.1"
+version: "0.7.2"
 difficulty: "beginner|intermediate|advanced"
 time_to_complete: "X minutes"
 learning_path_order: 1

@@ -23,6 +23,8 @@ from pathlib import Path
 
 import pytest
 
+from fluid_build.schema_manager import FluidSchemaManager
+
 try:
     import fluid_provider_sdk  # noqa: F401
 
@@ -372,7 +374,7 @@ class TestScaffolderGeneration:
         pkg = self._run_scaffold(tmp_dir)
         with open(pkg / "tests/fixtures/basic_contract.yaml") as f:
             contract = yaml.safe_load(f)
-        assert contract["fluidVersion"] == "0.7.1"
+        assert contract["fluidVersion"] == FluidSchemaManager.latest_bundled_version()
         assert "exposes" in contract
 
     def test_readme_has_install_instructions(self, tmp_dir):

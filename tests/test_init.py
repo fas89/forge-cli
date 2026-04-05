@@ -22,6 +22,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from fluid_build.schema_manager import FluidSchemaManager
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -251,7 +253,9 @@ class TestScanMode:
             "models": [],
             "sensitive_columns": [],
         }
-        mock_gen.return_value = [{"name": "c1", "version": "0.7.1"}]
+        mock_gen.return_value = [
+            {"name": "c1", "version": FluidSchemaManager.latest_bundled_version()}
+        ]
 
         with patch("fluid_build.cli.init.detect_project_type", return_value=mock_detector):
             with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
@@ -267,6 +271,28 @@ class TestScanMode:
         args = _make_args()
         result = scan_mode(args, logger)
         assert result == 1
+
+    def test_scan_zero_model_dbt_fails_without_writing_contract(
+        self, tmp_path, logger, monkeypatch
+    ):
+        from fluid_build.cli.init import scan_mode
+
+        monkeypatch.chdir(tmp_path)
+        args = _make_args(provider="local")
+        mock_detector = MagicMock()
+        mock_detector.scan.return_value = {
+            "project_type": "dbt",
+            "metadata": {"project_name": "empty-dbt", "target_platform": "duckdb"},
+            "models": [],
+            "sensitive_columns": [],
+        }
+
+        with patch("fluid_build.cli.init.detect_project_type", return_value=mock_detector):
+            with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
+                result = scan_mode(args, logger)
+
+        assert result == 1
+        assert list(tmp_path.glob("*.fluid.yaml")) == []
 
     @patch("fluid_build.cli.init.show_migration_summary")
     @patch("fluid_build.cli.init.generate_cicd")
@@ -364,7 +390,10 @@ class TestBlankMode:
         assert result == 0
         contract = tmp_path / "blank-new-project" / "contract.fluid.yaml"
         assert contract.exists()
-        assert "blank-new-project" in contract.read_text()
+        content = contract.read_text()
+        assert f'fluidVersion: "{FluidSchemaManager.latest_bundled_version()}"' in content
+        assert "id: blank.blank-new-project" in content
+        assert 'name: "blank-new-project"' in content
 
     def test_product_new_run_called_when_available(self, tmp_path, logger, monkeypatch):
         from fluid_build.cli.init import blank_mode
@@ -1186,10 +1215,11 @@ class TestApplyGovernancePolicies:
     def test_applies_masking_rules_when_user_confirms(self, logger):
         from fluid_build.cli.init import apply_governance_policies
 
+        # 0.7.2 shape: ``exposes[*]`` with ``exposeId``.
         contracts = [
             {
                 "name": "c1",
-                "produces": [{"name": "users", "schema": []}],
+                "exposes": [{"exposeId": "users", "contract": {"schema": []}}],
             }
         ]
         results = {
@@ -1209,14 +1239,14 @@ class TestApplyGovernancePolicies:
                 with patch("fluid_build.cli.init.Confirm") as mock_confirm:
                     mock_confirm.ask.return_value = True
                     out = apply_governance_policies(contracts, results, logger)
-        assert "policy" in out[0]["produces"][0]
-        masking = out[0]["produces"][0]["policy"]["masking"]
+        assert "policy" in out[0]["exposes"][0]
+        masking = out[0]["exposes"][0]["policy"]["masking"]
         assert masking[0]["column"] == "email"
 
     def test_user_declines_governance_unchanged(self, logger):
         from fluid_build.cli.init import apply_governance_policies
 
-        contracts = [{"name": "c1", "produces": [{"name": "users"}]}]
+        contracts = [{"name": "c1", "exposes": [{"exposeId": "users"}]}]
         results = {
             "sensitive_columns": [
                 {"model": "users", "column": "email", "type": "EMAIL", "confidence": 0.85}
@@ -1233,7 +1263,7 @@ class TestApplyGovernancePolicies:
     def test_high_confidence_uses_sha256(self, logger):
         from fluid_build.cli.init import apply_governance_policies
 
-        contracts = [{"name": "c1", "produces": [{"name": "payments"}]}]
+        contracts = [{"name": "c1", "exposes": [{"exposeId": "payments"}]}]
         results = {
             "sensitive_columns": [
                 {
@@ -1251,8 +1281,29 @@ class TestApplyGovernancePolicies:
                 with patch("fluid_build.cli.init.Confirm") as mock_confirm:
                     mock_confirm.ask.return_value = True
                     out = apply_governance_policies(contracts, results, logger)
-        masking = out[0]["produces"][0]["policy"]["masking"]
+        masking = out[0]["exposes"][0]["policy"]["masking"]
         assert masking[0]["method"] == "SHA256"
+
+    def test_legacy_produces_contracts_still_accepted(self, logger):
+        """Regression guard: the governance helper must still operate on
+        pre-0.7.2 contracts that carry ``produces[*]`` until all callers
+        migrate. ``exposes`` wins when both are present."""
+        from fluid_build.cli.init import apply_governance_policies
+
+        contracts = [{"name": "c1", "produces": [{"name": "orders"}]}]
+        results = {
+            "sensitive_columns": [
+                {"model": "orders", "column": "email", "type": "EMAIL", "confidence": 0.9}
+            ],
+            "metadata": {},
+        }
+        with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
+            with patch("fluid_build.cli.init.console") as mock_con:
+                mock_con.print = MagicMock()
+                with patch("fluid_build.cli.init.Confirm") as mock_confirm:
+                    mock_confirm.ask.return_value = True
+                    out = apply_governance_policies(contracts, results, logger)
+        assert out[0]["produces"][0]["policy"]["masking"][0]["column"] == "email"
 
 
 # ===========================================================================
@@ -1278,9 +1329,11 @@ class TestShowMigrationSummary:
         contracts = [
             {
                 "name": "analytics",
-                "version": "0.7.1",
-                "binding": {"provider": "gcp"},
-                "produces": [{"name": "m1"}, {"name": "m2"}],
+                "fluidVersion": FluidSchemaManager.latest_bundled_version(),
+                "exposes": [
+                    {"exposeId": "m1", "binding": {"platform": "gcp"}},
+                    {"exposeId": "m2", "binding": {"platform": "gcp"}},
+                ],
             }
         ]
         results = {}
@@ -1296,9 +1349,8 @@ class TestShowMigrationSummary:
         contracts = [
             {
                 "name": "eu-data",
-                "version": "0.7.1",
-                "binding": {"provider": "gcp"},
-                "produces": [],
+                "fluidVersion": FluidSchemaManager.latest_bundled_version(),
+                "exposes": [],
                 "sovereignty": {"jurisdiction": "EU"},
             }
         ]

@@ -332,6 +332,398 @@ class TestCmdPublish:
 
 
 # ---------------------------------------------------------------------------
+# 3b. Publish contract validation against the bundled FLUID master schema
+# ---------------------------------------------------------------------------
+
+
+# A contract that conforms to fluid-schema-0.7.2.json end-to-end. Used to
+# verify that publish succeeds cleanly when the input is valid.
+VALID_072_CONTRACT = {
+    "fluidVersion": "0.7.2",
+    "kind": "DataProduct",
+    "id": "test.dmm.valid_072",
+    "name": "DMM 0.7.2 Valid",
+    "description": "Valid 0.7.2 contract for publish-validation tests",
+    "domain": "testing",
+    "metadata": {
+        "layer": "Gold",
+        "owner": {"team": "test-team", "email": "test@example.com"},
+    },
+    "exposes": [
+        {
+            "exposeId": "test_output",
+            "kind": "table",
+            "binding": {
+                "platform": "local",
+                "format": "parquet",
+                "location": {"path": "runtime/test_output.parquet"},
+            },
+            "contract": {
+                "schema": [
+                    {"name": "id", "type": "integer", "required": True},
+                ]
+            },
+        }
+    ],
+}
+
+# Deliberately non-conforming: ``exposes[0]`` uses pre-0.7.2 field names
+# (``name``/``type``/``provider``/``schema``) that the 0.7.2 schema rejects
+# because ``$defs/expose`` has ``additionalProperties: false`` and requires
+# ``exposeId``/``kind``/``binding``/``contract``.
+INVALID_072_CONTRACT = {
+    "fluidVersion": "0.7.2",
+    "kind": "DataProduct",
+    "id": "test.dmm.invalid_072",
+    "name": "DMM 0.7.2 Invalid",
+    "description": "Invalid 0.7.2 contract for publish-validation tests",
+    "domain": "testing",
+    "metadata": {
+        "layer": "Bronze",
+        "owner": {"team": "test-team"},
+    },
+    "exposes": [
+        {
+            "name": "test_output",
+            "type": "table",
+            "provider": "local",
+            "schema": [{"name": "id", "type": "integer"}],
+        }
+    ],
+}
+
+
+class TestCmdPublishSchemaValidation:
+    """The DMM publish path is the designated master-coordinator for pushing
+    FLUID data products to data-mesh-manager. These tests lock the behavior
+    where `_cmd_publish` validates the loaded contract against the bundled
+    master schema (fluid-schema-0.7.2.json) BEFORE calling the provider.
+
+    Two modes are honored via the existing ``--validation-mode`` flag:
+      * ``strict``: abort the publish (return 1) on any schema error, and
+        never invoke ``provider.apply``
+      * ``warn``   (default): log errors and continue — preserving backward
+        compatibility for contracts that carry extension fields
+    """
+
+    def _make_args(self, contract_path: str, validation_mode: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            contract=contract_path,
+            overlay=None,
+            dry_run=True,
+            with_contract=False,
+            no_create_team=False,
+            team_id=None,
+            api_key="fake-key",
+            api_url=None,
+            validation_mode=validation_mode,
+        )
+
+    @patch.object(dmm_mod, "load_contract_with_overlay")
+    @patch.object(dmm_mod, "DataMeshManagerProvider")
+    def test_strict_mode_aborts_on_invalid_contract(self, MockProvider, mock_loader, tmp_path):
+        """Strict mode must return 1 and NEVER call ``provider.apply`` when
+        the contract fails schema validation."""
+        mock_loader.return_value = INVALID_072_CONTRACT
+        provider_inst = MagicMock()
+        MockProvider.return_value = provider_inst
+
+        path = tmp_path / "invalid.yaml"
+        path.write_text(yaml.dump(INVALID_072_CONTRACT), encoding="utf-8")
+
+        result = dmm_mod._cmd_publish(
+            self._make_args(str(path), "strict"),
+            logging.getLogger("test"),
+        )
+
+        assert result == 1
+        provider_inst.apply.assert_not_called()
+
+    @patch.object(dmm_mod, "load_contract_with_overlay")
+    @patch.object(dmm_mod, "DataMeshManagerProvider")
+    def test_warn_mode_continues_on_invalid_contract(self, MockProvider, mock_loader, tmp_path):
+        """Warn mode must print errors but still invoke ``provider.apply``
+        so existing workflows that rely on extension fields keep working."""
+        mock_loader.return_value = INVALID_072_CONTRACT
+        provider_inst = MagicMock()
+        provider_inst.apply.return_value = {
+            "method": "PUT",
+            "url": "https://api.entropy-data.com/api/dataproducts/test.dmm.invalid_072",
+            "payload": {"info": {"id": "test.dmm.invalid_072"}},
+        }
+        MockProvider.return_value = provider_inst
+
+        path = tmp_path / "invalid.yaml"
+        path.write_text(yaml.dump(INVALID_072_CONTRACT), encoding="utf-8")
+
+        result = dmm_mod._cmd_publish(
+            self._make_args(str(path), "warn"),
+            logging.getLogger("test"),
+        )
+
+        assert result == 0
+        provider_inst.apply.assert_called_once()
+
+    @patch.object(dmm_mod, "load_contract_with_overlay")
+    @patch.object(dmm_mod, "DataMeshManagerProvider")
+    def test_strict_mode_allows_valid_contract(self, MockProvider, mock_loader, tmp_path):
+        """Strict mode must NOT reject a contract that conforms to 0.7.2."""
+        mock_loader.return_value = VALID_072_CONTRACT
+        provider_inst = MagicMock()
+        provider_inst.apply.return_value = {
+            "method": "PUT",
+            "url": "https://api.entropy-data.com/api/dataproducts/test.dmm.valid_072",
+            "payload": {"info": {"id": "test.dmm.valid_072"}},
+        }
+        MockProvider.return_value = provider_inst
+
+        path = tmp_path / "valid.yaml"
+        path.write_text(yaml.dump(VALID_072_CONTRACT), encoding="utf-8")
+
+        result = dmm_mod._cmd_publish(
+            self._make_args(str(path), "strict"),
+            logging.getLogger("test"),
+        )
+
+        assert result == 0
+        provider_inst.apply.assert_called_once()
+
+    @patch.object(dmm_mod, "load_contract_with_overlay")
+    @patch.object(dmm_mod, "DataMeshManagerProvider")
+    def test_default_mode_is_warn(self, MockProvider, mock_loader, tmp_path):
+        """When ``validation_mode`` is absent from the Namespace, the default
+        must be ``warn`` (i.e. publish proceeds). This preserves backward
+        compatibility for older call sites."""
+        mock_loader.return_value = INVALID_072_CONTRACT
+        provider_inst = MagicMock()
+        provider_inst.apply.return_value = {"payload": {"info": {"id": "x"}}}
+        MockProvider.return_value = provider_inst
+
+        path = tmp_path / "invalid.yaml"
+        path.write_text(yaml.dump(INVALID_072_CONTRACT), encoding="utf-8")
+
+        args = SimpleNamespace(
+            contract=str(path),
+            overlay=None,
+            dry_run=True,
+            with_contract=False,
+            no_create_team=False,
+            team_id=None,
+            api_key="k",
+            api_url=None,
+            # validation_mode intentionally omitted
+        )
+
+        result = dmm_mod._cmd_publish(args, logging.getLogger("test"))
+
+        assert result == 0
+        provider_inst.apply.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# 3b-bis. Backward-compat: publish validates against the contract's own
+#          declared fluidVersion, NOT a hardcoded master version.
+# ---------------------------------------------------------------------------
+
+
+class TestCmdPublishBackwardCompatibleValidation:
+    """``fluid dmm publish`` must honor the contract's declared
+    ``fluidVersion`` when validating. Upgrading the CLI must never
+    invalidate a contract that was valid against its own version — the
+    CLI coordinates publishes across the whole FLUID version range, not
+    just the latest.
+
+    These tests exercise the real publish path (loader → validator →
+    provider dry-run) on the three FLUID versions that ship a usable
+    lineage/minimal contract fixture: 0.5.7, 0.7.1, 0.7.2.
+    """
+
+    _FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "contracts" / "compatibility"
+
+    @pytest.mark.parametrize(
+        "fixture_name,expected_version",
+        [
+            ("minimal_057.yaml", "0.5.7"),
+            ("minimal_071.yaml", "0.7.1"),
+            ("minimal_072.yaml", "0.7.2"),
+            ("lineage_071.yaml", "0.7.1"),
+            ("lineage_072.yaml", "0.7.2"),
+        ],
+    )
+    def test_strict_publish_succeeds_for_every_bundled_fluid_version(
+        self, fixture_name, expected_version, caplog
+    ):
+        """Strict-mode publish on a contract that conforms to its own
+        declared version must succeed — regardless of whether that
+        version matches the CLI's ``latest_bundled_version``."""
+        import logging as stdlib_logging
+
+        fixture_path = self._FIXTURES_DIR / fixture_name
+        assert fixture_path.exists(), f"missing fixture: {fixture_path}"
+
+        args = SimpleNamespace(
+            contract=str(fixture_path),
+            overlay=None,
+            dry_run=True,
+            with_contract=False,
+            no_create_team=True,
+            team_id=None,
+            contract_format="odcs",
+            data_product_spec=None,
+            validate_generated_contracts=False,
+            validation_mode="strict",
+            fail_on_contract_error=False,
+            provider="odps",
+            api_key="dummy-key",
+            api_url="https://api.entropy-data.com",
+        )
+
+        with caplog.at_level(stdlib_logging.INFO):
+            code = dmm_mod._cmd_publish(
+                args,
+                stdlib_logging.getLogger(f"test_bc_{expected_version}"),
+            )
+
+        # Strict mode must accept the fixture against ITS OWN version.
+        assert code == 0, (
+            f"{fixture_name} was rejected in strict mode even though it "
+            f"conforms to its declared fluidVersion={expected_version}"
+        )
+
+    def test_validation_uses_contracts_own_version_not_latest(self):
+        """Direct assertion via the public ``run_on_contract_dict`` API:
+        the ``ValidationResult.schema_version`` must equal whatever the
+        contract declared, not the CLI's latest bundled version. This is
+        the guardrail that prevents a future contributor from hardcoding
+        ``schema_version=latest`` on the publish path."""
+        import logging as stdlib_logging
+
+        from fluid_build.cli.validate import run_on_contract_dict
+        from fluid_build.schema_manager import FluidSchemaManager
+
+        latest = FluidSchemaManager.latest_bundled_version()
+
+        for fixture_name, expected in [
+            ("minimal_057.yaml", "0.5.7"),
+            ("minimal_071.yaml", "0.7.1"),
+            ("minimal_072.yaml", "0.7.2"),
+        ]:
+            with (self._FIXTURES_DIR / fixture_name).open() as f:
+                contract = yaml.safe_load(f)
+
+            result, rc = run_on_contract_dict(
+                contract,
+                strict=False,
+                logger=stdlib_logging.getLogger("test_bc_direct"),
+                offline_only=True,
+            )
+            assert rc == 0
+            # The critical assertion: validated against the DECLARED version
+            # even when that version is not the latest bundled.
+            assert str(result.schema_version) == expected
+            if expected != latest:
+                # Sanity: we really did exercise a non-latest path.
+                assert str(result.schema_version) != latest
+
+
+# ---------------------------------------------------------------------------
+# 3c. End-to-end publish integration (no provider mock)
+# ---------------------------------------------------------------------------
+
+
+class TestCmdPublishEndToEnd:
+    """Exercises the full publish pipeline without mocking the provider:
+
+        on-disk fixture → load_contract_with_overlay
+                       → _validate_fluid_contract (strict)
+                       → DataMeshManagerProvider.apply(dry_run=True)
+                       → payload assertions
+
+    Because ``dry_run=True`` short-circuits the HTTP layer inside
+    ``DataMeshManagerProvider`` before any request is built, no network
+    stubs are required. This test is the one that would catch a wiring
+    regression anywhere along the publish chain — schema manager, loader,
+    validator, provider, ODPS renderer — that unit tests with mocks would
+    silently paper over.
+    """
+
+    _FIXTURE = (
+        Path(__file__).resolve().parents[1]
+        / "fixtures"
+        / "contracts"
+        / "compatibility"
+        / "lineage_072.yaml"
+    )
+
+    def test_publish_dry_run_strict_mode_renders_odps_payload(self, capsys):
+        assert self._FIXTURE.exists(), f"missing fixture: {self._FIXTURE}"
+
+        args = SimpleNamespace(
+            contract=str(self._FIXTURE),
+            overlay=None,
+            dry_run=True,
+            with_contract=False,
+            no_create_team=True,
+            team_id=None,
+            contract_format="odcs",
+            data_product_spec=None,
+            validate_generated_contracts=False,
+            validation_mode="strict",  # aborts publish if the fixture ever stops conforming
+            fail_on_contract_error=False,
+            provider="odps",  # route through the ODPS-Bitol path
+            api_key="dummy-key-for-dry-run",
+            api_url="https://api.entropy-data.com",
+        )
+
+        code = dmm_mod._cmd_publish(args, logging.getLogger("test_e2e_publish"))
+
+        # The entire pipeline must succeed:
+        #   1. Loader returns a dict
+        #   2. Strict master-schema validation passes on the real fixture
+        #   3. DataMeshManagerProvider.apply(dry_run=True) returns a payload
+        #   4. Printing the dry-run result does not raise
+        assert code == 0
+
+    def test_publish_dry_run_payload_preserves_inputports_from_consumes(self):
+        """The ODPS-Bitol renderer path must surface FLUID ``consumes[]``
+        as ``inputPorts`` on the DMM payload. This is the integration-level
+        cousin of the unit test in ``test_odps_standard`` — the difference
+        is that this test walks through the real DMM provider and the real
+        loader, so any wiring drift between them surfaces here first."""
+        import yaml
+
+        with self._FIXTURE.open("r", encoding="utf-8") as fh:
+            fixture_contract = yaml.safe_load(fh)
+
+        # Bypass _cmd_publish so we can inspect the payload directly.
+        provider = dmm_mod.DataMeshManagerProvider(
+            api_key="dummy", api_url="https://api.entropy-data.com"
+        )
+        result = provider.apply(
+            fixture_contract,
+            dry_run=True,
+            provider_hint="odps",
+        )
+
+        payload = result["payload"]
+        assert payload["kind"] == "DataProduct"
+        assert payload["id"] == fixture_contract["id"]
+
+        expected_refs = [c["productId"] for c in fixture_contract["consumes"]]
+        expected_ids = [c["exposeId"] for c in fixture_contract["consumes"]]
+        actual_refs = [p["reference"] for p in payload["inputPorts"]]
+        actual_ids = [p["id"] for p in payload["inputPorts"]]
+        assert actual_refs == expected_refs
+        assert actual_ids == expected_ids
+
+        # 0.7.2 ``consumeRef`` doesn't carry ``contractId`` / ``required``,
+        # so the renderer must not fabricate them.
+        for port in payload["inputPorts"]:
+            assert "contractId" not in port
+            assert "required" not in port
+
+
+# ---------------------------------------------------------------------------
 # 4. List command
 # ---------------------------------------------------------------------------
 
