@@ -20,7 +20,9 @@ This allows the codebase to work with schema 0.5.7 while maintaining
 clean abstraction for future schema versions.
 """
 
-from typing import Any, Dict, List, Optional
+import logging
+import re
+from typing import Any, Dict, List, Mapping, Optional
 
 
 def get_expose_id(expose: Dict[str, Any]) -> Optional[str]:
@@ -166,25 +168,12 @@ def get_contract_version(contract: Dict[str, Any]) -> Optional[str]:
     return contract.get("fluidVersion")
 
 
-def get_expose_schema(expose: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """
-    Get the schema definition from an expose object.
-
-    Args:
-        expose: The expose dictionary
-
-    Returns:
-        The schema object or None
-    """
-    return expose.get("schema")
-
-
 def get_expose_contract(expose: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
-    Get the contract section from an expose object (0.5.7 format).
+    Get the contract section from an expose object.
 
-    In 0.5.7, schema and dq are nested under a 'contract' key.
-    In 0.4.0, they are at the top level.
+    In FLUID 0.5.7+ (including 0.7.2), ``schema`` and ``dq`` are nested
+    under a ``contract`` key. In 0.4.0, they were at the top level.
 
     Args:
         expose: The expose dictionary
@@ -195,72 +184,186 @@ def get_expose_contract(expose: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return expose.get("contract")
 
 
-def get_expose_format(expose: Dict[str, Any]) -> Optional[str]:
+def get_consume_id(consume: Mapping[str, Any]) -> Optional[str]:
+    """Return the consume's local port id.
+
+    Schema 0.5.7+: ``exposeId``. Schema 0.4.0: ``id``.
     """
-    Get the data format from an expose object.
+    return consume.get("exposeId") or consume.get("id")
 
-    Args:
-        expose: The expose dictionary
 
-    Returns:
-        The format string (e.g., 'parquet', 'avro', 'json')
+def get_consume_ref(consume: Mapping[str, Any]) -> Optional[str]:
+    """Return the upstream data-product reference for a consume.
+
+    Schema 0.5.7+: ``productId``. Schema 0.4.0: ``ref``.
     """
-    return expose.get("format")
+    return consume.get("productId") or consume.get("ref")
 
 
-def normalize_expose(expose: Dict[str, Any]) -> Dict[str, Any]:
+def get_owner(contract: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Return the owner block, preferring the canonical ``metadata.owner``
+    location (where FLUID 0.7.2 mandates it — top-level ``owner`` is not in
+    the 0.7.2 top-level whitelist) and falling back to a top-level ``owner``
+    key for legacy or pre-migration contracts.
+
+    Returns an empty mapping when no owner information is present.
     """
-    Normalize an expose object to 0.5.7 field names.
+    meta = contract.get("metadata")
+    if isinstance(meta, Mapping):
+        meta_owner = meta.get("owner")
+        if isinstance(meta_owner, Mapping) and meta_owner:
+            return meta_owner
 
-    This creates a new dictionary with normalized field names,
-    useful for templates and output generation.
+    top = contract.get("owner")
+    if isinstance(top, Mapping) and top:
+        return top
 
-    Args:
-        expose: The expose dictionary
+    return {}
 
-    Returns:
-        Normalized expose dictionary
+
+def consumes_to_canonical_ports(
+    contract: Mapping[str, Any],
+    *,
+    default_version: str = "1",
+    logger: Optional[logging.Logger] = None,
+) -> List[Dict[str, Any]]:
+    """Normalize ``consumes[]`` into a canonical list of input-port dicts.
+
+    The canonical shape is a complete read-view over every field the FLUID
+    0.7.2 ``$defs/consumeRef`` schema permits, plus the legacy-extension
+    fields older contracts commonly carry, so providers can forward or drop
+    anything they support without having to re-parse the raw contract::
+
+        {
+            # --- always present ---
+            "id": str,                             # exposeId (or legacy `id`)
+
+            # --- 0.7.2 consumeRef canonical fields ---
+            "reference": Optional[str],            # productId (or legacy `ref`)
+            "description": str,                    # purpose (or legacy `description`)
+            "version_constraint": Optional[str],   # semverRange
+            "qos_expectations": Optional[Mapping], # freshnessMax / maxStaleness / ...
+            "required_policies": Optional[list],
+            "tags": Optional[list],
+            "labels": Optional[Mapping],
+
+            # --- 0.4.0 / extension fields (kept for backward compat) ---
+            "name": str,                           # defaults to id
+            "version": str,                        # stringified legacy `version`, defaults to default_version
+            "contract_id": Optional[str],          # explicit only
+            "required": Optional[bool],            # explicit only
+            "kind": Optional[str],
+            "constraints": Optional[Any],
+        }
+
+    Semantics:
+      * Fields that are not explicitly set on the consume entry are ``None``
+        (or an empty string / default) rather than being fabricated with
+        synthetic values — so providers can do ``if canonical["tags"]:`` and
+        forward the list only when the author actually declared one.
+      * Malformed entries (non-mapping, or missing both ``exposeId`` and
+        ``id``) are skipped with a warning rather than raising. FLUID
+        contracts in the wild often carry partial lineage; providers should
+        degrade gracefully rather than crash on first bad entry.
     """
-    normalized = expose.copy()
+    canonical: List[Dict[str, Any]] = []
+    raw_consumes = contract.get("consumes", [])
+    if not isinstance(raw_consumes, list):
+        return canonical
 
-    # Normalize ID field
-    if "id" in normalized and "exposeId" not in normalized:
-        normalized["exposeId"] = normalized.pop("id")
+    for index, consume in enumerate(raw_consumes):
+        if not isinstance(consume, Mapping):
+            if logger is not None:
+                logger.warning(
+                    "Skipping consumes[%d]: expected mapping, got %s",
+                    index,
+                    type(consume).__name__,
+                )
+            continue
 
-    # Normalize kind field
-    if "type" in normalized and "kind" not in normalized:
-        normalized["kind"] = normalized.pop("type")
+        consume_id = get_consume_id(consume)
+        if not consume_id:
+            if logger is not None:
+                logger.warning(
+                    "Skipping consumes[%d]: missing required 'exposeId'/'id' field (keys=%s)",
+                    index,
+                    sorted(consume.keys()),
+                )
+            continue
 
-    # Normalize binding field
-    if "location" in normalized and "binding" not in normalized:
-        location = normalized.pop("location")
-        normalized["binding"] = {"location": location}
+        # 0.7.2 canonical fields (all optional on consumeRef).
+        qos = consume.get("qosExpectations")
+        required_policies = consume.get("requiredPolicies")
+        tags = consume.get("tags")
+        labels = consume.get("labels")
+        version_constraint = consume.get("versionConstraint")
 
-    return normalized
+        port: Dict[str, Any] = {
+            "id": str(consume_id),
+            "name": str(consume.get("name") or consume_id),
+            "description": str(consume.get("purpose") or consume.get("description") or ""),
+            "version": str(consume.get("version", default_version)),
+            "reference": get_consume_ref(consume),
+            # 0.7.2 canonical fields
+            "version_constraint": version_constraint if version_constraint else None,
+            "qos_expectations": qos if isinstance(qos, Mapping) and qos else None,
+            "required_policies": (
+                list(required_policies)
+                if isinstance(required_policies, list) and required_policies
+                else None
+            ),
+            "tags": list(tags) if isinstance(tags, list) and tags else None,
+            "labels": dict(labels) if isinstance(labels, Mapping) and labels else None,
+            # Extension / legacy fields — only populated when explicitly set.
+            "contract_id": consume.get("contractId") or consume.get("contract_id"),
+            "required": consume["required"] if "required" in consume else None,
+            "kind": consume.get("kind"),
+            "constraints": consume.get("constraints"),
+        }
+        canonical.append(port)
+
+    return canonical
 
 
-def normalize_contract(contract: Dict[str, Any]) -> Dict[str, Any]:
+# Slug sanitization ---------------------------------------------------------
+
+_SLUG_NON_ALNUM = re.compile(r"[^a-z0-9]+")
+_SLUG_EDGE_DASH = re.compile(r"(^-+|-+$)")
+
+
+def _slugify_core(raw: str) -> str:
+    """Shared slug-cleaning step. Lowercases, collapses non-alphanumerics to
+    a single dash, and strips leading/trailing dashes. Does NOT apply the
+    leading-digit guard — that is applied at the outer layer so it can
+    protect both the input and the fallback."""
+    lowered = (raw or "").strip().lower()
+    slug = _SLUG_NON_ALNUM.sub("-", lowered)
+    return _SLUG_EDGE_DASH.sub("", slug)
+
+
+def slugify_identifier(value: str, *, fallback: str = "project") -> str:
+    """Convert an arbitrary string to a FLUID-0.7.2-valid identifier segment.
+
+    - Lowercases the input.
+    - Replaces any run of non-alphanumeric characters with a single dash.
+    - Strips leading/trailing dashes.
+    - Falls back to ``fallback`` when the input collapses to an empty string.
+      The fallback itself is slug-cleaned in the same way, so callers cannot
+      accidentally inject characters the FLUID identifier pattern rejects.
+    - Prefixes a leading digit with ``x-`` so the result ALWAYS satisfies the
+      0.7.2 identifier pattern ``^[a-z0-9_][a-z0-9_.-]*[a-z0-9_]$|^[a-z0-9_]$``.
+      This guard runs AFTER the fallback is chosen, so a numeric fallback
+      (e.g. ``"123"``) is still rewritten to ``"x-123"``.
+    - As a final safety net, if even the cleaned fallback is empty, returns
+      the single-character sentinel ``"x"`` — guaranteed valid.
     """
-    Normalize a contract to 0.5.7 structure.
+    slug = _slugify_core(value)
+    if not slug:
+        slug = _slugify_core(fallback)
+    if not slug:
+        return "x"
+    if slug[0].isdigit():
+        slug = f"x-{slug}"
+    return slug
 
-    This creates a new dictionary with normalized structure,
-    useful for templates and output generation.
 
-    Args:
-        contract: The contract dictionary
-
-    Returns:
-        Normalized contract dictionary
-    """
-    normalized = contract.copy()
-
-    # Normalize builds field
-    if "build" in normalized and "builds" not in normalized:
-        build = normalized.pop("build")
-        normalized["builds"] = [build]
-
-    # Normalize exposes
-    if "exposes" in normalized:
-        normalized["exposes"] = [normalize_expose(exp) for exp in normalized["exposes"]]
-
-    return normalized

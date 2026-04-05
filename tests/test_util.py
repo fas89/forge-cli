@@ -24,14 +24,10 @@ from fluid_build.util.contract import (
     get_contract_version,
     get_expose_binding,
     get_expose_contract,
-    get_expose_format,
     get_expose_id,
     get_expose_kind,
     get_expose_location,
-    get_expose_schema,
     get_primary_build,
-    normalize_contract,
-    normalize_expose,
 )
 from fluid_build.util.cron import get_cron
 from fluid_build.util.io import dump_json, load_contract, read_json
@@ -97,29 +93,12 @@ class TestGetExposeLocation:
         assert get_expose_location({}) is None
 
 
-class TestGetExposeSchema:
-    def test_present(self):
-        schema = [{"name": "id", "type": "INT"}]
-        assert get_expose_schema({"schema": schema}) == schema
-
-    def test_missing(self):
-        assert get_expose_schema({}) is None
-
-
 class TestGetExposeContract:
     def test_present(self):
         assert get_expose_contract({"contract": {"dq": []}}) == {"dq": []}
 
     def test_missing(self):
         assert get_expose_contract({}) is None
-
-
-class TestGetExposeFormat:
-    def test_present(self):
-        assert get_expose_format({"format": "parquet"}) == "parquet"
-
-    def test_missing(self):
-        assert get_expose_format({}) is None
 
 
 class TestGetBuilds:
@@ -169,50 +148,6 @@ class TestGetContractVersion:
 
     def test_missing(self):
         assert get_contract_version({}) is None
-
-
-class TestNormalizeExpose:
-    def test_id_to_exposeId(self):
-        result = normalize_expose({"id": "old_id", "type": "table"})
-        assert result["exposeId"] == "old_id"
-        assert "id" not in result
-
-    def test_type_to_kind(self):
-        result = normalize_expose({"type": "view"})
-        assert result["kind"] == "view"
-        assert "type" not in result
-
-    def test_location_string_to_binding(self):
-        result = normalize_expose({"location": "/data/path"})
-        assert result["binding"] == {"location": "/data/path"}
-        assert "location" not in result
-
-    def test_already_normalized(self):
-        expose = {"exposeId": "x", "kind": "table", "binding": {"location": "/x"}}
-        result = normalize_expose(expose)
-        assert result["exposeId"] == "x"
-        assert result["kind"] == "table"
-
-
-class TestNormalizeContract:
-    def test_build_to_builds(self):
-        result = normalize_contract({"build": {"engine": "dbt"}})
-        assert result["builds"] == [{"engine": "dbt"}]
-        assert "build" not in result
-
-    def test_exposes_normalized(self):
-        result = normalize_contract(
-            {
-                "exposes": [{"id": "x", "type": "table"}],
-            }
-        )
-        assert result["exposes"][0]["exposeId"] == "x"
-        assert result["exposes"][0]["kind"] == "table"
-
-    def test_already_normalized(self):
-        c = {"builds": [{"engine": "dbt"}], "exposes": [{"exposeId": "x"}]}
-        result = normalize_contract(c)
-        assert result["builds"] == [{"engine": "dbt"}]
 
 
 # ═══════════════════════════════════════════════════════════════════════

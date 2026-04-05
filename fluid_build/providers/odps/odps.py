@@ -35,6 +35,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from fluid_build.providers.base import ApplyResult, BaseProvider, ProviderError
 from fluid_build.util.contract import (
+    consumes_to_canonical_ports,
     get_expose_binding,
     get_expose_contract,
     get_expose_id,
@@ -394,7 +395,7 @@ class OdpsProvider(BaseProvider):
             "layer": metadata.get("layer"),
             "status": metadata.get("status", "Draft"),
             "outputPorts": self._extract_output_ports(contract.get("exposes", [])),
-            "inputPorts": self._extract_input_ports(contract.get("consumes", [])),
+            "inputPorts": self._extract_input_ports(contract),
         }
 
         # Preserve FLUID-specific metadata under product namespace
@@ -456,28 +457,28 @@ class OdpsProvider(BaseProvider):
 
         return ports
 
-    def _extract_input_ports(self, consumes: List[Mapping[str, Any]]) -> List[Dict[str, Any]]:
-        """Extract input port information from consumes section."""
-        ports = []
+    def _extract_input_ports(self, contract: Mapping[str, Any]) -> List[Dict[str, Any]]:
+        """Extract input port information from the contract's ``consumes[]``.
 
-        for consume in consumes:
-            # Support both 0.4.0 (id/ref) and 0.5.7 (productId/exposeId)
-            consume_id = consume.get("exposeId") or consume.get("id")
-            product_ref = consume.get("productId") or consume.get("ref")
+        Delegates to the shared :func:`consumes_to_canonical_ports` helper so
+        that the 0.4.0 ↔ 0.7.x field adapters live in exactly one place. The
+        output shape here is the OPDS v4.1 legacy ``inputPort`` dict, which
+        differs from the ODPS-Bitol shape emitted by ``OdpsStandardProvider``.
+        """
+        canonical = consumes_to_canonical_ports(contract, logger=self.logger)
 
-            port = {
-                "id": consume_id,
-                "name": consume.get("name", consume_id),
-                "description": consume.get("purpose", consume.get("description", "")),
-                "reference": product_ref,
-                "kind": consume.get("kind", "data"),
-                "required": consume.get("required", True),
+        ports: List[Dict[str, Any]] = []
+        for entry in canonical:
+            port: Dict[str, Any] = {
+                "id": entry["id"],
+                "name": entry["name"] or entry["id"],
+                "description": entry["description"],
+                "reference": entry["reference"],
+                "kind": entry["kind"] or "data",
+                "required": bool(entry["required"]) if entry["required"] is not None else True,
             }
-
-            # Add constraints if available
-            if "constraints" in consume:
-                port["constraints"] = consume["constraints"]
-
+            if entry["constraints"] is not None:
+                port["constraints"] = entry["constraints"]
             ports.append(port)
 
         return ports

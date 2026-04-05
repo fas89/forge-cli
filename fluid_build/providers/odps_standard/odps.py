@@ -36,6 +36,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from fluid_build.providers.base import ApplyResult, BaseProvider, ProviderError
+from fluid_build.util.contract import (
+    consumes_to_canonical_ports,
+    get_owner,
+)
 
 
 class OdpsStandardProvider(BaseProvider):
@@ -258,7 +262,7 @@ class OdpsStandardProvider(BaseProvider):
             ]
         }
         """
-        owner = self._extract_owner(fluid)
+        owner = get_owner(fluid)
         if not owner:
             return None
 
@@ -292,52 +296,35 @@ class OdpsStandardProvider(BaseProvider):
 
         return team if team else None
 
-    def _extract_owner(self, fluid: Mapping[str, Any]) -> Mapping[str, Any]:
-        """Return the owner block, preferring the top-level form and falling back to metadata."""
-        owner = fluid.get("owner")
-        if isinstance(owner, Mapping) and owner:
-            return owner
-
-        metadata = fluid.get("metadata", {})
-        metadata_owner = metadata.get("owner")
-        if isinstance(metadata_owner, Mapping):
-            return metadata_owner
-
-        return {}
-
     def _extract_input_ports(self, fluid: Mapping[str, Any]) -> List[Dict[str, Any]]:
-        """
-        Extract input ports from consumes section.
+        """Map FLUID ``consumes[]`` to ODPS-Bitol input ports.
 
-        FLUID 0.7.x typically declares upstream lineage through ``consumes[]``
-        using ``productId`` and ``exposeId``.
+        Uses the shared :func:`consumes_to_canonical_ports` helper to keep
+        the 0.4.0/0.5.7/0.7.x compatibility logic in a single place. Fields
+        that were not explicitly supplied (``contractId``, ``required``) are
+        omitted rather than fabricated, so downstream consumers never see
+        dangling references or unintended "hard dependency" semantics.
         """
+        canonical_ports = consumes_to_canonical_ports(
+            fluid,
+            default_version=self.default_port_version,
+            logger=self.logger,
+        )
+
         input_ports: List[Dict[str, Any]] = []
-
-        for consume in fluid.get("consumes", []):
-            if not isinstance(consume, Mapping):
-                continue
-
-            consume_id = consume.get("exposeId") or consume.get("id")
-            reference = consume.get("productId") or consume.get("ref")
-            if not consume_id:
-                continue
-
+        for canonical in canonical_ports:
             port: Dict[str, Any] = {
-                "id": consume_id,
-                "name": consume.get("name") or consume_id,
-                "description": consume.get("purpose") or consume.get("description", ""),
-                "version": str(consume.get("version", self.default_port_version)),
-                "required": consume.get("required", True),
+                "id": canonical["id"],
+                "name": canonical["name"],
+                "description": canonical["description"],
+                "version": canonical["version"],
             }
-            if reference:
-                port["reference"] = reference
-            port["contractId"] = (
-                consume.get("contractId")
-                or consume.get("contract_id")
-                or f"{consume_id}_contract"
-            )
-
+            if canonical["reference"]:
+                port["reference"] = canonical["reference"]
+            if canonical["contract_id"]:
+                port["contractId"] = canonical["contract_id"]
+            if canonical["required"] is not None:
+                port["required"] = bool(canonical["required"])
             input_ports.append(port)
 
         return input_ports
@@ -382,9 +369,13 @@ class OdpsStandardProvider(BaseProvider):
         if provider:
             port["type"] = self._map_provider_to_type(provider)
 
-        # Contract ID (reference to ODCS contract)
-        contract_id = expose.get("contract_id") or expose.get("contractId") or f"{expose_id}_contract"
-        port["contractId"] = contract_id
+        # Contract ID (reference to ODCS contract) — only when explicitly set.
+        # The DMM provider layer overlays a deterministic contractId when
+        # ``publish_contract=True``; we deliberately do not fabricate one
+        # here so that standalone renders don't leak dangling references.
+        contract_id = expose.get("contract_id") or expose.get("contractId")
+        if contract_id:
+            port["contractId"] = contract_id
 
         # Custom properties (server details, etc.)
         custom_props = self._extract_port_custom_properties(expose, fluid)

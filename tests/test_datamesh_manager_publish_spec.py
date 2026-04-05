@@ -246,6 +246,9 @@ def test_apply_dry_run_odps_maps_consumes_to_top_level_input_ports():
         provider_hint="odps",
     )
 
+    # The ODPS-Bitol provider only emits fields that were explicitly declared
+    # on the consume entries — it no longer fabricates ``contractId`` suffixes
+    # or defaults ``required: True``. See CHANGELOG for rationale.
     input_ports = result["payload"].get("inputPorts", [])
     assert input_ports == [
         {
@@ -254,8 +257,6 @@ def test_apply_dry_run_odps_maps_consumes_to_top_level_input_ports():
             "description": "Supply daily subscriber usage features to the health model.",
             "version": "1",
             "reference": "bizlab.teleforge.subscriber_usage_daily_lineage_local",
-            "contractId": "subscriber_usage_daily_contract",
-            "required": True,
         },
         {
             "id": "billing_health_daily",
@@ -263,13 +264,40 @@ def test_apply_dry_run_odps_maps_consumes_to_top_level_input_ports():
             "description": "Supply payment behavior and overdue indicators to the health model.",
             "version": "1",
             "reference": "bizlab.teleforge.billing_health_daily_lineage_local",
-            "contractId": "billing_health_daily_contract",
-            "required": True,
         },
     ]
 
 
 def test_cmd_publish_passes_provider_hint_to_apply():
+    # Use a contract that actually conforms to fluid-schema-0.7.2.json so
+    # the master-schema validation step in ``_cmd_publish`` (run in strict
+    # mode here) does not abort before ``provider.apply`` is called. This
+    # test's intent is to verify CLI-flag forwarding to ``provider.apply``,
+    # not to re-test contract validity.
+    valid_contract = {
+        "fluidVersion": "0.7.2",
+        "kind": "DataProduct",
+        "id": "sales.product",
+        "name": "Sales Product",
+        "description": "demo",
+        "metadata": {
+            "layer": "Gold",
+            "owner": {"team": "analytics"},
+        },
+        "exposes": [
+            {
+                "exposeId": "orders",
+                "kind": "table",
+                "binding": {
+                    "platform": "local",
+                    "format": "parquet",
+                    "location": {"path": "data/orders.parquet"},
+                },
+                "contract": {"schema": []},
+            }
+        ],
+    }
+
     args = SimpleNamespace(
         contract="contract.fluid.yaml",
         overlay=None,
@@ -289,13 +317,13 @@ def test_cmd_publish_passes_provider_hint_to_apply():
     mock_provider.apply.return_value = {
         "dry_run": True,
         "method": "PUT",
-        "url": "https://api.entropy-data.com/api/dataproducts/sales-product",
-        "payload": {"id": "sales-product", "kind": "DataProduct", "apiVersion": "v1.0.0"},
+        "url": "https://api.entropy-data.com/api/dataproducts/sales.product",
+        "payload": {"id": "sales.product", "kind": "DataProduct", "apiVersion": "v1.0.0"},
     }
 
     with patch(
         "fluid_build.cli.datamesh_manager.load_contract_with_overlay",
-        return_value=_sample_contract(),
+        return_value=valid_contract,
     ):
         with patch("fluid_build.cli.datamesh_manager._make_provider", return_value=mock_provider):
             with patch("fluid_build.cli.datamesh_manager._print_dry_run"):
