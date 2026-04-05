@@ -180,9 +180,7 @@ def _make_provider(args) -> DataMeshManagerProvider:
     return DataMeshManagerProvider(**kwargs)
 
 
-def _validate_fluid_contract(
-    contract: dict, validation_mode: str, logger: logging.Logger
-) -> int:
+def _validate_fluid_contract(contract: dict, validation_mode: str, logger: logging.Logger) -> int:
     """Validate an already-loaded FLUID contract on the publish path.
 
     **Validation target is the contract's own declared ``fluidVersion``**,
@@ -223,9 +221,7 @@ def _validate_fluid_contract(
         )
         return rc
 
-    cprint(
-        "⚠️  Publishing despite FLUID schema errors (--validation-mode is 'warn')."
-    )
+    cprint("⚠️  Publishing despite FLUID schema errors (--validation-mode is 'warn').")
     return 0
 
 
@@ -233,9 +229,7 @@ def _cmd_publish(args, logger=None):
     """Execute publish command."""
     log = logger or logging.getLogger(__name__)
     try:
-        contract = load_contract_with_overlay(
-            args.contract, getattr(args, "overlay", None), log
-        )
+        contract = load_contract_with_overlay(args.contract, getattr(args, "overlay", None), log)
 
         # Enforce the CLI's role as master coordinator: the loaded FLUID
         # contract must conform to ``fluid-schema-0.7.2.json`` (or whatever

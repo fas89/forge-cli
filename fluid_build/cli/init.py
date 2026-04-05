@@ -2092,7 +2092,9 @@ def _build_scan_location(platform: str, metadata: Dict[str, Any]) -> Dict[str, A
     return {"path": metadata.get("target_path", "data/output.parquet")}
 
 
-def _model_to_expose(model: Dict[str, Any], platform: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+def _model_to_expose(
+    model: Dict[str, Any], platform: str, metadata: Dict[str, Any]
+) -> Dict[str, Any]:
     """Convert a scanned dbt/SQL model into a FLUID 0.7.2 ``expose`` entry."""
     expose: Dict[str, Any] = {
         "exposeId": model["name"],
@@ -2134,9 +2136,7 @@ def generate_contracts_from_scan(
         console.print("\n⚙️  [bold]Generating FLUID contracts...[/bold]\n")
 
     fluid_version = _latest_fluid_version()
-    target_platform = _normalize_scan_platform(
-        metadata.get("target_platform") or provider
-    )
+    target_platform = _normalize_scan_platform(metadata.get("target_platform") or provider)
 
     if project_type == "dbt":
         project_name = metadata.get("project_name", "imported-project")
@@ -2160,16 +2160,12 @@ def generate_contracts_from_scan(
         }
 
         for model in models[:5]:  # demo: limit to 5
-            contract["exposes"].append(
-                _model_to_expose(model, target_platform, metadata)
-            )
+            contract["exposes"].append(_model_to_expose(model, target_platform, metadata))
 
         contracts.append(contract)
 
         if RICH_AVAILABLE:
-            console.print(
-                f"✅ Generated contract with {len(contract['exposes'])} models"
-            )
+            console.print(f"✅ Generated contract with {len(contract['exposes'])} models")
 
     elif project_type == "terraform":
         contracts.append(

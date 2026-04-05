@@ -22,6 +22,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+
 from fluid_build.schema_manager import FluidSchemaManager
 
 try:

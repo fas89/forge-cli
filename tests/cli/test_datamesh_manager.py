@@ -441,9 +441,7 @@ class TestCmdPublishSchemaValidation:
 
     @patch.object(dmm_mod, "load_contract_with_overlay")
     @patch.object(dmm_mod, "DataMeshManagerProvider")
-    def test_warn_mode_continues_on_invalid_contract(
-        self, MockProvider, mock_loader, tmp_path
-    ):
+    def test_warn_mode_continues_on_invalid_contract(self, MockProvider, mock_loader, tmp_path):
         """Warn mode must print errors but still invoke ``provider.apply``
         so existing workflows that rely on extension fields keep working."""
         mock_loader.return_value = INVALID_072_CONTRACT
@@ -540,12 +538,7 @@ class TestCmdPublishBackwardCompatibleValidation:
     lineage/minimal contract fixture: 0.5.7, 0.7.1, 0.7.2.
     """
 
-    _FIXTURES_DIR = (
-        Path(__file__).resolve().parents[1]
-        / "fixtures"
-        / "contracts"
-        / "compatibility"
-    )
+    _FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "contracts" / "compatibility"
 
     @pytest.mark.parametrize(
         "fixture_name,expected_version",

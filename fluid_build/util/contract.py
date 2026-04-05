@@ -365,5 +365,3 @@ def slugify_identifier(value: str, *, fallback: str = "project") -> str:
     if slug[0].isdigit():
         slug = f"x-{slug}"
     return slug
-
-

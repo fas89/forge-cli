@@ -220,6 +220,7 @@ def test_provider_render_raises_provider_error_for_expose_without_id():
     with pytest.raises(ProviderError, match="id/exposeId"):
         provider.render(contract)
 
+
 # ---------------------------------------------------------------------------
 # register()
 # ---------------------------------------------------------------------------

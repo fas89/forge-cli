@@ -365,15 +365,16 @@ class TestConsumesToCanonicalPorts:
 
     def test_contract_id_alternate_spellings(self):
         """Both ``contractId`` and ``contract_id`` are accepted on read."""
-        assert consumes_to_canonical_ports(
-            {"consumes": [{"productId": "x", "exposeId": "y", "contract_id": "snake"}]}
-        )[0]["contract_id"] == "snake"
+        assert (
+            consumes_to_canonical_ports(
+                {"consumes": [{"productId": "x", "exposeId": "y", "contract_id": "snake"}]}
+            )[0]["contract_id"]
+            == "snake"
+        )
 
     def test_explicit_none_required_treated_as_unset(self):
         """``required: None`` explicitly set must behave like omitted."""
-        p = consumes_to_canonical_ports(
-            {"consumes": [{"exposeId": "x", "required": None}]}
-        )[0]
+        p = consumes_to_canonical_ports({"consumes": [{"exposeId": "x", "required": None}]})[0]
         assert p["required"] is None
 
     def test_purpose_empty_falls_back_to_description(self):
@@ -385,9 +386,7 @@ class TestConsumesToCanonicalPorts:
         assert p["description"] == "desc"
 
     def test_default_version_override(self):
-        p = consumes_to_canonical_ports(
-            {"consumes": [{"exposeId": "x"}]}, default_version="2"
-        )[0]
+        p = consumes_to_canonical_ports({"consumes": [{"exposeId": "x"}]}, default_version="2")[0]
         assert p["version"] == "2"
 
     def test_skips_non_mapping_entries_with_warning(self, caplog):
@@ -494,9 +493,7 @@ class TestSlugifyIdentifier:
         a contract ``id``."""
         import re
 
-        fluid_identifier = re.compile(
-            r"^[a-z0-9_][a-z0-9_.-]*[a-z0-9_]$|^[a-z0-9_]$"
-        )
+        fluid_identifier = re.compile(r"^[a-z0-9_][a-z0-9_.-]*[a-z0-9_]$|^[a-z0-9_]$")
         samples = [
             "My Project",
             "my_project",

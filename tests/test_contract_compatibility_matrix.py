@@ -73,11 +73,15 @@ def _expected_output_ids(contract: dict) -> list[str]:
 
 
 def _expected_input_ids(contract: dict) -> list[str]:
-    return [(consume.get("id") or consume.get("exposeId")) for consume in contract.get("consumes", [])]
+    return [
+        (consume.get("id") or consume.get("exposeId")) for consume in contract.get("consumes", [])
+    ]
 
 
 def _expected_input_refs(contract: dict) -> list[str]:
-    return [(consume.get("productId") or consume.get("ref")) for consume in contract.get("consumes", [])]
+    return [
+        (consume.get("productId") or consume.get("ref")) for consume in contract.get("consumes", [])
+    ]
 
 
 @pytest.mark.parametrize(("fixture_name", "expected_version"), ALL_FIXTURES)
@@ -104,9 +108,7 @@ def test_compatibility_fixtures_export_to_odcs(fixture_name: str, _expected_vers
 
 
 @pytest.mark.parametrize(("fixture_name", "_expected_version"), ALL_FIXTURES)
-def test_compatibility_fixtures_export_to_official_opds(
-    fixture_name: str, _expected_version: str
-):
+def test_compatibility_fixtures_export_to_official_opds(fixture_name: str, _expected_version: str):
     contract = _load_contract(fixture_name)
 
     rendered = OdpsProvider().render(contract)
@@ -120,9 +122,7 @@ def test_compatibility_fixtures_export_to_official_opds(
 
 
 @pytest.mark.parametrize(("fixture_name", "_expected_version"), ALL_FIXTURES)
-def test_compatibility_fixtures_export_to_odps_standard(
-    fixture_name: str, _expected_version: str
-):
+def test_compatibility_fixtures_export_to_odps_standard(fixture_name: str, _expected_version: str):
     contract = _load_contract(fixture_name)
 
     rendered = OdpsStandardProvider().render(contract)

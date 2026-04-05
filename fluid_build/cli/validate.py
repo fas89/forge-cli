@@ -18,10 +18,8 @@ import argparse
 import logging
 import time
 from pathlib import Path
-from typing import Optional, Tuple
-
 from types import SimpleNamespace
-from typing import Any, Mapping
+from typing import Any, Mapping, Optional, Tuple
 
 from fluid_build.cli.console import cprint
 from fluid_build.cli.console import error as console_error
@@ -622,9 +620,7 @@ def _output_text_results(result: ValidationResult, args, logger: logging.Logger)
 # ---------------------------------------------------------------------------
 
 
-def output_text_results(
-    result: ValidationResult, args: Any, logger: logging.Logger
-) -> int:
+def output_text_results(result: ValidationResult, args: Any, logger: logging.Logger) -> int:
     """Public alias of the native text formatter used by ``fluid validate``.
 
     Other CLI commands that want the exact same validation UX should call

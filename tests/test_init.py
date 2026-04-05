@@ -21,6 +21,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from fluid_build.schema_manager import FluidSchemaManager
 
 # ---------------------------------------------------------------------------
@@ -252,7 +253,9 @@ class TestScanMode:
             "models": [],
             "sensitive_columns": [],
         }
-        mock_gen.return_value = [{"name": "c1", "version": FluidSchemaManager.latest_bundled_version()}]
+        mock_gen.return_value = [
+            {"name": "c1", "version": FluidSchemaManager.latest_bundled_version()}
+        ]
 
         with patch("fluid_build.cli.init.detect_project_type", return_value=mock_detector):
             with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
@@ -269,7 +272,9 @@ class TestScanMode:
         result = scan_mode(args, logger)
         assert result == 1
 
-    def test_scan_zero_model_dbt_fails_without_writing_contract(self, tmp_path, logger, monkeypatch):
+    def test_scan_zero_model_dbt_fails_without_writing_contract(
+        self, tmp_path, logger, monkeypatch
+    ):
         from fluid_build.cli.init import scan_mode
 
         monkeypatch.chdir(tmp_path)
