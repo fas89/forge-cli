@@ -21,6 +21,100 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from fluid_build.providers.odps_standard import OdpsStandardProvider
+
+
+def _sample_fluid_contract_with_consumes_and_expose_id():
+    return {
+        "fluidVersion": "0.7.1",
+        "kind": "DataProduct",
+        "id": "bizlab.teleforge.subscriber_health_360_lineage_local",
+        "name": "TeleForge Subscriber Health 360 Local",
+        "description": (
+            "Gold subscriber health mart built from the Silver usage and billing daily products."
+        ),
+        "domain": "telco",
+        "metadata": {
+            "layer": "Gold",
+            "owner": {"team": "bizlab", "email": "bizlab@example.com"},
+        },
+        "consumes": [
+            {
+                "productId": "bizlab.teleforge.subscriber_usage_daily_lineage_local",
+                "exposeId": "subscriber_usage_daily",
+                "purpose": "Supply daily subscriber usage features to the health model.",
+            },
+            {
+                "productId": "bizlab.teleforge.billing_health_daily_lineage_local",
+                "exposeId": "billing_health_daily",
+                "purpose": "Supply payment behavior and overdue indicators to the health model.",
+            },
+        ],
+        "exposes": [
+            {
+                "exposeId": "subscriber_health_360",
+                "title": "Subscriber Health 360",
+                "version": "1.0.0",
+                "kind": "table",
+                "binding": {
+                    "platform": "local",
+                    "format": "parquet",
+                    "location": {"path": "runtime/lineage-sim/subscriber_health_360.parquet"},
+                },
+                "contract": {
+                    "schema": [
+                        {"name": "subscriber_id", "type": "STRING", "required": True},
+                        {"name": "overall_health_score", "type": "INTEGER", "required": True},
+                    ]
+                },
+            }
+        ],
+    }
+
+
+def test_provider_render_supports_expose_id_only_contracts():
+    provider = OdpsStandardProvider()
+
+    result = provider.render(_sample_fluid_contract_with_consumes_and_expose_id())
+
+    assert result["id"] == "bizlab.teleforge.subscriber_health_360_lineage_local"
+    assert result["description"] == {
+        "purpose": (
+            "Gold subscriber health mart built from the Silver usage and billing daily products."
+        )
+    }
+    assert result["team"]["name"] == "bizlab"
+    assert result["outputPorts"][0]["id"] == "subscriber_health_360"
+    assert result["outputPorts"][0]["name"] == "subscriber_health_360"
+    assert result["outputPorts"][0]["type"] == "local"
+
+
+def test_provider_render_maps_consumes_to_input_ports():
+    provider = OdpsStandardProvider()
+
+    result = provider.render(_sample_fluid_contract_with_consumes_and_expose_id())
+
+    assert result["inputPorts"] == [
+        {
+            "id": "subscriber_usage_daily",
+            "name": "subscriber_usage_daily",
+            "description": "Supply daily subscriber usage features to the health model.",
+            "version": "1",
+            "reference": "bizlab.teleforge.subscriber_usage_daily_lineage_local",
+            "contractId": "subscriber_usage_daily_contract",
+            "required": True,
+        },
+        {
+            "id": "billing_health_daily",
+            "name": "billing_health_daily",
+            "description": "Supply payment behavior and overdue indicators to the health model.",
+            "version": "1",
+            "reference": "bizlab.teleforge.billing_health_daily_lineage_local",
+            "contractId": "billing_health_daily_contract",
+            "required": True,
+        },
+    ]
+
 # ---------------------------------------------------------------------------
 # register()
 # ---------------------------------------------------------------------------

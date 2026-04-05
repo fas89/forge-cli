@@ -25,6 +25,7 @@ from fluid_build.cli.init import (
     generate_gitlab_ci,
     generate_jenkinsfile,
 )
+from fluid_build.schema_manager import FluidSchemaManager
 
 
 @pytest.fixture
@@ -134,7 +135,7 @@ class TestGenerateContractsFromScan:
         assert len(contracts) == 1
         c = contracts[0]
         assert c["name"] == "my-dbt"
-        assert c["version"] == "0.7.1"
+        assert c["version"] == FluidSchemaManager.latest_bundled_version()
         assert len(c["produces"]) == 2
         assert c["produces"][0]["name"] == "orders"
         assert c["binding"]["provider"] == "gcp"

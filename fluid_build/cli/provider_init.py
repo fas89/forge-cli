@@ -25,8 +25,10 @@ from pathlib import Path
 
 from fluid_build.cli._common import CLIError
 from fluid_build.cli.console import cprint
+from fluid_build.schema_manager import FluidSchemaManager
 
 COMMAND = "provider-init"
+LATEST_FLUID_VERSION = FluidSchemaManager.latest_bundled_version()
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
@@ -301,7 +303,7 @@ def _gen_tests(name: str, pkg: str, cls: str) -> str:
 def _gen_contract_yaml(name: str) -> str:
     return textwrap.dedent(
         f"""\
-        fluidVersion: "0.7.1"
+        fluidVersion: "{LATEST_FLUID_VERSION}"
         kind: DataProduct
         id: test.{name}_example
         name: "{name.replace("_", " ").title()} Example"

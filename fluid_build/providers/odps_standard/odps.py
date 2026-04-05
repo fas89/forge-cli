@@ -149,7 +149,7 @@ class OdpsStandardProvider(BaseProvider):
         }
 
         # Optional fields
-        description = self._extract_description(metadata)
+        description = self._extract_description(fluid)
         if description:
             odps_product["description"] = description
 
@@ -160,6 +160,10 @@ class OdpsStandardProvider(BaseProvider):
         tags = metadata.get("tags") or fluid.get("tags") or []
         if tags:
             odps_product["tags"] = tags
+
+        input_ports = self._extract_input_ports(fluid)
+        if input_ports:
+            odps_product["inputPorts"] = input_ports
 
         # Output ports (from exposes) - always include
         output_ports = self._extract_output_ports(fluid)
@@ -228,14 +232,15 @@ class OdpsStandardProvider(BaseProvider):
 
         return mapping.get(status.lower(), "draft")
 
-    def _extract_description(self, metadata: Mapping[str, Any]) -> Optional[Dict[str, str]]:
+    def _extract_description(self, fluid: Mapping[str, Any]) -> Optional[Dict[str, str]]:
         """
         Extract description as ODPS structure.
 
         Returns:
             {"purpose": "..."} or None
         """
-        description = metadata.get("description")
+        metadata = fluid.get("metadata", {})
+        description = metadata.get("description") or fluid.get("description")
         if not description:
             return None
 
@@ -253,7 +258,7 @@ class OdpsStandardProvider(BaseProvider):
             ]
         }
         """
-        owner = fluid.get("owner", {})
+        owner = self._extract_owner(fluid)
         if not owner:
             return None
 
@@ -287,6 +292,56 @@ class OdpsStandardProvider(BaseProvider):
 
         return team if team else None
 
+    def _extract_owner(self, fluid: Mapping[str, Any]) -> Mapping[str, Any]:
+        """Return the owner block, preferring the top-level form and falling back to metadata."""
+        owner = fluid.get("owner")
+        if isinstance(owner, Mapping) and owner:
+            return owner
+
+        metadata = fluid.get("metadata", {})
+        metadata_owner = metadata.get("owner")
+        if isinstance(metadata_owner, Mapping):
+            return metadata_owner
+
+        return {}
+
+    def _extract_input_ports(self, fluid: Mapping[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Extract input ports from consumes section.
+
+        FLUID 0.7.x typically declares upstream lineage through ``consumes[]``
+        using ``productId`` and ``exposeId``.
+        """
+        input_ports: List[Dict[str, Any]] = []
+
+        for consume in fluid.get("consumes", []):
+            if not isinstance(consume, Mapping):
+                continue
+
+            consume_id = consume.get("exposeId") or consume.get("id")
+            reference = consume.get("productId") or consume.get("ref")
+            if not consume_id:
+                continue
+
+            port: Dict[str, Any] = {
+                "id": consume_id,
+                "name": consume.get("name") or consume_id,
+                "description": consume.get("purpose") or consume.get("description", ""),
+                "version": str(consume.get("version", self.default_port_version)),
+                "required": consume.get("required", True),
+            }
+            if reference:
+                port["reference"] = reference
+            port["contractId"] = (
+                consume.get("contractId")
+                or consume.get("contract_id")
+                or f"{consume_id}_contract"
+            )
+
+            input_ports.append(port)
+
+        return input_ports
+
     def _extract_output_ports(self, fluid: Mapping[str, Any]) -> List[Dict[str, Any]]:
         """
         Extract output ports from exposes section.
@@ -314,23 +369,21 @@ class OdpsStandardProvider(BaseProvider):
         Returns:
             ODPS output port dictionary
         """
+        expose_id = self._extract_expose_id(expose)
         port = {
-            "name": expose["id"],
+            "id": expose_id,
+            "name": expose_id,
             "version": str(expose.get("version", self.default_port_version)),
             "description": expose.get("description", ""),
         }
 
         # Map provider to type
-        provider = expose.get("provider")
-        if not provider:
-            binding = expose.get("binding")
-            if isinstance(binding, dict):
-                provider = binding.get("platform")
+        provider = self._extract_expose_provider(expose)
         if provider:
             port["type"] = self._map_provider_to_type(provider)
 
         # Contract ID (reference to ODCS contract)
-        contract_id = expose.get("contract_id") or f"{expose['id']}_contract"
+        contract_id = expose.get("contract_id") or expose.get("contractId") or f"{expose_id}_contract"
         port["contractId"] = contract_id
 
         # Custom properties (server details, etc.)
@@ -339,6 +392,37 @@ class OdpsStandardProvider(BaseProvider):
             port["customProperties"] = custom_props
 
         return port
+
+    def _extract_expose_id(self, expose: Mapping[str, Any]) -> str:
+        expose_id = expose.get("id") or expose.get("exposeId")
+        if not expose_id:
+            raise ProviderError("Expose missing required id/exposeId field")
+        return str(expose_id)
+
+    def _extract_expose_provider(self, expose: Mapping[str, Any]) -> Optional[str]:
+        provider = expose.get("provider")
+        if provider:
+            return str(provider)
+
+        binding = expose.get("binding")
+        if isinstance(binding, Mapping):
+            platform = binding.get("platform")
+            if platform:
+                return str(platform)
+
+        return None
+
+    def _extract_expose_location(self, expose: Mapping[str, Any]) -> Any:
+        binding = expose.get("binding")
+        if isinstance(binding, Mapping) and "location" in binding:
+            return binding.get("location")
+        return expose.get("location")
+
+    def _extract_expose_schema(self, expose: Mapping[str, Any]) -> Any:
+        contract = expose.get("contract")
+        if isinstance(contract, Mapping) and "schema" in contract:
+            return contract.get("schema")
+        return expose.get("schema", {})
 
     def _map_provider_to_type(self, provider: str) -> str:
         """
@@ -377,7 +461,7 @@ class OdpsStandardProvider(BaseProvider):
         custom_props = []
 
         # Server/location details
-        location = expose.get("location")
+        location = self._extract_expose_location(expose)
         if location and isinstance(location, dict):
             custom_props.append({"property": "server", "value": location})
 
@@ -403,8 +487,13 @@ class OdpsStandardProvider(BaseProvider):
     def _check_contains_pii(self, expose: Mapping[str, Any]) -> bool:
         """Check if expose contains PII data."""
         # Check schema fields for PII classification
-        schema = expose.get("schema", {})
-        fields = schema.get("fields", [])
+        schema = self._extract_expose_schema(expose)
+        if isinstance(schema, Mapping):
+            fields = schema.get("fields", [])
+        elif isinstance(schema, list):
+            fields = schema
+        else:
+            fields = []
 
         for field in fields:
             classification = field.get("classification", "").lower()
@@ -455,12 +544,12 @@ class OdpsStandardProvider(BaseProvider):
             custom_props.append({"property": "type", "value": product_type})
 
         # Domain
-        domain = metadata.get("domain")
+        domain = metadata.get("domain") or fluid.get("domain")
         if domain:
             custom_props.append({"property": "domain", "value": domain})
 
         # FLUID version
-        fluid_version = metadata.get("version")
+        fluid_version = metadata.get("version") or fluid.get("fluidVersion")
         if fluid_version:
             custom_props.append({"property": "fluidVersion", "value": fluid_version})
 

@@ -34,6 +34,7 @@ from typing import Any, Dict, List, Optional
 
 from fluid_build.cli.console import cprint, success, warning
 from fluid_build.cli.console import error as console_error
+from fluid_build.schema_manager import FluidSchemaManager
 
 from ._logging import error, info
 
@@ -52,6 +53,7 @@ except ImportError:
     console = None
 
 COMMAND = "init"
+LATEST_FLUID_VERSION = FluidSchemaManager.latest_bundled_version()
 
 
 def _mark_first_run_complete():
@@ -761,16 +763,19 @@ def blank_mode(args, logger: logging.Logger) -> int:
         project_dir.mkdir(parents=True)
 
         # Create minimal contract
-        contract_content = f"""version: "0.7.1"
-kind: fluid
-name: {project_name}
-description: FLUID data product
+        project_slug = project_name.strip().lower().replace(" ", "-").replace("_", "-")
+        contract_content = f"""fluidVersion: "{LATEST_FLUID_VERSION}"
+kind: DataProduct
+id: blank.{project_slug}
+name: "{project_name}"
+description: "FLUID data product"
+domain: example
+
+metadata:
+  owner:
+    team: data-team
 
 exposes: []
-produces: []
-
-binding:
-  provider: {args.provider}
 """
 
         contract_path = project_dir / "contract.fluid.yaml"
@@ -2010,7 +2015,7 @@ def generate_contracts_from_scan(
     if project_type == "dbt":
         # Generate contract for dbt project
         contract = {
-            "version": "0.7.1",
+            "version": LATEST_FLUID_VERSION,
             "kind": "fluid",
             "name": results["metadata"].get("project_name", "imported-project"),
             "description": f"Imported from dbt project on {Path.cwd().name}",
@@ -2059,7 +2064,7 @@ def generate_contracts_from_scan(
     elif project_type == "terraform":
         # Generate basic contract for Terraform
         contract = {
-            "version": "0.7.1",
+            "version": LATEST_FLUID_VERSION,
             "kind": "fluid",
             "name": "terraform-import",
             "description": "Imported from Terraform configuration",
@@ -2072,7 +2077,7 @@ def generate_contracts_from_scan(
     elif project_type == "sql":
         # Generate contract for SQL files
         contract = {
-            "version": "0.7.1",
+            "version": LATEST_FLUID_VERSION,
             "kind": "fluid",
             "name": "sql-import",
             "description": "Imported from SQL files",

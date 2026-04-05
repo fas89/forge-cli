@@ -21,6 +21,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fluid_build.schema_manager import FluidSchemaManager
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -251,7 +252,7 @@ class TestScanMode:
             "models": [],
             "sensitive_columns": [],
         }
-        mock_gen.return_value = [{"name": "c1", "version": "0.7.1"}]
+        mock_gen.return_value = [{"name": "c1", "version": FluidSchemaManager.latest_bundled_version()}]
 
         with patch("fluid_build.cli.init.detect_project_type", return_value=mock_detector):
             with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
@@ -364,7 +365,10 @@ class TestBlankMode:
         assert result == 0
         contract = tmp_path / "blank-new-project" / "contract.fluid.yaml"
         assert contract.exists()
-        assert "blank-new-project" in contract.read_text()
+        content = contract.read_text()
+        assert f'fluidVersion: "{FluidSchemaManager.latest_bundled_version()}"' in content
+        assert "id: blank.blank-new-project" in content
+        assert 'name: "blank-new-project"' in content
 
     def test_product_new_run_called_when_available(self, tmp_path, logger, monkeypatch):
         from fluid_build.cli.init import blank_mode
@@ -1278,7 +1282,7 @@ class TestShowMigrationSummary:
         contracts = [
             {
                 "name": "analytics",
-                "version": "0.7.1",
+                "version": FluidSchemaManager.latest_bundled_version(),
                 "binding": {"provider": "gcp"},
                 "produces": [{"name": "m1"}, {"name": "m2"}],
             }
@@ -1296,7 +1300,7 @@ class TestShowMigrationSummary:
         contracts = [
             {
                 "name": "eu-data",
-                "version": "0.7.1",
+                "version": FluidSchemaManager.latest_bundled_version(),
                 "binding": {"provider": "gcp"},
                 "produces": [],
                 "sovereignty": {"jurisdiction": "EU"},
