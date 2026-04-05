@@ -184,11 +184,9 @@ def _check_fluid_features() -> Tuple[bool, List[Dict[str, any]]]:
 
     # Core checks (0.5.7 baseline)
     try:
-        from fluid_build.schema_manager import SchemaManager
+        from fluid_build.schema_manager import FluidSchemaManager
 
-        sm = SchemaManager()
-        versions = sm.BUNDLED_VERSIONS
-        _has_057 = "0.5.7" in versions  # noqa: F841
+        versions = FluidSchemaManager.BUNDLED_VERSIONS
         has_071 = "0.7.1" in versions
 
         checks.append(

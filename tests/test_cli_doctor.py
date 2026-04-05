@@ -77,6 +77,17 @@ class TestCheckFluidFeatures:
         names = [c["check"] for c in checks]
         assert "FLUID Schema Manager" in names
 
+    def test_schema_manager_check_is_available(self):
+        from fluid_build.cli.doctor import _check_fluid_features
+
+        all_ok, checks = _check_fluid_features()
+        schema_check = next(c for c in checks if c["check"] == "FLUID Schema Manager")
+
+        assert all_ok is True
+        assert schema_check["ok"] is True
+        assert schema_check["status"] == "✅ Available"
+        assert "0.5.7" in schema_check["details"]
+
 
 class TestRun:
     @patch("fluid_build.cli.doctor._check_fluid_features")

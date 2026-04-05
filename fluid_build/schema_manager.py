@@ -689,6 +689,10 @@ def create_schema_manager(
     return FluidSchemaManager(cache_dir=cache_dir, logger=logger)
 
 
+# Backward-compatible alias for older call sites.
+SchemaManager = FluidSchemaManager
+
+
 def validate_contract_file(
     file_path: str,
     schema_version: Optional[str] = None,

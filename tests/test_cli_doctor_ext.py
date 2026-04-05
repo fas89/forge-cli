@@ -46,17 +46,13 @@ class TestCheckFluidFeaturesExtra(unittest.TestCase):
     def test_schema_manager_check_fails_gracefully(self):
         from fluid_build.cli.doctor import _check_fluid_features
 
-        # Patch SchemaManager to raise an exception
-        with patch(
-            "fluid_build.cli.doctor.SchemaManager",
-            side_effect=ImportError("no schema manager"),
-            create=True,
-        ):
-            # The function should handle the exception without raising
-            try:
-                all_ok, checks = _check_fluid_features()
-            except Exception:
-                pass  # If SchemaManager is imported at different level, that's fine
+        with patch("fluid_build.schema_manager.FluidSchemaManager", new=object):
+            all_ok, checks = _check_fluid_features()
+
+        assert all_ok is False
+        schema_check = next(c for c in checks if c["check"] == "FLUID Schema Manager")
+        assert schema_check["ok"] is False
+        assert schema_check["status"] == "❌ Error"
 
     def test_checks_include_feature_categories(self):
         from fluid_build.cli.doctor import _check_fluid_features
