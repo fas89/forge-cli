@@ -20,6 +20,9 @@ import time
 from pathlib import Path
 from typing import Optional, Tuple
 
+from types import SimpleNamespace
+from typing import Any, Mapping
+
 from fluid_build.cli.console import cprint
 from fluid_build.cli.console import error as console_error
 
@@ -607,3 +610,57 @@ def _output_text_results(result: ValidationResult, args, logger: logging.Logger)
         return 1
     else:
         return 0
+
+
+# ---------------------------------------------------------------------------
+# Public helpers for other CLI commands (publish, apply, …) that need to
+# run FLUID schema validation on an already-loaded contract dict.
+#
+# These exist so callers never have to reach into private ``_*`` helpers
+# or duplicate the error-formatting code. Keep this surface small: a
+# formatter and a one-shot validator.
+# ---------------------------------------------------------------------------
+
+
+def output_text_results(
+    result: ValidationResult, args: Any, logger: logging.Logger
+) -> int:
+    """Public alias of the native text formatter used by ``fluid validate``.
+
+    Other CLI commands that want the exact same validation UX should call
+    this rather than reimplementing error/warning printing. ``args`` may be
+    any object (argparse Namespace, ``SimpleNamespace``, dataclass, ...)
+    that exposes ``quiet``, ``verbose``, and ``strict`` attributes.
+    """
+    return _output_text_results(result, args, logger)
+
+
+def run_on_contract_dict(
+    contract: Mapping[str, Any],
+    *,
+    strict: bool = False,
+    logger: Optional[logging.Logger] = None,
+    offline_only: bool = True,
+) -> Tuple[ValidationResult, int]:
+    """Validate an already-loaded FLUID contract and emit the native output.
+
+    This is the one-call convenience wrapper for embedding schema validation
+    into other CLI commands (publish, apply, …). It:
+
+      1. runs :meth:`FluidSchemaManager.validate_contract` with the given
+         ``offline_only`` and auto-detected ``fluidVersion``
+      2. prints errors/warnings via :func:`output_text_results` so the UX
+         is identical to ``fluid validate``
+      3. returns both the raw ``ValidationResult`` (for callers that want
+         to inspect errors programmatically) and the native exit code
+
+    ``strict=True`` upgrades warnings to errors in the returned exit code,
+    matching the ``fluid validate --strict`` semantics. Note that schema
+    *errors* always produce exit code ``1`` regardless of ``strict``.
+    """
+    log = logger or logging.getLogger(__name__)
+    schema_manager = FluidSchemaManager()
+    result = schema_manager.validate_contract(contract, offline_only=offline_only)
+    output_args = SimpleNamespace(quiet=False, verbose=False, strict=strict)
+    rc = output_text_results(result, output_args, log)
+    return result, rc

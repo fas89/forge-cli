@@ -1190,10 +1190,11 @@ class TestApplyGovernancePolicies:
     def test_applies_masking_rules_when_user_confirms(self, logger):
         from fluid_build.cli.init import apply_governance_policies
 
+        # 0.7.2 shape: ``exposes[*]`` with ``exposeId``.
         contracts = [
             {
                 "name": "c1",
-                "produces": [{"name": "users", "schema": []}],
+                "exposes": [{"exposeId": "users", "contract": {"schema": []}}],
             }
         ]
         results = {
@@ -1213,14 +1214,14 @@ class TestApplyGovernancePolicies:
                 with patch("fluid_build.cli.init.Confirm") as mock_confirm:
                     mock_confirm.ask.return_value = True
                     out = apply_governance_policies(contracts, results, logger)
-        assert "policy" in out[0]["produces"][0]
-        masking = out[0]["produces"][0]["policy"]["masking"]
+        assert "policy" in out[0]["exposes"][0]
+        masking = out[0]["exposes"][0]["policy"]["masking"]
         assert masking[0]["column"] == "email"
 
     def test_user_declines_governance_unchanged(self, logger):
         from fluid_build.cli.init import apply_governance_policies
 
-        contracts = [{"name": "c1", "produces": [{"name": "users"}]}]
+        contracts = [{"name": "c1", "exposes": [{"exposeId": "users"}]}]
         results = {
             "sensitive_columns": [
                 {"model": "users", "column": "email", "type": "EMAIL", "confidence": 0.85}
@@ -1237,7 +1238,7 @@ class TestApplyGovernancePolicies:
     def test_high_confidence_uses_sha256(self, logger):
         from fluid_build.cli.init import apply_governance_policies
 
-        contracts = [{"name": "c1", "produces": [{"name": "payments"}]}]
+        contracts = [{"name": "c1", "exposes": [{"exposeId": "payments"}]}]
         results = {
             "sensitive_columns": [
                 {
@@ -1255,8 +1256,29 @@ class TestApplyGovernancePolicies:
                 with patch("fluid_build.cli.init.Confirm") as mock_confirm:
                     mock_confirm.ask.return_value = True
                     out = apply_governance_policies(contracts, results, logger)
-        masking = out[0]["produces"][0]["policy"]["masking"]
+        masking = out[0]["exposes"][0]["policy"]["masking"]
         assert masking[0]["method"] == "SHA256"
+
+    def test_legacy_produces_contracts_still_accepted(self, logger):
+        """Regression guard: the governance helper must still operate on
+        pre-0.7.2 contracts that carry ``produces[*]`` until all callers
+        migrate. ``exposes`` wins when both are present."""
+        from fluid_build.cli.init import apply_governance_policies
+
+        contracts = [{"name": "c1", "produces": [{"name": "orders"}]}]
+        results = {
+            "sensitive_columns": [
+                {"model": "orders", "column": "email", "type": "EMAIL", "confidence": 0.9}
+            ],
+            "metadata": {},
+        }
+        with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
+            with patch("fluid_build.cli.init.console") as mock_con:
+                mock_con.print = MagicMock()
+                with patch("fluid_build.cli.init.Confirm") as mock_confirm:
+                    mock_confirm.ask.return_value = True
+                    out = apply_governance_policies(contracts, results, logger)
+        assert out[0]["produces"][0]["policy"]["masking"][0]["column"] == "email"
 
 
 # ===========================================================================
@@ -1282,9 +1304,11 @@ class TestShowMigrationSummary:
         contracts = [
             {
                 "name": "analytics",
-                "version": FluidSchemaManager.latest_bundled_version(),
-                "binding": {"provider": "gcp"},
-                "produces": [{"name": "m1"}, {"name": "m2"}],
+                "fluidVersion": FluidSchemaManager.latest_bundled_version(),
+                "exposes": [
+                    {"exposeId": "m1", "binding": {"platform": "gcp"}},
+                    {"exposeId": "m2", "binding": {"platform": "gcp"}},
+                ],
             }
         ]
         results = {}
@@ -1300,9 +1324,8 @@ class TestShowMigrationSummary:
         contracts = [
             {
                 "name": "eu-data",
-                "version": FluidSchemaManager.latest_bundled_version(),
-                "binding": {"provider": "gcp"},
-                "produces": [],
+                "fluidVersion": FluidSchemaManager.latest_bundled_version(),
+                "exposes": [],
                 "sovereignty": {"jurisdiction": "EU"},
             }
         ]

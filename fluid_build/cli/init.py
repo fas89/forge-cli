@@ -35,6 +35,7 @@ from typing import Any, Dict, List, Optional
 from fluid_build.cli.console import cprint, success, warning
 from fluid_build.cli.console import error as console_error
 from fluid_build.schema_manager import FluidSchemaManager
+from fluid_build.util.contract import slugify_identifier
 
 from ._logging import error, info
 
@@ -53,7 +54,16 @@ except ImportError:
     console = None
 
 COMMAND = "init"
-LATEST_FLUID_VERSION = FluidSchemaManager.latest_bundled_version()
+
+
+def _latest_fluid_version() -> str:
+    """Return the newest bundled FLUID schema version.
+
+    Resolved lazily at call time so runtime schema updates (or test patches)
+    are respected. Avoids the import-time-constant pattern that silently goes
+    stale if ``BUNDLED_VERSIONS`` is repopulated.
+    """
+    return FluidSchemaManager.latest_bundled_version()
 
 
 def _mark_first_run_complete():
@@ -762,9 +772,12 @@ def blank_mode(args, logger: logging.Logger) -> int:
         # Create minimal structure manually
         project_dir.mkdir(parents=True)
 
-        # Create minimal contract
-        project_slug = project_name.strip().lower().replace(" ", "-").replace("_", "-")
-        contract_content = f"""fluidVersion: "{LATEST_FLUID_VERSION}"
+        # Create minimal contract. The expose is a placeholder so that the
+        # scaffold validates cleanly against the bundled FLUID schema
+        # (``exposes`` has ``minItems: 1``); users replace it with their real
+        # output on first edit.
+        project_slug = slugify_identifier(project_name, fallback="project")
+        contract_content = f"""fluidVersion: "{_latest_fluid_version()}"
 kind: DataProduct
 id: blank.{project_slug}
 name: "{project_name}"
@@ -775,7 +788,16 @@ metadata:
   owner:
     team: data-team
 
-exposes: []
+exposes:
+  - exposeId: example_output
+    kind: table
+    binding:
+      platform: local
+      format: parquet
+      location:
+        path: data/example_output.parquet
+    contract:
+      schema: []
 """
 
         contract_path = project_dir / "contract.fluid.yaml"
@@ -2001,91 +2023,162 @@ def show_scan_results(results: Dict[str, Any]):
     console.print()
 
 
+_KNOWN_PLATFORMS = {"gcp", "snowflake", "aws", "azure", "databricks", "local"}
+_PLATFORM_DEFAULT_FORMAT = {
+    "gcp": "bigquery",
+    "snowflake": "snowflake",
+    "aws": "parquet",
+    "azure": "parquet",
+    "databricks": "delta",
+    "local": "parquet",
+}
+
+
+def _normalize_scan_platform(raw: str) -> str:
+    """Map arbitrary target-platform strings from dbt/terraform/sql scans to
+    one of the platforms the bundled FLUID schema knows about."""
+    if not raw:
+        return "local"
+    lowered = raw.lower()
+    if lowered in _KNOWN_PLATFORMS:
+        return lowered
+    if lowered in {"bigquery", "gbq"}:
+        return "gcp"
+    if lowered in {"redshift", "s3"}:
+        return "aws"
+    if lowered == "duckdb":
+        return "local"
+    return "local"
+
+
+def _build_scan_location(platform: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+    """Construct a 0.7.2 ``binding.location`` dict from scan metadata."""
+    if platform == "gcp":
+        return {
+            "project": metadata.get("target_database", "my-project"),
+            "dataset": metadata.get("target_schema", "analytics"),
+            "table": metadata.get("target_table", "output"),
+        }
+    if platform == "snowflake":
+        return {
+            "database": metadata.get("target_database", "ANALYTICS"),
+            "schema": metadata.get("target_schema", "PUBLIC"),
+            "table": metadata.get("target_table", "OUTPUT"),
+        }
+    return {"path": metadata.get("target_path", "data/output.parquet")}
+
+
+def _model_to_expose(model: Dict[str, Any], platform: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert a scanned dbt/SQL model into a FLUID 0.7.2 ``expose`` entry."""
+    expose: Dict[str, Any] = {
+        "exposeId": model["name"],
+        "kind": "table",
+        "description": f"Imported dbt model: {model['name']}",
+        "binding": {
+            "platform": platform,
+            "format": _PLATFORM_DEFAULT_FORMAT[platform],
+            "location": _build_scan_location(platform, metadata),
+        },
+        "contract": {
+            "schema": [
+                {"name": col["name"], "type": col.get("type", "string")}
+                for col in (model.get("columns") or [])[:10]
+            ]
+        },
+    }
+    return expose
+
+
 def generate_contracts_from_scan(
     results: Dict[str, Any], provider: str, logger: logging.Logger
 ) -> List[Dict]:
-    """Generate FLUID contracts from scan results"""
+    """Generate FLUID 0.7.2-shaped contracts from scan results.
 
-    contracts = []
+    Emits contracts that conform to ``fluid-schema-0.7.2.json``:
+      * ``fluidVersion`` (not legacy ``version``)
+      * ``kind: DataProduct`` (not legacy ``kind: fluid``)
+      * ``exposes[]`` (not legacy ``produces[]``)
+      * per-expose ``binding.platform`` (not top-level ``binding.provider``)
+      * required ``metadata.owner`` block
+    """
+
+    contracts: List[Dict[str, Any]] = []
     project_type = results["project_type"]
+    metadata = results.get("metadata", {})
 
     if RICH_AVAILABLE:
         console.print("\n⚙️  [bold]Generating FLUID contracts...[/bold]\n")
 
+    fluid_version = _latest_fluid_version()
+    target_platform = _normalize_scan_platform(
+        metadata.get("target_platform") or provider
+    )
+
     if project_type == "dbt":
-        # Generate contract for dbt project
-        contract = {
-            "version": LATEST_FLUID_VERSION,
-            "kind": "fluid",
-            "name": results["metadata"].get("project_name", "imported-project"),
+        project_name = metadata.get("project_name", "imported-project")
+        project_slug = slugify_identifier(project_name, fallback="imported")
+        contract: Dict[str, Any] = {
+            "fluidVersion": fluid_version,
+            "kind": "DataProduct",
+            "id": f"scan.dbt.{project_slug}",
+            "name": project_name,
             "description": f"Imported from dbt project on {Path.cwd().name}",
+            "domain": "imported",
+            "metadata": {"owner": {"team": "data-team"}},
             "exposes": [],
-            "produces": [],
         }
 
-        # Add models as produces
-        for model in results.get("models", [])[:5]:  # Limit to first 5 for demo
-            produce = {
-                "name": model["name"],
-                "description": f"Imported dbt model: {model['name']}",
-                "from": {
-                    "type": "sql",
-                    "sql": "-- Imported from dbt\n" + model.get("raw_sql", "")[:200] + "...",
-                },
-            }
-
-            if model.get("columns"):
-                produce["schema"] = [
-                    {"name": col["name"], "type": col.get("type", "string")}
-                    for col in model["columns"][:10]  # Limit columns
-                ]
-
-            contract["produces"].append(produce)
-
-        # Add binding
-        target_platform = results["metadata"].get("target_platform", "local")
-        contract["binding"] = {
-            "provider": (
-                target_platform if target_platform in ["gcp", "snowflake", "aws"] else "local"
+        for model in results.get("models", [])[:5]:  # demo: limit to 5
+            contract["exposes"].append(
+                _model_to_expose(model, target_platform, metadata)
             )
-        }
-
-        if target_platform == "gcp":
-            contract["binding"]["location"] = {
-                "project": results["metadata"].get("target_database", "my-project"),
-                "dataset": results["metadata"].get("target_schema", "analytics"),
-            }
 
         contracts.append(contract)
 
         if RICH_AVAILABLE:
-            console.print(f"✅ Generated contract with {len(contract['produces'])} models")
+            console.print(
+                f"✅ Generated contract with {len(contract['exposes'])} models"
+            )
 
     elif project_type == "terraform":
-        # Generate basic contract for Terraform
-        contract = {
-            "version": LATEST_FLUID_VERSION,
-            "kind": "fluid",
-            "name": "terraform-import",
-            "description": "Imported from Terraform configuration",
-            "exposes": [],
-            "produces": [],
-            "binding": {"provider": results["metadata"].get("target_platform", "local")},
-        }
-        contracts.append(contract)
+        contracts.append(
+            {
+                "fluidVersion": fluid_version,
+                "kind": "DataProduct",
+                "id": "scan.terraform.import",
+                "name": "terraform-import",
+                "description": "Imported from Terraform configuration",
+                "domain": "imported",
+                "metadata": {"owner": {"team": "data-team"}},
+                "exposes": [
+                    _model_to_expose(
+                        {"name": "terraform_output", "columns": []},
+                        target_platform,
+                        metadata,
+                    )
+                ],
+            }
+        )
 
     elif project_type == "sql":
-        # Generate contract for SQL files
-        contract = {
-            "version": LATEST_FLUID_VERSION,
-            "kind": "fluid",
-            "name": "sql-import",
-            "description": "Imported from SQL files",
-            "exposes": [],
-            "produces": [],
-            "binding": {"provider": provider},
-        }
-        contracts.append(contract)
+        contracts.append(
+            {
+                "fluidVersion": fluid_version,
+                "kind": "DataProduct",
+                "id": "scan.sql.import",
+                "name": "sql-import",
+                "description": "Imported from SQL files",
+                "domain": "imported",
+                "metadata": {"owner": {"team": "data-team"}},
+                "exposes": [
+                    _model_to_expose(
+                        {"name": "sql_output", "columns": []},
+                        _normalize_scan_platform(provider),
+                        metadata,
+                    )
+                ],
+            }
+        )
 
     return contracts
 
@@ -2120,34 +2213,36 @@ def apply_governance_policies(
             by_model[model] = []
         by_model[model].append(finding)
 
-    # Apply masking to contracts
+    # Apply masking to contracts — operate on the canonical 0.7.2
+    # ``exposes[*]`` path, with legacy ``produces[*]`` kept as a read
+    # fallback for any callers that haven't migrated yet.
     for contract in contracts:
-        _policies = []  # noqa: F841
+        ports = contract.get("exposes") or contract.get("produces") or []
+        for port in ports:
+            model_name = port.get("exposeId") or port.get("name")
+            if not model_name or model_name not in by_model:
+                continue
 
-        for produce in contract.get("produces", []):
-            model_name = produce["name"]
+            console.print(f"\n📋 [bold]{model_name}[/bold]:")
 
-            if model_name in by_model:
-                console.print(f"\n📋 [bold]{model_name}[/bold]:")
+            masking_rules = []
+            for finding in by_model[model_name][:3]:  # Limit to 3
+                console.print(
+                    f"  • {finding['column']} ([{finding['type']}], {finding['confidence']:.0%} confidence)"
+                )
 
-                masking_rules = []
-                for finding in by_model[model_name][:3]:  # Limit to 3
-                    console.print(
-                        f"  • {finding['column']} ([{finding['type']}], {finding['confidence']:.0%} confidence)"
-                    )
+                masking_rules.append(
+                    {
+                        "column": finding["column"],
+                        "method": "SHA256" if finding["confidence"] > 0.8 else "MASK",
+                        "reason": f"Detected {finding['type']} with {finding['confidence']:.0%} confidence",
+                    }
+                )
 
-                    masking_rules.append(
-                        {
-                            "column": finding["column"],
-                            "method": "SHA256" if finding["confidence"] > 0.8 else "MASK",
-                            "reason": f"Detected {finding['type']} with {finding['confidence']:.0%} confidence",
-                        }
-                    )
-
-                if masking_rules:
-                    if "policy" not in produce:
-                        produce["policy"] = {}
-                    produce["policy"]["masking"] = masking_rules
+            if masking_rules:
+                if "policy" not in port:
+                    port["policy"] = {}
+                port["policy"]["masking"] = masking_rules
 
         # Add jurisdiction if detected
         target_db = results.get("metadata", {}).get("target_database", "")
@@ -2177,10 +2272,25 @@ def show_migration_summary(contracts: List[Dict], results: Dict[str, Any], logge
     console.print(f"Generated: [bold]{len(contracts)} FLUID contract(s)[/bold]")
 
     for contract in contracts:
-        console.print(f"\n📄 [cyan]{contract['name']}.fluid.yaml[/cyan]")
-        console.print(f"   Version: {contract['version']}")
-        console.print(f"   Provider: {contract['binding']['provider']}")
-        console.print(f"   Models: {len(contract.get('produces', []))}")
+        name = contract.get("name", "contract")
+        version = contract.get("fluidVersion") or contract.get("version", "?")
+        ports = contract.get("exposes") or contract.get("produces") or []
+        # Read per-expose platform (0.7.2 canonical) with legacy top-level
+        # ``binding.provider`` as fallback.
+        platform = "?"
+        if ports:
+            first_binding = ports[0].get("binding") if isinstance(ports[0], dict) else None
+            if isinstance(first_binding, dict) and first_binding.get("platform"):
+                platform = first_binding["platform"]
+        if platform == "?":
+            top_binding = contract.get("binding", {})
+            if isinstance(top_binding, dict):
+                platform = top_binding.get("platform") or top_binding.get("provider") or "?"
+
+        console.print(f"\n📄 [cyan]{name}.fluid.yaml[/cyan]")
+        console.print(f"   Version: {version}")
+        console.print(f"   Provider: {platform}")
+        console.print(f"   Models: {len(ports)}")
 
         if contract.get("sovereignty"):
             console.print("   Governance: [yellow]GDPR controls enabled[/yellow]")

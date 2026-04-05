@@ -28,7 +28,11 @@ from fluid_build.cli.console import cprint
 from fluid_build.schema_manager import FluidSchemaManager
 
 COMMAND = "provider-init"
-LATEST_FLUID_VERSION = FluidSchemaManager.latest_bundled_version()
+
+
+def _latest_fluid_version() -> str:
+    """Return the newest bundled FLUID schema version (resolved lazily)."""
+    return FluidSchemaManager.latest_bundled_version()
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
@@ -303,7 +307,7 @@ def _gen_tests(name: str, pkg: str, cls: str) -> str:
 def _gen_contract_yaml(name: str) -> str:
     return textwrap.dedent(
         f"""\
-        fluidVersion: "{LATEST_FLUID_VERSION}"
+        fluidVersion: "{_latest_fluid_version()}"
         kind: DataProduct
         id: test.{name}_example
         name: "{name.replace("_", " ").title()} Example"

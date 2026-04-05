@@ -543,6 +543,10 @@ class TestGenerateDagForProject:
 
 
 class TestGenerateContractsFromScan:
+    """All assertions are against the FLUID 0.7.2 canonical shape:
+    ``fluidVersion`` / ``kind: DataProduct`` / ``exposes[*]`` with per-expose
+    ``binding.platform`` and nested ``contract.schema``."""
+
     @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
     def test_dbt_basic(self, logger):
         results = {
@@ -559,8 +563,10 @@ class TestGenerateContractsFromScan:
         contracts = generate_contracts_from_scan(results, "local", logger)
         assert len(contracts) == 1
         assert contracts[0]["name"] == "test-dbt"
-        assert len(contracts[0]["produces"]) == 1
-        assert "schema" in contracts[0]["produces"][0]
+        assert contracts[0]["kind"] == "DataProduct"
+        assert len(contracts[0]["exposes"]) == 1
+        expose = contracts[0]["exposes"][0]
+        assert expose["contract"]["schema"][0]["name"] == "id"
 
     @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
     def test_dbt_no_columns(self, logger):
@@ -571,13 +577,14 @@ class TestGenerateContractsFromScan:
         }
         contracts = generate_contracts_from_scan(results, "local", logger)
         assert len(contracts) == 1
-        assert "schema" not in contracts[0]["produces"][0]
+        # 0.7.2 shape: empty schema is an empty list, not an absent field.
+        assert contracts[0]["exposes"][0]["contract"]["schema"] == []
 
     @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
     def test_dbt_gcp_platform(self, logger):
         results = {
             "project_type": "dbt",
-            "models": [],
+            "models": [{"name": "orders", "columns": []}],
             "metadata": {
                 "target_platform": "gcp",
                 "target_database": "my-proj",
@@ -585,28 +592,30 @@ class TestGenerateContractsFromScan:
             },
         }
         contracts = generate_contracts_from_scan(results, "local", logger)
-        assert contracts[0]["binding"]["provider"] == "gcp"
-        assert "location" in contracts[0]["binding"]
+        binding = contracts[0]["exposes"][0]["binding"]
+        assert binding["platform"] == "gcp"
+        assert binding["location"]["project"] == "my-proj"
+        assert binding["location"]["dataset"] == "ds"
 
     @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
     def test_dbt_snowflake_platform(self, logger):
         results = {
             "project_type": "dbt",
-            "models": [],
+            "models": [{"name": "orders", "columns": []}],
             "metadata": {"target_platform": "snowflake"},
         }
         contracts = generate_contracts_from_scan(results, "local", logger)
-        assert contracts[0]["binding"]["provider"] == "snowflake"
+        assert contracts[0]["exposes"][0]["binding"]["platform"] == "snowflake"
 
     @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
     def test_dbt_unknown_platform_falls_to_local(self, logger):
         results = {
             "project_type": "dbt",
-            "models": [],
+            "models": [{"name": "orders", "columns": []}],
             "metadata": {"target_platform": "oracle"},
         }
         contracts = generate_contracts_from_scan(results, "local", logger)
-        assert contracts[0]["binding"]["provider"] == "local"
+        assert contracts[0]["exposes"][0]["binding"]["platform"] == "local"
 
     @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
     def test_terraform(self, logger):
@@ -617,7 +626,7 @@ class TestGenerateContractsFromScan:
         contracts = generate_contracts_from_scan(results, "local", logger)
         assert len(contracts) == 1
         assert contracts[0]["name"] == "terraform-import"
-        assert contracts[0]["binding"]["provider"] == "gcp"
+        assert contracts[0]["exposes"][0]["binding"]["platform"] == "gcp"
 
     @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
     def test_sql(self, logger):
@@ -628,7 +637,7 @@ class TestGenerateContractsFromScan:
         contracts = generate_contracts_from_scan(results, "aws", logger)
         assert len(contracts) == 1
         assert contracts[0]["name"] == "sql-import"
-        assert contracts[0]["binding"]["provider"] == "aws"
+        assert contracts[0]["exposes"][0]["binding"]["platform"] == "aws"
 
 
 # ── CI/CD generators ────────────────────────────────────────────────

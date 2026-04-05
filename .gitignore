@@ -152,3 +152,10 @@ package-lock.json.bak
 .mypy_cache/
 .dmypy.json
 dmypy.json
+
+# Local scratch / hand-edited FLUID contracts at the repo root.
+# Real contracts live under fluid_build/templates/ or tests/fixtures/ — any
+# *.fluid.yaml or my*-fluid.yaml sitting at the repo root is developer scratch
+# and must not be committed.
+/*-fluid.yaml
+/*.fluid.yaml
