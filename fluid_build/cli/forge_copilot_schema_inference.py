@@ -52,9 +52,17 @@ def summarize_sample_file(path: Path) -> Dict[str, Any]:
     warnings: List[str] = []
 
     if suffix == ".csv":
-        columns, sampled_rows = _infer_csv_schema(path)
+        try:
+            columns, sampled_rows = _infer_csv_schema(path)
+        except (OSError, UnicodeError, ValueError, csv.Error) as exc:
+            warnings.append(f"Could not inspect CSV schema for {path.name}: {exc}")
     elif suffix in {".json", ".jsonl"}:
-        columns, sampled_rows = _infer_json_schema(path)
+        try:
+            columns, sampled_rows = _infer_json_schema(path)
+        except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
+            warnings.append(
+                f"Could not inspect {suffix.lstrip('.').upper()} schema for {path.name}: {exc}"
+            )
     elif suffix in {".parquet", ".pq"}:
         metadata = read_parquet_metadata(path)
         columns = metadata.get("columns") or {}
@@ -241,12 +249,16 @@ def _infer_json_schema(path: Path) -> tuple[Dict[str, str], int]:
 
 def load_json_rows(path: Path) -> Iterable[Any]:
     """Load rows from a JSON or JSONL file."""
-    content = path.read_text(encoding="utf-8", errors="ignore")
+    content = path.read_text(encoding="utf-8", errors="ignore").lstrip("\ufeff")
     if path.suffix.lower() == ".jsonl":
         for line in content.splitlines():
+            line = line.lstrip("\ufeff")
             if not line.strip():
                 continue
             yield json.loads(line)
+        return
+
+    if not content.strip():
         return
 
     parsed = json.loads(content)

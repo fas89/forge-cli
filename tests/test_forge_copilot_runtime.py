@@ -530,6 +530,20 @@ class TestDiscovery:
         assert report.discovery_warnings
         assert "pyarrow or duckdb" in report.discovery_warnings[0]
 
+    def test_discovery_continues_when_json_sample_is_invalid(self, tmp_path):
+        (tmp_path / "broken.json").write_text("{not json", encoding="utf-8")
+        (tmp_path / "customers.csv").write_text(
+            "id,email\n1,alice@example.com\n",
+            encoding="utf-8",
+        )
+
+        report = discover_local_context(None, workspace_root=tmp_path)
+
+        assert len(report.sample_files) == 2
+        assert any(sample["path"].endswith("broken.json") for sample in report.sample_files)
+        assert any(sample["path"].endswith("customers.csv") for sample in report.sample_files)
+        assert any("broken.json" in warning for warning in report.discovery_warnings)
+
     def test_read_parquet_metadata_with_pyarrow_module(self, tmp_path):
         sample_path = tmp_path / "customers.parquet"
         sample_path.write_bytes(b"PAR1")
