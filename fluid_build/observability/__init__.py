@@ -21,9 +21,12 @@ Provides unified logging, metrics, and Command Center integration.
 from .config import CommandCenterConfig
 from .git import get_git_info
 from .reporter import CommandCenterReporter
+from .secret_redactor import SecretRedactingFilter, install_secret_redacting_filter
 
 __all__ = [
     "CommandCenterConfig",
     "CommandCenterReporter",
+    "SecretRedactingFilter",
     "get_git_info",
+    "install_secret_redacting_filter",
 ]

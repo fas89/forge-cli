@@ -27,6 +27,8 @@ except ImportError:
     SNOWFLAKE_AVAILABLE = False
     snowflake = None
 
+from fluid_build.providers._sql_safety import validate_ident
+
 from .types import ProviderOptions
 
 log = logging.getLogger("fluid.provider.snowflake")
@@ -124,7 +126,48 @@ class SnowflakeConnection:
             kwargs.get("database"),
             kwargs.get("schema"),
         )
-        return snowflake.connector.connect(**kwargs)
+        conn = snowflake.connector.connect(**kwargs)
+        self._initialize_session(conn, self.opts)
+        return conn
+
+    @staticmethod
+    def _initialize_session(conn: Any, opts: ProviderOptions) -> None:
+        """Pin the active Snowflake session context explicitly after connect."""
+        statements = []
+        for label, value in (
+            ("ROLE", opts.role),
+            ("WAREHOUSE", opts.warehouse),
+            ("DATABASE", opts.database),
+            ("SCHEMA", opts.schema),
+        ):
+            if not value:
+                continue
+            try:
+                statements.append(f"USE {label} {validate_ident(str(value))}")
+            except ValueError as exc:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                raise RuntimeError(
+                    f"Invalid Snowflake {label.lower()} configured for session initialization: {value!r}"
+                ) from exc
+
+        if not statements:
+            return
+
+        try:
+            with conn.cursor() as cur:
+                for sql in statements:
+                    cur.execute(sql)
+        except Exception as exc:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"Snowflake session initialization failed after connect: {exc}"
+            ) from exc
 
     def execute(self, sql: str, params: Optional[Iterable] = None, many: bool = False):
         log.debug("Executing SQL:\n%s", sql)

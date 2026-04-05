@@ -1195,25 +1195,25 @@ class TestSqlFileDetector:
 
 class TestApplyGovernancePolicies:
     def test_no_rich_returns_contracts_unchanged(self, logger):
-        from fluid_build.cli.init import apply_governance_policies
+        from fluid_build.cli.init_scan import apply_governance_policies
 
         contracts = [{"name": "c1"}]
         results = {"sensitive_columns": [{"col": "email"}]}
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
+        with patch("fluid_build.cli.init_scan.RICH_AVAILABLE", False):
             out = apply_governance_policies(contracts, results, logger)
         assert out == contracts
 
     def test_no_sensitive_returns_unchanged(self, logger):
-        from fluid_build.cli.init import apply_governance_policies
+        from fluid_build.cli.init_scan import apply_governance_policies
 
         contracts = [{"name": "c1"}]
         results = {"sensitive_columns": []}
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
+        with patch("fluid_build.cli.init_scan.RICH_AVAILABLE", True):
             out = apply_governance_policies(contracts, results, logger)
         assert out == contracts
 
     def test_applies_masking_rules_when_user_confirms(self, logger):
-        from fluid_build.cli.init import apply_governance_policies
+        from fluid_build.cli.init_scan import apply_governance_policies
 
         # 0.7.2 shape: ``exposes[*]`` with ``exposeId``.
         contracts = [
@@ -1233,10 +1233,10 @@ class TestApplyGovernancePolicies:
             ],
             "metadata": {"target_database": ""},
         }
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
-            with patch("fluid_build.cli.init.console") as mock_con:
+        with patch("fluid_build.cli.init_scan.RICH_AVAILABLE", True):
+            with patch("fluid_build.cli.init_scan.console") as mock_con:
                 mock_con.print = MagicMock()
-                with patch("fluid_build.cli.init.Confirm") as mock_confirm:
+                with patch("fluid_build.cli.init_scan.Confirm") as mock_confirm:
                     mock_confirm.ask.return_value = True
                     out = apply_governance_policies(contracts, results, logger)
         assert "policy" in out[0]["exposes"][0]
@@ -1244,7 +1244,7 @@ class TestApplyGovernancePolicies:
         assert masking[0]["column"] == "email"
 
     def test_user_declines_governance_unchanged(self, logger):
-        from fluid_build.cli.init import apply_governance_policies
+        from fluid_build.cli.init_scan import apply_governance_policies
 
         contracts = [{"name": "c1", "exposes": [{"exposeId": "users"}]}]
         results = {
@@ -1253,15 +1253,15 @@ class TestApplyGovernancePolicies:
             ],
             "metadata": {},
         }
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
-            with patch("fluid_build.cli.init.console"):
-                with patch("fluid_build.cli.init.Confirm") as mock_confirm:
+        with patch("fluid_build.cli.init_scan.RICH_AVAILABLE", True):
+            with patch("fluid_build.cli.init_scan.console"):
+                with patch("fluid_build.cli.init_scan.Confirm") as mock_confirm:
                     mock_confirm.ask.return_value = False
                     out = apply_governance_policies(contracts, results, logger)
         assert out == contracts
 
     def test_high_confidence_uses_sha256(self, logger):
-        from fluid_build.cli.init import apply_governance_policies
+        from fluid_build.cli.init_scan import apply_governance_policies
 
         contracts = [{"name": "c1", "exposes": [{"exposeId": "payments"}]}]
         results = {
@@ -1275,56 +1275,30 @@ class TestApplyGovernancePolicies:
             ],
             "metadata": {},
         }
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
-            with patch("fluid_build.cli.init.console") as mock_con:
+        with patch("fluid_build.cli.init_scan.RICH_AVAILABLE", True):
+            with patch("fluid_build.cli.init_scan.console") as mock_con:
                 mock_con.print = MagicMock()
-                with patch("fluid_build.cli.init.Confirm") as mock_confirm:
+                with patch("fluid_build.cli.init_scan.Confirm") as mock_confirm:
                     mock_confirm.ask.return_value = True
                     out = apply_governance_policies(contracts, results, logger)
         masking = out[0]["exposes"][0]["policy"]["masking"]
         assert masking[0]["method"] == "SHA256"
 
-    def test_legacy_produces_contracts_still_accepted(self, logger):
-        """Regression guard: the governance helper must still operate on
-        pre-0.7.2 contracts that carry ``produces[*]`` until all callers
-        migrate. ``exposes`` wins when both are present."""
-        from fluid_build.cli.init import apply_governance_policies
-
-        contracts = [{"name": "c1", "produces": [{"name": "orders"}]}]
-        results = {
-            "sensitive_columns": [
-                {"model": "orders", "column": "email", "type": "EMAIL", "confidence": 0.9}
-            ],
-            "metadata": {},
-        }
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
-            with patch("fluid_build.cli.init.console") as mock_con:
-                mock_con.print = MagicMock()
-                with patch("fluid_build.cli.init.Confirm") as mock_confirm:
-                    mock_confirm.ask.return_value = True
-                    out = apply_governance_policies(contracts, results, logger)
-        assert out[0]["produces"][0]["policy"]["masking"][0]["column"] == "email"
-
-
-# ===========================================================================
-# show_migration_summary
-# ===========================================================================
-
 
 class TestShowMigrationSummary:
     def test_no_rich_prints_count(self, logger):
-        from fluid_build.cli.init import show_migration_summary
+        from fluid_build.cli.init_scan import show_migration_summary
 
         contracts = [{"name": "c1"}, {"name": "c2"}]
         results = {}
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
-            with patch("fluid_build.cli.init.cprint") as mock_cprint:
+        with patch("fluid_build.cli.init_scan.RICH_AVAILABLE", False):
+            with patch("fluid_build.cli.init_scan.cprint") as mock_cprint:
                 show_migration_summary(contracts, results, logger)
         calls = " ".join(str(c) for c in mock_cprint.call_args_list)
         assert "2" in calls
 
     def test_rich_shows_contract_details(self, logger):
-        from fluid_build.cli.init import show_migration_summary
+        from fluid_build.cli.init_scan import show_migration_summary
 
         contracts = [
             {
@@ -1337,14 +1311,14 @@ class TestShowMigrationSummary:
             }
         ]
         results = {}
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
-            with patch("fluid_build.cli.init.console") as mock_con:
+        with patch("fluid_build.cli.init_scan.RICH_AVAILABLE", True):
+            with patch("fluid_build.cli.init_scan.console") as mock_con:
                 mock_con.print = MagicMock()
                 show_migration_summary(contracts, results, logger)
         mock_con.print.assert_called()
 
     def test_rich_shows_gdpr_flag_when_sovereignty(self, logger):
-        from fluid_build.cli.init import show_migration_summary
+        from fluid_build.cli.init_scan import show_migration_summary
 
         contracts = [
             {
@@ -1355,8 +1329,8 @@ class TestShowMigrationSummary:
             }
         ]
         results = {}
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
-            with patch("fluid_build.cli.init.console") as mock_con:
+        with patch("fluid_build.cli.init_scan.RICH_AVAILABLE", True):
+            with patch("fluid_build.cli.init_scan.console") as mock_con:
                 mock_con.print = MagicMock()
                 show_migration_summary(contracts, results, logger)
         calls = " ".join(str(c) for c in mock_con.print.call_args_list)

@@ -170,6 +170,30 @@ def test_provider_render_emits_input_port_contract_id_and_required_only_when_set
     assert "required" not in result["inputPorts"][1]
 
 
+def test_provider_render_preserves_input_port_source_system_metadata():
+    provider = OdpsStandardProvider()
+
+    contract = {
+        "fluidVersion": "0.7.1",
+        "kind": "DataProduct",
+        "id": "test.source-system.lineage",
+        "name": "Source System Lineage",
+        "metadata": {"owner": {"team": "platform"}},
+        "consumes": [
+            {
+                "productId": "test.upstream.crm",
+                "exposeId": "crm_accounts",
+                "sourceSystem": "bss-crm",
+            }
+        ],
+        "exposes": [],
+    }
+
+    result = provider.render(contract)
+
+    assert result["inputPorts"][0]["sourceSystemId"] == "bss-crm"
+
+
 def test_provider_render_skips_malformed_consume_entries(caplog):
     """Non-mapping or id-less consume entries are skipped with a warning,
     not silently dropped."""

@@ -25,7 +25,7 @@ import re
 from typing import Any, Dict, List, Mapping, Optional
 
 
-def get_expose_id(expose: Dict[str, Any]) -> Optional[str]:
+def get_expose_id(expose: Mapping[str, Any]) -> Optional[str]:
     """
     Get the expose ID from an expose object.
 
@@ -41,7 +41,7 @@ def get_expose_id(expose: Dict[str, Any]) -> Optional[str]:
     return expose.get("exposeId") or expose.get("id")
 
 
-def get_expose_kind(expose: Dict[str, Any]) -> Optional[str]:
+def get_expose_kind(expose: Mapping[str, Any]) -> Optional[str]:
     """
     Get the expose kind/type from an expose object.
 
@@ -57,7 +57,7 @@ def get_expose_kind(expose: Dict[str, Any]) -> Optional[str]:
     return expose.get("kind") or expose.get("type")
 
 
-def get_expose_binding(expose: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def get_expose_binding(expose: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
     """
     Get the expose binding/location from an expose object.
 
@@ -82,7 +82,7 @@ def get_expose_binding(expose: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return None
 
 
-def get_expose_location(expose: Dict[str, Any]) -> Optional[str]:
+def get_expose_location(expose: Mapping[str, Any]) -> Optional[str]:
     """
     Get the physical location string from an expose object.
 
@@ -103,7 +103,7 @@ def get_expose_location(expose: Dict[str, Any]) -> Optional[str]:
     return expose.get("location")
 
 
-def get_builds(contract: Dict[str, Any]) -> List[Dict[str, Any]]:
+def get_builds(contract: Mapping[str, Any]) -> List[Dict[str, Any]]:
     """
     Get the builds array from a contract.
 
@@ -128,7 +128,7 @@ def get_builds(contract: Dict[str, Any]) -> List[Dict[str, Any]]:
     return []
 
 
-def get_primary_build(contract: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def get_primary_build(contract: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
     """
     Get the primary/first build from a contract.
 
@@ -142,7 +142,7 @@ def get_primary_build(contract: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return builds[0] if builds else None
 
 
-def get_build_engine(build: Dict[str, Any]) -> Optional[str]:
+def get_build_engine(build: Mapping[str, Any]) -> Optional[str]:
     """
     Get the build engine from a build object.
 
@@ -155,7 +155,7 @@ def get_build_engine(build: Dict[str, Any]) -> Optional[str]:
     return build.get("engine") or build.get("type")
 
 
-def get_contract_version(contract: Dict[str, Any]) -> Optional[str]:
+def get_contract_version(contract: Mapping[str, Any]) -> Optional[str]:
     """
     Get the FLUID schema version from a contract.
 
@@ -168,7 +168,7 @@ def get_contract_version(contract: Dict[str, Any]) -> Optional[str]:
     return contract.get("fluidVersion")
 
 
-def get_expose_contract(expose: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def get_expose_contract(expose: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
     """
     Get the contract section from an expose object.
 
@@ -252,9 +252,14 @@ def consumes_to_canonical_ports(
             "version": str,                        # stringified legacy `version`, defaults to default_version
             "contract_id": Optional[str],          # explicit only
             "required": Optional[bool],            # explicit only
+            "source_system_id": Optional[str],     # legacy extension only
             "kind": Optional[str],
             "constraints": Optional[Any],
         }
+
+    The returned ``tags`` list and ``labels`` mapping are defensive copies
+    of the source contract values. Providers often rewrite them locally, and
+    mutating the canonical view must not mutate the source contract.
 
     Semantics:
       * Fields that are not explicitly set on the consume entry are ``None``
@@ -297,6 +302,11 @@ def consumes_to_canonical_ports(
         tags = consume.get("tags")
         labels = consume.get("labels")
         version_constraint = consume.get("versionConstraint")
+        source_system_id = (
+            consume.get("sourceSystemId")
+            or consume.get("source_system")
+            or consume.get("sourceSystem")
+        )
 
         port: Dict[str, Any] = {
             "id": str(consume_id),
@@ -317,6 +327,7 @@ def consumes_to_canonical_ports(
             # Extension / legacy fields — only populated when explicitly set.
             "contract_id": consume.get("contractId") or consume.get("contract_id"),
             "required": consume["required"] if "required" in consume else None,
+            "source_system_id": str(source_system_id) if source_system_id else None,
             "kind": consume.get("kind"),
             "constraints": consume.get("constraints"),
         }
@@ -348,8 +359,9 @@ def slugify_identifier(value: str, *, fallback: str = "project") -> str:
     - Replaces any run of non-alphanumeric characters with a single dash.
     - Strips leading/trailing dashes.
     - Falls back to ``fallback`` when the input collapses to an empty string.
-      The fallback itself is slug-cleaned in the same way, so callers cannot
-      accidentally inject characters the FLUID identifier pattern rejects.
+      The fallback itself is slug-cleaned in the same way and still goes
+      through the leading-digit guard, so callers cannot bypass the FLUID
+      identifier rules with malformed fallback values.
     - Prefixes a leading digit with ``x-`` so the result ALWAYS satisfies the
       0.7.2 identifier pattern ``^[a-z0-9_][a-z0-9_.-]*[a-z0-9_]$|^[a-z0-9_]$``.
       This guard runs AFTER the fallback is chosen, so a numeric fallback

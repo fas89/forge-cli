@@ -132,7 +132,10 @@ class CommandCenterConfig:
 
     def __repr__(self) -> str:
         # Mask API key for security
-        masked_key = f"{self.api_key[:8]}..." if self.api_key else None
+        masked_key = None
+        if self.api_key:
+            visible_prefix = self.api_key[:4]
+            masked_key = f"{visible_prefix}***REDACTED***"
         return (
             f"CommandCenterConfig(url={self.url}, api_key={masked_key}, "
             f"enabled={self.enabled}, timeout={self.timeout})"

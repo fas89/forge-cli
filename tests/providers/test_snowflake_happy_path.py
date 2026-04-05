@@ -16,11 +16,20 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+import pytest
+
+from fluid_build.providers._sql_safety import (
+    quote_string_literal,
+    validate_sql_expression_allowlist,
+)
 from fluid_build.providers.snowflake.plan.planner import plan_actions
 from fluid_build.providers.snowflake.util.auth import get_auth_report
-from fluid_build.providers.snowflake.util.config import resolve_snowflake_settings
+from fluid_build.providers.snowflake.util.config import (
+    _normalize_account_identifier,
+    resolve_snowflake_settings,
+)
 
 
 def _native_sql_contract() -> dict:
@@ -381,3 +390,123 @@ def test_iter_bindings_falls_back_on_empty_binding_location():
     resolved = resolve_snowflake_settings(contract=contract)
     assert resolved.get("database") == "LEGACY_DB"
     assert resolved.get("schema") == "LEGACY_SCHEMA"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("xy12345", "xy12345"),
+        ("xy12345.us-east-1", "xy12345.us-east-1"),
+        ("xy12345.us-east-1.aws", "xy12345.us-east-1"),
+        ("xy12345.eu-central-1.gcp", "xy12345.eu-central-1"),
+        ("xy12345.west-us-2.azure", "xy12345.west-us-2"),
+        ("org-account", "org-account"),
+        ("org-account.privatelink", "org-account.privatelink"),
+        ("xy12345.us-east-1.privatelink", "xy12345.us-east-1.privatelink"),
+        (
+            "https://xy12345.us-east-1.aws.snowflakecomputing.com",
+            "xy12345.us-east-1",
+        ),
+        (
+            "https://xy12345.us-east-1.privatelink.snowflakecomputing.com",
+            "xy12345.us-east-1.privatelink",
+        ),
+        ("https://org-account.snowflakecomputing.com", "org-account"),
+        (
+            "https://org-account.privatelink.snowflakecomputing.com",
+            "org-account.privatelink",
+        ),
+        (
+            "https://app-org-account.privatelink.snowflakecomputing.com/console/login",
+            "org-account.privatelink",
+        ),
+        (
+            "https://app-xy12345.us-east-1.privatelink.snowflakecomputing.com",
+            "xy12345.us-east-1.privatelink",
+        ),
+        ("xy12345.us-east-1.aws/", "xy12345.us-east-1"),
+    ],
+)
+def test_normalize_account_identifier_supports_matrix(raw, expected):
+    assert _normalize_account_identifier(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "https://example.com",
+        "bad/account/name",
+        "org-account.extra.segment.aws",
+    ],
+)
+def test_normalize_account_identifier_rejects_invalid_formats(raw):
+    with pytest.raises(ValueError, match="Accepted forms include|organization/account"):
+        _normalize_account_identifier(raw)
+
+
+def test_quote_string_literal_escapes_embedded_quotes():
+    assert quote_string_literal("analyst's role") == "'analyst''s role'"
+
+
+def test_validate_sql_expression_allowlist_rejects_statement_breakouts():
+    with pytest.raises(ValueError, match="Invalid SQL expression"):
+        validate_sql_expression_allowlist("region = 'US'; DROP TABLE users")
+
+
+def _rls_contract(table: str, role: str, condition: str) -> dict:
+    return {
+        "security": {
+            "row_level_security": [
+                {
+                    "table": table,
+                    "role": role,
+                    "condition": condition,
+                }
+            ]
+        }
+    }
+
+
+def test_plan_actions_emits_safe_row_level_security_sql():
+    actions = plan_actions(
+        _rls_contract("orders", "ANALYST", "region = 'US'"),
+        account="acme-account",
+        warehouse="TRANSFORM_WH",
+        database="ANALYTICS",
+        schema="PUBLIC",
+    )
+
+    rls_action = next(action for action in actions if action["id"] == "rls_orders_analyst")
+    assert rls_action["op"] == "sf.sql.execute"
+    assert "CURRENT_ROLE() = 'ANALYST'" in rls_action["sql"]
+    assert "THEN region = 'US'" in rls_action["sql"]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("table", "orders; DROP TABLE users"),
+        ("role", "ANALYST' OR 1=1 --"),
+        ("condition", "region = 'US'; DROP TABLE users"),
+    ],
+)
+def test_plan_actions_skips_unsafe_row_level_security_entries(field, value):
+    logger = MagicMock()
+    policy = {
+        "table": "orders",
+        "role": "ANALYST",
+        "condition": "region = 'US'",
+    }
+    policy[field] = value
+
+    actions = plan_actions(
+        {"security": {"row_level_security": [policy]}},
+        account="acme-account",
+        warehouse="TRANSFORM_WH",
+        database="ANALYTICS",
+        schema="PUBLIC",
+        logger=logger,
+    )
+
+    assert not any(action["id"].startswith("rls_") for action in actions)
+    logger.warning.assert_called_once()

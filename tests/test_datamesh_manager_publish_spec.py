@@ -141,6 +141,12 @@ def _sample_odps_consumes_contract():
     }
 
 
+def _sample_odps_consumes_with_source_system_contract():
+    contract = _sample_odps_consumes_contract()
+    contract["consumes"][0]["sourceSystem"] = "bss-crm"
+    return contract
+
+
 def test_apply_dry_run_defaults_to_dps_spec():
     provider = DataMeshManagerProvider(api_key="dummy", api_url="https://api.entropy-data.com")
 
@@ -266,6 +272,19 @@ def test_apply_dry_run_odps_maps_consumes_to_top_level_input_ports():
             "reference": "bizlab.teleforge.billing_health_daily_lineage_local",
         },
     ]
+
+
+def test_apply_dry_run_odps_preserves_input_port_source_system_metadata():
+    provider = DataMeshManagerProvider(api_key="dummy", api_url="https://api.entropy-data.com")
+
+    result = provider.apply(
+        _sample_odps_consumes_with_source_system_contract(),
+        dry_run=True,
+        provider_hint="odps",
+    )
+
+    input_ports = result["payload"].get("inputPorts", [])
+    assert input_ports[0]["sourceSystemId"] == "bss-crm"
 
 
 def test_cmd_publish_passes_provider_hint_to_apply():
