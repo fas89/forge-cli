@@ -385,7 +385,7 @@ class OdpsStandardProvider(BaseProvider):
         return port
 
     def _extract_expose_id(self, expose: Mapping[str, Any]) -> str:
-        expose_id = expose.get("id") or expose.get("exposeId")
+        expose_id = expose.get("exposeId") or expose.get("id")
         if not expose_id:
             raise ProviderError("Expose missing required id/exposeId field")
         return str(expose_id)

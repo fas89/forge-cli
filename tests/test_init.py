@@ -269,6 +269,26 @@ class TestScanMode:
         result = scan_mode(args, logger)
         assert result == 1
 
+    def test_scan_zero_model_dbt_fails_without_writing_contract(self, tmp_path, logger, monkeypatch):
+        from fluid_build.cli.init import scan_mode
+
+        monkeypatch.chdir(tmp_path)
+        args = _make_args(provider="local")
+        mock_detector = MagicMock()
+        mock_detector.scan.return_value = {
+            "project_type": "dbt",
+            "metadata": {"project_name": "empty-dbt", "target_platform": "duckdb"},
+            "models": [],
+            "sensitive_columns": [],
+        }
+
+        with patch("fluid_build.cli.init.detect_project_type", return_value=mock_detector):
+            with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
+                result = scan_mode(args, logger)
+
+        assert result == 1
+        assert list(tmp_path.glob("*.fluid.yaml")) == []
+
     @patch("fluid_build.cli.init.show_migration_summary")
     @patch("fluid_build.cli.init.generate_cicd")
     @patch("fluid_build.cli.init.apply_governance_policies")

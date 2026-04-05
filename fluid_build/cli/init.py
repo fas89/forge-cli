@@ -642,7 +642,14 @@ def scan_mode(args, logger: logging.Logger) -> int:
                 return 0
 
         # Generate contracts
-        contracts = generate_contracts_from_scan(scan_results, args.provider, logger)
+        try:
+            contracts = generate_contracts_from_scan(scan_results, args.provider, logger)
+        except ValueError as exc:
+            if RICH_AVAILABLE:
+                console.print(f"[red]❌ {exc}[/red]")
+            else:
+                cprint(f"\n❌ {exc}")
+            return 1
 
         # Apply governance if PII detected
         if scan_results.get("sensitive_columns"):
@@ -2051,15 +2058,32 @@ def _normalize_scan_platform(raw: str) -> str:
     return "local"
 
 
+def _scan_target_kind(metadata: Dict[str, Any], platform: str) -> str:
+    """Return the discovered physical target kind for scan output mapping."""
+    raw_target = str(metadata.get("target_platform") or "").strip().lower()
+    if raw_target:
+        return raw_target
+    return platform
+
+
+def _resolve_scan_format(platform: str, metadata: Dict[str, Any]) -> str:
+    """Choose the closest truthful FLUID binding format for a scanned target."""
+    target_kind = _scan_target_kind(metadata, platform)
+    if target_kind == "redshift":
+        return "other"
+    return _PLATFORM_DEFAULT_FORMAT[platform]
+
+
 def _build_scan_location(platform: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
     """Construct a 0.7.2 ``binding.location`` dict from scan metadata."""
+    target_kind = _scan_target_kind(metadata, platform)
     if platform == "gcp":
         return {
             "project": metadata.get("target_database", "my-project"),
             "dataset": metadata.get("target_schema", "analytics"),
             "table": metadata.get("target_table", "output"),
         }
-    if platform == "snowflake":
+    if platform == "snowflake" or target_kind == "redshift":
         return {
             "database": metadata.get("target_database", "ANALYTICS"),
             "schema": metadata.get("target_schema", "PUBLIC"),
@@ -2076,7 +2100,7 @@ def _model_to_expose(model: Dict[str, Any], platform: str, metadata: Dict[str, A
         "description": f"Imported dbt model: {model['name']}",
         "binding": {
             "platform": platform,
-            "format": _PLATFORM_DEFAULT_FORMAT[platform],
+            "format": _resolve_scan_format(platform, metadata),
             "location": _build_scan_location(platform, metadata),
         },
         "contract": {
@@ -2117,6 +2141,13 @@ def generate_contracts_from_scan(
     if project_type == "dbt":
         project_name = metadata.get("project_name", "imported-project")
         project_slug = slugify_identifier(project_name, fallback="imported")
+        models = results.get("models", [])
+        if not models:
+            raise ValueError(
+                "Detected a dbt project, but no dbt models could be converted into "
+                "FLUID exposes. No contract was written because a valid 0.7.2 "
+                "contract requires at least one expose."
+            )
         contract: Dict[str, Any] = {
             "fluidVersion": fluid_version,
             "kind": "DataProduct",
@@ -2128,7 +2159,7 @@ def generate_contracts_from_scan(
             "exposes": [],
         }
 
-        for model in results.get("models", [])[:5]:  # demo: limit to 5
+        for model in models[:5]:  # demo: limit to 5
             contract["exposes"].append(
                 _model_to_expose(model, target_platform, metadata)
             )

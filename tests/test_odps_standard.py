@@ -91,6 +91,17 @@ def test_provider_render_supports_expose_id_only_contracts():
     assert result["outputPorts"][0]["type"] == "local"
 
 
+def test_provider_render_prefers_expose_id_over_legacy_id():
+    provider = OdpsStandardProvider()
+    contract = _sample_fluid_contract_with_consumes_and_expose_id()
+    contract["exposes"][0]["id"] = "legacy_output_id"
+
+    result = provider.render(contract)
+
+    assert result["outputPorts"][0]["id"] == "subscriber_health_360"
+    assert result["outputPorts"][0]["name"] == "subscriber_health_360"
+
+
 def test_provider_render_maps_consumes_to_input_ports():
     provider = OdpsStandardProvider()
 

@@ -618,6 +618,26 @@ class TestGenerateContractsFromScan:
         assert contracts[0]["exposes"][0]["binding"]["platform"] == "local"
 
     @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
+    def test_dbt_redshift_platform_keeps_warehouse_coordinates(self, logger):
+        results = {
+            "project_type": "dbt",
+            "models": [{"name": "orders", "columns": []}],
+            "metadata": {
+                "target_platform": "redshift",
+                "target_database": "analytics",
+                "target_schema": "mart",
+                "target_table": "orders",
+            },
+        }
+        contracts = generate_contracts_from_scan(results, "aws", logger)
+        binding = contracts[0]["exposes"][0]["binding"]
+        assert binding["platform"] == "aws"
+        assert binding["format"] == "other"
+        assert binding["location"]["database"] == "analytics"
+        assert binding["location"]["schema"] == "mart"
+        assert binding["location"]["table"] == "orders"
+
+    @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
     def test_terraform(self, logger):
         results = {
             "project_type": "terraform",

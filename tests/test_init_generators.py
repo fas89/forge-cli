@@ -144,17 +144,27 @@ class TestGenerateContractsFromScan:
         assert c["exposes"][0]["binding"]["location"]["project"] == "proj"
 
     def test_dbt_with_local_provider(self, logger):
-        """When target_platform resolves to the local backend, the single
-        (placeholder) expose's ``binding.platform`` must be ``local``."""
+        """Zero-model dbt scans must fail instead of emitting invalid 0.7.2 contracts."""
         results = {
             "project_type": "dbt",
             "metadata": {"project_name": "local-dbt", "target_platform": "duckdb"},
             "models": [],
         }
-        contracts = generate_contracts_from_scan(results, "local", logger)
-        # No models → no exposes yet; strict 0.7.2 validation happens later.
-        assert contracts[0]["exposes"] == []
-        assert contracts[0]["fluidVersion"] == FluidSchemaManager.latest_bundled_version()
+        with pytest.raises(ValueError, match="requires at least one expose"):
+            generate_contracts_from_scan(results, "local", logger)
+
+        invalid_candidate = {
+            "fluidVersion": FluidSchemaManager.latest_bundled_version(),
+            "kind": "DataProduct",
+            "id": "scan.dbt.local-dbt",
+            "name": "local-dbt",
+            "description": "Imported from dbt project on test",
+            "domain": "imported",
+            "metadata": {"owner": {"team": "data-team"}},
+            "exposes": [],
+        }
+        validation = FluidSchemaManager().validate_contract(invalid_candidate, offline_only=True)
+        assert "exposes: [] should be non-empty" in validation.errors
 
     def test_terraform_project(self, logger):
         results = {
@@ -199,3 +209,25 @@ class TestGenerateContractsFromScan:
         contracts = generate_contracts_from_scan(results, "local", logger)
         # Only first 5 models
         assert len(contracts[0]["exposes"]) == 5
+
+    def test_dbt_redshift_target_preserves_warehouse_location(self, logger):
+        results = {
+            "project_type": "dbt",
+            "metadata": {
+                "project_name": "redshift-dbt",
+                "target_platform": "redshift",
+                "target_database": "analytics",
+                "target_schema": "mart",
+                "target_table": "orders",
+            },
+            "models": [{"name": "orders", "columns": []}],
+        }
+        contracts = generate_contracts_from_scan(results, "aws", logger)
+        binding = contracts[0]["exposes"][0]["binding"]
+        assert binding["platform"] == "aws"
+        assert binding["format"] == "other"
+        assert binding["location"] == {
+            "database": "analytics",
+            "schema": "mart",
+            "table": "orders",
+        }
