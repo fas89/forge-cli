@@ -81,7 +81,6 @@ from fluid_build.cli.forge_modes import (
 from fluid_build.cli.forge_modes import (
     run_template_mode as _run_template,
 )
-from fluid_build.cli.forge_ui import print_welcome_panel
 
 try:
     from rich.console import Console
@@ -217,7 +216,6 @@ def register(subparsers: argparse._SubParsersAction):
         "--mode",
         "-m",
         choices=[mode.value for mode in ForgeMode],
-        default="copilot",
         help="Creation mode: template (traditional), copilot (AI assistant), agent (domain expert), blueprint (enterprise)",
     )
     parser.add_argument(
@@ -338,6 +336,42 @@ def handle_memory_management(args, logger: logging.Logger) -> int:
     )
 
 
+def _set_runtime_arg(args: Any, name: str, value: Any) -> None:
+    if hasattr(args, "__dict__"):
+        vars(args)[name] = value
+    else:
+        setattr(args, name, value)
+
+
+def _dispatch_mode(args: Any, logger: logging.Logger, mode_value: str) -> int:
+    mode = ForgeMode(mode_value)
+    if mode == ForgeMode.AI_COPILOT:
+        return run_ai_copilot_mode(args, logger)
+    if mode == ForgeMode.DOMAIN_AGENT:
+        return run_domain_agent_mode(args, logger)
+    if mode == ForgeMode.BLUEPRINT:
+        return run_blueprint_mode(args, logger)
+    if mode == ForgeMode.TEMPLATE:
+        return run_template_mode(args, logger)
+    return run_ai_copilot_mode(args, logger)
+
+
+def _build_recovery_mode_choices() -> List[Dict[str, str]]:
+    choices = [
+        {"label": "Template", "value": "template"},
+        {"label": "Blueprint", "value": "blueprint"},
+    ]
+    if DOMAIN_AGENTS_AVAILABLE:
+        choices.append({"label": "Agent", "value": "agent"})
+    return choices
+
+
+def _route_mode_from_recovery(args: Any, logger: logging.Logger, selected_mode: str) -> int:
+    _set_runtime_arg(args, "_enable_copilot_recovery", False)
+    _set_runtime_arg(args, "mode", selected_mode)
+    return _dispatch_mode(args, logger, selected_mode)
+
+
 def run(args, logger: logging.Logger) -> int:
     """Enhanced main entry point for forge command with AI agent support."""
     try:
@@ -354,21 +388,17 @@ def run(args, logger: logging.Logger) -> int:
         if get_cli_arg(args, "show_memory", False) or get_cli_arg(args, "reset_memory", False):
             return handle_memory_management(args, logger)
 
-        if console and not args.non_interactive:
-            print_welcome_panel(console)
+        requested_mode = get_cli_arg(args, "mode")
+        implicit_mode = not bool(requested_mode)
+        mode_value = str(requested_mode or "copilot")
+        _set_runtime_arg(args, "mode", mode_value)
+        _set_runtime_arg(
+            args,
+            "_enable_copilot_recovery",
+            bool(implicit_mode and not get_cli_arg(args, "non_interactive", False)),
+        )
 
-        mode = ForgeMode(args.mode)
-        if mode == ForgeMode.AI_COPILOT:
-            return run_ai_copilot_mode(args, logger)
-        if mode == ForgeMode.DOMAIN_AGENT:
-            return run_domain_agent_mode(args, logger)
-        if mode == ForgeMode.BLUEPRINT:
-            return run_blueprint_mode(args, logger)
-        if mode == ForgeMode.TEMPLATE:
-            return run_template_mode(args, logger)
-
-        args.mode = "copilot"
-        return run_ai_copilot_mode(args, logger)
+        return _dispatch_mode(args, logger, mode_value)
     except Exception as exc:  # noqa: BLE001
         logger.exception("Forge command failed")
         if "console" in locals() and console:
@@ -389,6 +419,8 @@ def run_ai_copilot_mode(args, logger: logging.Logger) -> int:
         context_error_cls=ContextValidationError,
         build_interview_summary_fn=build_interview_summary_from_context,
         console_factory=Console if RICH_AVAILABLE else None,
+        route_mode_fn=lambda selected_mode: _route_mode_from_recovery(args, logger, selected_mode),
+        fallback_mode_choices=_build_recovery_mode_choices(),
     )
 
 

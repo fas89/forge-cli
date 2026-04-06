@@ -19,12 +19,14 @@ from __future__ import annotations
 __all__ = [
     "CopilotGenerationError",
     "LlmConfig",
+    "LlmReadinessCheck",
     "LlmProvider",
     "OpenAIProvider",
     "OllamaProvider",
     "AnthropicProvider",
     "GeminiProvider",
     "BUILTIN_LLM_PROVIDERS",
+    "check_llm_readiness",
     "get_llm_provider",
     "normalize_llm_provider_name",
     "resolve_llm_config",
@@ -89,6 +91,18 @@ class LlmConfig:
         endpoint = self.endpoint
         endpoint = re.sub(r"([?&](?:key|token|api_key)=)[^&]+", r"\1***", endpoint, flags=re.I)
         return endpoint
+
+
+@dataclass
+class LlmReadinessCheck:
+    """Lightweight preflight state for interactive copilot onboarding."""
+
+    ready: bool
+    provider: str
+    model: str
+    endpoint: str
+    auth_available: bool
+    error: Optional[CopilotGenerationError] = None
 
 
 # ---------------------------------------------------------------------------
@@ -315,6 +329,63 @@ def resolve_llm_config(args: Any, environ: Optional[Mapping[str, str]] = None) -
     return LlmConfig(provider=provider.name, model=model, endpoint=endpoint, api_key=api_key)
 
 
+def check_llm_readiness(
+    args: Any,
+    environ: Optional[Mapping[str, str]] = None,
+) -> LlmReadinessCheck:
+    """Resolve copilot readiness without starting the full runtime."""
+    env = dict(environ or os.environ)
+    provider_name = (
+        getattr(args, "llm_provider", None)
+        or env.get("FLUID_LLM_PROVIDER")
+        or _infer_provider_from_env(env)
+        or "openai"
+    )
+
+    try:
+        provider = get_llm_provider(provider_name)
+    except CopilotGenerationError as exc:
+        model = str(getattr(args, "llm_model", None) or env.get("FLUID_LLM_MODEL") or "")
+        endpoint = str(getattr(args, "llm_endpoint", None) or env.get("FLUID_LLM_ENDPOINT") or "")
+        return LlmReadinessCheck(
+            ready=False,
+            provider=str(provider_name or ""),
+            model=model,
+            endpoint=_redact_endpoint_text(endpoint),
+            auth_available=False,
+            error=exc,
+        )
+
+    model = str(
+        getattr(args, "llm_model", None) or env.get("FLUID_LLM_MODEL") or provider.default_model
+    )
+    endpoint = getattr(args, "llm_endpoint", None) or env.get("FLUID_LLM_ENDPOINT")
+    if not endpoint:
+        endpoint = provider.default_endpoint(model, env)
+    api_key = _resolve_api_key(provider.name, env)
+    auth_available = provider.name == "ollama" or bool(api_key)
+
+    try:
+        config = resolve_llm_config(args, environ=env)
+    except CopilotGenerationError as exc:
+        return LlmReadinessCheck(
+            ready=False,
+            provider=provider.name,
+            model=model,
+            endpoint=_redact_endpoint_text(endpoint),
+            auth_available=auth_available,
+            error=exc,
+        )
+
+    return LlmReadinessCheck(
+        ready=True,
+        provider=config.provider,
+        model=config.model,
+        endpoint=config.redacted_endpoint,
+        auth_available=auth_available,
+    )
+
+
 # ---------------------------------------------------------------------------
 # LLM Call with Retry
 # ---------------------------------------------------------------------------
@@ -410,3 +481,9 @@ def _resolve_api_key(provider: str, env: Mapping[str, str]) -> Optional[str]:
     if provider == "gemini":
         return env.get("GEMINI_API_KEY") or env.get("GOOGLE_API_KEY")
     return None
+
+
+def _redact_endpoint_text(endpoint: Any) -> str:
+    if not endpoint:
+        return ""
+    return LlmConfig(provider="", model="", endpoint=str(endpoint), api_key=None).redacted_endpoint

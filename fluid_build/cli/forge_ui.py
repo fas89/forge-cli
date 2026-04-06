@@ -20,6 +20,8 @@ __all__ = [
     "build_copilot_analysis_text",
     "build_standard_next_steps",
     "print_assumptions_panel",
+    "print_copilot_intro_panel",
+    "print_copilot_recovery_panel",
     "print_welcome_panel",
     "show_copilot_analysis",
     "show_domain_analysis",
@@ -77,11 +79,11 @@ def show_lines_panel(
 
 
 def print_welcome_panel(console: Any) -> None:
-    """Render the shared Forge welcome panel."""
+    """Render the interactive mode chooser welcome panel."""
     if not console or not RICH_AVAILABLE:
         return
     welcome_text = """
-🔨 **FLUID Forge** - The one command you need to know
+🔨 **FLUID Forge** - Choose how you want to create your project
 
 Choose your creation mode:
 • **copilot** - AI-powered intelligent project creation (recommended)
@@ -90,6 +92,41 @@ Choose your creation mode:
 • **blueprint** - Complete enterprise data product templates
     """.strip()
     console.print(_build_panel(welcome_text, title="Welcome to FLUID Forge", border_style="blue"))
+
+
+def print_copilot_intro_panel(console: Any) -> None:
+    """Render the concise intro used when copilot is ready to start."""
+    if not console or not RICH_AVAILABLE:
+        return
+    intro_text = """
+🤖 **AI Copilot** is ready
+
+Forge found an available LLM and will guide you through project setup.
+You'll answer a few questions, review assumptions, and generate a validated contract.
+    """.strip()
+    console.print(_build_panel(intro_text, title="Starting AI Copilot", border_style="blue"))
+
+
+def print_copilot_recovery_panel(
+    console: Any,
+    *,
+    message: str,
+    suggestions: Sequence[str],
+) -> None:
+    """Render the onboarding recovery panel when copilot prerequisites are missing."""
+    if not console or not RICH_AVAILABLE:
+        return
+    lines = [
+        "🤖 **AI Copilot** can't start yet",
+        "",
+        message,
+    ]
+    if suggestions:
+        lines.extend(["", "Helpful next steps:"])
+        lines.extend(f"• {item}" for item in suggestions[:4])
+    console.print(
+        _build_panel("\n".join(lines), title="Copilot Setup Needed", border_style="yellow")
+    )
 
 
 def print_assumptions_panel(console: Any, assumptions: Sequence[str]) -> None:

@@ -179,7 +179,7 @@ def print_main_help(parser: argparse.ArgumentParser) -> None:
         [
             ("generate-airflow", "Produce Airflow DAG  [dim](GCP · AWS · Snowflake)[/dim]"),
             ("export", "Export to Airflow · Dagster · Prefect  [dim]--engine[/dim]"),
-            ("forge", "AI-powered project creation  [dim]--mode copilot[/dim]"),
+            ("forge", "Smart project creation  [dim]auto-copilot · setup recovery · modes[/dim]"),
             ("blueprint", "Browse / scaffold reusable templates"),
             ("scaffold-ci", "Generate CI/CD pipeline config"),
         ],
@@ -365,9 +365,9 @@ def print_forge_help() -> None:
 
     examples = [
         (
-            "AI Copilot Mode (Recommended):",
+            "Smart First Run (Recommended):",
             "fluid forge",
-            "Interactive copilot with discovery and validation",
+            "Auto-start copilot when ready, or guide you through setup and fallback modes",
         ),
         (
             "OpenAI Copilot:",
@@ -450,14 +450,15 @@ def print_forge_help() -> None:
     # Tips
     tips_panel = Panel(
         "💡 [bold]Pro Tips:[/bold]\n\n"
-        "  • Start with [bright_cyan]--mode copilot[/bright_cyan] for AI-guided creation\n"
+        "  • Start with [bright_cyan]fluid forge[/bright_cyan] for the smart first-run experience\n"
+        "  • Use [bright_cyan]--mode copilot[/bright_cyan] when you want to force copilot directly\n"
         f"  • Interactive prompts accept {FORGE_FLEXIBLE_INPUT_SUMMARY}\n"
         "  • Use [yellow]--dry-run[/yellow] to preview before generating\n"
         "  • Use [yellow]--save-memory[/yellow] for non-interactive runs that should remember project conventions\n"
         "  • Use [yellow]--show-memory[/yellow] to inspect what copilot remembers for this project\n"
         "  • Try [yellow]--quickstart[/yellow] for instant setup with smart defaults\n"
         "  • Explore templates: [bright_cyan]fluid blueprint list[/bright_cyan]\n"
-        "  • Get help anytime: [bright_cyan]fluid doctor[/bright_cyan]",
+        "  • Check copilot setup anytime: [bright_cyan]fluid doctor[/bright_cyan]",
         border_style="bright_yellow",
         padding=(1, 2),
         title="[bold]✨ Tips[/bold]",
@@ -711,8 +712,13 @@ _COMMAND_ENRICHMENT: dict[str, tuple[str, str]] = {
         ),
     ),
     "doctor": (
-        "Run comprehensive diagnostics — checks FLUID core, providers, schemas, and dependencies.",
-        ("  fluid doctor\n" "  fluid doctor --verbose\n" "  fluid doctor --features-only"),
+        "Run built-in health checks, with optional extended workspace diagnostics.",
+        (
+            "  fluid doctor\n"
+            "  fluid doctor --verbose\n"
+            "  fluid doctor --extended\n"
+            "  fluid doctor --features-only"
+        ),
     ),
     "admin": (
         "System administration — diagnostics, tests, templates, pipeline scaffolds, registries.",

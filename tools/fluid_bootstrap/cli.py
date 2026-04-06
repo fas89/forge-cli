@@ -232,23 +232,19 @@ def cmd_wizard(args: argparse.Namespace) -> int:
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
-    # Run diagnose script if present, else give hints
+    # Route through the main doctor command so built-in checks and
+    # optional extended diagnostics stay consistent.
     root = pathlib.Path(args.path).resolve()
-    diag = root / "scripts/diagnose.sh"
-    if diag.exists():
-        import subprocess
+    import subprocess
 
-        provider = args.provider or "local"
-        result = subprocess.run(
-            [str(diag)],
-            env={**os.environ, "PROVIDER": provider},
-            check=False,
-        )
-        return result.returncode
-    print(
-        "scripts/diagnose.sh not found. Suggested next steps:\n - python -m fluid_build.cli providers\n - python -m fluid_build.cli doctor\n - python -m fluid_build.cli validate <contract>\n"
+    provider = args.provider or "local"
+    result = subprocess.run(
+        [sys.executable, "-m", "fluid_build.cli", "doctor", "--extended"],
+        env={**os.environ, "PROVIDER": provider},
+        check=False,
+        cwd=root,
     )
-    return 0
+    return result.returncode
 
 
 def main(argv: Optional[List[str]] = None) -> int:

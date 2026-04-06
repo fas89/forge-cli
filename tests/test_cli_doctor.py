@@ -52,6 +52,26 @@ class TestRegister:
         args = parser.parse_args(["doctor", "--features-only"])
         assert args.features_only is True
 
+    def test_registers_extended_flag(self):
+        from fluid_build.cli.doctor import register
+
+        parser = argparse.ArgumentParser()
+        sub = parser.add_subparsers()
+        register(sub)
+
+        args = parser.parse_args(["doctor", "--extended"])
+        assert args.extended is True
+
+    def test_registers_comprehensive_alias(self):
+        from fluid_build.cli.doctor import register
+
+        parser = argparse.ArgumentParser()
+        sub = parser.add_subparsers()
+        register(sub)
+
+        args = parser.parse_args(["doctor", "--comprehensive"])
+        assert args.extended is True
+
 
 class TestCheckFluidFeatures:
     def test_returns_checks_list(self):
@@ -119,17 +139,120 @@ class TestRun:
         result = run(args, logger)
         assert result == 1
 
+    @patch("fluid_build.cli.doctor._check_copilot_readiness")
     @patch("fluid_build.cli.doctor._check_fluid_features")
-    @patch("fluid_build.cli.doctor.validate_input_file", side_effect=FileNotFoundError)
-    def test_missing_diagnostic_script(self, _mock_validate, mock_check):
+    @patch("fluid_build.cli.doctor._print_doctor_summary")
+    @patch("fluid_build.cli.doctor._print_copilot_readiness")
+    @patch("fluid_build.cli.doctor._print_doctor_next_steps")
+    @patch("fluid_build.cli.doctor._resolve_extended_diagnostic_script")
+    @patch("fluid_build.cli.doctor._extended_diagnostics_available", return_value=False)
+    def test_default_run_ignores_missing_diagnostic_script(
+        self,
+        _mock_extended_available,
+        mock_resolve_script,
+        _mock_next_steps,
+        mock_print_readiness,
+        mock_print_summary,
+        mock_check,
+        mock_check_readiness,
+    ):
         from fluid_build.cli.doctor import run
+        from fluid_build.cli.forge_copilot_llm_providers import LlmReadinessCheck
 
         mock_check.return_value = (True, [])
+        mock_check_readiness.return_value = LlmReadinessCheck(
+            ready=True,
+            provider="ollama",
+            model="llama3.2",
+            endpoint="http://localhost:11434/api/chat",
+            auth_available=True,
+        )
         args = MagicMock()
         args.features_only = False
         args.verbose = False
+        args.extended = False
         args.out_dir = "/tmp/diag"
         logger = MagicMock()
 
         result = run(args, logger)
-        assert result == 0  # Still returns based on feature checks
+        assert result == 0
+        mock_print_summary.assert_called_once()
+        mock_print_readiness.assert_called_once()
+        mock_resolve_script.assert_not_called()
+
+    @patch("fluid_build.cli.doctor._check_copilot_readiness")
+    @patch("fluid_build.cli.doctor._check_fluid_features")
+    @patch("fluid_build.cli.doctor._print_copilot_readiness")
+    @patch("fluid_build.cli.doctor._extended_diagnostics_available", return_value=False)
+    def test_normal_run_prints_copilot_readiness(
+        self,
+        _mock_extended_available,
+        mock_print_readiness,
+        mock_check_features,
+        mock_check_readiness,
+    ):
+        from fluid_build.cli.doctor import run
+        from fluid_build.cli.forge_copilot_llm_providers import LlmReadinessCheck
+
+        mock_check_features.return_value = (True, [])
+        mock_check_readiness.return_value = LlmReadinessCheck(
+            ready=False,
+            provider="openai",
+            model="gpt-4o-mini",
+            endpoint="https://api.openai.com/v1/chat/completions",
+            auth_available=False,
+        )
+        args = MagicMock()
+        args.features_only = False
+        args.verbose = False
+        args.extended = False
+        args.out_dir = "/tmp/diag"
+        logger = MagicMock()
+
+        result = run(args, logger)
+
+        assert result == 0
+        mock_print_readiness.assert_called_once()
+
+    @patch("fluid_build.cli.doctor._check_copilot_readiness")
+    @patch("fluid_build.cli.doctor._check_fluid_features")
+    @patch("fluid_build.cli.doctor._extended_diagnostics_available", return_value=False)
+    @patch(
+        "fluid_build.cli.doctor._resolve_extended_diagnostic_script",
+        side_effect=Exception("resolver should be used"),
+    )
+    def test_extended_missing_script_bubbles_up_as_error(
+        self,
+        mock_resolve_script,
+        _mock_extended_available,
+        mock_check_features,
+        mock_check_readiness,
+    ):
+        from fluid_build.cli._common import CLIError
+        from fluid_build.cli.doctor import _extended_diagnostic_error, run
+        from fluid_build.cli.forge_copilot_llm_providers import LlmReadinessCheck
+
+        mock_check_features.return_value = (True, [])
+        mock_check_readiness.return_value = LlmReadinessCheck(
+            ready=True,
+            provider="ollama",
+            model="llama3.2",
+            endpoint="http://localhost:11434/api/chat",
+            auth_available=True,
+        )
+        mock_resolve_script.side_effect = _extended_diagnostic_error(
+            "Extended diagnostics are not installed in this checkout.",
+            script_path="/tmp/scripts/diagnose.sh",
+            readme_path="/tmp/scripts/README.md",
+        )
+
+        args = MagicMock()
+        args.features_only = False
+        args.verbose = False
+        args.extended = True
+        args.out_dir = "/tmp/diag"
+
+        with pytest.raises(CLIError) as exc:
+            run(args, MagicMock())
+
+        assert exc.value.message == "Extended diagnostics are not installed in this checkout."
