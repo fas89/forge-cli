@@ -270,6 +270,38 @@ def _handle_copilot_recovery(
     return 1
 
 
+def _print_discovery_summary(console: Any, discovery: Any) -> None:
+    """Show a one-liner about what the discovery scanner found."""
+    if not console:
+        return
+    samples = len(getattr(discovery, "sample_files", None) or [])
+    sqls = len(getattr(discovery, "sql_files", None) or [])
+    contracts = len(getattr(discovery, "existing_contracts", None) or [])
+    parts: List[str] = []
+    if samples:
+        parts.append(f"{samples} data file{'s' if samples != 1 else ''}")
+    if sqls:
+        parts.append(f"{sqls} SQL file{'s' if sqls != 1 else ''}")
+    if contracts:
+        parts.append(f"{contracts} existing contract{'s' if contracts != 1 else ''}")
+    if parts:
+        console.print(
+            f"[dim]Data: found {', '.join(parts)} -- schemas will guide contract generation[/dim]"
+        )
+    else:
+        _print_discovery_hint(console)
+
+
+def _print_discovery_hint(console: Any) -> None:
+    """Nudge the user to add sample data for better contracts."""
+    if not console:
+        return
+    console.print(
+        "[dim]Tip: drop sample CSV, Parquet, or JSON files in this directory "
+        "(or use [bold]--discovery-path[/bold]) and copilot will use their schemas[/dim]"
+    )
+
+
 def run_ai_copilot_mode(
     args: Any,
     logger: logging.Logger,
@@ -379,8 +411,14 @@ def run_ai_copilot_mode(
                     display = PROVIDER_DISPLAY_NAMES.get(llm_cfg.provider, llm_cfg.provider)
                     console.print(
                         f"[dim]AI: [bold]{display}[/bold] / {llm_cfg.model}  "
-                        f"(change with [bold]fluid forge --llm-reauth[/bold])[/dim]\n"
+                        f"(change with [bold]fluid forge --llm-reauth[/bold])[/dim]"
                     )
+                discovery = runtime_inputs.get("discovery_report")
+                if discovery:
+                    _print_discovery_summary(console, discovery)
+                else:
+                    _print_discovery_hint(console)
+                console.print()
                 print_copilot_intro_panel(console)
                 console.print(
                     "[dim]I'll help you create the perfect data product by understanding your needs...[/dim]\n"
