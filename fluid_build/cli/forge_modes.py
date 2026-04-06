@@ -26,15 +26,37 @@ __all__ = [
 
 
 import logging
+import os
 from pathlib import Path
-from typing import Any, Callable, Dict, Mapping, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
 from fluid_build.cli.console import cprint, success, warning
 from fluid_build.cli.console import error as console_error
-from fluid_build.cli.forge_copilot_interview import run_adaptive_copilot_interview
+from fluid_build.cli.forge_copilot_interview import (
+    InterviewQuestion,
+    run_adaptive_copilot_interview,
+)
+from fluid_build.cli.forge_copilot_llm_providers import (
+    CopilotGenerationError,
+    LlmConfig,
+    check_llm_readiness,
+    get_llm_provider,
+)
 from fluid_build.cli.forge_copilot_taxonomy import normalize_copilot_context
-from fluid_build.cli.forge_dialogs import ask_confirmation, print_dialog_status
-from fluid_build.cli.forge_ui import print_assumptions_panel, show_blueprint_next_steps
+from fluid_build.cli.forge_dialogs import (
+    ask_confirmation,
+    ask_dialog_question,
+    ask_friendly_text,
+    ask_secret_text,
+    print_dialog_status,
+)
+from fluid_build.cli.forge_ui import (
+    print_assumptions_panel,
+    print_copilot_intro_panel,
+    print_copilot_recovery_panel,
+    print_welcome_panel,
+    show_blueprint_next_steps,
+)
 
 try:
     from rich.console import Console
@@ -45,6 +67,174 @@ except ImportError:  # pragma: no cover - exercised via non-Rich fallbacks
     Console = None  # type: ignore[assignment]
     Table = None  # type: ignore[assignment]
     RICH_AVAILABLE = False
+
+
+def _create_session_llm_config(
+    console: Any,
+    *,
+    default_provider: str = "openai",
+    ask_dialog_question_fn: Callable[[Any, Any], Any] = ask_dialog_question,
+    ask_friendly_text_fn: Callable[..., Optional[str]] = ask_friendly_text,
+    ask_secret_text_fn: Callable[..., Optional[str]] = ask_secret_text,
+) -> Optional[LlmConfig]:
+    """Collect a session-only LLM configuration without persisting secrets."""
+    provider_question = InterviewQuestion(
+        id="llm_provider",
+        field="llm_provider",
+        prompt="Which AI provider would you like to use for this run?",
+        type="choice",
+        choices=[
+            {"label": "OpenAI", "value": "openai"},
+            {"label": "Anthropic", "value": "anthropic"},
+            {"label": "Gemini", "value": "gemini"},
+            {"label": "Ollama (local)", "value": "ollama"},
+        ],
+        required=False,
+        allow_skip=True,
+        default=default_provider,
+    )
+    selection = ask_dialog_question_fn(console, provider_question)
+    provider_name = str(selection.value or default_provider or "openai").strip().lower()
+    provider = get_llm_provider(provider_name)
+
+    if console:
+        print_dialog_status(
+            console,
+            status="info",
+            message=f"Using a session-only {provider.name} copilot configuration.",
+            detail="This setup only applies to the current run and won't be saved.",
+        )
+
+    model = (
+        ask_friendly_text_fn(
+            console,
+            f"Model to use for {provider.name}",
+            required=False,
+            default=provider.default_model,
+        )
+        or provider.default_model
+    )
+    default_endpoint = provider.default_endpoint(model, os.environ)
+    endpoint = (
+        ask_friendly_text_fn(
+            console,
+            f"Endpoint for {provider.name}",
+            required=False,
+            default=default_endpoint,
+        )
+        or default_endpoint
+    )
+
+    api_key: Optional[str] = None
+    if provider.name != "ollama":
+        api_key = ask_secret_text_fn(
+            console,
+            f"API key for {provider.name}",
+            required=True,
+        )
+        if not api_key:
+            if console:
+                print_dialog_status(
+                    console,
+                    status="error",
+                    message="A hosted provider needs an API key for this run.",
+                    detail="You can choose a different mode or try Ollama for a local setup.",
+                )
+            return None
+
+    return LlmConfig(provider=provider.name, model=model, endpoint=endpoint, api_key=api_key)
+
+
+def _choose_recovery_mode(
+    console: Any,
+    *,
+    fallback_mode_choices: Sequence[Mapping[str, str]],
+    ask_dialog_question_fn: Callable[[Any, Any], Any] = ask_dialog_question,
+) -> Optional[str]:
+    """Ask the user which non-copilot mode to use instead."""
+    if not fallback_mode_choices:
+        return None
+    print_welcome_panel(console)
+    question = InterviewQuestion(
+        id="fallback_mode",
+        field="fallback_mode",
+        prompt="Which creation mode would you like to use instead?",
+        type="choice",
+        choices=list(fallback_mode_choices),
+        required=False,
+        allow_skip=True,
+        default=str(fallback_mode_choices[0].get("value") or ""),
+    )
+    selection = ask_dialog_question_fn(console, question)
+    return str(selection.value or fallback_mode_choices[0].get("value") or "").strip() or None
+
+
+def _handle_copilot_recovery(
+    *,
+    args: Any,
+    console: Any,
+    error: CopilotGenerationError,
+    llm_readiness_fn: Callable[[Any], Any],
+    route_mode_fn: Optional[Callable[[str], int]],
+    fallback_mode_choices: Sequence[Mapping[str, str]],
+    ask_dialog_question_fn: Callable[[Any, Any], Any],
+    ask_friendly_text_fn: Callable[..., Optional[str]],
+    ask_secret_text_fn: Callable[..., Optional[str]],
+) -> Dict[str, Any] | int:
+    """Offer session-only setup first, then alternate modes if the user declines."""
+    if console:
+        print_copilot_recovery_panel(
+            console,
+            message=error.message,
+            suggestions=error.suggestions,
+        )
+
+    wants_setup = ask_confirmation(
+        console,
+        "Set up AI for this run now?",
+        default=True,
+        title="Copilot Setup Needed",
+        preview=(
+            "Forge needs a working LLM configuration before copilot can start.\n"
+            "If you continue, I'll ask for a provider and optional session-only credentials."
+        ),
+        border_style="yellow",
+    )
+    if wants_setup:
+        default_provider = getattr(llm_readiness_fn(args), "provider", "openai") or "openai"
+        llm_config = _create_session_llm_config(
+            console,
+            default_provider=default_provider,
+            ask_dialog_question_fn=ask_dialog_question_fn,
+            ask_friendly_text_fn=ask_friendly_text_fn,
+            ask_secret_text_fn=ask_secret_text_fn,
+        )
+        if llm_config:
+            if console:
+                print_dialog_status(
+                    console,
+                    status="success",
+                    message=f"{llm_config.provider.title()} is configured for this run.",
+                    detail="Continuing into AI Copilot.",
+                )
+            return {"llm_config": llm_config}
+
+    selected_mode = _choose_recovery_mode(
+        console,
+        fallback_mode_choices=fallback_mode_choices,
+        ask_dialog_question_fn=ask_dialog_question_fn,
+    )
+    if selected_mode and route_mode_fn:
+        return route_mode_fn(selected_mode)
+
+    if console:
+        print_dialog_status(
+            console,
+            status="error",
+            message=error.message,
+            detail="Copilot setup was skipped and no alternate mode was selected.",
+        )
+    return 1
 
 
 def run_ai_copilot_mode(
@@ -58,18 +248,20 @@ def run_ai_copilot_mode(
     context_error_cls: type[Exception],
     build_interview_summary_fn: Callable[[Mapping[str, Any]], Dict[str, Any]],
     console_factory: Optional[Callable[[], Any]] = Console if RICH_AVAILABLE else None,
+    llm_readiness_fn: Callable[[Any], Any] = check_llm_readiness,
+    ask_dialog_question_fn: Callable[[Any, Any], Any] = ask_dialog_question,
+    ask_friendly_text_fn: Callable[..., Optional[str]] = ask_friendly_text,
+    ask_secret_text_fn: Callable[..., Optional[str]] = ask_secret_text,
+    route_mode_fn: Optional[Callable[[str], int]] = None,
+    fallback_mode_choices: Sequence[Mapping[str, str]] = (),
 ) -> int:
     """Run Forge with AI copilot assistance."""
     console = console_factory() if console_factory else None
 
     try:
         copilot = copilot_class()
-
-        if console and not args.non_interactive:
-            console.print("\n[bold blue]🤖 Starting AI Copilot Assistant[/bold blue]")
-            console.print(
-                "[dim]I'll help you create the perfect data product by understanding your needs...[/dim]\n"
-            )
+        is_non_interactive = bool(get_cli_arg_fn(args, "non_interactive", False))
+        enable_recovery = bool(get_cli_arg_fn(args, "_enable_copilot_recovery", False))
 
         context: Dict[str, Any] = {}
         copilot_options = {
@@ -80,7 +272,7 @@ def run_ai_copilot_mode(
             "discovery_path": get_cli_arg_fn(args, "discovery_path"),
             "memory": get_cli_arg_fn(args, "memory", True),
             "save_memory": get_cli_arg_fn(args, "save_memory", False),
-            "non_interactive": get_cli_arg_fn(args, "non_interactive", False),
+            "non_interactive": is_non_interactive,
         }
 
         context_arg = get_cli_arg_fn(args, "context")
@@ -115,9 +307,32 @@ def run_ai_copilot_mode(
         if explicit_target_dir:
             copilot_options["target_dir"] = str(Path(explicit_target_dir).expanduser())
 
-        if not get_cli_arg_fn(args, "non_interactive", False):
+        if not is_non_interactive and enable_recovery:
+            readiness = llm_readiness_fn(args)
+            if not readiness.ready and readiness.error is not None:
+                recovery_result = _handle_copilot_recovery(
+                    args=args,
+                    console=console,
+                    error=readiness.error,
+                    llm_readiness_fn=llm_readiness_fn,
+                    route_mode_fn=route_mode_fn,
+                    fallback_mode_choices=fallback_mode_choices,
+                    ask_dialog_question_fn=ask_dialog_question_fn,
+                    ask_friendly_text_fn=ask_friendly_text_fn,
+                    ask_secret_text_fn=ask_secret_text_fn,
+                )
+                if isinstance(recovery_result, int):
+                    return recovery_result
+                copilot_options.update(recovery_result)
+
+        if not is_non_interactive:
             runtime_inputs = copilot.prepare_runtime_inputs(copilot_options)
             copilot_options.update(runtime_inputs)
+            if console:
+                print_copilot_intro_panel(console)
+                console.print(
+                    "[dim]I'll help you create the perfect data product by understanding your needs...[/dim]\n"
+                )
             capability_warnings = list(runtime_inputs.get("capability_warnings") or [])
             if console and capability_warnings:
                 print_dialog_status(
@@ -164,6 +379,17 @@ def run_ai_copilot_mode(
             dry_run=bool(get_cli_arg_fn(args, "dry_run", False)),
         )
         return 0 if success_result else 1
+    except CopilotGenerationError as exc:
+        logger.exception("AI Copilot mode failed")
+        if console:
+            console.print(f"[red]❌ AI Copilot failed: {exc.message}[/red]")
+            for suggestion in exc.suggestions:
+                console.print(f"[dim]• {suggestion}[/dim]")
+        else:
+            console_error(f"AI Copilot failed: {exc.message}")
+            for suggestion in exc.suggestions:
+                cprint(f"  • {suggestion}")
+        return 1
     except Exception as exc:  # noqa: BLE001
         logger.exception("AI Copilot mode failed")
         if console:

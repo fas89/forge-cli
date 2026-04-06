@@ -23,6 +23,7 @@ __all__ = [
     "ask_dialog_question",
     "ask_flexible_choice",
     "ask_friendly_text",
+    "ask_secret_text",
     "build_choice",
     "normalize_choice_value",
     "normalize_prompt_choices",
@@ -34,6 +35,7 @@ import re
 from dataclasses import dataclass
 from dataclasses import field as dc_field
 from difflib import SequenceMatcher
+from getpass import getpass
 from typing import Any, Dict, List, Mapping, Optional
 
 from .forge_copilot_runtime import normalize_provider_name
@@ -45,6 +47,14 @@ try:
     RICH_PANEL_AVAILABLE = True
 except ImportError:
     RICH_PANEL_AVAILABLE = False
+
+try:
+    from rich.prompt import Prompt
+
+    RICH_PROMPT_AVAILABLE = True
+except ImportError:  # pragma: no cover - covered by non-Rich fallback paths
+    Prompt = None  # type: ignore[assignment]
+    RICH_PROMPT_AVAILABLE = False
 
 CHOICE_HINT = "You can type an option, a short phrase, or describe it in your own words."
 CONFIRM_HINT = "You can answer with yes/no, y/n, or a short confirmation."
@@ -289,6 +299,26 @@ def ask_friendly_text(
     if console:
         console.print("[dim]A short answer is enough here. A phrase works fine.[/dim]")
     retry = _read_free_text(console, prompt, default=default)
+    return retry or None
+
+
+def ask_secret_text(
+    console: Any,
+    prompt: str,
+    *,
+    required: bool,
+) -> Optional[str]:
+    """Ask for sensitive input without echoing it back to the terminal."""
+    answer = _read_secret_text(console, prompt)
+    if answer:
+        return answer
+    if not required:
+        return None
+    if console:
+        console.print(
+            "[dim]This value is only used for the current run and will not be saved.[/dim]"
+        )
+    retry = _read_secret_text(console, prompt)
     return retry or None
 
 
@@ -552,6 +582,14 @@ def _read_free_text(console: Any, prompt: str, *, default: Optional[str] = None)
     if text:
         return text
     return str(default or "").strip()
+
+
+def _read_secret_text(console: Any, prompt: str) -> str:
+    clean_prompt = prompt.strip()
+    if console and RICH_PROMPT_AVAILABLE and Prompt is not None:
+        raw = Prompt.ask(clean_prompt, console=console, password=True)
+        return str(raw or "").strip()
+    return str(getpass(f"{clean_prompt} ")).strip()
 
 
 def _normalize_match_text(value: Any) -> str:

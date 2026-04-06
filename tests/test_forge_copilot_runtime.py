@@ -35,6 +35,7 @@ from fluid_build.cli.forge_copilot_llm_providers import (
     OllamaProvider,
     OpenAIProvider,
     call_llm,
+    check_llm_readiness,
     resolve_llm_config,
 )
 from fluid_build.cli.forge_copilot_runtime import (
@@ -219,6 +220,44 @@ class TestResolveLlmConfig:
         assert config.provider == "ollama"
         assert config.api_key is None
         assert config.endpoint == "http://localhost:11434/v1/chat/completions"
+
+
+class TestCheckLlmReadiness:
+    def test_reports_missing_api_key_for_hosted_provider(self):
+        readiness = check_llm_readiness(
+            SimpleNamespace(llm_provider="openai", llm_model=None, llm_endpoint=None),
+            environ={},
+        )
+
+        assert readiness.ready is False
+        assert readiness.provider == "openai"
+        assert readiness.auth_available is False
+        assert readiness.error is not None
+        assert readiness.error.event == "copilot_missing_llm_api_key"
+
+    def test_marks_ollama_ready_without_api_key(self):
+        readiness = check_llm_readiness(
+            SimpleNamespace(llm_provider="ollama", llm_model=None, llm_endpoint=None),
+            environ={"OLLAMA_HOST": "http://localhost:11434"},
+        )
+
+        assert readiness.ready is True
+        assert readiness.provider == "ollama"
+        assert readiness.auth_available is True
+        assert readiness.endpoint == "http://localhost:11434/v1/chat/completions"
+
+    def test_redacts_endpoint_in_readiness_output(self):
+        readiness = check_llm_readiness(
+            SimpleNamespace(
+                llm_provider="openai",
+                llm_model="gpt-4o-mini",
+                llm_endpoint="https://gateway.example.test/chat?api_key=secret-token",
+            ),
+            environ={"OPENAI_API_KEY": "openai-key"},
+        )
+
+        assert readiness.ready is True
+        assert readiness.endpoint.endswith("api_key=***")
 
 
 class TestProviderAdapters:
