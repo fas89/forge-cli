@@ -421,6 +421,7 @@ def run(args, logger: logging.Logger) -> int:
         )
         if llm_reauth:
             _set_runtime_arg(args, "non_interactive", False)
+            _set_runtime_arg(args, "_force_llm_setup", True)
 
         return _dispatch_mode(args, logger, mode_value)
     except Exception as exc:  # noqa: BLE001

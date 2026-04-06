@@ -340,13 +340,26 @@ def run_ai_copilot_mode(
         if explicit_target_dir:
             copilot_options["target_dir"] = str(Path(explicit_target_dir).expanduser())
 
-        if not is_non_interactive and enable_recovery:
-            readiness = llm_readiness_fn(args)
-            if not readiness.ready and readiness.error is not None:
+        force_llm_setup = bool(get_cli_arg_fn(args, "_force_llm_setup", False))
+        if not is_non_interactive and (enable_recovery or force_llm_setup):
+            needs_setup = force_llm_setup
+            readiness_error = None
+            if not force_llm_setup:
+                readiness = llm_readiness_fn(args)
+                needs_setup = not readiness.ready and readiness.error is not None
+                readiness_error = readiness.error if needs_setup else None
+            if needs_setup:
+                # For --llm-reauth, synthesise a minimal error to enter the wizard.
+                if readiness_error is None:
+                    readiness_error = CopilotGenerationError(
+                        "copilot_llm_reauth",
+                        "Re-authenticating LLM credentials.",
+                        suggestions=["Choose a provider and paste a new API key."],
+                    )
                 recovery_result = _handle_copilot_recovery(
                     args=args,
                     console=console,
-                    error=readiness.error,
+                    error=readiness_error,
                     llm_readiness_fn=llm_readiness_fn,
                     route_mode_fn=route_mode_fn,
                     fallback_mode_choices=fallback_mode_choices,
