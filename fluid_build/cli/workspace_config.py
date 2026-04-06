@@ -76,6 +76,7 @@ class WorkspaceDefaults:
     owner_team: str = ""
     owner_email: str = ""
     provider: str = ""
+    industry: str = ""
     products_dir: str = DEFAULT_PRODUCTS_DIR
     raw: Dict[str, Any] = field(default_factory=dict)
 

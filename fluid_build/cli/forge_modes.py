@@ -330,6 +330,41 @@ def _print_mode_awareness(console: Any) -> None:
         pass
 
 
+def _load_industry_skills(ws_root: Any, context: Dict[str, Any], console: Any) -> None:
+    """Read ``.fluid/skills.yaml`` and inject industry knowledge into *context*."""
+    try:
+        from pathlib import Path
+
+        import yaml
+
+        skills_path = Path(ws_root) / ".fluid" / "skills.yaml"
+        if not skills_path.exists():
+            return
+
+        with skills_path.open() as f:
+            skills = yaml.safe_load(f)
+        if not skills:
+            return
+
+        context["industry_skills"] = skills
+
+        # Pre-fill domain and canonical model from skills (don't overwrite).
+        cm = skills.get("canonical_model", {})
+        if cm.get("primary") and "canonical_model" not in context:
+            context["canonical_model"] = cm["primary"]
+        ind = skills.get("industry", {})
+        if ind.get("name") and "domain" not in context:
+            context["domain"] = ind["name"]
+
+        if console and ind.get("label"):
+            console.print(
+                f"[dim]Industry skills: {ind['label']}"
+                f"{' — ' + cm.get('label', '') if cm.get('label') else ''}[/dim]\n"
+            )
+    except Exception:  # noqa: BLE001
+        pass  # Skills are optional — never block on them.
+
+
 def _apply_workspace_defaults(context: Dict[str, Any], console: Any) -> None:
     """Read ``fluid.workspace.yaml`` and inject shared defaults into *context*."""
     try:
@@ -379,6 +414,10 @@ def _apply_workspace_defaults(context: Dict[str, Any], console: Any) -> None:
             if ws.provider:
                 parts.append(f"provider={ws.provider}")
             console.print(f"[dim]Using workspace defaults: {', '.join(parts)}[/dim]\n")
+
+        # ── Industry skills ──────────────────────────────────────────
+        _load_industry_skills(ws_root, context, console)
+
     except Exception:  # noqa: BLE001
         pass  # Workspace config is optional — never block on it.
 

@@ -169,6 +169,12 @@ def run(args, logger: logging.Logger) -> int:
         # Ensure workspace structure exists for all modes.
         _ensure_workspace(args, logger)
 
+        # Industry picker — only on first init (no existing skills file).
+        ws_root = find_workspace_root(Path.cwd()) or Path.cwd()
+        skills_path = ws_root / ".fluid" / "skills.yaml"
+        if not skills_path.exists() and not getattr(args, "yes", False):
+            _ask_industry(ws_root)
+
         # Route to appropriate handler.
         handlers = {
             "ai": _ai_mode,
@@ -410,6 +416,58 @@ def _print_welcome_panel() -> None:
         )
     )
     console.print()
+
+
+def _ask_industry(workspace_root: Path) -> Optional[str]:
+    """Present the industry picker and generate ``.fluid/skills.yaml``.
+
+    Returns the selected industry key (e.g. ``"telco"``) or ``None`` if
+    Rich is unavailable.
+    """
+    from .industry_skills import generate_skills_file, list_industries
+
+    industries = list_industries()
+
+    if not RICH_AVAILABLE:
+        # Non-interactive: skip industry picker, generate tools-only skills.
+        generate_skills_file(None, workspace_root)
+        return None
+
+    console.print("[dim]What industry is this project for?[/dim]\n")
+    for i, ind in enumerate(industries, 1):
+        desc = f"  [dim]({ind['description']})[/dim]" if ind["description"] else ""
+        console.print(f"  [bold]{i}.[/bold] {ind['label']}{desc}")
+    console.print()
+
+    valid = [str(i) for i in range(1, len(industries) + 1)]
+    choice = Prompt.ask("Choose", choices=valid, default=str(len(industries)))
+    selected = industries[int(choice) - 1]
+
+    industry_key = selected["key"]
+    out_path = generate_skills_file(industry_key, workspace_root)
+
+    if industry_key == "other":
+        console.print(
+            '\n[yellow]No industry-specific skills shipped for "Other".[/yellow]\n'
+            "[dim]Agents will work without domain-specific guidance.\n"
+            "You can add industry skills later with:[/dim] "
+            "[cyan]fluid skills update[/cyan]\n"
+        )
+    else:
+        console.print(
+            Panel(
+                f"[bold]Generated .fluid/skills.yaml for {selected['label']}[/bold]\n\n"
+                "This file contains industry-specific knowledge that\n"
+                "all FLUID agents will use:\n"
+                f"  [dim]Industry:[/dim]    {selected['label']}\n"
+                f"  [dim]File:[/dim]        {out_path.relative_to(workspace_root)}\n\n"
+                "Keep this file in version control — your whole\n"
+                "team will benefit from shared project context.",
+                border_style="green",
+            )
+        )
+
+    return industry_key
 
 
 def _ask_creation_mode() -> str:

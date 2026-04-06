@@ -185,6 +185,26 @@ def build_user_prompt(
 ) -> str:
     """Build the attempt-specific user prompt."""
     interview_summary = _normalize_interview_summary(context)
+
+    # Inject industry skills into the prompt when available.
+    skills = context.get("industry_skills")
+    if skills:
+        skills_hint: dict[str, Any] = {}
+        ind = skills.get("industry", {})
+        if ind.get("label"):
+            skills_hint["industry"] = ind["label"]
+        cm = skills.get("canonical_model", {})
+        if cm.get("label"):
+            skills_hint["canonical_model"] = cm["label"]
+        domains = skills.get("domains")
+        if domains:
+            skills_hint["domains"] = [d.get("label", d.get("name")) for d in domains]
+        compliance = skills.get("compliance")
+        if compliance:
+            skills_hint["compliance"] = compliance
+        if skills_hint:
+            interview_summary["industry_skills"] = skills_hint
+
     prompt: dict[str, Any] = {
         "attempt": attempt_index,
         "interview_summary": interview_summary,

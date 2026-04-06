@@ -459,38 +459,43 @@ class TestRun:
 
         assert run(args, logger) == 1
 
+    @patch("fluid_build.cli.init._ask_industry", return_value=None)
     @patch("fluid_build.cli.init.quickstart_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="quickstart")
-    def test_quickstart_dispatch(self, _mock_dm, _mock_qs, logger):
+    def test_quickstart_dispatch(self, _mock_dm, _mock_qs, _mock_ind, logger):
         from fluid_build.cli.init import run
 
         assert run(SimpleNamespace(), logger) == 0
 
+    @patch("fluid_build.cli.init._ask_industry", return_value=None)
     @patch("fluid_build.cli.init.scan_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="scan")
-    def test_scan_dispatch(self, _mock_dm, _mock_sc, logger):
+    def test_scan_dispatch(self, _mock_dm, _mock_sc, _mock_ind, logger):
         from fluid_build.cli.init import run
 
         assert run(SimpleNamespace(), logger) == 0
 
+    @patch("fluid_build.cli.init._ask_industry", return_value=None)
     @patch("fluid_build.cli.init._ai_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="ai")
-    def test_wizard_dispatch(self, _mock_dm, _mock_ai, logger):
+    def test_wizard_dispatch(self, _mock_dm, _mock_ai, _mock_ind, logger):
         """--wizard is deprecated and maps to AI mode."""
         from fluid_build.cli.init import run
 
         assert run(SimpleNamespace(), logger) == 0
 
+    @patch("fluid_build.cli.init._ask_industry", return_value=None)
     @patch("fluid_build.cli.init.blank_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="blank")
-    def test_blank_dispatch(self, _mock_dm, _mock_bl, logger):
+    def test_blank_dispatch(self, _mock_dm, _mock_bl, _mock_ind, logger):
         from fluid_build.cli.init import run
 
         assert run(SimpleNamespace(), logger) == 0
 
+    @patch("fluid_build.cli.init._ask_industry", return_value=None)
     @patch("fluid_build.cli.init.template_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="template")
-    def test_template_dispatch(self, _mock_dm, _mock_tm, logger):
+    def test_template_dispatch(self, _mock_dm, _mock_tm, _mock_ind, logger):
         from fluid_build.cli.init import run
 
         assert run(SimpleNamespace(), logger) == 0

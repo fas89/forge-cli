@@ -151,6 +151,7 @@ fluid_build = [
   "build-manifest.yaml",
   "features.yaml",
   "cli/agent_specs/**/*.yaml",
+  "cli/industry_skills/**/*.yaml",
   "schemas/**/*.json",
   "schemas/**/*.yaml",
   "templates/**/*",
