@@ -350,6 +350,8 @@ def resolve_llm_config(args: Any, environ: Optional[Mapping[str, str]] = None) -
     endpoint = getattr(args, "llm_endpoint", None) or env.get("FLUID_LLM_ENDPOINT")
     if not endpoint:
         endpoint = provider.default_endpoint(model, env)
+    else:
+        _warn_custom_endpoint(endpoint, provider.name)
 
     api_key = _resolve_api_key(provider.name, env)
     if provider.name != "ollama" and not api_key:
@@ -490,6 +492,39 @@ def call_llm(
 # ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
+
+_KNOWN_LLM_HOSTS = {
+    "api.openai.com",
+    "api.anthropic.com",
+    "generativelanguage.googleapis.com",
+    "localhost",
+    "127.0.0.1",
+    "[::1]",
+}
+
+
+def _warn_custom_endpoint(endpoint: str, provider: str) -> None:
+    """Log a warning when the LLM endpoint is not a known-good provider host."""
+    try:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(endpoint)
+        host = (parsed.hostname or "").lower()
+        if parsed.scheme not in ("http", "https"):
+            LOG.warning(
+                "LLM endpoint uses non-HTTP scheme (%s). Your API key will be sent there.",
+                endpoint,
+            )
+        elif host and host not in _KNOWN_LLM_HOSTS and not host.startswith("localhost"):
+            LOG.warning(
+                "LLM endpoint (%s) is not a recognised %s host. "
+                "Your API key will be sent there.",
+                endpoint,
+                provider,
+            )
+    except Exception:  # noqa: BLE001
+        pass
+
 
 _SAFE_MODEL_RE = re.compile(r"^[a-zA-Z0-9._:/-]+$")
 

@@ -42,6 +42,7 @@ from .forge_dialogs import (
 from .forge_dialogs import (
     ask_friendly_text,
     normalize_prompt_choices,
+    resolve_choice_input,
 )
 
 INTERVIEW_MAX_ROUNDS = 3
