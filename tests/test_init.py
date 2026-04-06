@@ -1383,9 +1383,9 @@ class TestRunRouting:
 
         assert run(_make_args(scan=True), logger) == 0
 
-    @patch("fluid_build.cli.init.wizard_mode", return_value=0)
-    @patch("fluid_build.cli.init.detect_mode", return_value="wizard")
-    def test_routes_wizard(self, _mock_detect, _mock_wiz, logger):
+    @patch("fluid_build.cli.init._ai_mode", return_value=0)
+    @patch("fluid_build.cli.init.detect_mode", return_value="ai")
+    def test_routes_ai(self, _mock_detect, _mock_ai, logger):
         from fluid_build.cli.init import run
 
         assert run(_make_args(wizard=True), logger) == 0

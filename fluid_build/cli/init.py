@@ -34,6 +34,13 @@ from typing import Any, Dict, List, Optional
 
 from fluid_build.cli.console import cprint, success, warning
 from fluid_build.cli.console import error as console_error
+from fluid_build.cli.workspace_config import (
+    WORKSPACE_FILENAME,
+    discover_workspace_products,
+    find_workspace_root,
+    load_workspace_config,
+    save_workspace_config,
+)
 from fluid_build.schema_manager import FluidSchemaManager
 from fluid_build.util.contract import slugify_identifier
 
@@ -104,7 +111,9 @@ def register(subparsers: argparse._SubParsersAction):
         help="🎯 Import existing dbt/Terraform project (enterprise migration)",
     )
     mode_group.add_argument(
-        "--wizard", action="store_true", help="🎨 Interactive guided setup (full control)"
+        "--wizard",
+        action="store_true",
+        help="(deprecated — use 'fluid init' for the interactive menu)",
     )
     mode_group.add_argument(
         "--blank", action="store_true", help="🔧 Empty project skeleton (power users)"
@@ -148,29 +157,32 @@ def register(subparsers: argparse._SubParsersAction):
 
 
 def run(args, logger: logging.Logger) -> int:
-    """Main entry point - routes to appropriate handler"""
+    """Main entry point — routes to appropriate handler."""
 
     try:
-        # Determine mode (auto-detect if not specified)
+        # Determine mode (auto-detect if not specified).
         mode = detect_mode(args, logger)
 
         if mode is None:
-            return 1  # Error already displayed
+            return 1  # Error already displayed or user redirected.
 
-        # Route to appropriate handler
+        # Ensure workspace structure exists for all modes.
+        _ensure_workspace(args, logger)
+
+        # Route to appropriate handler.
+        if mode == "ai":
+            return _ai_mode(args, logger)
         if mode == "quickstart":
             return quickstart_mode(args, logger)
-        elif mode == "scan":
+        if mode == "scan":
             return scan_mode(args, logger)
-        elif mode == "wizard":
-            return wizard_mode(args, logger)
-        elif mode == "blank":
+        if mode == "blank":
             return blank_mode(args, logger)
-        elif mode == "template":
+        if mode == "template":
             return template_mode(args, logger)
-        else:
-            error(logger, "unknown_mode", mode=mode)
-            return 1
+
+        error(logger, "unknown_mode", mode=mode)
+        return 1
 
     except KeyboardInterrupt:
         if RICH_AVAILABLE:
@@ -187,38 +199,169 @@ def run(args, logger: logging.Logger) -> int:
         return 1
 
 
-def detect_mode(args, logger: logging.Logger) -> Optional[str]:
-    """Smart detection of best mode based on context"""
+def _ensure_workspace(args, logger: logging.Logger) -> None:
+    """Create ``fluid.workspace.yaml`` if it doesn't exist yet."""
+    cwd = Path.cwd()
+    ws_root = find_workspace_root(cwd)
+    if ws_root is not None:
+        return  # Workspace already exists.
 
-    # Explicit mode flags take precedence
+    project_name = getattr(args, "name", None) or cwd.name
+    provider = getattr(args, "provider", None) or "local"
+
+    save_workspace_config(
+        cwd,
+        name=project_name,
+        provider=provider,
+    )
+    if RICH_AVAILABLE:
+        console.print(
+            f"[dim]Created {WORKSPACE_FILENAME} — shared config for your data products.[/dim]\n"
+        )
+
+
+def _ai_mode(args, logger: logging.Logger) -> int:
+    """Let AI design the data product — delegates to forge copilot inline."""
+    if RICH_AVAILABLE:
+        console.print(
+            Panel(
+                "🤖 [bold]AI Copilot[/bold]\n\n"
+                "I'll ask about your data and goals, then generate\n"
+                "a production-ready contract tailored to your needs.",
+                title="AI-Assisted Setup",
+                border_style="blue",
+            )
+        )
+
+    try:
+        from .forge import (
+            ContextValidationError,
+            CopilotAgent,
+            build_interview_summary_from_context,
+            get_cli_arg,
+            get_target_directory,
+            load_context,
+        )
+        from .forge import run_ai_copilot_mode as _run_copilot
+
+        # Determine target directory for the product.
+        product_name = args.name
+        if not product_name and RICH_AVAILABLE:
+            product_name = Prompt.ask("Product name", default="my-data-product")
+        product_name = product_name or "my-data-product"
+
+        ws_root = find_workspace_root(Path.cwd())
+        if ws_root:
+            ws_config = load_workspace_config(ws_root)
+            products_dir = ws_root / ws_config.products_dir
+        else:
+            products_dir = Path.cwd() / "products"
+
+        target = products_dir / slugify_identifier(product_name)
+        target.mkdir(parents=True, exist_ok=True)
+
+        # Inject target dir so forge writes there.
+        args.target_dir = str(target)
+        args.mode = "copilot"
+        if not hasattr(args, "non_interactive"):
+            args.non_interactive = False
+        # Ensure forge recovery flow is enabled.
+        args._enable_copilot_recovery = True
+
+        result = _run_copilot(
+            args,
+            logger,
+            copilot_class=CopilotAgent,
+            get_cli_arg_fn=get_cli_arg,
+            load_context_fn=load_context,
+            get_target_directory_fn=lambda a, default: target,
+            context_error_cls=ContextValidationError,
+            build_interview_summary_fn=build_interview_summary_from_context,
+        )
+
+        if result == 0:
+            _show_init_success(target, ws_root or Path.cwd())
+        return result
+
+    except ImportError:
+        if RICH_AVAILABLE:
+            console.print(
+                "[yellow]AI copilot not available. Falling back to template mode.[/yellow]"
+            )
+        args.template = "customer-360"
+        return template_mode(args, logger)
+
+
+def _show_init_success(product_dir: Path, workspace_root: Path) -> None:
+    """Show the success panel with structure and next steps."""
+    if not RICH_AVAILABLE:
+        success(f"Created {product_dir}")
+        return
+
+    rel = product_dir.relative_to(workspace_root)
+    lines = [
+        f"[bold green]✅ Project created: {workspace_root.name}/[/bold green]",
+        "",
+        f"  {WORKSPACE_FILENAME}    [dim]← project config (team, domain, provider)[/dim]",
+        f"  {rel}/",
+        "  └── contract.fluid.yaml",
+        "",
+        "[bold]What's next?[/bold]",
+        f"  [cyan]cd {workspace_root.name}[/cyan]",
+        "  [cyan]fluid validate[/cyan]          [dim]← check your contract[/dim]",
+        "  [cyan]fluid forge[/cyan]             [dim]← add another data product[/dim]",
+        "  [cyan]fluid doctor[/cyan]            [dim]← check your environment[/dim]",
+    ]
+    console.print(Panel("\n".join(lines), border_style="green"))
+
+
+def detect_mode(args, logger: logging.Logger) -> Optional[str]:
+    """Smart detection of best mode based on context."""
+
+    # Explicit mode flags take precedence.
     if args.quickstart:
         return "quickstart"
     if args.scan:
         return "scan"
-    if args.wizard:
-        return "wizard"
+    if getattr(args, "wizard", False):
+        # --wizard is deprecated; map to AI mode (its replacement).
+        if RICH_AVAILABLE:
+            console.print(
+                "[yellow]--wizard is deprecated. "
+                "Use [bold]fluid init[/bold] for the interactive menu.[/yellow]\n"
+            )
+        return "ai"
     if args.blank:
         return "blank"
     if args.template:
         return "template"
 
-    # Auto-detection based on current directory
     cwd = Path.cwd()
 
-    # Check for existing FLUID project
+    # --- Inside an existing workspace? Redirect instead of blocking. ---
+    ws_root = find_workspace_root(cwd)
+    if ws_root is not None:
+        existing = discover_workspace_products(ws_root)
+        if existing:
+            return _redirect_existing_workspace(existing, ws_root)
+
+    # --- Existing contract at root (legacy single-product project) ---
     if (cwd / "contract.fluid.yaml").exists():
         if RICH_AVAILABLE:
-            console.print("[yellow]⚠️  FLUID contract already exists in this directory![/yellow]\n")
-            console.print("Did you mean:")
-            console.print("  [cyan]$ fluid validate contract.fluid.yaml[/cyan]")
-            console.print("  [cyan]$ fluid plan contract.fluid.yaml[/cyan]")
-            console.print("  [cyan]$ fluid viz contract.fluid.yaml --open[/cyan]")
+            console.print("[dim]📂 This directory already has a contract.fluid.yaml.[/dim]\n")
+            console.print("To add another product, use:")
+            console.print("  [cyan]fluid forge[/cyan]          ← AI-assisted")
+            console.print("  [cyan]fluid init --blank[/cyan]   ← empty contract")
+            console.print("  [cyan]fluid init --scan[/cyan]    ← import existing code\n")
+            console.print("To work with the existing contract:")
+            console.print("  [cyan]fluid validate[/cyan]")
+            console.print("  [cyan]fluid plan[/cyan]")
+            console.print("  [cyan]fluid viz --open[/cyan]")
         else:
-            warning("FLUID contract already exists!")
-            cprint("Did you mean: fluid validate contract.fluid.yaml")
+            cprint("This directory already has a contract. Use 'fluid forge' to add products.")
         return None
 
-    # Check for existing projects to import
+    # --- Check for importable projects (dbt, Terraform, SQL) ---
     if (cwd / "dbt_project.yml").exists():
         if RICH_AVAILABLE:
             console.print("🔍 [cyan]Detected dbt project[/cyan]")
@@ -241,16 +384,75 @@ def detect_mode(args, logger: logging.Logger) -> Optional[str]:
             console.print("Suggestion: Use [bold]fluid init --scan[/bold] to import your SQL")
         return "scan"
 
-    # Check if first-time user (no ~/.fluid directory)
+    # --- First-time user (no ~/.fluid directory) ---
     fluid_home = Path.home() / ".fluid"
     if not fluid_home.exists():
         if RICH_AVAILABLE:
             console.print("👋 [bold]Welcome to FLUID![/bold]")
-            console.print("Creating a quickstart project with sample data...\n")
-        return "quickstart"
+            console.print("Let's create your first data product project.\n")
+        return _ask_creation_mode()
 
-    # Default to quickstart for empty directory
-    return "quickstart"
+    # --- Returning user, empty directory ---
+    return _ask_creation_mode()
+
+
+def _ask_creation_mode() -> str:
+    """Present the 4-option creation menu and return the selected mode."""
+    if not RICH_AVAILABLE:
+        return "quickstart"  # non-Rich fallback
+
+    console.print(
+        Panel(
+            "This is a [bold]FLUID workspace[/bold] — a home for your data products.\n"
+            "Each product has its own contract.fluid.yaml.\n"
+            "You can add more later with [cyan]fluid forge[/cyan].",
+            title="🚀 New Project",
+            border_style="blue",
+        )
+    )
+    console.print("[dim]How would you like to create your first data product?[/dim]\n")
+    console.print("  [bold]1.[/bold] Let AI help me design it [dim](recommended)[/dim]")
+    console.print("  [bold]2.[/bold] Start from a template")
+    console.print("  [bold]3.[/bold] Import existing project (dbt/SQL/Terraform)")
+    console.print("  [bold]4.[/bold] Empty contract\n")
+
+    choice = Prompt.ask(
+        "Choose",
+        choices=["1", "2", "3", "4"],
+        default="1",
+    )
+    return {"1": "ai", "2": "template", "3": "scan", "4": "blank"}.get(choice, "ai")
+
+
+def _redirect_existing_workspace(
+    existing: List,
+    ws_root: Path,
+) -> Optional[str]:
+    """Show existing products and redirect the user."""
+    if not RICH_AVAILABLE:
+        cprint(f"This is already a FLUID workspace with {len(existing)} product(s).")
+        cprint("Use 'fluid forge' to add another product.")
+        return None
+
+    ws_config = load_workspace_config(ws_root)
+    name = ws_config.name or ws_root.name
+    console.print(
+        f"[dim]📂 Workspace: [bold]{name}[/bold] ({len(existing)} existing product"
+        f"{'s' if len(existing) != 1 else ''})[/dim]"
+    )
+    for product in existing[:10]:
+        parts = [product.name]
+        if product.expose_count:
+            parts.append(f"{product.expose_count} expose{'s' if product.expose_count != 1 else ''}")
+        if product.provider:
+            parts.append(f"provider: {product.provider}")
+        console.print(f"[dim]  • {', '.join(parts)}[/dim]")
+    console.print()
+    console.print("To add another product:")
+    console.print("  [cyan]fluid forge[/cyan]          ← AI-assisted [dim](recommended)[/dim]")
+    console.print("  [cyan]fluid init --blank[/cyan]   ← empty contract")
+    console.print("  [cyan]fluid init --scan[/cyan]    ← import existing code")
+    return None
 
 
 # ============================================================================

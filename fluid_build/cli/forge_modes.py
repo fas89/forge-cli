@@ -299,6 +299,59 @@ def _print_discovery_summary(console: Any, discovery: Any) -> None:
         _print_discovery_hint(console)
 
 
+def _apply_workspace_defaults(context: Dict[str, Any], console: Any) -> None:
+    """Read ``fluid.workspace.yaml`` and inject shared defaults into *context*."""
+    try:
+        from fluid_build.cli.workspace_config import (
+            discover_workspace_products,
+            find_workspace_root,
+            load_workspace_config,
+        )
+
+        ws_root = find_workspace_root()
+        if ws_root is None:
+            return
+        ws = load_workspace_config(ws_root)
+        if ws.is_empty:
+            return
+
+        # Show existing products.
+        products = discover_workspace_products(ws_root)
+        if products and console:
+            console.print(
+                f"[dim]📂 Workspace: [bold]{ws.name or ws_root.name}[/bold] "
+                f"({len(products)} product{'s' if len(products) != 1 else ''})[/dim]"
+            )
+            for p in products[:8]:
+                parts = [p.name]
+                if p.expose_count:
+                    parts.append(f"{p.expose_count} expose{'s' if p.expose_count != 1 else ''}")
+                if p.provider:
+                    parts.append(f"provider: {p.provider}")
+                console.print(f"[dim]  • {', '.join(parts)}[/dim]")
+            console.print()
+
+        # Inject defaults (don't overwrite explicit values).
+        if ws.domain and "domain" not in context:
+            context["domain"] = ws.domain
+        if ws.provider and "provider" not in context:
+            context["provider"] = ws.provider
+        if ws.owner_team and "owner_team" not in context:
+            context["owner_team"] = ws.owner_team
+
+        if console and (ws.domain or ws.provider or ws.owner_team):
+            parts = []
+            if ws.domain:
+                parts.append(f"domain={ws.domain}")
+            if ws.owner_team:
+                parts.append(f"team={ws.owner_team}")
+            if ws.provider:
+                parts.append(f"provider={ws.provider}")
+            console.print(f"[dim]Using workspace defaults: {', '.join(parts)}[/dim]\n")
+    except Exception:  # noqa: BLE001
+        pass  # Workspace config is optional — never block on it.
+
+
 def _print_discovery_hint(console: Any) -> None:
     """Nudge the user to add sample data for better contracts."""
     if not console:
@@ -335,6 +388,10 @@ def run_ai_copilot_mode(
         enable_recovery = bool(get_cli_arg_fn(args, "_enable_copilot_recovery", False))
 
         context: Dict[str, Any] = {}
+
+        # Inherit workspace defaults (domain, provider, owner) if available.
+        _apply_workspace_defaults(context, console)
+
         copilot_options = {
             "llm_provider": get_cli_arg_fn(args, "llm_provider"),
             "llm_model": get_cli_arg_fn(args, "llm_model"),

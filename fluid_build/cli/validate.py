@@ -167,8 +167,11 @@ def run(args, logger: logging.Logger) -> int:
         if args.list_versions:
             return _handle_list_versions(schema_manager, args, logger)
 
-        # Handle case where no contract is provided but required
+        # Handle case where no contract is provided — try workspace discovery.
         if not args.contract:
+            workspace_result = _try_workspace_validate(args, schema_manager, logger)
+            if workspace_result is not None:
+                return workspace_result
             raise CLIError(
                 1,
                 "contract_required",
@@ -670,3 +673,89 @@ def run_on_contract_dict(
     output_args = SimpleNamespace(quiet=False, verbose=False, strict=strict)
     rc = output_text_results(result, output_args, log)
     return result, rc
+
+
+# ---------------------------------------------------------------------------
+# Workspace-wide validation
+# ---------------------------------------------------------------------------
+
+
+def _try_workspace_validate(
+    args: Any,
+    schema_manager: FluidSchemaManager,
+    logger: logging.Logger,
+) -> Optional[int]:
+    """Validate all products in a workspace when no explicit contract is given.
+
+    Returns an exit code (0 = all valid, 1 = at least one failed),
+    or ``None`` if no workspace is detected (so the caller can fall through
+    to the normal "contract required" error).
+    """
+    try:
+        from fluid_build.cli.workspace_config import (
+            discover_workspace_products,
+            find_workspace_root,
+            load_workspace_config,
+        )
+    except ImportError:
+        return None
+
+    ws_root = find_workspace_root()
+    if ws_root is None:
+        # Also check if there's a single contract in cwd (legacy single-product).
+        cwd_contract = Path.cwd() / "contract.fluid.yaml"
+        if cwd_contract.is_file():
+            args.contract = str(cwd_contract)
+            return None  # Fall through to normal single-contract validation.
+        return None
+
+    products = discover_workspace_products(ws_root)
+    if not products:
+        return None
+
+    ws = load_workspace_config(ws_root)
+    ws_name = ws.name or ws_root.name
+
+    cprint(
+        f"\nValidating {len(products)} product{'s' if len(products) != 1 else ''} "
+        f"in workspace '{ws_name}'...\n"
+    )
+
+    passed = 0
+    failed = 0
+    for product in products:
+        try:
+            contract = _load_contract_for_workspace(product.contract_path, args, logger)
+            result = schema_manager.validate_contract(
+                contract,
+                strict=args.strict,
+                offline_only=getattr(args, "offline", False),
+            )
+            if result.is_valid:
+                cprint(f"  ✅ {product.name:<20} valid ({product.fluid_version or '?'})")
+                passed += 1
+            else:
+                cprint(f"  ❌ {product.name:<20} {len(result.errors)} error(s)")
+                for err in result.errors[:3]:
+                    cprint(f"     {err}")
+                failed += 1
+        except Exception as exc:  # noqa: BLE001
+            cprint(f"  ❌ {product.name:<20} load error: {exc}")
+            failed += 1
+
+    cprint("")
+    if failed:
+        cprint(f"Result: {passed} passed, {failed} failed")
+        return 1
+    cprint(f"All {passed} product{'s' if passed != 1 else ''} valid.")
+    return 0
+
+
+def _load_contract_for_workspace(
+    contract_path: Path,
+    args: Any,
+    logger: logging.Logger,
+) -> dict:
+    """Load a contract, applying environment overlay if requested."""
+    env = getattr(args, "env", None)
+    return load_contract_with_overlay(str(contract_path), env, logger)
