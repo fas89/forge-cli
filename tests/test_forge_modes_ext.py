@@ -1353,3 +1353,86 @@ class TestRunForgeBlueprintImplAdditional:
                 get_target_directory_fn=MagicMock(return_value=target),
             )
         assert result == 1
+
+
+# ── _create_session_llm_config (API-key-first flow) ─────────────────
+
+
+from fluid_build.cli.forge_modes import _create_session_llm_config
+
+
+class TestCreateSessionLlmConfig:
+    """Tests for the API-key-first onboarding wizard."""
+
+    def _stub_dialog(self, *values):
+        """Return a callable that returns successive DialogQuestionResult stubs."""
+        from fluid_build.cli.forge_dialogs import DialogQuestionResult
+
+        results = iter(values)
+
+        def _fn(console, question):
+            val = next(results)
+            return DialogQuestionResult(value=val, raw_input=str(val or ""))
+
+        return _fn
+
+    def test_anthropic_key_auto_detected(self):
+        console = MagicMock()
+        config = _create_session_llm_config(
+            console,
+            ask_secret_text_fn=lambda *a, **kw: "sk-ant-api03-test123",
+        )
+        assert config is not None
+        assert config.provider == "anthropic"
+        assert config.api_key == "sk-ant-api03-test123"
+        assert config.model == "claude-3-5-sonnet-latest"
+
+    def test_openai_key_auto_detected(self):
+        console = MagicMock()
+        config = _create_session_llm_config(
+            console,
+            ask_secret_text_fn=lambda *a, **kw: "sk-proj-test456",
+        )
+        assert config is not None
+        assert config.provider == "openai"
+        assert config.model == "gpt-4o-mini"
+
+    def test_gemini_key_auto_detected(self):
+        console = MagicMock()
+        key = "AIzaSyD" + "x" * 30
+        config = _create_session_llm_config(
+            console,
+            ask_secret_text_fn=lambda *a, **kw: key,
+        )
+        assert config is not None
+        assert config.provider == "gemini"
+        assert config.model == "gemini-2.5-flash"
+
+    def test_ollama_shortcut(self):
+        console = MagicMock()
+        config = _create_session_llm_config(
+            console,
+            ask_secret_text_fn=lambda *a, **kw: "ollama",
+        )
+        assert config is not None
+        assert config.provider == "ollama"
+        assert config.api_key is None
+
+    def test_unrecognized_key_asks_provider(self):
+        console = MagicMock()
+        config = _create_session_llm_config(
+            console,
+            ask_secret_text_fn=lambda *a, **kw: "unknown-key-format",
+            ask_dialog_question_fn=self._stub_dialog("anthropic"),
+        )
+        assert config is not None
+        assert config.provider == "anthropic"
+        assert config.api_key == "unknown-key-format"
+
+    def test_empty_key_returns_none(self):
+        console = MagicMock()
+        config = _create_session_llm_config(
+            console,
+            ask_secret_text_fn=lambda *a, **kw: "",
+        )
+        assert config is None

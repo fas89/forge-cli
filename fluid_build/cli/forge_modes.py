@@ -39,8 +39,12 @@ from fluid_build.cli.forge_copilot_interview import (
 from fluid_build.cli.forge_copilot_llm_providers import (
     CopilotGenerationError,
     LlmConfig,
+    _PROVIDER_DISPLAY_NAMES,
     check_llm_readiness,
+    detect_provider_from_api_key,
     get_llm_provider,
+    resolve_ollama_model,
+    save_api_key_to_keyring,
 )
 from fluid_build.cli.forge_copilot_taxonomy import normalize_copilot_context
 from fluid_build.cli.forge_dialogs import (
@@ -54,6 +58,7 @@ from fluid_build.cli.forge_ui import (
     print_assumptions_panel,
     print_copilot_intro_panel,
     print_copilot_recovery_panel,
+    print_free_tier_guide,
     print_welcome_panel,
     show_blueprint_next_steps,
 )
@@ -77,70 +82,95 @@ def _create_session_llm_config(
     ask_friendly_text_fn: Callable[..., Optional[str]] = ask_friendly_text,
     ask_secret_text_fn: Callable[..., Optional[str]] = ask_secret_text,
 ) -> Optional[LlmConfig]:
-    """Collect a session-only LLM configuration without persisting secrets."""
-    provider_question = InterviewQuestion(
-        id="llm_provider",
-        field="llm_provider",
-        prompt="Which AI provider would you like to use for this run?",
-        type="choice",
-        choices=[
-            {"label": "OpenAI", "value": "openai"},
-            {"label": "Anthropic", "value": "anthropic"},
-            {"label": "Gemini", "value": "gemini"},
-            {"label": "Ollama (local)", "value": "ollama"},
-        ],
-        required=False,
-        allow_skip=True,
-        default=default_provider,
+    """Collect a session-only LLM configuration via an API-key-first flow.
+
+    The user pastes an API key and the provider is auto-detected from its
+    format.  If detection fails, a short follow-up asks which provider the
+    key belongs to.  Model and endpoint always use sensible provider defaults
+    so the user never has to type them.
+    """
+    if console:
+        console.print(
+            "[dim]Paste an API key for OpenAI, Anthropic (Claude), or Google Gemini "
+            "and I'll detect the provider automatically.\n"
+            "Type [bold]ollama[/bold] if you want to use a local model instead.[/dim]"
+        )
+
+    api_key = ask_secret_text_fn(
+        console,
+        "API key for OpenAI / Anthropic / Gemini (or 'ollama')",
+        required=True,
     )
-    selection = ask_dialog_question_fn(console, provider_question)
-    provider_name = str(selection.value or default_provider or "openai").strip().lower()
+
+    raw = (api_key or "").strip().lower()
+
+    # --- Ollama shortcut ---
+    if raw in ("ollama", "local", "ollama/local", "ollama (local)"):
+        provider = get_llm_provider("ollama")
+        model = resolve_ollama_model(os.environ)
+        endpoint = provider.default_endpoint(model, os.environ)
+        print_dialog_status(
+            console,
+            status="success",
+            message=f"Using Ollama -- {model}",
+        )
+        return LlmConfig(provider="ollama", model=model, endpoint=endpoint, api_key=None)
+
+    if not api_key:
+        if console:
+            print_dialog_status(
+                console,
+                status="error",
+                message="A hosted provider needs an API key for this run.",
+                detail="You can choose a different mode or try Ollama for a local setup.",
+            )
+        return None
+
+    # --- Auto-detect provider from key format ---
+    detected = detect_provider_from_api_key(api_key)
+    if detected:
+        provider_name = detected
+    else:
+        # Key format not recognised — ask which provider
+        provider_question = InterviewQuestion(
+            id="llm_provider",
+            field="llm_provider",
+            prompt="Which provider is this key for?",
+            type="choice",
+            choices=[
+                {"label": "OpenAI", "value": "openai"},
+                {"label": "Anthropic (Claude)", "value": "anthropic"},
+                {"label": "Google Gemini", "value": "gemini"},
+            ],
+            required=True,
+            allow_skip=False,
+            default=default_provider,
+        )
+        selection = ask_dialog_question_fn(console, provider_question)
+        provider_name = str(selection.value or default_provider or "openai").strip().lower()
+
     provider = get_llm_provider(provider_name)
+    model = provider.default_model
+    endpoint = provider.default_endpoint(model, os.environ)
+    display = _PROVIDER_DISPLAY_NAMES.get(provider_name, provider_name)
 
     if console:
         print_dialog_status(
             console,
-            status="info",
-            message=f"Using a session-only {provider.name} copilot configuration.",
-            detail="This setup only applies to the current run and won't be saved.",
+            status="success",
+            message=f"Detected {display} -- using {model}",
         )
 
-    model = (
-        ask_friendly_text_fn(
-            console,
-            f"Model to use for {provider.name}",
-            required=False,
-            default=provider.default_model,
-        )
-        or provider.default_model
-    )
-    default_endpoint = provider.default_endpoint(model, os.environ)
-    endpoint = (
-        ask_friendly_text_fn(
-            console,
-            f"Endpoint for {provider.name}",
-            required=False,
-            default=default_endpoint,
-        )
-        or default_endpoint
-    )
-
-    api_key: Optional[str] = None
-    if provider.name != "ollama":
-        api_key = ask_secret_text_fn(
-            console,
-            f"API key for {provider.name}",
-            required=True,
-        )
-        if not api_key:
-            if console:
-                print_dialog_status(
-                    console,
-                    status="error",
-                    message="A hosted provider needs an API key for this run.",
-                    detail="You can choose a different mode or try Ollama for a local setup.",
-                )
-            return None
+    # Persist the key in the OS keychain so future runs resolve silently.
+    if api_key and provider_name != "ollama":
+        saved = save_api_key_to_keyring(provider_name, api_key)
+        if saved and console:
+            print_dialog_status(
+                console,
+                status="info",
+                message="Key saved to your system keychain for future runs.",
+                detail="Use --reauth to change it later.",
+            )
 
     return LlmConfig(provider=provider.name, model=model, endpoint=endpoint, api_key=api_key)
 
@@ -188,6 +218,7 @@ def _handle_copilot_recovery(
             message=error.message,
             suggestions=error.suggestions,
         )
+        print_free_tier_guide(console)
 
     wants_setup = ask_confirmation(
         console,
@@ -195,8 +226,12 @@ def _handle_copilot_recovery(
         default=True,
         title="Copilot Setup Needed",
         preview=(
-            "Forge needs a working LLM configuration before copilot can start.\n"
-            "If you continue, I'll ask for a provider and optional session-only credentials."
+            "Forge needs a working LLM to power copilot.\n"
+            "You can fix this permanently by setting an env var:\n"
+            "  export OPENAI_API_KEY=sk-...       (OpenAI)\n"
+            "  export ANTHROPIC_API_KEY=sk-ant-... (Claude)\n"
+            "  export GEMINI_API_KEY=AIza...       (Gemini)\n\n"
+            "Or choose Yes and I'll ask for a key just for this run."
         ),
         border_style="yellow",
     )

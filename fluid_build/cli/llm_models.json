@@ -1,0 +1,37 @@
+{
+  "_updated": "2026-04-06",
+  "providers": {
+    "openai": {
+      "default": "gpt-4o-mini",
+      "models": [
+        {"id": "gpt-4o", "aliases": ["gpt4", "gpt4o", "gpt-4"]},
+        {"id": "gpt-4o-mini", "aliases": ["gpt4o-mini", "gpt4-mini", "mini"]},
+        {"id": "gpt-4.1", "aliases": ["gpt41"]},
+        {"id": "gpt-4.1-mini", "aliases": ["gpt41-mini"]},
+        {"id": "gpt-4.1-nano", "aliases": ["gpt41-nano", "nano"]},
+        {"id": "o3", "aliases": []},
+        {"id": "o3-mini", "aliases": []},
+        {"id": "o4-mini", "aliases": ["o4"]}
+      ]
+    },
+    "anthropic": {
+      "default": "claude-sonnet-4-5-20250514",
+      "models": [
+        {"id": "claude-sonnet-4-5-20250514", "aliases": ["claude", "sonnet", "claude-sonnet", "claude-4.5-sonnet"]},
+        {"id": "claude-haiku-4-5-20251001", "aliases": ["haiku", "claude-haiku", "claude-4.5-haiku"]},
+        {"id": "claude-opus-4-0-20250514", "aliases": ["opus", "claude-opus", "claude-4-opus"]}
+      ]
+    },
+    "gemini": {
+      "default": "gemini-2.5-flash",
+      "models": [
+        {"id": "gemini-2.5-flash", "aliases": ["gemini", "flash", "gemini-flash"]},
+        {"id": "gemini-2.5-pro", "aliases": ["gemini-pro"]}
+      ]
+    },
+    "ollama": {
+      "default": "llama3.1",
+      "models": []
+    }
+  }
+}

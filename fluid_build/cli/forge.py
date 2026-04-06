@@ -312,6 +312,11 @@ def register(subparsers: argparse._SubParsersAction):
         "--domain",
         help="Specific domain for specialized agents (e.g., finance, healthcare, retail, telco)",
     )
+    parser.add_argument(
+        "--reauth",
+        action="store_true",
+        help="Clear saved LLM credentials from the system keychain and prompt again",
+    )
     parser.set_defaults(func=run)
 
 
@@ -384,6 +389,19 @@ def run(args, logger: logging.Logger) -> int:
 
         if get_cli_arg(args, "show_memory", False) or get_cli_arg(args, "reset_memory", False):
             return handle_memory_management(args, logger)
+
+        if get_cli_arg(args, "reauth", False):
+            from fluid_build.cli.forge_copilot_llm_providers import clear_api_key_from_keyring
+            from fluid_build.cli.forge_dialogs import print_dialog_status
+
+            for provider in ("openai", "anthropic", "gemini"):
+                clear_api_key_from_keyring(provider)
+            if console:
+                print_dialog_status(
+                    console,
+                    status="info",
+                    message="Cleared saved LLM credentials from keychain.",
+                )
 
         requested_mode = get_cli_arg(args, "mode")
         implicit_mode = not bool(requested_mode)

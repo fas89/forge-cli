@@ -27,6 +27,8 @@ from fluid_build.cli.forge_copilot_discovery import (
     DiscoveryReport,
     discover_local_context,
 )
+from unittest.mock import MagicMock
+
 from fluid_build.cli.forge_copilot_llm_providers import (
     AnthropicProvider,
     CopilotGenerationError,
@@ -34,9 +36,16 @@ from fluid_build.cli.forge_copilot_llm_providers import (
     LlmConfig,
     OllamaProvider,
     OpenAIProvider,
+    _parse_param_size,
+    _resolve_api_key,
     call_llm,
     check_llm_readiness,
+    clear_api_key_from_keyring,
+    detect_provider_from_api_key,
     resolve_llm_config,
+    resolve_model_name,
+    resolve_ollama_model,
+    save_api_key_to_keyring,
 )
 from fluid_build.cli.forge_copilot_runtime import (
     _build_scaffold_decision,
@@ -868,3 +877,187 @@ class TestCopilotOverrides:
         assert (tmp_path / "README.md").read_text(encoding="utf-8") == "# Copilot Project\n"
         assert (tmp_path / "docs" / "notes.md").read_text(encoding="utf-8") == "metadata only"
         assert (tmp_path / "requirements.txt").exists()
+
+
+class TestDetectProviderFromApiKey:
+    def test_anthropic_key(self):
+        assert detect_provider_from_api_key("sk-ant-api03-abc123") == "anthropic"
+
+    def test_openai_key_proj(self):
+        assert detect_provider_from_api_key("sk-proj-abc123") == "openai"
+
+    def test_openai_key_plain(self):
+        assert detect_provider_from_api_key("sk-abc123") == "openai"
+
+    def test_openai_key_svcacct(self):
+        assert detect_provider_from_api_key("sk-svcacct-abc123") == "openai"
+
+    def test_gemini_key(self):
+        assert detect_provider_from_api_key("AIzaSyD" + "x" * 30) == "gemini"
+
+    def test_unrecognized_key_returns_none(self):
+        assert detect_provider_from_api_key("random-string-no-match") is None
+
+    def test_empty_string_returns_none(self):
+        assert detect_provider_from_api_key("") is None
+
+    def test_none_returns_none(self):
+        assert detect_provider_from_api_key(None) is None
+
+    def test_whitespace_stripped(self):
+        assert detect_provider_from_api_key("  sk-ant-api03-abc  ") == "anthropic"
+
+
+class TestKeyringResolution:
+    """Tests for keyring-backed API key resolution."""
+
+    def test_resolve_api_key_falls_back_to_keyring(self):
+        with patch(
+            "fluid_build.cli.forge_copilot_llm_providers._get_api_key_from_keyring",
+            return_value="keyring-secret",
+        ):
+            result = _resolve_api_key("openai", {})
+        assert result == "keyring-secret"
+
+    def test_env_var_takes_priority_over_keyring(self):
+        with patch(
+            "fluid_build.cli.forge_copilot_llm_providers._get_api_key_from_keyring",
+            return_value="keyring-secret",
+        ):
+            result = _resolve_api_key("openai", {"OPENAI_API_KEY": "env-secret"})
+        assert result == "env-secret"
+
+    def test_fluid_llm_api_key_takes_priority_over_keyring(self):
+        with patch(
+            "fluid_build.cli.forge_copilot_llm_providers._get_api_key_from_keyring",
+            return_value="keyring-secret",
+        ):
+            result = _resolve_api_key("openai", {"FLUID_LLM_API_KEY": "generic-key"})
+        assert result == "generic-key"
+
+    def test_keyring_returns_none_when_not_available(self):
+        with patch(
+            "fluid_build.cli.forge_copilot_llm_providers._get_api_key_from_keyring",
+            return_value=None,
+        ):
+            result = _resolve_api_key("openai", {})
+        assert result is None
+
+    def test_save_api_key_to_keyring_success(self):
+        mock_store = MagicMock()
+        with patch.dict(
+            "sys.modules",
+            {"fluid_build.credentials.keyring_store": mock_store},
+        ):
+            mock_store.KeyringCredentialStore.set_credential = MagicMock()
+            result = save_api_key_to_keyring("openai", "test-key")
+        assert result is True
+
+    def test_save_api_key_to_keyring_graceful_failure(self):
+        with patch(
+            "fluid_build.cli.forge_copilot_llm_providers._get_api_key_from_keyring",
+            side_effect=ImportError("no keyring"),
+        ):
+            # save uses its own import — simulate failure via exception in the function
+            pass
+        # Direct test: if keyring module is missing, function returns False
+        with patch.dict("sys.modules", {"fluid_build.credentials.keyring_store": None}):
+            result = save_api_key_to_keyring("openai", "test-key")
+        assert result is False
+
+    def test_clear_api_key_from_keyring_graceful_failure(self):
+        with patch.dict("sys.modules", {"fluid_build.credentials.keyring_store": None}):
+            result = clear_api_key_from_keyring("openai")
+        assert result is False
+
+
+class TestParseParamSize:
+    def test_billions(self):
+        assert _parse_param_size("32.8B") == 32.8
+
+    def test_integer_billions(self):
+        assert _parse_param_size("7B") == 7.0
+
+    def test_millions(self):
+        assert _parse_param_size("671M") == pytest.approx(0.671)
+
+    def test_empty(self):
+        assert _parse_param_size("") == 0.0
+
+    def test_unparseable(self):
+        assert _parse_param_size("unknown") == 0.0
+
+    def test_no_unit(self):
+        assert _parse_param_size("14") == 14.0
+
+
+class TestOllamaModelResolution:
+    def test_resolve_picks_largest_model(self):
+        fake_response = {
+            "models": [
+                {
+                    "name": "llama3.1:7b",
+                    "details": {"parameter_size": "7B"},
+                },
+                {
+                    "name": "qwen2.5-coder:32b",
+                    "details": {"parameter_size": "32.8B"},
+                },
+                {
+                    "name": "phi3:3b",
+                    "details": {"parameter_size": "3B"},
+                },
+            ]
+        }
+
+        with patch("fluid_build.cli.forge_copilot_llm_providers.httpx.get") as mock_get:
+            mock_get.return_value = MagicMock(
+                status_code=200, json=lambda: fake_response
+            )
+            mock_get.return_value.raise_for_status = MagicMock()
+            result = resolve_ollama_model({})
+
+        assert result == "qwen2.5-coder:32b"
+
+    def test_resolve_falls_back_when_ollama_unreachable(self):
+        with patch(
+            "fluid_build.cli.forge_copilot_llm_providers.httpx.get",
+            side_effect=Exception("connection refused"),
+        ):
+            result = resolve_ollama_model({})
+        assert result == "llama3.1"
+
+    def test_resolve_falls_back_when_no_models(self):
+        with patch("fluid_build.cli.forge_copilot_llm_providers.httpx.get") as mock_get:
+            mock_get.return_value = MagicMock(
+                status_code=200, json=lambda: {"models": []}
+            )
+            mock_get.return_value.raise_for_status = MagicMock()
+            result = resolve_ollama_model({})
+        assert result == "llama3.1"
+
+
+class TestModelCatalog:
+    def test_resolve_exact_id(self):
+        assert resolve_model_name("openai", "gpt-4o") == "gpt-4o"
+
+    def test_resolve_alias(self):
+        assert resolve_model_name("openai", "gpt4o") == "gpt-4o"
+
+    def test_resolve_anthropic_alias(self):
+        assert resolve_model_name("anthropic", "sonnet") == "claude-sonnet-4-5-20250514"
+
+    def test_resolve_anthropic_haiku(self):
+        assert resolve_model_name("anthropic", "haiku") == "claude-haiku-4-5-20251001"
+
+    def test_resolve_gemini_alias(self):
+        assert resolve_model_name("gemini", "gemini-pro") == "gemini-2.5-pro"
+
+    def test_unknown_passes_through(self):
+        assert resolve_model_name("openai", "my-custom-finetune") == "my-custom-finetune"
+
+    def test_case_insensitive(self):
+        assert resolve_model_name("anthropic", "Opus") == "claude-opus-4-0-20250514"
+
+    def test_empty_input(self):
+        assert resolve_model_name("openai", "") == ""

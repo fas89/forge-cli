@@ -22,6 +22,7 @@ __all__ = [
     "print_assumptions_panel",
     "print_copilot_intro_panel",
     "print_copilot_recovery_panel",
+    "print_free_tier_guide",
     "print_welcome_panel",
     "show_copilot_analysis",
     "show_domain_analysis",
@@ -127,6 +128,25 @@ def print_copilot_recovery_panel(
     console.print(
         _build_panel("\n".join(lines), title="Copilot Setup Needed", border_style="yellow")
     )
+
+
+def print_free_tier_guide(console: Any) -> None:
+    """Show links to free LLM API key providers."""
+    if not console or not RICH_AVAILABLE:
+        return
+    lines = [
+        "[bold]No API key? Here's how to get one free:[/bold]",
+        "",
+        "  [cyan]Google AI Studio[/cyan]  Free Gemini key (15 req/min)",
+        "  https://aistudio.google.com/apikey",
+        "",
+        "  [cyan]OpenRouter[/cyan]        Free models available",
+        "  https://openrouter.ai/keys",
+        "",
+        "  [cyan]Ollama[/cyan]            Run models locally (no key needed)",
+        "  https://ollama.com/download",
+    ]
+    show_lines_panel(console, lines, title="Free AI Options", border_style="blue")
 
 
 def print_assumptions_panel(console: Any, assumptions: Sequence[str]) -> None:
