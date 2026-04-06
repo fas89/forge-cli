@@ -89,7 +89,15 @@ class LlmConfig:
     @property
     def redacted_endpoint(self) -> str:
         endpoint = self.endpoint
-        endpoint = re.sub(r"([?&](?:key|token|api_key)=)[^&]+", r"\1***", endpoint, flags=re.I)
+        # Redact common credential query parameters
+        endpoint = re.sub(
+            r"([?&](?:key|token|api_key|auth|secret|credential|password)=)[^&]+",
+            r"\1***",
+            endpoint,
+            flags=re.I,
+        )
+        # Redact userinfo in URLs (user:pass@host)
+        endpoint = re.sub(r"(https?://)([^@/]+)@", r"\1***:***@", endpoint)
         return endpoint
 
 

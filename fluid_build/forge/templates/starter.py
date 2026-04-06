@@ -95,9 +95,9 @@ class StarterTemplate(ProjectTemplate):
         owner = project_config.get("owner", "data-team")
         provider = project_config.get("provider", "local")
 
-        # Generate contract based on FLUID 0.5.7 specification
+        # Generate contract using the configured FLUID schema version
         contract = {
-            "fluidVersion": "0.5.7",
+            "fluidVersion": project_config.get("fluid_version", "0.5.7"),
             "kind": "DataProduct",
             "id": project_name.replace("-", "_").replace(" ", "_"),
             "name": project_name,

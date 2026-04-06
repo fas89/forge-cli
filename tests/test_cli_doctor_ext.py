@@ -379,7 +379,7 @@ class TestRunExtra(unittest.TestCase):
         args = self._make_args(verbose=True)
 
         with (
-            patch("fluid_build.cli.doctor._extended_diagnostics_available", return_value=False),
+            patch("fluid_build.cli.doctor._resolve_extended_diagnostic_script", return_value=None),
             patch("fluid_build.cli.doctor.cprint"),
         ):
             result = run(args, MagicMock())
@@ -397,7 +397,7 @@ class TestRunExtra(unittest.TestCase):
         args = self._make_args(verbose=False)
 
         with (
-            patch("fluid_build.cli.doctor._extended_diagnostics_available", return_value=False),
+            patch("fluid_build.cli.doctor._resolve_extended_diagnostic_script", return_value=None),
             patch("fluid_build.cli.doctor.cprint"),
         ):
             result = run(args, MagicMock())
@@ -435,7 +435,6 @@ class TestRunExtra(unittest.TestCase):
         with (
             patch("fluid_build.cli.doctor.cprint"),
             patch("pathlib.Path.mkdir"),
-            patch("fluid_build.cli.doctor._extended_diagnostics_available", return_value=True),
         ):
             result = run(args, MagicMock())
 
@@ -461,7 +460,6 @@ class TestRunExtra(unittest.TestCase):
         with (
             patch("fluid_build.cli.doctor.cprint"),
             patch("pathlib.Path.mkdir"),
-            patch("fluid_build.cli.doctor._extended_diagnostics_available", return_value=True),
         ):
             with self.assertRaises(CLIError):
                 run(args, MagicMock())
@@ -489,7 +487,6 @@ class TestRunExtra(unittest.TestCase):
         with (
             patch("fluid_build.cli.doctor.cprint"),
             patch("pathlib.Path.mkdir"),
-            patch("fluid_build.cli.doctor._extended_diagnostics_available", return_value=True),
         ):
             with self.assertRaises(CLIError):
                 run(args, MagicMock())
@@ -513,27 +510,23 @@ class TestRunExtra(unittest.TestCase):
         with (
             patch("fluid_build.cli.doctor.cprint"),
             patch("pathlib.Path.mkdir"),
-            patch("fluid_build.cli.doctor._extended_diagnostics_available", return_value=True),
         ):
             with self.assertRaises(CLIError):
                 run(args, MagicMock())
 
     @patch("fluid_build.cli.doctor._check_fluid_features")
-    @patch("fluid_build.cli.doctor._resolve_extended_diagnostic_script")
-    def test_default_run_does_not_resolve_extended_script(self, mock_resolve, mock_check):
+    @patch("fluid_build.cli.doctor._resolve_extended_diagnostic_script", return_value=None)
+    def test_default_run_does_not_raise_for_missing_script(self, mock_resolve, mock_check):
         from fluid_build.cli.doctor import run
 
         mock_check.return_value = (True, [])
         args = self._make_args(verbose=False, extended=False)
 
-        with (
-            patch("fluid_build.cli.doctor._extended_diagnostics_available", return_value=False),
-            patch("fluid_build.cli.doctor.cprint"),
-        ):
+        with patch("fluid_build.cli.doctor.cprint"):
             result = run(args, MagicMock())
 
         assert result == 0
-        mock_resolve.assert_not_called()
+        mock_resolve.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

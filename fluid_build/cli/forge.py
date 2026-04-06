@@ -337,10 +337,7 @@ def handle_memory_management(args, logger: logging.Logger) -> int:
 
 
 def _set_runtime_arg(args: Any, name: str, value: Any) -> None:
-    if hasattr(args, "__dict__"):
-        vars(args)[name] = value
-    else:
-        setattr(args, name, value)
+    setattr(args, name, value)
 
 
 def _dispatch_mode(args: Any, logger: logging.Logger, mode_value: str) -> int:

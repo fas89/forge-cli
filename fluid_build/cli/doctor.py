@@ -31,7 +31,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from fluid_build.cli.console import cprint
 
@@ -124,7 +124,8 @@ def run(args, logger: logging.Logger) -> int:
         _print_feature_checks(feature_checks, verbose)
         return 0 if feature_checks_ok else 1
 
-    extended_available = _extended_diagnostics_available()
+    resolved_script = _resolve_extended_diagnostic_script()
+    extended_available = resolved_script is not None
     _print_doctor_summary(
         feature_checks_ok=feature_checks_ok,
         copilot_readiness=copilot_readiness,
@@ -146,7 +147,13 @@ def run(args, logger: logging.Logger) -> int:
     if not extended_requested:
         return 0 if feature_checks_ok else 1
 
-    validated_script = _resolve_extended_diagnostic_script()
+    if resolved_script is None:
+        raise _extended_diagnostic_error(
+            "Extended diagnostics are not installed in this checkout.",
+            EXTENDED_DIAG_SCRIPT.resolve(),
+            EXTENDED_DIAG_README.resolve(),
+        )
+    validated_script = resolved_script
 
     # Validate and create output directory
     try:
@@ -201,38 +208,21 @@ def run(args, logger: logging.Logger) -> int:
 
 def _extended_diagnostics_available() -> bool:
     """Return whether an extended workspace diagnostic script is available."""
-    try:
-        _resolve_extended_diagnostic_script()
-    except CLIError:
-        return False
-    return True
+    return _resolve_extended_diagnostic_script() is not None
 
 
-def _resolve_extended_diagnostic_script() -> Path:
-    """Resolve the optional workspace diagnostic script if it can be run safely."""
+def _resolve_extended_diagnostic_script() -> Optional[Path]:
+    """Resolve the optional workspace diagnostic script, returning None if unavailable."""
     script_path = EXTENDED_DIAG_SCRIPT.resolve()
-    readme_path = EXTENDED_DIAG_README.resolve()
 
     if not script_path.exists():
-        raise _extended_diagnostic_error(
-            "Extended diagnostics are not installed in this checkout.",
-            script_path,
-            readme_path,
-        )
+        return None
 
     if not script_path.is_file():
-        raise _extended_diagnostic_error(
-            "Extended diagnostics could not be started because scripts/diagnose.sh is not a file.",
-            script_path,
-            readme_path,
-        )
+        return None
 
     if not (os.access(script_path, os.X_OK) or os.access(script_path, os.R_OK)):
-        raise _extended_diagnostic_error(
-            "Extended diagnostics are present but not executable or readable by bash.",
-            script_path,
-            readme_path,
-        )
+        return None
 
     return script_path
 

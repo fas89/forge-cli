@@ -532,7 +532,9 @@ class TestApplyIntelligentDefaults:
         assert engine.project_config["name"] == "my-data-product"
         assert engine.project_config["template"] == "starter"
         assert engine.project_config["provider"] == "local"
-        assert engine.project_config["fluid_version"] == "0.5.7"
+        from fluid_build.schema_manager import FluidSchemaManager
+
+        assert engine.project_config["fluid_version"] == FluidSchemaManager.latest_bundled_version()
         assert isinstance(engine.project_config["target_dir"], Path)
 
     def test_does_not_overwrite_existing_keys(self):
@@ -1307,16 +1309,19 @@ class TestConfigureProvider:
 class TestConfigureAdvancedOptions:
     def test_sets_fluid_version_from_prompt(self):
         engine = _make_engine()
+        from fluid_build.schema_manager import FluidSchemaManager
+
+        latest = FluidSchemaManager.latest_bundled_version()
         with (
             patch("fluid_build.forge.core.engine.Prompt") as mock_prompt,
             patch("fluid_build.forge.core.engine.Confirm") as mock_confirm,
             patch.object(engine, "_configure_pipeline_options", return_value=True),
         ):
-            mock_prompt.ask.return_value = "0.5.7"
+            mock_prompt.ask.return_value = latest
             mock_confirm.ask.return_value = True
             result = engine._configure_advanced_options()
         assert result is True
-        assert engine.project_config["fluid_version"] == "0.5.7"
+        assert engine.project_config["fluid_version"] == latest
 
     def test_skips_fluid_version_prompt_when_already_set(self):
         engine = _make_engine()

@@ -144,11 +144,9 @@ class TestRun:
     @patch("fluid_build.cli.doctor._print_doctor_summary")
     @patch("fluid_build.cli.doctor._print_copilot_readiness")
     @patch("fluid_build.cli.doctor._print_doctor_next_steps")
-    @patch("fluid_build.cli.doctor._resolve_extended_diagnostic_script")
-    @patch("fluid_build.cli.doctor._extended_diagnostics_available", return_value=False)
+    @patch("fluid_build.cli.doctor._resolve_extended_diagnostic_script", return_value=None)
     def test_default_run_ignores_missing_diagnostic_script(
         self,
-        _mock_extended_available,
         mock_resolve_script,
         _mock_next_steps,
         mock_print_readiness,
@@ -178,15 +176,15 @@ class TestRun:
         assert result == 0
         mock_print_summary.assert_called_once()
         mock_print_readiness.assert_called_once()
-        mock_resolve_script.assert_not_called()
+        mock_resolve_script.assert_called_once()
 
     @patch("fluid_build.cli.doctor._check_copilot_readiness")
     @patch("fluid_build.cli.doctor._check_fluid_features")
     @patch("fluid_build.cli.doctor._print_copilot_readiness")
-    @patch("fluid_build.cli.doctor._extended_diagnostics_available", return_value=False)
+    @patch("fluid_build.cli.doctor._resolve_extended_diagnostic_script", return_value=None)
     def test_normal_run_prints_copilot_readiness(
         self,
-        _mock_extended_available,
+        _mock_resolve_script,
         mock_print_readiness,
         mock_check_features,
         mock_check_readiness,
@@ -216,20 +214,15 @@ class TestRun:
 
     @patch("fluid_build.cli.doctor._check_copilot_readiness")
     @patch("fluid_build.cli.doctor._check_fluid_features")
-    @patch("fluid_build.cli.doctor._extended_diagnostics_available", return_value=False)
-    @patch(
-        "fluid_build.cli.doctor._resolve_extended_diagnostic_script",
-        side_effect=Exception("resolver should be used"),
-    )
+    @patch("fluid_build.cli.doctor._resolve_extended_diagnostic_script", return_value=None)
     def test_extended_missing_script_bubbles_up_as_error(
         self,
         mock_resolve_script,
-        _mock_extended_available,
         mock_check_features,
         mock_check_readiness,
     ):
         from fluid_build.cli._common import CLIError
-        from fluid_build.cli.doctor import _extended_diagnostic_error, run
+        from fluid_build.cli.doctor import run
         from fluid_build.cli.forge_copilot_llm_providers import LlmReadinessCheck
 
         mock_check_features.return_value = (True, [])
@@ -239,11 +232,6 @@ class TestRun:
             model="llama3.2",
             endpoint="http://localhost:11434/api/chat",
             auth_available=True,
-        )
-        mock_resolve_script.side_effect = _extended_diagnostic_error(
-            "Extended diagnostics are not installed in this checkout.",
-            script_path="/tmp/scripts/diagnose.sh",
-            readme_path="/tmp/scripts/README.md",
         )
 
         args = MagicMock()

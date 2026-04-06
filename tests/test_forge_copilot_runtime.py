@@ -260,6 +260,31 @@ class TestCheckLlmReadiness:
         assert readiness.endpoint.endswith("api_key=***")
 
 
+class TestEndpointRedaction:
+    def test_redacts_auth_parameter(self):
+        config = LlmConfig("openai", "gpt-4o", "https://api.example.com?auth=mysecret", "k")
+        assert "auth=***" in config.redacted_endpoint
+        assert "mysecret" not in config.redacted_endpoint
+
+    def test_redacts_secret_parameter(self):
+        config = LlmConfig("openai", "gpt-4o", "https://api.example.com?secret=abc123", "k")
+        assert "secret=***" in config.redacted_endpoint
+        assert "abc123" not in config.redacted_endpoint
+
+    def test_redacts_credential_parameter(self):
+        config = LlmConfig("openai", "gpt-4o", "https://api.example.com?credential=x", "k")
+        assert "credential=***" in config.redacted_endpoint
+
+    def test_redacts_password_parameter(self):
+        config = LlmConfig("openai", "gpt-4o", "https://api.example.com?password=pw", "k")
+        assert "password=***" in config.redacted_endpoint
+
+    def test_redacts_userinfo_in_url(self):
+        config = LlmConfig("openai", "gpt-4o", "https://user:pass@api.example.com/v1", "k")
+        assert "user:pass" not in config.redacted_endpoint
+        assert "***:***@api.example.com" in config.redacted_endpoint
+
+
 class TestProviderAdapters:
     @pytest.mark.parametrize(
         ("provider", "config", "expected_header", "expected_payload_key"),

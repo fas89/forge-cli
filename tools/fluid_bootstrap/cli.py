@@ -231,13 +231,21 @@ def cmd_wizard(args: argparse.Namespace) -> int:
     return cmd_new_product(ns)
 
 
+_ALLOWED_PROVIDERS = frozenset({"local", "gcp", "aws", "snowflake", "redshift", "azure"})
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     # Route through the main doctor command so built-in checks and
     # optional extended diagnostics stay consistent.
     root = pathlib.Path(args.path).resolve()
+    import re
     import subprocess
 
-    provider = args.provider or "local"
+    raw_provider = args.provider or "local"
+    provider = re.sub(r"[^a-zA-Z0-9_-]", "", raw_provider).lower()
+    if provider not in _ALLOWED_PROVIDERS:
+        _log(f"Unknown provider '{provider}'. Using 'local'.")
+        provider = "local"
     result = subprocess.run(
         [sys.executable, "-m", "fluid_build.cli", "doctor", "--extended"],
         env={**os.environ, "PROVIDER": provider},

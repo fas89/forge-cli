@@ -891,6 +891,119 @@ class TestRunAiCopilotModeRecovery:
         mock_intro.assert_called_once()
         mock_welcome.assert_not_called()
 
+    def test_recovery_returns_1_when_setup_skipped_and_no_fallback(self):
+        from fluid_build.cli.forge_copilot_llm_providers import CopilotGenerationError
+        from fluid_build.cli.forge_modes import run_ai_copilot_mode
+
+        args = self._interactive_args()
+        console = MagicMock()
+        copilot_class = MagicMock(return_value=MagicMock())
+        readiness = MagicMock(
+            ready=False,
+            provider="openai",
+            error=CopilotGenerationError(
+                "copilot_missing_llm_api_key",
+                "No API key was configured for the openai copilot adapter.",
+                suggestions=["Set OPENAI_API_KEY"],
+            ),
+        )
+
+        with patch("fluid_build.cli.forge_modes.ask_confirmation", return_value=False):
+            result = run_ai_copilot_mode(
+                args,
+                _logger(),
+                copilot_class=copilot_class,
+                get_cli_arg_fn=self._get_arg,
+                load_context_fn=MagicMock(),
+                get_target_directory_fn=MagicMock(return_value=Path("/tmp/proj")),
+                context_error_cls=Exception,
+                build_interview_summary_fn=MagicMock(return_value={}),
+                console_factory=lambda: console,
+                llm_readiness_fn=MagicMock(return_value=readiness),
+                ask_dialog_question_fn=MagicMock(return_value=MagicMock(value=None)),
+                ask_friendly_text_fn=MagicMock(),
+                ask_secret_text_fn=MagicMock(),
+                route_mode_fn=None,
+                fallback_mode_choices=[],
+            )
+
+        assert result == 1
+
+    def test_recovery_returns_1_when_session_config_returns_none(self):
+        from fluid_build.cli.forge_copilot_llm_providers import CopilotGenerationError
+        from fluid_build.cli.forge_modes import run_ai_copilot_mode
+
+        args = self._interactive_args()
+        console = MagicMock()
+        copilot_class = MagicMock(return_value=MagicMock())
+        readiness = MagicMock(
+            ready=False,
+            provider="openai",
+            error=CopilotGenerationError(
+                "copilot_missing_llm_api_key",
+                "No API key was configured.",
+                suggestions=["Set OPENAI_API_KEY"],
+            ),
+        )
+
+        with patch("fluid_build.cli.forge_modes.ask_confirmation", return_value=True):
+            result = run_ai_copilot_mode(
+                args,
+                _logger(),
+                copilot_class=copilot_class,
+                get_cli_arg_fn=self._get_arg,
+                load_context_fn=MagicMock(),
+                get_target_directory_fn=MagicMock(return_value=Path("/tmp/proj")),
+                context_error_cls=Exception,
+                build_interview_summary_fn=MagicMock(return_value={}),
+                console_factory=lambda: console,
+                llm_readiness_fn=MagicMock(return_value=readiness),
+                ask_dialog_question_fn=MagicMock(return_value=MagicMock(value="openai")),
+                ask_friendly_text_fn=MagicMock(return_value=None),
+                ask_secret_text_fn=MagicMock(return_value=None),
+                route_mode_fn=None,
+                fallback_mode_choices=[],
+            )
+
+        assert result == 1
+
+    def test_recovery_works_without_console(self):
+        from fluid_build.cli.forge_copilot_llm_providers import CopilotGenerationError
+        from fluid_build.cli.forge_modes import run_ai_copilot_mode
+
+        args = self._interactive_args()
+        copilot_class = MagicMock(return_value=MagicMock())
+        readiness = MagicMock(
+            ready=False,
+            provider="openai",
+            error=CopilotGenerationError(
+                "copilot_missing_llm_api_key",
+                "No API key.",
+                suggestions=[],
+            ),
+        )
+
+        with patch("fluid_build.cli.forge_modes.ask_confirmation", return_value=False):
+            result = run_ai_copilot_mode(
+                args,
+                _logger(),
+                copilot_class=copilot_class,
+                get_cli_arg_fn=self._get_arg,
+                load_context_fn=MagicMock(),
+                get_target_directory_fn=MagicMock(return_value=Path("/tmp/proj")),
+                context_error_cls=Exception,
+                build_interview_summary_fn=MagicMock(return_value={}),
+                console_factory=None,
+                llm_readiness_fn=MagicMock(return_value=readiness),
+                ask_dialog_question_fn=MagicMock(return_value=MagicMock(value=None)),
+                ask_friendly_text_fn=MagicMock(),
+                ask_secret_text_fn=MagicMock(),
+                route_mode_fn=None,
+                fallback_mode_choices=[],
+            )
+
+        assert result == 1
+
 
 # ── run_domain_agent_mode – additional branches ───────────────────────
 
