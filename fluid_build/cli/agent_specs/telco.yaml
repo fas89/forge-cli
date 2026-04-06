@@ -68,6 +68,8 @@ resolver_defaults:
 suggestion_defaults:
   recommended_template: analytics-template
   recommended_provider: gcp
+  canonical_model: tmf_sid
+  supporting_standards: []
   recommended_patterns:
     - tm_forum_sid_canonical_model
   architecture_suggestions:
@@ -80,6 +82,7 @@ suggestion_defaults:
     - Version canonical SID mappings and semantic definitions with the project
     - Trace lineage from telecom events, orders, and telemetry to exposed KPIs
     - Validate privacy controls for subscriber, location, and usage data
+    - Keep every exposed semantic entity anchored to a specific SID concept or relationship
   technology_stack: []
   security_requirements: []
 
@@ -165,7 +168,7 @@ rules:
     actions:
       - op: append_unique
         path: architecture_suggestions
-        value: Center canonical keys on SID PartyRole, Customer, CustomerAccount, and Product relationships
+        value: Center canonical keys on SID PartyRole, Customer, CustomerAccount, and Product relationships and preserve those names in exposed semantics
   - when:
       all:
         - field: sid_domain_focus
@@ -173,7 +176,7 @@ rules:
     actions:
       - op: append_unique
         path: architecture_suggestions
-        value: Use SID ProductOffering, ProductSpecification, and Product entities as the commerce backbone
+        value: Use SID ProductOffering, ProductSpecification, and Product entities as the commerce backbone for product and offer semantics
   - when:
       all:
         - field: sid_domain_focus
@@ -181,7 +184,7 @@ rules:
     actions:
       - op: append_unique
         path: architecture_suggestions
-        value: Use SID ServiceSpecification, Service, and ServiceOrder entities as the fulfillment layer
+        value: Use SID ServiceSpecification, Service, and ServiceOrder entities as the fulfillment layer and semantic backbone
   - when:
       all:
         - field: sid_domain_focus
@@ -189,7 +192,7 @@ rules:
     actions:
       - op: append_unique
         path: architecture_suggestions
-        value: Model ResourceSpecification, Resource, and topology relationships as the network inventory layer
+        value: Model ResourceSpecification, Resource, and topology relationships as the network inventory layer and keep topology semantics SID-native
   - when:
       all:
         - field: sid_domain_focus

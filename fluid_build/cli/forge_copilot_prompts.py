@@ -47,6 +47,9 @@ def build_system_prompt(
         "Treat project_memory as a soft preference layer only. Explicit user context and the current "
         "discovery report take precedence.\n"
         "Use interview_summary as the authoritative statement of current user intent.\n\n"
+        "If interview_summary includes canonical_model or supporting_standards, use them as the authoritative "
+        "semantic modeling guidance for entity names, measures, dimensions, and descriptions.\n"
+        "Prefer canonical business vocabulary from those standards over source-table or file-specific names.\n\n"
         "The JSON object must contain keys: recommended_template, recommended_provider, "
         "recommended_patterns, architecture_suggestions, best_practices, technology_stack, "
         "description, domain, owner, readme_markdown, contract, additional_files.\n\n"
@@ -104,6 +107,10 @@ def build_clarification_system_prompt(capability_matrix: Mapping[str, Any]) -> s
         "Treat transcript.raw_input as primary evidence of user intent and transcript.resolved_value as a helpful local guess.\n"
         "If local matching is uncertain, prefer inferring from the raw wording over asking a rigid repeat question.\n"
         "Canonical use_case values: analytics, etl_pipeline, streaming, ml_pipeline, data_platform, other.\n"
+        "Canonical model values include: tmf_sid, nrf_arts, gs1_gdm, adobe_xdm, hl7_fhir, omop_cdm.\n"
+        "Supporting standards include: gs1_gdm, gs1_epcis_cbv.\n"
+        "For telco, retail, and healthcare requests, infer modeling standards from the raw wording whenever possible "
+        "and only ask a modeling-standard question when the choice is still ambiguous.\n"
         "Allowed providers: " + providers + ". Known templates: " + templates + ".\n"
         "Return a JSON object with keys: status, reason, context_patch, assumptions, questions.\n"
         "status must be either 'ask' or 'ready'.\n"
@@ -134,6 +141,8 @@ def build_clarification_user_prompt(
             "data_sources",
             "provider_hint",
             "domain",
+            "canonical_model",
+            "supporting_standards",
             "owner_team",
             "build_engine",
             "output_kind",
@@ -149,6 +158,7 @@ def build_clarification_user_prompt(
             "Ask nothing if current context and discovery are already sufficient.",
             "Prefer semantic intent questions over generic project-management questions.",
             "If use_case is ambiguous, prefer the canonical taxonomy with an Other / Not sure option.",
+            "Prefer inferring canonical_model and supporting_standards from domain-specific wording before asking an extra question.",
             "Assume the user may answer with fuzzy wording and use transcript raw_input plus resolved values together.",
             "If there was a generation failure, only ask questions that directly reduce that ambiguity.",
         ],

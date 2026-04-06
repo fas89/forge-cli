@@ -199,9 +199,16 @@ class CopilotAgent(CopilotAgentBase):
 
 
 DOMAIN_AGENTS_AVAILABLE = bool(DOMAIN_AGENTS)
-AI_AGENTS = {"copilot": CopilotAgent}
-if DOMAIN_AGENTS_AVAILABLE:
-    AI_AGENTS.update(DOMAIN_AGENTS)
+
+
+def _build_ai_agents():
+    agents = {"copilot": CopilotAgent}
+    if DOMAIN_AGENTS_AVAILABLE:
+        agents.update(DOMAIN_AGENTS)
+    return agents
+
+
+AI_AGENTS = _build_ai_agents()
 
 
 def register(subparsers: argparse._SubParsersAction):
@@ -470,7 +477,7 @@ def run_domain_agent_mode(args, logger: logging.Logger) -> int:
     return _run_agent(
         args,
         logger,
-        ai_agents=AI_AGENTS,
+        ai_agents=_build_ai_agents(),
         gather_context_fn=gather_copilot_context,
         load_context_fn=load_context,
         get_target_directory_fn=get_target_directory,

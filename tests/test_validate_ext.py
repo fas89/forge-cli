@@ -347,7 +347,8 @@ class TestRunFunction:
         with patch("fluid_build.cli.validate.FluidSchemaManager") as MockSM:
             sm = _make_schema_manager()
             MockSM.return_value = sm
-            result = run(args, logger)
+            with patch("fluid_build.cli.validate._try_workspace_validate", return_value=None):
+                result = run(args, logger)
         assert result == 1
 
     def test_run_contract_file_not_found(self, tmp_path):

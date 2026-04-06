@@ -157,7 +157,11 @@ class TestAdaptiveCopilotInterview:
 
     def test_bootstrap_precedence_keeps_explicit_values_over_discovery_and_memory(self):
         state = bootstrap_interview_state(
-            {"project_goal": "Risk model", "provider": "snowflake"},
+            {
+                "project_goal": "Risk model",
+                "provider": "snowflake",
+                "canonical_model": "hl7 fhir",
+            },
             discovery_report=DiscoveryReport(
                 workspace_roots=["/tmp/workspace"],
                 provider_hints=["gcp"],
@@ -172,6 +176,7 @@ class TestAdaptiveCopilotInterview:
 
         assert state.normalized_context["provider"] == "snowflake"
         assert state.normalized_context["domain"] == "analytics"
+        assert state.normalized_context["canonical_model"] == "hl7_fhir"
 
     @patch(
         "fluid_build.cli.forge_copilot_interview.request_interview_decision",
@@ -209,6 +214,35 @@ class TestAdaptiveCopilotInterview:
         assert updated.normalized_context["interview_summary"]["semantic_intent"][
             "primary_measures"
         ] == ["revenue"]
+
+    def test_interview_summary_infers_healthcare_modeling_defaults(self):
+        state = CopilotInterviewState(
+            normalized_context={
+                "project_goal": "Population health dashboard",
+                "data_sources": "claims and clinical warehouse",
+                "domain": "healthcare",
+                "use_case": "analytics",
+            }
+        )
+
+        final_context = state.finalize()
+
+        assert final_context["canonical_model"] == "omop_cdm"
+        assert final_context["interview_summary"]["canonical_model"] == "omop_cdm"
+
+    def test_interview_summary_infers_retail_digital_modeling_defaults(self):
+        state = CopilotInterviewState(
+            normalized_context={
+                "project_goal": "Retail digital journey analytics",
+                "data_sources": "web sdk profile events",
+                "domain": "retail",
+            }
+        )
+
+        final_context = state.finalize()
+
+        assert final_context["canonical_model"] == "adobe_xdm"
+        assert final_context["interview_summary"]["canonical_model"] == "adobe_xdm"
 
     @patch(
         "fluid_build.cli.forge_copilot_interview.request_interview_decision",

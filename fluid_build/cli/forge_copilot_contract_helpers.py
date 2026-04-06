@@ -41,7 +41,15 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 import yaml
 
 from fluid_build.cli.forge_copilot_memory import CopilotMemorySnapshot
-from fluid_build.cli.forge_copilot_taxonomy import format_use_case_label, normalize_use_case
+from fluid_build.cli.forge_copilot_taxonomy import (
+    CANONICAL_MODEL_LABELS,
+    SUPPORTING_STANDARD_LABELS,
+    format_use_case_label,
+    normalize_canonical_model,
+    normalize_copilot_context,
+    normalize_supporting_standards,
+    normalize_use_case,
+)
 
 SAFE_ADDITIONAL_FILE_EXTENSIONS = {
     ".py",
@@ -136,34 +144,40 @@ def _normalize_consumes_for_generation(value: Any) -> List[Dict[str, str]]:
 
 
 def _normalize_interview_summary(context: Mapping[str, Any]) -> Dict[str, Any]:
+    normalized_context = normalize_copilot_context(dict(context))
     summary = context.get("interview_summary")
     if isinstance(summary, Mapping):
         normalized = dict(summary)
     else:
         normalized = {
-            "project_goal": context.get("project_goal"),
-            "use_case": normalize_use_case(context.get("use_case")),
-            "use_case_other": context.get("use_case_other"),
+            "project_goal": normalized_context.get("project_goal"),
+            "use_case": normalize_use_case(normalized_context.get("use_case")),
+            "use_case_other": normalized_context.get("use_case_other"),
             "use_case_label": format_use_case_label(
-                context.get("use_case"),
-                context.get("use_case_other"),
+                normalized_context.get("use_case"),
+                normalized_context.get("use_case_other"),
             ),
-            "data_sources": context.get("data_sources"),
-            "provider_hint": context.get("provider") or context.get("provider_hint"),
-            "domain": context.get("domain"),
-            "owner_team": context.get("owner_team") or context.get("owner"),
-            "build_engine": context.get("build_engine"),
-            "output_kind": context.get("output_kind"),
+            "data_sources": normalized_context.get("data_sources"),
+            "provider_hint": normalized_context.get("provider")
+            or normalized_context.get("provider_hint"),
+            "domain": normalized_context.get("domain"),
+            "canonical_model": normalized_context.get("canonical_model"),
+            "supporting_standards": normalized_context.get("supporting_standards") or [],
+            "owner_team": normalized_context.get("owner_team") or normalized_context.get("owner"),
+            "build_engine": normalized_context.get("build_engine"),
+            "output_kind": normalized_context.get("output_kind"),
             "semantic_intent": {
-                "primary_entity": context.get("primary_entity"),
-                "primary_measures": _coerce_string_list(context.get("primary_measures")),
-                "primary_dimensions": _coerce_string_list(context.get("primary_dimensions")),
-                "time_dimension": context.get("time_dimension"),
-                "time_granularity": context.get("time_granularity"),
+                "primary_entity": normalized_context.get("primary_entity"),
+                "primary_measures": _coerce_string_list(normalized_context.get("primary_measures")),
+                "primary_dimensions": _coerce_string_list(
+                    normalized_context.get("primary_dimensions")
+                ),
+                "time_dimension": normalized_context.get("time_dimension"),
+                "time_granularity": normalized_context.get("time_granularity"),
             },
-            "refresh_cadence": context.get("refresh_cadence"),
-            "consumes": context.get("consumes") or [],
-            "assumptions": list(context.get("assumptions_used") or []),
+            "refresh_cadence": normalized_context.get("refresh_cadence"),
+            "consumes": normalized_context.get("consumes") or [],
+            "assumptions": list(normalized_context.get("assumptions_used") or []),
             "answered_fields": sorted(
                 key
                 for key in (
@@ -172,6 +186,8 @@ def _normalize_interview_summary(context: Mapping[str, Any]) -> Dict[str, Any]:
                     "data_sources",
                     "provider",
                     "domain",
+                    "canonical_model",
+                    "supporting_standards",
                     "owner_team",
                     "build_engine",
                     "output_kind",
@@ -183,7 +199,7 @@ def _normalize_interview_summary(context: Mapping[str, Any]) -> Dict[str, Any]:
                     "refresh_cadence",
                     "consumes",
                 )
-                if context.get(key)
+                if normalized_context.get(key)
             ),
         }
 
@@ -191,17 +207,26 @@ def _normalize_interview_summary(context: Mapping[str, Any]) -> Dict[str, Any]:
     if not isinstance(semantic_intent, Mapping):
         semantic_intent = {}
     normalized["semantic_intent"] = {
-        "primary_entity": semantic_intent.get("primary_entity") or context.get("primary_entity"),
+        "primary_entity": semantic_intent.get("primary_entity")
+        or normalized_context.get("primary_entity"),
         "primary_measures": _coerce_string_list(
-            semantic_intent.get("primary_measures") or context.get("primary_measures")
+            semantic_intent.get("primary_measures") or normalized_context.get("primary_measures")
         ),
         "primary_dimensions": _coerce_string_list(
-            semantic_intent.get("primary_dimensions") or context.get("primary_dimensions")
+            semantic_intent.get("primary_dimensions")
+            or normalized_context.get("primary_dimensions")
         ),
-        "time_dimension": semantic_intent.get("time_dimension") or context.get("time_dimension"),
+        "time_dimension": semantic_intent.get("time_dimension")
+        or normalized_context.get("time_dimension"),
         "time_granularity": semantic_intent.get("time_granularity")
-        or context.get("time_granularity"),
+        or normalized_context.get("time_granularity"),
     }
+    normalized["canonical_model"] = normalize_canonical_model(
+        normalized.get("canonical_model") or normalized_context.get("canonical_model")
+    )
+    normalized["supporting_standards"] = normalize_supporting_standards(
+        normalized.get("supporting_standards") or normalized_context.get("supporting_standards")
+    )
     normalized["use_case"] = normalize_use_case(normalized.get("use_case")) or normalized.get(
         "use_case"
     )
@@ -222,6 +247,8 @@ def _normalize_interview_summary(context: Mapping[str, Any]) -> Dict[str, Any]:
                 "data_sources",
                 "provider_hint",
                 "domain",
+                "canonical_model",
+                "supporting_standards",
                 "owner_team",
                 "build_engine",
                 "output_kind",
@@ -239,6 +266,24 @@ def sanitize_name(value: Any) -> str:
     text = re.sub(r"[^a-z0-9]+", "-", text)
     text = re.sub(r"-{2,}", "-", text).strip("-")
     return text or "copilot-data-product"
+
+
+def _modeling_description_suffix(
+    canonical_model: Optional[str], supporting_standards: Sequence[str]
+) -> str:
+    labels: List[str] = []
+    if canonical_model:
+        labels.append(CANONICAL_MODEL_LABELS.get(canonical_model, canonical_model))
+    supporting_labels = [
+        SUPPORTING_STANDARD_LABELS.get(standard, standard) for standard in supporting_standards
+    ]
+    if supporting_labels:
+        if labels:
+            return f" Modeled using {labels[0]} with supporting standards {', '.join(supporting_labels)}."
+        return f" Modeled using supporting standards {', '.join(supporting_labels)}."
+    if labels:
+        return f" Modeled using {labels[0]}."
+    return ""
 
 
 def normalize_template_name(value: Any) -> str:
@@ -272,7 +317,30 @@ def _build_semantics_from_interview_summary(
     if not isinstance(semantic_intent, Mapping):
         semantic_intent = {}
 
-    entity_name = str(semantic_intent.get("primary_entity") or columns[0]["name"]).strip()
+    canonical_model = normalize_canonical_model(interview_summary.get("canonical_model"))
+    supporting_standards = normalize_supporting_standards(
+        interview_summary.get("supporting_standards")
+    )
+    default_entity_by_model = {
+        "tmf_sid": "party",
+        "nrf_arts": "retail_transaction",
+        "gs1_gdm": "trade_item",
+        "adobe_xdm": "experience_event",
+        "hl7_fhir": "patient",
+        "omop_cdm": "person",
+    }
+    source_entity_name = str(columns[0]["name"]).strip()
+    default_entity_name = source_entity_name
+    if (
+        canonical_model
+        and source_entity_name == "id"
+        and len(columns) == 1
+        and canonical_model in default_entity_by_model
+    ):
+        default_entity_name = default_entity_by_model[canonical_model]
+
+    entity_name = str(semantic_intent.get("primary_entity") or default_entity_name).strip()
+    entity_expr = source_entity_name if entity_name != source_entity_name else None
     measure_names = _coerce_string_list(semantic_intent.get("primary_measures"))
     if not measure_names:
         measure_names = [f"{entity_name}_count"]
@@ -281,13 +349,16 @@ def _build_semantics_from_interview_summary(
     time_granularity = str(semantic_intent.get("time_granularity") or "").strip()
 
     entities = [{"name": entity_name, "type": "primary"}]
+    if entity_expr:
+        entities[0]["expr"] = entity_expr
+        entities[0]["description"] = f"Canonical {entity_name} entity mapped from {source_entity_name}."
     measures = []
     metrics = []
     for measure_name in measure_names:
         normalized_measure = sanitize_name(measure_name).replace("-", "_")
         if normalized_measure.endswith("_count"):
             agg = "count"
-            expr = entity_name
+            expr = entity_expr or entity_name
         else:
             agg = "sum"
             expr = measure_name
@@ -309,6 +380,8 @@ def _build_semantics_from_interview_summary(
         )
 
     dimensions = [{"name": entity_name, "type": "categorical"}]
+    if entity_expr:
+        dimensions[0]["expr"] = entity_expr
     for dimension_name in dimension_names:
         normalized_dimension = sanitize_name(dimension_name).replace("-", "_")
         if normalized_dimension != entity_name:
@@ -319,9 +392,12 @@ def _build_semantics_from_interview_summary(
             time_dimension_entry["typeParams"] = {"timeGranularity": time_granularity}
         dimensions.append(time_dimension_entry)
 
+    semantic_description = description or "Semantic model for the exposed data product."
+    semantic_description += _modeling_description_suffix(canonical_model, supporting_standards)
+
     return {
         "name": expose_name.replace("_", " ").title(),
-        "description": description or "Semantic model for the exposed data product.",
+        "description": semantic_description,
         "entities": entities,
         "measures": measures,
         "dimensions": dimensions,
@@ -566,6 +642,9 @@ def normalize_generation_payload(
         "architecture_suggestions": list(payload.get("architecture_suggestions") or []),
         "best_practices": list(payload.get("best_practices") or []),
         "technology_stack": list(payload.get("technology_stack") or []),
+        "canonical_model": _normalize_interview_summary(context).get("canonical_model"),
+        "supporting_standards": _normalize_interview_summary(context).get("supporting_standards")
+        or [],
         "description": payload.get("description") or contract.get("description") or "",
         "domain": payload.get("domain")
         or contract.get("domain")

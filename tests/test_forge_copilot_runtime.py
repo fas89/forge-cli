@@ -49,7 +49,9 @@ from fluid_build.cli.forge_copilot_runtime import (
     _build_scaffold_decision,
     build_capability_matrix,
     build_clarification_system_prompt,
+    build_clarification_user_prompt,
     build_seed_contract,
+    build_system_prompt,
     build_user_prompt,
     extract_json_object,
     generate_copilot_artifacts,
@@ -431,6 +433,29 @@ class TestRuntimeHelpers:
         assert payload["interview_summary"]["use_case_other"] == "CDC sync"
         assert payload["interview_summary"]["use_case"] == "other"
 
+    def test_build_user_prompt_includes_modeling_standards(self):
+        prompt = build_user_prompt(
+            context={
+                "project_goal": "Digital retail journeys",
+                "data_sources": "web sdk events",
+                "domain": "retail",
+                "canonical_model": "adobe_xdm",
+                "supporting_standards": [],
+            },
+            discovery_report=DiscoveryReport(workspace_roots=["/tmp/workspace"]),
+            capability_matrix=_capability_matrix(),
+            seed_contract=_minimal_contract(),
+            seed_template="starter",
+            seed_provider="local",
+            attempt_index=1,
+            previous_errors=[],
+            previous_payload=None,
+        )
+
+        payload = json.loads(prompt)
+        assert payload["interview_summary"]["canonical_model"] == "adobe_xdm"
+        assert payload["interview_summary"]["supporting_standards"] == []
+
     def test_build_seed_contract_is_strictly_valid_for_072(self):
         contract = build_seed_contract(
             context={
@@ -454,11 +479,61 @@ class TestRuntimeHelpers:
         assert validation.is_valid is True
         assert validation.errors == []
 
+    def test_build_seed_contract_describes_traceability_modeling(self):
+        contract = build_seed_contract(
+            context={
+                "project_goal": "Retail traceability events",
+                "domain": "retail",
+                "data_sources": "epcis lot and serial events",
+            },
+            discovery_report=DiscoveryReport(workspace_roots=["/tmp/workspace"]),
+            template_name="analytics",
+            provider_name="local",
+        )
+
+        semantics = contract["exposes"][0]["semantics"]
+        assert "GS1" in semantics["description"]
+        assert "EPCIS / CBV" in semantics["description"]
+        assert semantics["entities"][0]["name"] == "trade_item"
+
+    def test_build_seed_contract_describes_healthcare_interoperability_modeling(self):
+        contract = build_seed_contract(
+            context={
+                "project_goal": "EHR interoperability feeds",
+                "domain": "healthcare",
+                "data_sources": "FHIR patient and encounter resources",
+            },
+            discovery_report=DiscoveryReport(workspace_roots=["/tmp/workspace"]),
+            template_name="analytics",
+            provider_name="local",
+        )
+
+        semantics = contract["exposes"][0]["semantics"]
+        assert "HL7 FHIR" in semantics["description"]
+        assert semantics["entities"][0]["name"] == "patient"
+
     def test_clarification_prompt_mentions_fuzzy_user_answers(self):
         prompt = build_clarification_system_prompt(_capability_matrix())
 
         assert "partial phrases" in prompt
         assert "transcript.raw_input" in prompt
+
+    def test_system_prompt_mentions_canonical_model_guidance(self):
+        prompt = build_system_prompt(_capability_matrix())
+
+        assert "canonical_model" in prompt
+        assert "supporting_standards" in prompt
+
+    def test_clarification_user_prompt_targets_modeling_slots(self):
+        prompt = build_clarification_user_prompt(
+            interview_state={"normalized_context": {}, "answered_fields": [], "assumptions": []},
+            discovery_report=DiscoveryReport(workspace_roots=["/tmp/workspace"]),
+            capability_matrix=_capability_matrix(),
+        )
+
+        payload = json.loads(prompt)
+        assert "canonical_model" in payload["target_slots"]
+        assert "supporting_standards" in payload["target_slots"]
 
 
 class TestDiscovery:
