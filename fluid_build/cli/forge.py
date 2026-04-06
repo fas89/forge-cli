@@ -401,7 +401,11 @@ def run(args, logger: logging.Logger) -> int:
                     console,
                     status="info",
                     message="Cleared saved LLM credentials from keychain.",
+                    detail="You'll be prompted for new credentials.",
                 )
+            # Force interactive recovery so the wizard re-prompts.
+            _set_runtime_arg(args, "_enable_copilot_recovery", True)
+            _set_runtime_arg(args, "non_interactive", False)
 
         requested_mode = get_cli_arg(args, "mode")
         implicit_mode = not bool(requested_mode)

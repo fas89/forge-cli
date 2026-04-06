@@ -39,7 +39,8 @@ from fluid_build.cli.forge_copilot_interview import (
 from fluid_build.cli.forge_copilot_llm_providers import (
     CopilotGenerationError,
     LlmConfig,
-    _PROVIDER_DISPLAY_NAMES,
+    PROVIDER_DISPLAY_NAMES,
+    _get_catalog_default,
     check_llm_readiness,
     detect_provider_from_api_key,
     get_llm_provider,
@@ -79,7 +80,6 @@ def _create_session_llm_config(
     *,
     default_provider: str = "openai",
     ask_dialog_question_fn: Callable[[Any, Any], Any] = ask_dialog_question,
-    ask_friendly_text_fn: Callable[..., Optional[str]] = ask_friendly_text,
     ask_secret_text_fn: Callable[..., Optional[str]] = ask_secret_text,
 ) -> Optional[LlmConfig]:
     """Collect a session-only LLM configuration via an API-key-first flow.
@@ -150,9 +150,9 @@ def _create_session_llm_config(
         provider_name = str(selection.value or default_provider or "openai").strip().lower()
 
     provider = get_llm_provider(provider_name)
-    model = provider.default_model
+    model = _get_catalog_default(provider_name) or provider.default_model
     endpoint = provider.default_endpoint(model, os.environ)
-    display = _PROVIDER_DISPLAY_NAMES.get(provider_name, provider_name)
+    display = PROVIDER_DISPLAY_NAMES.get(provider_name, provider_name)
 
     if console:
         print_dialog_status(
@@ -208,7 +208,6 @@ def _handle_copilot_recovery(
     route_mode_fn: Optional[Callable[[str], int]],
     fallback_mode_choices: Sequence[Mapping[str, str]],
     ask_dialog_question_fn: Callable[[Any, Any], Any],
-    ask_friendly_text_fn: Callable[..., Optional[str]],
     ask_secret_text_fn: Callable[..., Optional[str]],
 ) -> Dict[str, Any] | int:
     """Offer session-only setup first, then alternate modes if the user declines."""
@@ -241,7 +240,6 @@ def _handle_copilot_recovery(
             console,
             default_provider=default_provider,
             ask_dialog_question_fn=ask_dialog_question_fn,
-            ask_friendly_text_fn=ask_friendly_text_fn,
             ask_secret_text_fn=ask_secret_text_fn,
         )
         if llm_config:
@@ -353,7 +351,6 @@ def run_ai_copilot_mode(
                     route_mode_fn=route_mode_fn,
                     fallback_mode_choices=fallback_mode_choices,
                     ask_dialog_question_fn=ask_dialog_question_fn,
-                    ask_friendly_text_fn=ask_friendly_text_fn,
                     ask_secret_text_fn=ask_secret_text_fn,
                 )
                 if isinstance(recovery_result, int):
@@ -364,6 +361,13 @@ def run_ai_copilot_mode(
             runtime_inputs = copilot.prepare_runtime_inputs(copilot_options)
             copilot_options.update(runtime_inputs)
             if console:
+                llm_cfg = runtime_inputs.get("llm_config")
+                if llm_cfg:
+                    display = PROVIDER_DISPLAY_NAMES.get(llm_cfg.provider, llm_cfg.provider)
+                    console.print(
+                        f"[dim]AI: [bold]{display}[/bold] / {llm_cfg.model}  "
+                        f"(change with [bold]fluid forge --reauth[/bold])[/dim]\n"
+                    )
                 print_copilot_intro_panel(console)
                 console.print(
                     "[dim]I'll help you create the perfect data product by understanding your needs...[/dim]\n"

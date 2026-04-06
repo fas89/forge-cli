@@ -1385,7 +1385,7 @@ class TestCreateSessionLlmConfig:
         assert config is not None
         assert config.provider == "anthropic"
         assert config.api_key == "sk-ant-api03-test123"
-        assert config.model == "claude-3-5-sonnet-latest"
+        assert config.model == "claude-sonnet-4-5-20250514"
 
     def test_openai_key_auto_detected(self):
         console = MagicMock()

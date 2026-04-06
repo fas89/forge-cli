@@ -26,6 +26,7 @@ __all__ = [
     "AnthropicProvider",
     "GeminiProvider",
     "BUILTIN_LLM_PROVIDERS",
+    "PROVIDER_DISPLAY_NAMES",
     "check_llm_readiness",
     "clear_api_key_from_keyring",
     "detect_ollama_available",
@@ -549,6 +550,7 @@ def _get_api_key_from_keyring(provider: str) -> Optional[str]:
 
         return KeyringCredentialStore.get_credential(_keyring_key(provider))
     except Exception:  # noqa: BLE001
+        LOG.debug("Keyring read failed for %s", _keyring_key(provider))
         return None
 
 
@@ -560,6 +562,7 @@ def save_api_key_to_keyring(provider: str, api_key: str) -> bool:
         KeyringCredentialStore.set_credential(_keyring_key(provider), api_key)
         return True
     except Exception:  # noqa: BLE001
+        LOG.debug("Keyring write failed for %s", _keyring_key(provider))
         return False
 
 
@@ -571,6 +574,7 @@ def clear_api_key_from_keyring(provider: str) -> bool:
         KeyringCredentialStore.delete_credential(_keyring_key(provider))
         return True
     except Exception:  # noqa: BLE001
+        LOG.debug("Keyring delete failed for %s", _keyring_key(provider))
         return False
 
 
@@ -584,7 +588,7 @@ def _redact_endpoint_text(endpoint: Any) -> str:
 # API Key Detection
 # ---------------------------------------------------------------------------
 
-_PROVIDER_DISPLAY_NAMES = {
+PROVIDER_DISPLAY_NAMES = {
     "openai": "OpenAI",
     "anthropic": "Anthropic (Claude)",
     "gemini": "Google Gemini",
@@ -626,7 +630,8 @@ def _load_model_catalog() -> Dict[str, Any]:
     catalog_path = Path(__file__).with_name("llm_models.json")
     try:
         _model_catalog_cache = json.loads(catalog_path.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        LOG.warning("Could not load model catalog %s: %s", catalog_path, exc)
         _model_catalog_cache = {}
     return _model_catalog_cache
 
@@ -667,17 +672,36 @@ def resolve_model_name(provider: str, user_input: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+_LOCALHOST_PREFIXES = (
+    "http://localhost",
+    "http://127.0.0.1",
+    "http://[::1]",
+    "http://0.0.0.0",
+)
+
+_ollama_available_cache: Optional[bool] = None
+
+
 def _ollama_host(env: Mapping[str, str]) -> str:
-    return (env.get("OLLAMA_HOST") or "http://localhost:11434").rstrip("/")
+    host = (env.get("OLLAMA_HOST") or "http://localhost:11434").rstrip("/")
+    # SSRF guard: only allow localhost targets for Ollama.
+    if not any(host.lower().startswith(prefix) for prefix in _LOCALHOST_PREFIXES):
+        LOG.warning("OLLAMA_HOST points to a non-localhost address (%s), ignoring.", host)
+        return "http://localhost:11434"
+    return host
 
 
 def detect_ollama_available(env: Mapping[str, str]) -> bool:
-    """Return ``True`` if a local Ollama instance is reachable."""
+    """Return ``True`` if a local Ollama instance is reachable (cached per-process)."""
+    global _ollama_available_cache  # noqa: PLW0603
+    if _ollama_available_cache is not None:
+        return _ollama_available_cache
     try:
         resp = httpx.get(f"{_ollama_host(env)}/api/version", timeout=1.0)
-        return resp.status_code == 200
+        _ollama_available_cache = resp.status_code == 200
     except Exception:  # noqa: BLE001
-        return False
+        _ollama_available_cache = False
+    return _ollama_available_cache
 
 
 def _parse_param_size(value: str) -> float:

@@ -316,7 +316,7 @@ def ask_secret_text(
         return None
     if console:
         console.print(
-            "[dim]This value is only used for the current run and will not be saved.[/dim]"
+            "[dim]This value won't be displayed. It may be saved to your system keychain.[/dim]"
         )
     retry = _read_secret_text(console, prompt)
     return retry or None

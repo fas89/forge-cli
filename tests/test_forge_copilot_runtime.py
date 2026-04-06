@@ -233,10 +233,14 @@ class TestResolveLlmConfig:
 
 class TestCheckLlmReadiness:
     def test_reports_missing_api_key_for_hosted_provider(self):
-        readiness = check_llm_readiness(
-            SimpleNamespace(llm_provider="openai", llm_model=None, llm_endpoint=None),
-            environ={},
-        )
+        with patch(
+            "fluid_build.cli.forge_copilot_llm_providers._get_api_key_from_keyring",
+            return_value=None,
+        ):
+            readiness = check_llm_readiness(
+                SimpleNamespace(llm_provider="openai", llm_model=None, llm_endpoint=None),
+                environ={},
+            )
 
         assert readiness.ready is False
         assert readiness.provider == "openai"
