@@ -76,7 +76,7 @@ class StreamingTemplate(ProjectTemplate):
         provider = project_config.get("provider", "gcp")
 
         return {
-            "fluidVersion": "0.5.7",
+            "fluidVersion": project_config.get("fluid_version", "0.5.7"),
             "kind": "DataProduct",
             "id": f"{project_name.replace('-', '_')}_streaming",
             "name": f"{project_name} Streaming",

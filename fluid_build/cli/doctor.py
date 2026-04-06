@@ -28,17 +28,19 @@ import argparse
 import logging
 import os
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Tuple
+from types import SimpleNamespace
+from typing import Dict, List, Optional, Tuple
 
 from fluid_build.cli.console import cprint
 
 from ._common import CLIError
 from ._logging import info
+from .forge_copilot_llm_providers import LlmReadinessCheck, check_llm_readiness
 from .security import (
     InputSanitizer,
     ProductionLogger,
-    validate_input_file,
     validate_output_file,
 )
 
@@ -53,22 +55,35 @@ except ImportError:
     RICH_AVAILABLE = False
 
 COMMAND = "doctor"
+EXTENDED_DIAG_SCRIPT = Path("scripts/diagnose.sh")
+EXTENDED_DIAG_README = Path("scripts/README.md")
+
+
+@dataclass
+class DoctorSummary:
+    status: str
+    message: str
+    border_style: str
+    text_style: str
 
 
 def register(subparsers: argparse._SubParsersAction):
     """Register unified doctor command"""
     p = subparsers.add_parser(
         COMMAND,
-        help="Run system diagnostics and feature checks",
+        help="Run built-in health checks and optional extended diagnostics",
         description="""
-Run comprehensive system diagnostics for FLUID CLI.
+Run built-in health checks for FLUID CLI.
 
 Automatically checks:
-• Core FLUID infrastructure
+• Forge copilot readiness
 • FLUID 0.7.1 feature availability (if applicable)
 • Provider capabilities
-• Schema validation
-• Runtime dependencies
+• Schema and runtime support
+
+Optional workspace diagnostics can be run with --extended
+(or the legacy alias --comprehensive) when scripts/diagnose.sh
+is available in the current checkout.
         """.strip(),
     )
     p.add_argument(
@@ -78,6 +93,13 @@ Automatically checks:
         "--features-only",
         action="store_true",
         help="Only check FLUID feature availability (skip infrastructure)",
+    )
+    p.add_argument(
+        "--extended",
+        "--comprehensive",
+        action="store_true",
+        dest="extended",
+        help="Run optional workspace diagnostics via scripts/diagnose.sh",
     )
     p.add_argument("--verbose", "-v", action="store_true", help="Show detailed output")
     p.set_defaults(cmd=COMMAND, func=run)
@@ -90,36 +112,48 @@ def run(args, logger: logging.Logger) -> int:
     Automatically checks both base infrastructure and 0.7.1 features.
     """
     secure_logger = ProductionLogger(logger)
+    verbose = getattr(args, "verbose", False)
+    extended_requested = getattr(args, "extended", False)
 
     # Always check 0.7.1 feature availability (non-intrusive)
     feature_checks_ok, feature_checks = _check_fluid_features()
+    copilot_readiness = _check_copilot_readiness()
 
     # If features-only mode, just show features and exit
     if getattr(args, "features_only", False):
-        _print_feature_checks(feature_checks, getattr(args, "verbose", False))
+        _print_feature_checks(feature_checks, verbose)
         return 0 if feature_checks_ok else 1
+
+    resolved_script = _resolve_extended_diagnostic_script()
+    extended_available = resolved_script is not None
+    _print_doctor_summary(
+        feature_checks_ok=feature_checks_ok,
+        copilot_readiness=copilot_readiness,
+        extended_available=extended_available,
+        extended_requested=extended_requested,
+    )
+    _print_copilot_readiness(copilot_readiness, verbose)
 
     # Show feature checks first
-    if getattr(args, "verbose", False) or not feature_checks_ok:
-        _print_feature_checks(feature_checks, getattr(args, "verbose", False))
+    if verbose or not feature_checks_ok:
+        _print_feature_checks(feature_checks, verbose)
         cprint()  # Spacing
 
-    script_path = Path("./scripts/diagnose.sh")
+    _print_doctor_next_steps(
+        feature_checks_ok=feature_checks_ok,
+        copilot_readiness=copilot_readiness,
+    )
 
-    # Validate script exists and is safe to execute
-    try:
-        validated_script = validate_input_file(script_path, "diagnostic script")
-    except Exception:
-        secure_logger.log_safe("warning", f"Diagnostic script not found or invalid: {script_path}")
-        info(
-            logger,
-            "doctor_script_missing",
-            script=str(script_path),
-            note="Skipping infrastructure checks",
-        )
-
-        # If we only have feature checks, return based on those
+    if not extended_requested:
         return 0 if feature_checks_ok else 1
+
+    if resolved_script is None:
+        raise _extended_diagnostic_error(
+            "Extended diagnostics are not installed in this checkout.",
+            EXTENDED_DIAG_SCRIPT.resolve(),
+            EXTENDED_DIAG_README.resolve(),
+        )
+    validated_script = resolved_script
 
     # Validate and create output directory
     try:
@@ -170,6 +204,137 @@ def run(args, logger: logging.Logger) -> int:
     except Exception as e:
         secure_logger.log_safe("error", f"Unexpected diagnostic error: {str(e)}")
         raise CLIError(1, "doctor_unexpected_error", context={"error": str(e)})
+
+
+def _extended_diagnostics_available() -> bool:
+    """Return whether an extended workspace diagnostic script is available."""
+    return _resolve_extended_diagnostic_script() is not None
+
+
+def _resolve_extended_diagnostic_script() -> Optional[Path]:
+    """Resolve the optional workspace diagnostic script, returning None if unavailable."""
+    script_path = EXTENDED_DIAG_SCRIPT.resolve()
+
+    if not script_path.exists():
+        return None
+
+    if not script_path.is_file():
+        return None
+
+    if not (os.access(script_path, os.X_OK) or os.access(script_path, os.R_OK)):
+        return None
+
+    return script_path
+
+
+def _extended_diagnostic_error(message: str, script_path: Path, readme_path: Path) -> CLIError:
+    error = CLIError(
+        1,
+        "doctor_extended_unavailable",
+        context={
+            "script": str(script_path),
+            "readme": str(readme_path),
+            "hint": "Run `fluid doctor` for built-in checks only.",
+        },
+    )
+    error.message = message
+    return error
+
+
+def _build_doctor_summary(
+    *,
+    feature_checks_ok: bool,
+    copilot_readiness: LlmReadinessCheck,
+    extended_available: bool,
+    extended_requested: bool,
+) -> DoctorSummary:
+    if not feature_checks_ok or not copilot_readiness.ready:
+        return DoctorSummary(
+            status="Action needed",
+            message="Some built-in checks need attention before Forge is fully ready.",
+            border_style="yellow",
+            text_style="yellow",
+        )
+
+    if not extended_available and not extended_requested:
+        return DoctorSummary(
+            status="Optional extras unavailable",
+            message="Built-in checks passed. Extended workspace diagnostics are not installed here.",
+            border_style="blue",
+            text_style="cyan",
+        )
+
+    return DoctorSummary(
+        status="Ready",
+        message="Built-in checks passed.",
+        border_style="green",
+        text_style="green",
+    )
+
+
+def _print_doctor_summary(
+    *,
+    feature_checks_ok: bool,
+    copilot_readiness: LlmReadinessCheck,
+    extended_available: bool,
+    extended_requested: bool,
+) -> None:
+    summary = _build_doctor_summary(
+        feature_checks_ok=feature_checks_ok,
+        copilot_readiness=copilot_readiness,
+        extended_available=extended_available,
+        extended_requested=extended_requested,
+    )
+
+    if RICH_AVAILABLE:
+        console = Console()
+        console.print(
+            Panel(
+                f"[{summary.text_style}]{summary.status}[/{summary.text_style}]\n"
+                f"[dim]{summary.message}[/dim]",
+                title="🩺 Doctor Summary",
+                border_style=summary.border_style,
+            )
+        )
+        return
+
+    cprint("\n" + "=" * 60)
+    cprint("Doctor Summary")
+    cprint("=" * 60)
+    cprint(f"Status:  {summary.status}")
+    cprint(f"Message: {summary.message}")
+    cprint()
+
+
+def _print_doctor_next_steps(
+    *, feature_checks_ok: bool, copilot_readiness: LlmReadinessCheck
+) -> None:
+    suggestions: List[str] = []
+
+    if not copilot_readiness.ready and copilot_readiness.error is not None:
+        suggestions.extend(copilot_readiness.error.suggestions)
+
+    if not feature_checks_ok:
+        suggestions.append("Run `fluid doctor --verbose` to inspect failing feature checks.")
+
+    if not suggestions:
+        return
+
+    if RICH_AVAILABLE:
+        console = Console()
+        console.print(
+            Panel(
+                "\n".join(f"• {item}" for item in suggestions),
+                title="Next steps",
+                border_style="yellow",
+            )
+        )
+        return
+
+    cprint("Next steps:")
+    for suggestion in suggestions:
+        cprint(f"  • {suggestion}")
+    cprint()
 
 
 def _check_fluid_features() -> Tuple[bool, List[Dict[str, any]]]:
@@ -409,3 +574,52 @@ def _print_feature_checks(checks: List[Dict[str, any]], verbose: bool = False):
         total = len(checks)
         cprint(f"\n{ok_count}/{total} features available")
         cprint()
+
+
+def _check_copilot_readiness() -> LlmReadinessCheck:
+    """Inspect whether Forge copilot has enough local config to start."""
+    return check_llm_readiness(SimpleNamespace())
+
+
+def _print_copilot_readiness(readiness: LlmReadinessCheck, verbose: bool = False) -> None:
+    """Render the copilot readiness summary without leaking secrets."""
+    status_text = "✅ Ready" if readiness.ready else "⚠️  Setup needed"
+    auth_text = "Configured" if readiness.auth_available else "Missing"
+    endpoint_text = readiness.endpoint or "Not configured"
+
+    if RICH_AVAILABLE:
+        console = Console()
+        table = Table(title="🤖 Forge Copilot Readiness", show_header=True)
+        table.add_column("Item", style="cyan", width=18)
+        table.add_column("Value", style="white")
+        table.add_row("Status", status_text)
+        table.add_row("Provider", readiness.provider or "Not selected")
+        table.add_row("Model", readiness.model or "Not selected")
+        table.add_row("Endpoint", endpoint_text)
+        table.add_row("Auth", auth_text)
+        if verbose and readiness.error is not None:
+            table.add_row("Message", readiness.error.message)
+        console.print(table)
+        if verbose and readiness.error is not None and readiness.error.suggestions:
+            console.print(
+                Panel(
+                    "\n".join(f"• {item}" for item in readiness.error.suggestions),
+                    title="Copilot Suggestions",
+                    border_style="yellow",
+                )
+            )
+        return
+
+    cprint("\n" + "=" * 60)
+    cprint("Forge Copilot Readiness")
+    cprint("=" * 60)
+    cprint(f"Status:   {status_text}")
+    cprint(f"Provider: {readiness.provider or 'Not selected'}")
+    cprint(f"Model:    {readiness.model or 'Not selected'}")
+    cprint(f"Endpoint: {endpoint_text}")
+    cprint(f"Auth:     {auth_text}")
+    if verbose and readiness.error is not None:
+        cprint(f"Message:  {readiness.error.message}")
+        for suggestion in readiness.error.suggestions:
+            cprint(f"  • {suggestion}")
+    cprint()

@@ -186,7 +186,7 @@ class BasePipelineTemplate:
             "visualize": "fluid viz-plan --output pipeline-viz.html && fluid viz-graph --output dependency-graph.png",
             "publish_opds": "fluid export-opds --output opds-catalog.json",
             "marketplace_publish": "fluid marketplace publish --catalog opds-catalog.json",
-            "doctor": "fluid doctor --comprehensive",
+            "doctor": "fluid doctor --extended",
         }
 
     def _get_common_environment_vars(self) -> Dict[str, str]:

@@ -124,6 +124,39 @@ class TestPrintFeatureChecksPlainText(unittest.TestCase):
         all_calls = " ".join(str(c) for c in mock_cprint.call_args_list)
         assert "All good" in all_calls
 
+
+class TestPrintCopilotReadinessPlainText(unittest.TestCase):
+    def test_plain_text_readiness_output_redacts_and_prints_message(self):
+        from fluid_build.cli.doctor import _print_copilot_readiness
+        from fluid_build.cli.forge_copilot_llm_providers import (
+            CopilotGenerationError,
+            LlmReadinessCheck,
+        )
+
+        readiness = LlmReadinessCheck(
+            ready=False,
+            provider="openai",
+            model="gpt-4o-mini",
+            endpoint="https://gateway.example.test/chat?api_key=***",
+            auth_available=False,
+            error=CopilotGenerationError(
+                "copilot_missing_llm_api_key",
+                "No API key was configured for the openai copilot adapter.",
+                suggestions=["Set OPENAI_API_KEY"],
+            ),
+        )
+
+        with (
+            patch("fluid_build.cli.doctor.RICH_AVAILABLE", False),
+            patch("fluid_build.cli.doctor.cprint") as mock_cprint,
+        ):
+            _print_copilot_readiness(readiness, verbose=True)
+
+        all_calls = " ".join(str(c) for c in mock_cprint.call_args_list)
+        assert "Forge Copilot Readiness" in all_calls
+        assert "api_key=***" in all_calls
+        assert "No API key was configured for the openai copilot adapter." in all_calls
+
     def test_plain_text_shows_pass_count(self):
         from fluid_build.cli.doctor import _print_feature_checks
 
@@ -139,6 +172,65 @@ class TestPrintFeatureChecksPlainText(unittest.TestCase):
 
         all_calls = " ".join(str(c) for c in mock_cprint.call_args_list)
         assert "2/2" in all_calls
+
+
+class TestDoctorSummary(unittest.TestCase):
+    def test_summary_is_ready_when_built_in_checks_pass(self):
+        from fluid_build.cli.doctor import _build_doctor_summary
+        from fluid_build.cli.forge_copilot_llm_providers import LlmReadinessCheck
+
+        summary = _build_doctor_summary(
+            feature_checks_ok=True,
+            copilot_readiness=LlmReadinessCheck(
+                ready=True,
+                provider="ollama",
+                model="llama3.2",
+                endpoint="http://localhost:11434/api/chat",
+                auth_available=True,
+            ),
+            extended_available=True,
+            extended_requested=False,
+        )
+
+        assert summary.status == "Ready"
+
+    def test_summary_reports_optional_extras_unavailable(self):
+        from fluid_build.cli.doctor import _build_doctor_summary
+        from fluid_build.cli.forge_copilot_llm_providers import LlmReadinessCheck
+
+        summary = _build_doctor_summary(
+            feature_checks_ok=True,
+            copilot_readiness=LlmReadinessCheck(
+                ready=True,
+                provider="ollama",
+                model="llama3.2",
+                endpoint="http://localhost:11434/api/chat",
+                auth_available=True,
+            ),
+            extended_available=False,
+            extended_requested=False,
+        )
+
+        assert summary.status == "Optional extras unavailable"
+
+    def test_summary_reports_action_needed_when_copilot_not_ready(self):
+        from fluid_build.cli.doctor import _build_doctor_summary
+        from fluid_build.cli.forge_copilot_llm_providers import LlmReadinessCheck
+
+        summary = _build_doctor_summary(
+            feature_checks_ok=True,
+            copilot_readiness=LlmReadinessCheck(
+                ready=False,
+                provider="openai",
+                model="gpt-4o-mini",
+                endpoint="https://api.openai.com/v1/chat/completions",
+                auth_available=False,
+            ),
+            extended_available=False,
+            extended_requested=False,
+        )
+
+        assert summary.status == "Action needed"
 
 
 # ---------------------------------------------------------------------------
@@ -272,6 +364,7 @@ class TestRunExtra(unittest.TestCase):
         defaults = dict(
             features_only=False,
             verbose=False,
+            extended=False,
             out_dir="/tmp/diag_test",
         )
         defaults.update(kw)
@@ -286,7 +379,7 @@ class TestRunExtra(unittest.TestCase):
         args = self._make_args(verbose=True)
 
         with (
-            patch("fluid_build.cli.doctor.validate_input_file", side_effect=FileNotFoundError),
+            patch("fluid_build.cli.doctor._resolve_extended_diagnostic_script", return_value=None),
             patch("fluid_build.cli.doctor.cprint"),
         ):
             result = run(args, MagicMock())
@@ -304,7 +397,7 @@ class TestRunExtra(unittest.TestCase):
         args = self._make_args(verbose=False)
 
         with (
-            patch("fluid_build.cli.doctor.validate_input_file", side_effect=FileNotFoundError),
+            patch("fluid_build.cli.doctor._resolve_extended_diagnostic_script", return_value=None),
             patch("fluid_build.cli.doctor.cprint"),
         ):
             result = run(args, MagicMock())
@@ -327,17 +420,17 @@ class TestRunExtra(unittest.TestCase):
         assert call_args[0][1] is True or call_args[1].get("verbose") is True
 
     @patch("fluid_build.cli.doctor._check_fluid_features")
-    @patch("fluid_build.cli.doctor.validate_input_file")
+    @patch("fluid_build.cli.doctor._resolve_extended_diagnostic_script")
     @patch("fluid_build.cli.doctor.validate_output_file")
     @patch("fluid_build.cli.doctor.subprocess.run")
-    def test_run_with_script_succeeds(self, mock_run, _mock_val_out, mock_val_in, mock_check):
+    def test_run_with_script_succeeds(self, mock_run, _mock_val_out, mock_resolve, mock_check):
         from fluid_build.cli.doctor import run
 
         mock_check.return_value = (True, [])
-        mock_val_in.return_value = "/fake/scripts/diagnose.sh"
+        mock_resolve.return_value = "/fake/scripts/diagnose.sh"
         mock_run.return_value = None
 
-        args = self._make_args(verbose=False)
+        args = self._make_args(verbose=False, extended=True)
 
         with (
             patch("fluid_build.cli.doctor.cprint"),
@@ -349,20 +442,20 @@ class TestRunExtra(unittest.TestCase):
         assert result == 0
 
     @patch("fluid_build.cli.doctor._check_fluid_features")
-    @patch("fluid_build.cli.doctor.validate_input_file")
+    @patch("fluid_build.cli.doctor._resolve_extended_diagnostic_script")
     @patch("fluid_build.cli.doctor.validate_output_file")
     @patch("fluid_build.cli.doctor.subprocess.run")
-    def test_run_timeout_raises_cli_error(self, mock_run, _mock_val_out, mock_val_in, mock_check):
+    def test_run_timeout_raises_cli_error(self, mock_run, _mock_val_out, mock_resolve, mock_check):
         import subprocess
 
         from fluid_build.cli._common import CLIError
         from fluid_build.cli.doctor import run
 
         mock_check.return_value = (True, [])
-        mock_val_in.return_value = "/fake/scripts/diagnose.sh"
+        mock_resolve.return_value = "/fake/scripts/diagnose.sh"
         mock_run.side_effect = subprocess.TimeoutExpired(cmd="bash", timeout=300)
 
-        args = self._make_args(verbose=False)
+        args = self._make_args(verbose=False, extended=True)
 
         with (
             patch("fluid_build.cli.doctor.cprint"),
@@ -372,11 +465,11 @@ class TestRunExtra(unittest.TestCase):
                 run(args, MagicMock())
 
     @patch("fluid_build.cli.doctor._check_fluid_features")
-    @patch("fluid_build.cli.doctor.validate_input_file")
+    @patch("fluid_build.cli.doctor._resolve_extended_diagnostic_script")
     @patch("fluid_build.cli.doctor.validate_output_file")
     @patch("fluid_build.cli.doctor.subprocess.run")
     def test_run_called_process_error_raises_cli_error(
-        self, mock_run, _mock_val_out, mock_val_in, mock_check
+        self, mock_run, _mock_val_out, mock_resolve, mock_check
     ):
         import subprocess
 
@@ -384,12 +477,12 @@ class TestRunExtra(unittest.TestCase):
         from fluid_build.cli.doctor import run
 
         mock_check.return_value = (True, [])
-        mock_val_in.return_value = "/fake/scripts/diagnose.sh"
+        mock_resolve.return_value = "/fake/scripts/diagnose.sh"
 
         error = subprocess.CalledProcessError(returncode=1, cmd="bash")
         mock_run.side_effect = error
 
-        args = self._make_args(verbose=False)
+        args = self._make_args(verbose=False, extended=True)
 
         with (
             patch("fluid_build.cli.doctor.cprint"),
@@ -399,20 +492,20 @@ class TestRunExtra(unittest.TestCase):
                 run(args, MagicMock())
 
     @patch("fluid_build.cli.doctor._check_fluid_features")
-    @patch("fluid_build.cli.doctor.validate_input_file")
+    @patch("fluid_build.cli.doctor._resolve_extended_diagnostic_script")
     @patch("fluid_build.cli.doctor.validate_output_file")
     @patch("fluid_build.cli.doctor.subprocess.run")
     def test_run_unexpected_error_raises_cli_error(
-        self, mock_run, _mock_val_out, mock_val_in, mock_check
+        self, mock_run, _mock_val_out, mock_resolve, mock_check
     ):
         from fluid_build.cli._common import CLIError
         from fluid_build.cli.doctor import run
 
         mock_check.return_value = (True, [])
-        mock_val_in.return_value = "/fake/scripts/diagnose.sh"
+        mock_resolve.return_value = "/fake/scripts/diagnose.sh"
         mock_run.side_effect = RuntimeError("unexpected")
 
-        args = self._make_args(verbose=False)
+        args = self._make_args(verbose=False, extended=True)
 
         with (
             patch("fluid_build.cli.doctor.cprint"),
@@ -420,6 +513,20 @@ class TestRunExtra(unittest.TestCase):
         ):
             with self.assertRaises(CLIError):
                 run(args, MagicMock())
+
+    @patch("fluid_build.cli.doctor._check_fluid_features")
+    @patch("fluid_build.cli.doctor._resolve_extended_diagnostic_script", return_value=None)
+    def test_default_run_does_not_raise_for_missing_script(self, mock_resolve, mock_check):
+        from fluid_build.cli.doctor import run
+
+        mock_check.return_value = (True, [])
+        args = self._make_args(verbose=False, extended=False)
+
+        with patch("fluid_build.cli.doctor.cprint"):
+            result = run(args, MagicMock())
+
+        assert result == 0
+        mock_resolve.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -454,6 +561,15 @@ class TestRegisterExtra(unittest.TestCase):
         register(sub)
         args = parser.parse_args(["doctor", "--out-dir", "/custom/path"])
         assert args.out_dir == "/custom/path"
+
+    def test_comprehensive_alias_sets_extended(self):
+        from fluid_build.cli.doctor import register
+
+        parser = argparse.ArgumentParser()
+        sub = parser.add_subparsers()
+        register(sub)
+        args = parser.parse_args(["doctor", "--comprehensive"])
+        assert args.extended is True
 
 
 if __name__ == "__main__":

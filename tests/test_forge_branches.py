@@ -727,6 +727,44 @@ class TestRunFunction:
         result = run(args, logger)
         assert result == 0
 
+    @patch("fluid_build.cli.forge.run_ai_copilot_mode", return_value=0)
+    def test_run_implicit_mode_enables_recovery_for_interactive(self, mock_copilot):
+        from fluid_build.cli.forge import run
+
+        args = MagicMock()
+        args.help = False
+        args.mode = None
+        args.show_memory = False
+        args.reset_memory = False
+        args.non_interactive = False
+        logger = logging.getLogger("test")
+
+        result = run(args, logger)
+
+        assert result == 0
+        assert args.mode == "copilot"
+        assert args._enable_copilot_recovery is True
+        mock_copilot.assert_called_once()
+
+    @patch("fluid_build.cli.forge.run_ai_copilot_mode", return_value=0)
+    def test_run_implicit_mode_skips_recovery_for_non_interactive(self, mock_copilot):
+        from fluid_build.cli.forge import run
+
+        args = MagicMock()
+        args.help = False
+        args.mode = None
+        args.show_memory = False
+        args.reset_memory = False
+        args.non_interactive = True
+        logger = logging.getLogger("test")
+
+        result = run(args, logger)
+
+        assert result == 0
+        assert args.mode == "copilot"
+        assert args._enable_copilot_recovery is False
+        mock_copilot.assert_called_once()
+
     @patch("fluid_build.cli.forge.run_template_mode", return_value=0)
     def test_run_template_mode(self, _mock_tmpl):
         from fluid_build.cli.forge import run
