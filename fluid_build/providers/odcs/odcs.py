@@ -175,7 +175,6 @@ class OdcsProvider(BaseProvider):
         Returns:
             List of ``(expose_id, odcs_dict)`` tuples in expose order.
         """
-        import copy
 
         results = []
         for expose in fluid.get("exposes", []):

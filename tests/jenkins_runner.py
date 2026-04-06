@@ -37,6 +37,17 @@ import os
 import sys
 from pathlib import Path
 
+
+def _get_cli_version() -> str:
+    """Read the canonical CLI version from the package."""
+    try:
+        from fluid_build import __version__
+
+        return __version__
+    except Exception:  # noqa: BLE001
+        return "unknown"
+
+
 print(f"🔍 Jenkins Runner v{JENKINS_RUNNER_VERSION} (commit: {GIT_COMMIT_HINT})")
 print(f"📂 Script location: {__file__}")
 print(f"📂 Working directory: {os.getcwd()}")
@@ -308,7 +319,7 @@ def create_ai_log_archive(
         "category": category,
         "python_version": sys.version,
         "platform": sys.platform,
-        "cli_version": "2.0.0",  # TODO: Read from package
+        "cli_version": _get_cli_version(),
         "test_framework": "unittest/pytest",
         "coverage_tool": "coverage.py",
     }

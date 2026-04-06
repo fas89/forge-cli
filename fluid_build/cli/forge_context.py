@@ -29,7 +29,7 @@ __all__ = [
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Callable, Dict, List, Mapping, Optional, Type
+from typing import Any, Callable, Dict, List, Optional, Type
 
 import yaml
 

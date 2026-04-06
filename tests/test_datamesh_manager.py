@@ -23,12 +23,8 @@ _cmd_list(), _cmd_get(), _cmd_delete(), _cmd_teams().
 from __future__ import annotations
 
 import argparse
-import json
-import logging
 from types import SimpleNamespace
-from unittest.mock import MagicMock, Mock, call, patch
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 from fluid_build.cli.datamesh_manager import (
     _cmd_delete,

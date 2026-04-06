@@ -35,7 +35,7 @@ try:
 except Exception:  # pragma: no cover
     yaml = None
 
-from ..loader import RefResolutionError, compile_contract, load_with_overlay
+from ..loader import RefResolutionError, compile_contract
 
 COMMAND = "compile"
 

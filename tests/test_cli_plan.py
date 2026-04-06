@@ -25,7 +25,6 @@ from unittest.mock import MagicMock, patch
 from fluid_build.cli.plan import (
     _display_plan_simple,
     _parse_semver,
-    _plan_legacy,
     _should_use_provider_actions,
     register,
     run,

@@ -27,7 +27,7 @@ import re
 from collections import Counter, deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 import yaml
 

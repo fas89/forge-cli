@@ -22,8 +22,6 @@ add_provider_actions_to_viz.
 import logging
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from fluid_build.cli.viz_provider_actions import (
     _render_action_item,
     add_provider_actions_to_viz,

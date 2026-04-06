@@ -16,8 +16,6 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 
 class TestActiveProfile:
     def test_default_is_experimental(self):

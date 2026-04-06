@@ -46,25 +46,18 @@ from fluid_build.cli.forge_context import (
 from fluid_build.cli.forge_copilot_agent import (
     AIAgent,
     CopilotAgentBase,
-    recommend_template_for_use_case,
 )
 from fluid_build.cli.forge_copilot_interview import build_interview_summary_from_context
 from fluid_build.cli.forge_copilot_memory import (
     CopilotMemoryStore,
-    resolve_copilot_memory_root,
-    summarize_copilot_memory,
 )
 from fluid_build.cli.forge_copilot_runtime import (
-    CopilotGenerationError,
     CopilotGenerationResult,
     build_capability_matrix,
     discover_local_context,
     generate_copilot_artifacts,
-    normalize_provider_name,
-    normalize_template_name,
     resolve_llm_config,
 )
-from fluid_build.cli.forge_copilot_taxonomy import normalize_copilot_context
 from fluid_build.cli.forge_dialogs import ask_confirmation
 from fluid_build.cli.forge_modes import (
     run_ai_copilot_mode as _run_copilot,

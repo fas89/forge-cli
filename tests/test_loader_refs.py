@@ -35,7 +35,6 @@ import argparse
 import json
 import logging
 from pathlib import Path
-from textwrap import dedent
 
 import pytest
 import yaml

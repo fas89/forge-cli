@@ -37,9 +37,6 @@ from .forge_copilot_taxonomy import (
     normalize_use_case,
 )
 from .forge_dialogs import (
-    DialogQuestionResult as AskedQuestionResult,
-)
-from .forge_dialogs import (
     ask_dialog_question as ask_interview_question,
 )
 from .forge_dialogs import (

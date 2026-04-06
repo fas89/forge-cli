@@ -16,7 +16,6 @@
 
 import argparse
 import logging
-import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
