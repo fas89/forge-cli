@@ -24,7 +24,6 @@ import argparse
 
 from fluid_build import __version__ as _VERSION
 from fluid_build.cli.forge_ui import (
-    FORGE_DIALOG_HINT,
     FORGE_FLEXIBLE_INPUT_SUMMARY,
     FORGE_WORKFLOW_STEPS,
 )

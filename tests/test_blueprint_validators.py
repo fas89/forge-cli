@@ -14,10 +14,8 @@
 
 """Tests for fluid_build.blueprints.validators."""
 
-from pathlib import Path
-from unittest.mock import MagicMock, PropertyMock
+from unittest.mock import MagicMock
 
-import pytest
 import yaml
 
 from fluid_build.blueprints.validators import BlueprintValidator

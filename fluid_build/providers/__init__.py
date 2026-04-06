@@ -116,8 +116,8 @@ def _add_discovery_error(source: str, modname: str, exc: BaseException) -> None:
 
 # ----------------------------- Public API ---------------------------------- #
 
-# CLI version for protocol compatibility checks
-_CLI_VERSION = "0.7.1"
+# CLI version for protocol compatibility checks — read from the canonical source.
+from fluid_build import __version__ as _CLI_VERSION  # noqa: E402
 
 
 def _parse_version(v: str) -> Tuple[int, ...]:

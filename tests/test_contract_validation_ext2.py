@@ -22,7 +22,6 @@ _validate_binding (deeper), _validate_schema_definition (deeper).
 
 import argparse
 import logging
-import sys
 import tempfile
 import unittest
 from datetime import datetime

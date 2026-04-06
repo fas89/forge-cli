@@ -19,9 +19,8 @@ import json
 import logging
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
 
 from fluid_build.cli.forge_copilot_schema_inference import (
     extract_avro_columns,

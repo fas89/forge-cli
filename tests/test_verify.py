@@ -17,7 +17,6 @@
 import argparse
 import json
 import logging
-from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -136,7 +135,6 @@ class TestVerifyBigqueryTableWithMockedClient:
             },
         ):
             # Re-import to pick up the patched module inside verify_bigquery_table
-            import importlib
 
             import fluid_build.cli.verify as verify_mod
 

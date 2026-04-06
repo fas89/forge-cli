@@ -14,9 +14,8 @@
 
 """Tests for fluid_build.cli._command_center."""
 
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import MagicMock, patch
 
-import pytest
 
 from fluid_build.cli._command_center import (
     CommandCenterClient,

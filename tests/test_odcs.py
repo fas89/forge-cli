@@ -15,11 +15,8 @@
 """Tests for fluid_build.cli.odcs (click commands and argparse helpers)."""
 
 import json
-import logging
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 import yaml
 from click.testing import CliRunner
 
@@ -31,7 +28,6 @@ from fluid_build.cli.odcs import (
     export_command,
     import_command,
     info_command,
-    odcs_cli,
     validate_command,
 )
 

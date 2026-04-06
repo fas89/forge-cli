@@ -21,7 +21,6 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 LOG = logging.getLogger(__name__)
 
@@ -663,7 +662,6 @@ class TestWriteAndPrintJson:
         assert data["key"] == "value"
 
     def test_print_json_fallback_no_rich(self, capsys):
-        from fluid_build.cli.bootstrap import _print_json
 
         with patch.dict("sys.modules", {"rich.console": None, "rich": None}):
             with patch("fluid_build.cli.bootstrap._print_json") as mock_print:

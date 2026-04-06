@@ -25,9 +25,8 @@ Covers:
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
-import pytest
 
 from fluid_build.providers.datamesh_manager.datamesh_manager import (
     DataMeshManagerProvider,

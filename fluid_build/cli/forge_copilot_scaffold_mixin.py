@@ -28,7 +28,6 @@ from typing import Any, Dict, Optional
 
 from fluid_build.cli.console import cprint
 from fluid_build.cli.console import error as console_error
-from fluid_build.cli.forge_copilot_runtime import normalize_provider_name, normalize_template_name
 from fluid_build.cli.forge_copilot_taxonomy import (
     format_use_case_label,
     normalize_copilot_context,
@@ -36,7 +35,6 @@ from fluid_build.cli.forge_copilot_taxonomy import (
 )
 from fluid_build.cli.forge_ui import (
     FORGE_MARKET_SEARCH_COMMAND,
-    build_standard_next_steps,
     show_copilot_analysis,
     show_next_steps_panel,
 )

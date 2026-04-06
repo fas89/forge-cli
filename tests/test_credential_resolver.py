@@ -14,7 +14,7 @@
 
 """Tests for fluid_build.credentials.resolver."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 

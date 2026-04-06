@@ -14,7 +14,6 @@
 
 """Tests for fluid_build.cli.market — enums, dataclasses, AdvancedSearchEngine, CircuitBreaker."""
 
-import asyncio
 import logging
 import time
 from datetime import datetime, timedelta, timezone

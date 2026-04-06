@@ -22,7 +22,7 @@ import sys
 import time
 from typing import List, Optional
 
-from fluid_build.cli.console import cprint, info, warning
+from fluid_build.cli.console import cprint, info as info, warning as warning
 from fluid_build.cli.console import error as console_error
 from fluid_build.observability import install_secret_redacting_filter
 

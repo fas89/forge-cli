@@ -685,7 +685,6 @@ class DataMeshManagerProvider(BaseProvider):
             return self._to_data_product_odps(fluid)
 
         meta = fluid.get("metadata", {})
-        owner = fluid.get("owner", meta.get("owner", {}))
 
         product_id = self._extract_id(fluid)
         status = _STATUS_MAP.get(str(meta.get("status", "draft")).lower(), "draft")

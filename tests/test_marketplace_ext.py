@@ -17,13 +17,10 @@
 import argparse
 import json
 import logging
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 import fluid_build.cli.marketplace as marketplace_module
-from fluid_build.cli._common import CLIError
 from fluid_build.cli.marketplace import (
     instantiate_blueprint,
     interactive_parameter_wizard,

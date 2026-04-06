@@ -19,14 +19,11 @@ This file covers run() integration paths, display helpers, report generation,
 notification dispatch, and metric export.
 """
 
-import json
 import logging
 from unittest.mock import MagicMock, patch
 
-import pytest
 
-import fluid_build.cli.apply as _apply_mod
-from fluid_build.cli.apply import COMMAND, _actions_from_source
+from fluid_build.cli.apply import _actions_from_source
 
 LOG = logging.getLogger("test_apply_ext")
 
@@ -205,7 +202,6 @@ class TestRunJsonPlanLoading:
     def test_json_plan_dry_run(self, _mock_metric, _mock_success, _mock_start, tmp_path):
         """run() with a .json contract loads ExecutionPlan and returns 0 in dry-run."""
         from fluid_build.cli.apply import run
-        from fluid_build.cli.orchestration import ExecutionPlan
 
         plan = tmp_path / "plan.json"
         plan.write_text('{"contract": {"id": "t"}, "plan": {}}')

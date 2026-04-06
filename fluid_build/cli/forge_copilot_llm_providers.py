@@ -455,7 +455,6 @@ def call_llm(
                 response.raise_for_status()
             break
         except httpx.HTTPStatusError as exc:
-            last_exc = exc
             if exc.response.status_code in _TRANSIENT_STATUS_CODES and attempt < _LLM_MAX_RETRIES:
                 delay = _LLM_RETRY_BASE_SECONDS * (2**attempt)
                 LOG.info(

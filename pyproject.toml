@@ -138,7 +138,6 @@ Documentation = "https://agentics-rising.github.io/forge_docs/"
 Changelog = "https://github.com/Agentics-Rising/forge-cli/blob/main/CHANGELOG.md"
 
 [tool.setuptools]
-package-dir = {"" = "."}
 include-package-data = true
 
 [tool.setuptools.packages.find]
@@ -148,8 +147,10 @@ include = ["fluid_build*"]
 # Ensure non-.py assets ship in wheels (schemas, templates, static HTML, etc.)
 [tool.setuptools.package-data]
 fluid_build = [
+  "py.typed",
   "build-manifest.yaml",
   "features.yaml",
+  "cli/llm_models.json",
   "cli/agent_specs/**/*.yaml",
   "schemas/**/*.json",
   "schemas/**/*.yaml",

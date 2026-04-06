@@ -48,20 +48,8 @@ from fluid_build.cli.console import cprint
 # Rich imports for enhanced output
 try:
     from rich.console import Console
-    from rich.layout import Layout
-    from rich.live import Live
     from rich.panel import Panel
-    from rich.progress import (
-        BarColumn,
-        Progress,
-        SpinnerColumn,
-        TaskID,
-        TextColumn,
-        TimeElapsedColumn,
-    )
     from rich.table import Table
-    from rich.text import Text
-    from rich.tree import Tree
 
     RICH_AVAILABLE = True
 except ImportError:

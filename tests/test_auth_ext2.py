@@ -936,7 +936,6 @@ class TestAuthManagerAdditional:
             return_value=AuthResult(provider="aws", status=AuthStatus.AUTHENTICATED)
         )
         # Wrap in a coroutine so _run can await it
-        import asyncio as _asyncio
 
         async def _mock_login(**kw):
             return AuthResult(provider="aws", status=AuthStatus.AUTHENTICATED)

@@ -23,7 +23,6 @@ from fluid_build.credentials.adapters import (
     GCPCredentialAdapter,
     SnowflakeCredentialAdapter,
 )
-from fluid_build.credentials.resolver import CredentialConfig, CredentialError
 
 # ── SnowflakeCredentialAdapter ────────────────────────────────────────
 

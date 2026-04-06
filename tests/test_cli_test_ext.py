@@ -26,16 +26,12 @@ import argparse
 import io
 import json
 import logging
-import sys
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import datetime
 from types import SimpleNamespace
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
-import pytest
 
-import fluid_build.cli.test as cli_test
 from fluid_build.cli.test import (
     _detect_provider_label,
     _output_json,

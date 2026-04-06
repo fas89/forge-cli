@@ -20,7 +20,6 @@ import logging
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 
 from fluid_build.providers.catalogs.base import PublishResult
 
