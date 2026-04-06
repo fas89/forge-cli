@@ -18,7 +18,7 @@ import json
 import types
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
@@ -27,8 +27,6 @@ from fluid_build.cli.forge_copilot_discovery import (
     DiscoveryReport,
     discover_local_context,
 )
-from unittest.mock import MagicMock
-
 from fluid_build.cli.forge_copilot_llm_providers import (
     AnthropicProvider,
     CopilotGenerationError,
@@ -1015,9 +1013,7 @@ class TestOllamaModelResolution:
         }
 
         with patch("fluid_build.cli.forge_copilot_llm_providers.httpx.get") as mock_get:
-            mock_get.return_value = MagicMock(
-                status_code=200, json=lambda: fake_response
-            )
+            mock_get.return_value = MagicMock(status_code=200, json=lambda: fake_response)
             mock_get.return_value.raise_for_status = MagicMock()
             result = resolve_ollama_model({})
 
@@ -1033,9 +1029,7 @@ class TestOllamaModelResolution:
 
     def test_resolve_falls_back_when_no_models(self):
         with patch("fluid_build.cli.forge_copilot_llm_providers.httpx.get") as mock_get:
-            mock_get.return_value = MagicMock(
-                status_code=200, json=lambda: {"models": []}
-            )
+            mock_get.return_value = MagicMock(status_code=200, json=lambda: {"models": []})
             mock_get.return_value.raise_for_status = MagicMock()
             result = resolve_ollama_model({})
         assert result == "llama3.1"

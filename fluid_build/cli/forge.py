@@ -414,10 +414,7 @@ def run(args, logger: logging.Logger) -> int:
         _set_runtime_arg(
             args,
             "_enable_copilot_recovery",
-            bool(
-                llm_reauth
-                or (implicit_mode and not get_cli_arg(args, "non_interactive", False))
-            ),
+            bool(llm_reauth or (implicit_mode and not get_cli_arg(args, "non_interactive", False))),
         )
         if llm_reauth:
             _set_runtime_arg(args, "non_interactive", False)

@@ -37,9 +37,9 @@ from fluid_build.cli.forge_copilot_interview import (
     run_adaptive_copilot_interview,
 )
 from fluid_build.cli.forge_copilot_llm_providers import (
+    PROVIDER_DISPLAY_NAMES,
     CopilotGenerationError,
     LlmConfig,
-    PROVIDER_DISPLAY_NAMES,
     _get_catalog_default,
     check_llm_readiness,
     detect_provider_from_api_key,
