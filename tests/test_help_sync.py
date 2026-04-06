@@ -118,9 +118,9 @@ class TestMainHelpNoStaleFlags:
         text = _capture_main_help()
         for line in text.splitlines():
             if line.strip().startswith("forge"):
-                assert "copilot" in line.lower() or "AI" in line, (
-                    "Expected copilot/AI mention in forge help line"
-                )
+                assert (
+                    "copilot" in line.lower() or "AI" in line
+                ), "Expected copilot/AI mention in forge help line"
                 break
 
 
@@ -129,7 +129,7 @@ class TestFirstRunHelp:
 
     def test_uses_template_not_quickstart(self):
         text = _capture_first_run_help()
-        assert "--template customer-360" in text or "--template" in text, (
-            "First-run help should use --template, not --quickstart"
-        )
+        assert (
+            "--template customer-360" in text or "--template" in text
+        ), "First-run help should use --template, not --quickstart"
         assert "--quickstart" not in text, "Stale --quickstart in first-run help"
