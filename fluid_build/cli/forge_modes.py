@@ -169,7 +169,7 @@ def _create_session_llm_config(
                 console,
                 status="info",
                 message="Key saved to your system keychain for future runs.",
-                detail="Use --reauth to change it later.",
+                detail="Use --llm-reauth to change it later.",
             )
 
     return LlmConfig(provider=provider.name, model=model, endpoint=endpoint, api_key=api_key)
@@ -366,7 +366,7 @@ def run_ai_copilot_mode(
                     display = PROVIDER_DISPLAY_NAMES.get(llm_cfg.provider, llm_cfg.provider)
                     console.print(
                         f"[dim]AI: [bold]{display}[/bold] / {llm_cfg.model}  "
-                        f"(change with [bold]fluid forge --reauth[/bold])[/dim]\n"
+                        f"(change with [bold]fluid forge --llm-reauth[/bold])[/dim]\n"
                     )
                 print_copilot_intro_panel(console)
                 console.print(

@@ -313,9 +313,9 @@ def register(subparsers: argparse._SubParsersAction):
         help="Specific domain for specialized agents (e.g., finance, healthcare, retail, telco)",
     )
     parser.add_argument(
-        "--reauth",
+        "--llm-reauth",
         action="store_true",
-        help="Clear saved LLM credentials from the system keychain and prompt again",
+        help="Clear saved LLM/AI credentials from the system keychain and prompt for new ones",
     )
     parser.set_defaults(func=run)
 
@@ -390,7 +390,8 @@ def run(args, logger: logging.Logger) -> int:
         if get_cli_arg(args, "show_memory", False) or get_cli_arg(args, "reset_memory", False):
             return handle_memory_management(args, logger)
 
-        if get_cli_arg(args, "reauth", False):
+        llm_reauth = get_cli_arg(args, "llm_reauth", False)
+        if llm_reauth:
             from fluid_build.cli.forge_copilot_llm_providers import clear_api_key_from_keyring
             from fluid_build.cli.forge_dialogs import print_dialog_status
 
@@ -401,21 +402,25 @@ def run(args, logger: logging.Logger) -> int:
                     console,
                     status="info",
                     message="Cleared saved LLM credentials from keychain.",
-                    detail="You'll be prompted for new credentials.",
+                    detail="You'll be prompted for new ones.",
                 )
-            # Force interactive recovery so the wizard re-prompts.
-            _set_runtime_arg(args, "_enable_copilot_recovery", True)
-            _set_runtime_arg(args, "non_interactive", False)
 
         requested_mode = get_cli_arg(args, "mode")
         implicit_mode = not bool(requested_mode)
         mode_value = str(requested_mode or "copilot")
         _set_runtime_arg(args, "mode", mode_value)
+        # Force recovery flow when --llm-reauth is used, or when mode is
+        # implicit (no --mode flag) and the session is interactive.
         _set_runtime_arg(
             args,
             "_enable_copilot_recovery",
-            bool(implicit_mode and not get_cli_arg(args, "non_interactive", False)),
+            bool(
+                llm_reauth
+                or (implicit_mode and not get_cli_arg(args, "non_interactive", False))
+            ),
         )
+        if llm_reauth:
+            _set_runtime_arg(args, "non_interactive", False)
 
         return _dispatch_mode(args, logger, mode_value)
     except Exception as exc:  # noqa: BLE001
