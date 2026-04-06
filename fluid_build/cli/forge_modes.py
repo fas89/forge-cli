@@ -40,9 +40,9 @@ from fluid_build.cli.forge_copilot_llm_providers import (
     PROVIDER_DISPLAY_NAMES,
     CopilotGenerationError,
     LlmConfig,
-    _get_catalog_default,
     check_llm_readiness,
     detect_provider_from_api_key,
+    get_catalog_default,
     get_llm_provider,
     resolve_ollama_model,
     save_api_key_to_keyring,
@@ -51,7 +51,6 @@ from fluid_build.cli.forge_copilot_taxonomy import normalize_copilot_context
 from fluid_build.cli.forge_dialogs import (
     ask_confirmation,
     ask_dialog_question,
-    ask_friendly_text,
     ask_secret_text,
     print_dialog_status,
 )
@@ -150,7 +149,7 @@ def _create_session_llm_config(
         provider_name = str(selection.value or default_provider or "openai").strip().lower()
 
     provider = get_llm_provider(provider_name)
-    model = _get_catalog_default(provider_name) or provider.default_model
+    model = get_catalog_default(provider_name) or provider.default_model
     endpoint = provider.default_endpoint(model, os.environ)
     display = PROVIDER_DISPLAY_NAMES.get(provider_name, provider_name)
 
@@ -164,13 +163,21 @@ def _create_session_llm_config(
     # Persist the key in the OS keychain so future runs resolve silently.
     if api_key and provider_name != "ollama":
         saved = save_api_key_to_keyring(provider_name, api_key)
-        if saved and console:
-            print_dialog_status(
-                console,
-                status="info",
-                message="Key saved to your system keychain for future runs.",
-                detail="Use --llm-reauth to change it later.",
-            )
+        if console:
+            if saved:
+                print_dialog_status(
+                    console,
+                    status="info",
+                    message="Key saved to your system keychain for future runs.",
+                    detail="Use --llm-reauth to change it later.",
+                )
+            else:
+                print_dialog_status(
+                    console,
+                    status="warning",
+                    message="Could not save key to keychain (keyring unavailable).",
+                    detail="Set an env var like OPENAI_API_KEY for persistence, or re-run the wizard next time.",
+                )
 
     return LlmConfig(provider=provider.name, model=model, endpoint=endpoint, api_key=api_key)
 
@@ -315,7 +322,6 @@ def run_ai_copilot_mode(
     console_factory: Optional[Callable[[], Any]] = Console if RICH_AVAILABLE else None,
     llm_readiness_fn: Callable[[Any], Any] = check_llm_readiness,
     ask_dialog_question_fn: Callable[[Any, Any], Any] = ask_dialog_question,
-    ask_friendly_text_fn: Callable[..., Optional[str]] = ask_friendly_text,
     ask_secret_text_fn: Callable[..., Optional[str]] = ask_secret_text,
     route_mode_fn: Optional[Callable[[str], int]] = None,
     fallback_mode_choices: Sequence[Mapping[str, str]] = (),

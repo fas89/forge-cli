@@ -29,11 +29,13 @@ __all__ = [
     "PROVIDER_DISPLAY_NAMES",
     "check_llm_readiness",
     "clear_api_key_from_keyring",
+    "get_catalog_default",
     "detect_ollama_available",
     "detect_provider_from_api_key",
     "get_llm_provider",
     "normalize_llm_provider_name",
     "query_ollama_models",
+    "reset_llm_caches",
     "resolve_llm_config",
     "resolve_model_name",
     "resolve_ollama_model",
@@ -154,10 +156,14 @@ class OpenAIProvider(LlmProvider):
     default_model = "gpt-4o-mini"
 
     def default_endpoint(self, model: str, env: Mapping[str, str]) -> str:
-        return (
-            env.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
-            + "/chat/completions"
-        )
+        base = env.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+        if base != "https://api.openai.com/v1":
+            LOG.warning(
+                "OPENAI_BASE_URL is set to a non-default value (%s). "
+                "Your API key will be sent to this host.",
+                base,
+            )
+        return base + "/chat/completions"
 
     def build_request(
         self, config: LlmConfig, system_prompt: str, user_prompt: str
@@ -232,7 +238,10 @@ class GeminiProvider(LlmProvider):
     default_model = "gemini-2.5-flash"
 
     def default_endpoint(self, model: str, env: Mapping[str, str]) -> str:
-        return f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        safe_model = _sanitize_model_for_url(model)
+        return (
+            f"https://generativelanguage.googleapis.com/v1beta/models/{safe_model}:generateContent"
+        )
 
     def build_request(
         self, config: LlmConfig, system_prompt: str, user_prompt: str
@@ -319,7 +328,7 @@ def resolve_llm_config(args: Any, environ: Optional[Mapping[str, str]] = None) -
     provider = get_llm_provider(provider_name)
 
     # Resolve model: explicit flag → env var → catalog default → class default.
-    catalog_default = _get_catalog_default(provider.name)
+    catalog_default = get_catalog_default(provider.name)
     explicit_model = getattr(args, "llm_model", None) or env.get("FLUID_LLM_MODEL")
     if explicit_model:
         model = resolve_model_name(provider.name, explicit_model)
@@ -483,6 +492,19 @@ def call_llm(
 # Private helpers
 # ---------------------------------------------------------------------------
 
+_SAFE_MODEL_RE = re.compile(r"^[a-zA-Z0-9._:/-]+$")
+
+
+def _sanitize_model_for_url(model: str) -> str:
+    """Reject model names that could cause path traversal in URL interpolation."""
+    if not model or not _SAFE_MODEL_RE.match(model) or ".." in model:
+        raise CopilotGenerationError(
+            "copilot_invalid_model_name",
+            f"Model name contains unsafe characters: {model!r}",
+            suggestions=["Use a model name like 'gemini-2.5-flash' or 'gpt-4o'"],
+        )
+    return model
+
 
 def _infer_provider_from_env(env: Mapping[str, str]) -> Optional[str]:
     detected = []
@@ -578,6 +600,13 @@ def clear_api_key_from_keyring(provider: str) -> bool:
         return False
 
 
+def reset_llm_caches() -> None:
+    """Clear per-process caches so detection and catalog are re-evaluated."""
+    global _ollama_available_cache, _model_catalog_cache  # noqa: PLW0603
+    _ollama_available_cache = None
+    _model_catalog_cache = None
+
+
 def _redact_endpoint_text(endpoint: Any) -> str:
     if not endpoint:
         return ""
@@ -636,7 +665,7 @@ def _load_model_catalog() -> Dict[str, Any]:
     return _model_catalog_cache
 
 
-def _get_catalog_default(provider: str) -> Optional[str]:
+def get_catalog_default(provider: str) -> Optional[str]:
     """Return the catalog's default model for *provider*, or ``None``."""
     catalog = _load_model_catalog()
     entry = catalog.get("providers", {}).get(provider)
@@ -741,4 +770,4 @@ def resolve_ollama_model(env: Mapping[str, str]) -> str:
     models = query_ollama_models(env)
     if models:
         return models[0]["name"]
-    return _get_catalog_default("ollama") or OllamaProvider.default_model
+    return get_catalog_default("ollama") or OllamaProvider.default_model

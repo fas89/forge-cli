@@ -392,11 +392,15 @@ def run(args, logger: logging.Logger) -> int:
 
         llm_reauth = get_cli_arg(args, "llm_reauth", False)
         if llm_reauth:
-            from fluid_build.cli.forge_copilot_llm_providers import clear_api_key_from_keyring
+            from fluid_build.cli.forge_copilot_llm_providers import (
+                clear_api_key_from_keyring,
+                reset_llm_caches,
+            )
             from fluid_build.cli.forge_dialogs import print_dialog_status
 
             for provider in ("openai", "anthropic", "gemini"):
                 clear_api_key_from_keyring(provider)
+            reset_llm_caches()
             if console:
                 print_dialog_status(
                     console,
