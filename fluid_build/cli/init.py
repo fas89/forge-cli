@@ -253,7 +253,10 @@ def _ai_mode(args, logger: logging.Logger) -> int:
         ws_root = find_workspace_root(Path.cwd())
         if ws_root:
             ws_config = load_workspace_config(ws_root)
-            products_dir = ws_root / ws_config.products_dir
+            products_dir = (ws_root / ws_config.products_dir).resolve()
+            # Guard against path traversal in products_dir from workspace YAML.
+            if not str(products_dir).startswith(str(ws_root.resolve())):
+                products_dir = ws_root / "products"
         else:
             products_dir = Path.cwd() / "products"
 
@@ -298,7 +301,10 @@ def _show_init_success(product_dir: Path, workspace_root: Path) -> None:
         success(f"Created {product_dir}")
         return
 
-    rel = product_dir.relative_to(workspace_root)
+    try:
+        rel = product_dir.relative_to(workspace_root)
+    except ValueError:
+        rel = product_dir.name
     lines = [
         f"[bold green]✅ Project created: {workspace_root.name}/[/bold green]",
         "",
@@ -889,59 +895,6 @@ def scan_mode(args, logger: logging.Logger) -> int:
         if RICH_AVAILABLE:
             console.print(f"[red]❌ Scan failed: {e}[/red]")
         return 1
-
-
-def wizard_mode(args, logger: logging.Logger) -> int:
-    """Interactive guided setup"""
-
-    if RICH_AVAILABLE:
-        console.print(
-            Panel(
-                "🎨 [bold]Interactive Wizard[/bold]\n\n"
-                "I'll guide you through creating a custom FLUID project.",
-                title="Wizard Mode",
-                border_style="magenta",
-            )
-        )
-    else:
-        cprint("🎨 Interactive Wizard")
-
-    try:
-        # Import existing wizard functionality
-        from .wizard import run as wizard_run
-
-        # Create a mock args object for wizard
-        class WizardArgs:
-            def __init__(self):
-                self.provider = args.provider
-                self.project = args.name
-                self.env = None
-
-        wizard_args = WizardArgs()
-        return wizard_run(wizard_args, logger)
-
-    except ImportError:
-        # Wizard not available - provide basic interactive flow
-        if not RICH_AVAILABLE:
-            console_error("Wizard mode requires rich library")
-            cprint("Try: fluid init --quickstart")
-            return 1
-
-        console.print("\n[bold]Let's create your FLUID project![/bold]\n")
-
-        # Ask basic questions
-        project_name = args.name or Prompt.ask("Project name", default="my-data-product")
-        Prompt.ask(
-            "Use case",
-            choices=["data-product", "ai-agent", "analytics", "api"],
-            default="data-product",
-        )
-
-        # Route to template based on use case
-        args.template = "customer-360"  # Default
-        args.name = project_name
-
-        return template_mode(args, logger)
 
 
 def blank_mode(args, logger: logging.Logger) -> int:

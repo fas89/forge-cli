@@ -158,4 +158,5 @@ dmypy.json
 # *.fluid.yaml or my*-fluid.yaml sitting at the repo root is developer scratch
 # and must not be committed.
 /*-fluid.yaml
-/*.fluid.yamlfluid.workspace.yaml
+/*.fluid.yaml
+fluid.workspace.yaml

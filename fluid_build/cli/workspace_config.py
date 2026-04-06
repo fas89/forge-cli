@@ -235,9 +235,11 @@ def discover_workspace_products(root: Path) -> List[DiscoveredProduct]:
 
 
 def _iter_contracts(root: Path):
-    """Yield ``contract.fluid.yaml`` paths under *root*, skipping ignored dirs."""
+    """Yield ``contract.fluid.yaml`` paths under *root*, skipping ignored dirs and symlinks."""
     try:
         for entry in sorted(root.iterdir()):
+            if entry.is_symlink():
+                continue  # Prevent symlink-based traversal outside the workspace.
             if entry.is_file() and entry.name in (
                 "contract.fluid.yaml",
                 "contract.fluid.json",

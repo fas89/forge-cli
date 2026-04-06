@@ -332,37 +332,6 @@ class TestScanMode:
 
 
 # ===========================================================================
-# wizard_mode
-# ===========================================================================
-
-
-class TestWizardMode:
-    def test_wizard_import_error_no_rich_returns_1(self, logger, monkeypatch):
-        from fluid_build.cli.init import wizard_mode
-
-        args = _make_args(provider="local")
-        # Remove wizard module if cached so import fails inside wizard_mode
-        monkeypatch.delitem(sys.modules, "fluid_build.cli.wizard", raising=False)
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
-            with patch.dict("sys.modules", {"fluid_build.cli.wizard": None}):
-                result = wizard_mode(args, logger)
-        assert result == 1
-
-    def test_wizard_run_delegates_when_importable(self, logger):
-        from fluid_build.cli.init import wizard_mode
-
-        args = _make_args(name="wiz-proj", provider="gcp")
-        mock_run = MagicMock(return_value=7)
-        mock_mod = MagicMock()
-        mock_mod.run = mock_run
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
-            with patch.dict("sys.modules", {"fluid_build.cli.wizard": mock_mod}):
-                result = wizard_mode(args, logger)
-        assert result == 7
-        mock_run.assert_called_once()
-
-
-# ===========================================================================
 # blank_mode
 # ===========================================================================
 
