@@ -169,10 +169,18 @@ def run(args, logger: logging.Logger) -> int:
         # Ensure workspace structure exists for all modes.
         _ensure_workspace(args, logger)
 
-        # Industry picker — only on first init (no existing skills file).
+        # Industry picker — only on first interactive init (no existing skills file).
+        # Skip when --yes, --template, --quickstart, --scan, or --blank is set.
         ws_root = find_workspace_root(Path.cwd()) or Path.cwd()
         skills_path = ws_root / ".fluid" / "skills.yaml"
-        if not skills_path.exists() and not getattr(args, "yes", False):
+        is_non_interactive = (
+            getattr(args, "yes", False)
+            or getattr(args, "template", None)
+            or getattr(args, "quickstart", False)
+            or getattr(args, "scan", False)
+            or getattr(args, "blank", False)
+        )
+        if not skills_path.exists() and not is_non_interactive:
             _ask_industry(ws_root)
 
         # Route to appropriate handler.

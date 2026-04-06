@@ -16,8 +16,8 @@
 
 from __future__ import annotations
 
-import yaml
 import pytest
+import yaml
 
 
 class TestLoadTools:
@@ -266,49 +266,45 @@ class TestSkillsCmd:
         assert run(args, logging.getLogger("test")) == 1
 
     def test_show_no_workspace(self):
+        import argparse
         import logging
         from unittest.mock import patch
 
         from fluid_build.cli.skills_cmd import run
-
-        import argparse
 
         args = argparse.Namespace(skills_action="show")
         with patch("fluid_build.cli.skills_cmd.find_workspace_root", return_value=None):
             assert run(args, logging.getLogger("test")) == 1
 
     def test_update_no_workspace(self):
+        import argparse
         import logging
         from unittest.mock import patch
 
         from fluid_build.cli.skills_cmd import run
-
-        import argparse
 
         args = argparse.Namespace(skills_action="update")
         with patch("fluid_build.cli.skills_cmd.find_workspace_root", return_value=None):
             assert run(args, logging.getLogger("test")) == 1
 
     def test_update_no_skills_file(self, tmp_path):
+        import argparse
         import logging
         from unittest.mock import patch
 
         from fluid_build.cli.skills_cmd import run
-
-        import argparse
 
         args = argparse.Namespace(skills_action="update")
         with patch("fluid_build.cli.skills_cmd.find_workspace_root", return_value=tmp_path):
             assert run(args, logging.getLogger("test")) == 1
 
     def test_update_success(self, tmp_path):
+        import argparse
         import logging
         from unittest.mock import patch
 
         from fluid_build.cli.industry_skills import generate_skills_file
         from fluid_build.cli.skills_cmd import run
-
-        import argparse
 
         generate_skills_file("telco", tmp_path, cli_version="0.7.8")
         args = argparse.Namespace(skills_action="update")
