@@ -89,7 +89,7 @@ def _update(logger: logging.Logger) -> int:
         with skills_path.open() as f:
             data = yaml.safe_load(f)
         ind = data.get("industry", {})
-        console.print(f"[green]Updated .fluid/skills.yaml[/green]")
+        console.print("[green]Updated .fluid/skills.yaml[/green]")
         console.print(
             f"[dim]Tools section refreshed to FLUID CLI v{data.get('_version', '?')}[/dim]"
         )
