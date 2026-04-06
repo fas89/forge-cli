@@ -90,10 +90,12 @@ class TestMarkFirstRunComplete:
 
 class TestDetectMode:
     def test_explicit_quickstart(self, logger):
+        """--quickstart is now an alias for --template customer-360."""
         args = SimpleNamespace(
             quickstart=True, scan=False, wizard=False, blank=False, template=False, name=None
         )
-        assert detect_mode(args, logger) == "quickstart"
+        assert detect_mode(args, logger) == "template"
+        assert args.template == "customer-360"
 
     def test_explicit_scan(self, logger):
         args = SimpleNamespace(
@@ -102,10 +104,11 @@ class TestDetectMode:
         assert detect_mode(args, logger) == "scan"
 
     def test_explicit_wizard(self, logger):
+        """--wizard is deprecated and maps to AI mode."""
         args = SimpleNamespace(
             quickstart=False, scan=False, wizard=True, blank=False, template=False, name=None
         )
-        assert detect_mode(args, logger) == "wizard"
+        assert detect_mode(args, logger) == "ai"
 
     def test_explicit_blank(self, logger):
         args = SimpleNamespace(
@@ -127,46 +130,54 @@ class TestDetectMode:
         )
         assert detect_mode(args, logger) is None
 
-    def test_dbt_project_returns_scan(self, logger, tmp_path, monkeypatch):
+    def test_dbt_project_falls_through(self, logger, tmp_path, monkeypatch):
+        """dbt/terraform/sql auto-detect removed; falls through to creation menu."""
         (tmp_path / "dbt_project.yml").write_text("name: test")
         monkeypatch.chdir(tmp_path)
         args = SimpleNamespace(
             quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None
         )
-        assert detect_mode(args, logger) == "scan"
+        with patch("fluid_build.cli.init._ask_creation_mode", return_value="ai"):
+            assert detect_mode(args, logger) == "ai"
 
-    def test_terraform_returns_scan(self, logger, tmp_path, monkeypatch):
+    def test_terraform_falls_through(self, logger, tmp_path, monkeypatch):
         (tmp_path / "main.tf").write_text("resource {}")
         monkeypatch.chdir(tmp_path)
         args = SimpleNamespace(
             quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None
         )
-        assert detect_mode(args, logger) == "scan"
+        with patch("fluid_build.cli.init._ask_creation_mode", return_value="template"):
+            assert detect_mode(args, logger) == "template"
 
-    def test_sql_files_without_name_returns_scan(self, logger, tmp_path, monkeypatch):
+    def test_sql_files_fall_through(self, logger, tmp_path, monkeypatch):
         (tmp_path / "query.sql").write_text("SELECT 1")
         monkeypatch.chdir(tmp_path)
         args = SimpleNamespace(
             quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None
         )
-        assert detect_mode(args, logger) == "scan"
+        with patch("fluid_build.cli.init._ask_creation_mode", return_value="blank"):
+            assert detect_mode(args, logger) == "blank"
 
-    def test_first_time_user_returns_quickstart(self, logger, tmp_path, monkeypatch):
+    def test_first_time_user_shows_menu(self, logger, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(Path, "home", lambda: tmp_path / "nohome")
         args = SimpleNamespace(
             quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None
         )
-        assert detect_mode(args, logger) == "quickstart"
+        with patch("fluid_build.cli.init._ask_creation_mode", return_value="ai") as m:
+            assert detect_mode(args, logger) == "ai"
+            m.assert_called_once()
 
-    def test_default_returns_quickstart(self, logger, tmp_path, monkeypatch):
+    def test_default_shows_menu(self, logger, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         (tmp_path / ".fluid").mkdir()
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         args = SimpleNamespace(
             quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None
         )
-        assert detect_mode(args, logger) == "quickstart"
+        with patch("fluid_build.cli.init._ask_creation_mode", return_value="template") as m:
+            assert detect_mode(args, logger) == "template"
+            m.assert_called_once()
 
 
 # ── should_generate_dag ─────────────────────────────────────────────
@@ -462,9 +473,10 @@ class TestRun:
 
         assert run(SimpleNamespace(), logger) == 0
 
-    @patch("fluid_build.cli.init.wizard_mode", return_value=0)
-    @patch("fluid_build.cli.init.detect_mode", return_value="wizard")
-    def test_wizard_dispatch(self, _mock_dm, _mock_wiz, logger):
+    @patch("fluid_build.cli.init._ai_mode", return_value=0)
+    @patch("fluid_build.cli.init.detect_mode", return_value="ai")
+    def test_wizard_dispatch(self, _mock_dm, _mock_ai, logger):
+        """--wizard is deprecated and maps to AI mode."""
         from fluid_build.cli.init import run
 
         assert run(SimpleNamespace(), logger) == 0

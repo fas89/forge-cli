@@ -251,6 +251,11 @@ def register(subparsers: argparse._SubParsersAction):
         help="Preview what would be created without generating files",
     )
     parser.add_argument(
+        "--blank",
+        action="store_true",
+        help="Create an empty contract skeleton (no AI, no template)",
+    )
+    parser.add_argument(
         "--context", help="Additional context for AI agents (JSON string or file path)"
     )
     parser.add_argument(
@@ -390,6 +395,16 @@ def run(args, logger: logging.Logger) -> int:
         if get_cli_arg(args, "show_memory", False) or get_cli_arg(args, "reset_memory", False):
             return handle_memory_management(args, logger)
 
+        # --blank shortcut: create empty contract (delegates to init's blank_mode).
+        if get_cli_arg(args, "blank", False):
+            from fluid_build.cli.init import blank_mode
+
+            if not hasattr(args, "name"):
+                args.name = None
+            if not hasattr(args, "dry_run"):
+                args.dry_run = False
+            return blank_mode(args, logger)
+
         llm_reauth = get_cli_arg(args, "llm_reauth", False)
         if llm_reauth:
             from fluid_build.cli.forge_copilot_llm_providers import (
@@ -413,6 +428,7 @@ def run(args, logger: logging.Logger) -> int:
         implicit_mode = not bool(requested_mode)
         mode_value = str(requested_mode or "copilot")
         _set_runtime_arg(args, "mode", mode_value)
+        _set_runtime_arg(args, "_implicit_mode", implicit_mode)
         # Force recovery flow when --llm-reauth is used, or when mode is
         # implicit (no --mode flag) and the session is interactive.
         _set_runtime_arg(

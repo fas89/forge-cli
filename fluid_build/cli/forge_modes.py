@@ -299,6 +299,37 @@ def _print_discovery_summary(console: Any, discovery: Any) -> None:
         _print_discovery_hint(console)
 
 
+def _print_mode_awareness(console: Any) -> None:
+    """Show what mode forge is in and list alternatives.
+
+    Displayed only when the user ran ``fluid forge`` without ``--mode``
+    inside an existing workspace, so they know other modes exist.
+    """
+    if not console:
+        return
+    try:
+        from rich.panel import Panel  # noqa: F811 — local import for optional dep
+
+        console.print(
+            Panel(
+                "[bold]Forge — Add a data product[/bold]\n\n"
+                "Mode: [cyan]AI Copilot[/cyan] [dim](default)[/dim]\n\n"
+                "[dim]Other modes available:[/dim]\n"
+                "  [cyan]fluid forge --mode template[/cyan]   "
+                "[dim]← from a pre-built template[/dim]\n"
+                "  [cyan]fluid forge --mode agent[/cyan]      "
+                "[dim]← domain expert (finance, healthcare)[/dim]\n"
+                "  [cyan]fluid forge --mode blueprint[/cyan]  "
+                "[dim]← enterprise patterns[/dim]\n"
+                "  [cyan]fluid forge --blank[/cyan]           "
+                "[dim]← empty contract[/dim]",
+                border_style="bright_magenta",
+            )
+        )
+    except ImportError:
+        pass
+
+
 def _apply_workspace_defaults(context: Dict[str, Any], console: Any) -> None:
     """Read ``fluid.workspace.yaml`` and inject shared defaults into *context*."""
     try:
@@ -391,6 +422,11 @@ def run_ai_copilot_mode(
 
         # Inherit workspace defaults (domain, provider, owner) if available.
         _apply_workspace_defaults(context, console)
+
+        # Show mode awareness when inside a workspace with implicit mode.
+        implicit_mode = bool(get_cli_arg_fn(args, "_implicit_mode", False))
+        if implicit_mode and not is_non_interactive and console:
+            _print_mode_awareness(console)
 
         copilot_options = {
             "llm_provider": get_cli_arg_fn(args, "llm_provider"),

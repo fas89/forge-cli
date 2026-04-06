@@ -65,10 +65,13 @@ class TestDetectMode:
         return a
 
     def test_explicit_quickstart(self):
+        """--quickstart is now an alias for --template customer-360."""
         from fluid_build.cli.init import detect_mode
 
-        result = detect_mode(self._args(quickstart=True), MagicMock())
-        assert result == "quickstart"
+        args = self._args(quickstart=True)
+        result = detect_mode(args, MagicMock())
+        assert result == "template"
+        assert args.template == "customer-360"
 
     def test_explicit_scan(self):
         from fluid_build.cli.init import detect_mode
@@ -77,10 +80,11 @@ class TestDetectMode:
         assert result == "scan"
 
     def test_explicit_wizard(self):
+        """--wizard is deprecated and maps to AI mode."""
         from fluid_build.cli.init import detect_mode
 
         result = detect_mode(self._args(wizard=True), MagicMock())
-        assert result == "wizard"
+        assert result == "ai"
 
     def test_explicit_blank(self):
         from fluid_build.cli.init import detect_mode
@@ -109,11 +113,14 @@ class TestDetectMode:
             result = detect_mode(self._args(), MagicMock())
             assert result is None
 
-    def test_first_time_user_returns_quickstart(self, tmp_path):
-        """Non-existent ~/.fluid dir means first-time user → quickstart."""
+    def test_first_time_user_shows_menu(self, tmp_path):
+        """Non-existent ~/.fluid dir means first-time user → creation menu."""
         from fluid_build.cli.init import detect_mode
 
-        with patch("fluid_build.cli.init.Path") as mock_path_cls:
+        with (
+            patch("fluid_build.cli.init.Path") as mock_path_cls,
+            patch("fluid_build.cli.init._ask_creation_mode", return_value="ai") as mock_menu,
+        ):
             mock_cwd = MagicMock()
             # Nothing exists in cwd
             mock_cwd.__truediv__ = lambda self, x: tmp_path / x  # nothing exists
@@ -123,4 +130,5 @@ class TestDetectMode:
             mock_path_cls.home.return_value = mock_home
             mock_cwd.glob = MagicMock(return_value=[])
             result = detect_mode(self._args(), MagicMock())
-            assert result == "quickstart"
+            mock_menu.assert_called_once()
+            assert result == "ai"

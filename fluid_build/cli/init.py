@@ -170,19 +170,22 @@ def run(args, logger: logging.Logger) -> int:
         _ensure_workspace(args, logger)
 
         # Route to appropriate handler.
-        if mode == "ai":
-            return _ai_mode(args, logger)
-        if mode == "quickstart":
-            return quickstart_mode(args, logger)
-        if mode == "scan":
-            return scan_mode(args, logger)
-        if mode == "blank":
-            return blank_mode(args, logger)
-        if mode == "template":
-            return template_mode(args, logger)
+        handlers = {
+            "ai": _ai_mode,
+            "quickstart": quickstart_mode,
+            "scan": scan_mode,
+            "blank": blank_mode,
+            "template": template_mode,
+        }
+        handler = handlers.get(mode)
+        if handler is None:
+            error(logger, "unknown_mode", mode=mode)
+            return 1
 
-        error(logger, "unknown_mode", mode=mode)
-        return 1
+        result = handler(args, logger)
+        if result == 0:
+            _mark_first_run_complete()
+        return result
 
     except KeyboardInterrupt:
         if RICH_AVAILABLE:
@@ -326,7 +329,10 @@ def detect_mode(args, logger: logging.Logger) -> Optional[str]:
 
     # Explicit mode flags take precedence.
     if args.quickstart:
-        return "quickstart"
+        # --quickstart is now an alias for --template customer-360 --yes
+        args.template = args.template or "customer-360"
+        args.yes = True
+        return "template"
     if args.scan:
         return "scan"
     if getattr(args, "wizard", False):
@@ -343,107 +349,106 @@ def detect_mode(args, logger: logging.Logger) -> Optional[str]:
         return "template"
 
     cwd = Path.cwd()
+    is_first_time = not (Path.home() / ".fluid").exists()
 
     # --- Inside an existing workspace? Redirect instead of blocking. ---
     ws_root = find_workspace_root(cwd)
     if ws_root is not None:
         existing = discover_workspace_products(ws_root)
         if existing:
-            return _redirect_existing_workspace(existing, ws_root)
+            return _redirect_existing_workspace(existing, ws_root, is_first_time)
 
     # --- Existing contract at root (legacy single-product project) ---
     if (cwd / "contract.fluid.yaml").exists():
         if RICH_AVAILABLE:
+            if is_first_time:
+                _print_welcome_panel()
             console.print("[dim]📂 This directory already has a contract.fluid.yaml.[/dim]\n")
-            console.print("To add another product, use:")
-            console.print("  [cyan]fluid forge[/cyan]          ← AI-assisted")
-            console.print("  [cyan]fluid init --blank[/cyan]   ← empty contract")
-            console.print("  [cyan]fluid init --scan[/cyan]    ← import existing code\n")
+            console.print("To add another product:")
+            console.print("  [cyan]fluid forge[/cyan]          ← all creation modes\n")
             console.print("To work with the existing contract:")
             console.print("  [cyan]fluid validate[/cyan]")
             console.print("  [cyan]fluid plan[/cyan]")
             console.print("  [cyan]fluid viz --open[/cyan]")
         else:
             cprint("This directory already has a contract. Use 'fluid forge' to add products.")
+        if is_first_time:
+            _mark_first_run_complete()
         return None
 
-    # --- Check for importable projects (dbt, Terraform, SQL) ---
-    if (cwd / "dbt_project.yml").exists():
-        if RICH_AVAILABLE:
-            console.print("🔍 [cyan]Detected dbt project[/cyan]")
-            console.print(
-                "Suggestion: Use [bold]fluid init --scan[/bold] to import your dbt models"
-            )
-        return "scan"
-
-    if (cwd / "main.tf").exists() or list(cwd.glob("*.tf")):
-        if RICH_AVAILABLE:
-            console.print("🔍 [cyan]Detected Terraform project[/cyan]")
-            console.print(
-                "Suggestion: Use [bold]fluid init --scan[/bold] to import your infrastructure"
-            )
-        return "scan"
-
-    if list(cwd.glob("*.sql")) and not args.name:
-        if RICH_AVAILABLE:
-            console.print("🔍 [cyan]Detected SQL files[/cyan]")
-            console.print("Suggestion: Use [bold]fluid init --scan[/bold] to import your SQL")
-        return "scan"
-
     # --- First-time user (no ~/.fluid directory) ---
-    fluid_home = Path.home() / ".fluid"
-    if not fluid_home.exists():
+    if is_first_time:
         if RICH_AVAILABLE:
-            console.print("👋 [bold]Welcome to FLUID![/bold]")
-            console.print("Let's create your first data product project.\n")
+            _print_welcome_panel()
         return _ask_creation_mode()
 
     # --- Returning user, empty directory ---
     return _ask_creation_mode()
 
 
+def _print_welcome_panel() -> None:
+    """Show the expanded welcome panel for first-time users."""
+    if not RICH_AVAILABLE:
+        return
+    console.print(
+        Panel(
+            "[bold]FLUID[/bold] is a declarative framework for data products — "
+            "like Terraform, but for data.\n\n"
+            "You define a [cyan]contract[/cyan] (contract.fluid.yaml) that "
+            "describes your entire data product in one file:\n\n"
+            "  [bold]exposes[/bold]       What data you publish (tables, APIs, files)\n"
+            "  [bold]quality[/bold]       Data quality rules & anomaly detection\n"
+            "  [bold]consumes[/bold]      Upstream dependencies you rely on\n"
+            "  [bold]build[/bold]         How it's built (dbt, SQL, Spark)\n"
+            "  [bold]governance[/bold]    Ownership, access policies, SLAs\n"
+            "  [bold]sovereignty[/bold]   Where data must reside (EU, US)\n\n"
+            "Then FLUID validates, plans, and ships it — "
+            "just like [cyan]terraform plan[/cyan] and [cyan]terraform apply[/cyan].\n\n"
+            "Let's set up your first project.",
+            title="Welcome to FLUID",
+            border_style="blue",
+        )
+    )
+    console.print()
+
+
 def _ask_creation_mode() -> str:
-    """Present the 4-option creation menu and return the selected mode."""
+    """Present the creation menu and return the selected mode."""
     if not RICH_AVAILABLE:
         return "quickstart"  # non-Rich fallback
 
     console.print(
         Panel(
-            "This is a [bold]FLUID workspace[/bold] — a home for your data products.\n"
-            "Each product has its own contract.fluid.yaml.\n"
-            "You can add more later with [cyan]fluid forge[/cyan].",
-            title="🚀 New Project",
+            "A [bold]workspace[/bold] is a home for your data products.\n"
+            "Each product gets its own folder and contract.\n"
+            "You can add more products later with [cyan]fluid forge[/cyan].",
+            title="New Project",
             border_style="blue",
         )
     )
     console.print("[dim]How would you like to create your first data product?[/dim]\n")
-    console.print("  [bold]1.[/bold] Let AI help me design it [dim](recommended)[/dim]")
-    console.print("  [bold]2.[/bold] Start from a template")
-    console.print("  [bold]3.[/bold] Import existing project (dbt/SQL/Terraform)")
-    console.print("  [bold]4.[/bold] Empty contract\n")
+    console.print(
+        "  [bold]1.[/bold] Let AI help me design it [dim](recommended — just answer questions)[/dim]"
+    )
+    console.print(
+        "  [bold]2.[/bold] Start from a template     [dim](pre-built, customize later)[/dim]"
+    )
+    console.print(
+        "  [bold]3.[/bold] Empty contract             [dim](for experienced users)[/dim]\n"
+    )
 
     choice = Prompt.ask(
         "Choose",
-        choices=["1", "2", "3", "4"],
+        choices=["1", "2", "3"],
         default="1",
     )
-    return {"1": "ai", "2": "template", "3": "scan", "4": "blank"}.get(choice, "ai")
+    return {"1": "ai", "2": "template", "3": "blank"}.get(choice, "ai")
 
 
-def _redirect_existing_workspace(
-    existing: List,
-    ws_root: Path,
-) -> Optional[str]:
-    """Show existing products and redirect the user."""
-    if not RICH_AVAILABLE:
-        cprint(f"This is already a FLUID workspace with {len(existing)} product(s).")
-        cprint("Use 'fluid forge' to add another product.")
-        return None
-
-    ws_config = load_workspace_config(ws_root)
-    name = ws_config.name or ws_root.name
+def _print_workspace_products(existing: List, ws_name: str) -> None:
+    """Print the workspace product listing (shared by redirect paths)."""
     console.print(
-        f"[dim]📂 Workspace: [bold]{name}[/bold] ({len(existing)} existing product"
+        f"[dim]Workspace: [bold]{ws_name}[/bold] ({len(existing)} existing product"
         f"{'s' if len(existing) != 1 else ''})[/dim]"
     )
     for product in existing[:10]:
@@ -454,10 +459,45 @@ def _redirect_existing_workspace(
             parts.append(f"provider: {product.provider}")
         console.print(f"[dim]  • {', '.join(parts)}[/dim]")
     console.print()
-    console.print("To add another product:")
-    console.print("  [cyan]fluid forge[/cyan]          ← AI-assisted [dim](recommended)[/dim]")
-    console.print("  [cyan]fluid init --blank[/cyan]   ← empty contract")
-    console.print("  [cyan]fluid init --scan[/cyan]    ← import existing code")
+
+
+def _redirect_existing_workspace(
+    existing: List,
+    ws_root: Path,
+    is_first_time: bool = False,
+) -> Optional[str]:
+    """Show existing products and redirect the user.
+
+    When *is_first_time* is ``True`` the user has never run FLUID on this
+    machine (no ``~/.fluid``), so we show a short welcome explaining what FLUID
+    is before the redirect.
+    """
+    if not RICH_AVAILABLE:
+        cprint(f"This is already a FLUID workspace with {len(existing)} product(s).")
+        cprint("Use 'fluid forge' to add another product.")
+        if is_first_time:
+            _mark_first_run_complete()
+        return None
+
+    ws_config = load_workspace_config(ws_root)
+    name = ws_config.name or ws_root.name
+
+    # New colleague who cloned the repo — explain what FLUID is first.
+    if is_first_time:
+        _print_welcome_panel()
+        _print_workspace_products(existing, name)
+        console.print("This workspace is already set up. To add a product:")
+        console.print("  [cyan]fluid forge[/cyan]\n")
+        console.print("To work with existing products:")
+        console.print("  [cyan]fluid validate[/cyan]       [dim]← check all contracts[/dim]")
+        console.print("  [cyan]fluid plan[/cyan]           [dim]← generate execution plan[/dim]")
+        console.print("  [cyan]fluid doctor[/cyan]         [dim]← check your environment[/dim]")
+        _mark_first_run_complete()
+        return None
+
+    # Returning user — short redirect.
+    _print_workspace_products(existing, name)
+    console.print("To add another product:  [cyan]fluid forge[/cyan]")
     return None
 
 

@@ -332,6 +332,7 @@ def print_forge_help() -> None:
     options_table.add_row("--quickstart, -q", "Skip confirmations, use recommended defaults")
     options_table.add_row("--interactive, -i", "Force interactive mode")
     options_table.add_row("--dry-run", "Preview without creating files")
+    options_table.add_row("--blank", "Create an empty contract skeleton (no AI, no template)")
     options_table.add_row("--context", "Additional AI context (JSON string or file)")
     options_table.add_row(
         "--llm-provider", "Built-in copilot adapter (openai/anthropic/gemini/ollama)"
@@ -700,7 +701,7 @@ _COMMAND_ENRICHMENT: dict[str, tuple[str, str]] = {
     ),
     "wizard": (
         "Step-by-step guided setup wizard with interactive prompts for creating data products.",
-        ("  fluid wizard\n" "  fluid wizard --provider gcp\n" "  fluid wizard --skip-preview"),
+        ("  fluid wizard\n  fluid wizard --provider gcp\n  fluid wizard --skip-preview"),
     ),
     "diff": (
         "Detect configuration drift by comparing contract (desired state) with actual deployed resources.",
