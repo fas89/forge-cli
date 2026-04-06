@@ -31,7 +31,6 @@ from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-
 from fluid_build.cli.test import (
     _detect_provider_label,
     _output_json,

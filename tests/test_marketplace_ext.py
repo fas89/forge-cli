@@ -19,7 +19,6 @@ import json
 import logging
 from unittest.mock import MagicMock, patch
 
-
 import fluid_build.cli.marketplace as marketplace_module
 from fluid_build.cli.marketplace import (
     instantiate_blueprint,

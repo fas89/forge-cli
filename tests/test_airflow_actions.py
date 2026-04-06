@@ -19,7 +19,6 @@ import os
 import tempfile
 from unittest.mock import MagicMock, patch
 
-
 from fluid_build.runtimes.airflow_provider_actions import AirflowDAGGenerator
 
 LOG = logging.getLogger("test_airflow_actions")

@@ -16,7 +16,6 @@
 
 from unittest.mock import MagicMock, patch
 
-
 from fluid_build.cli._command_center import (
     CommandCenterClient,
     CommandCenterFeatures,

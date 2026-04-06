@@ -26,7 +26,6 @@ import argparse
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-
 from fluid_build.cli.datamesh_manager import (
     _cmd_delete,
     _cmd_get,

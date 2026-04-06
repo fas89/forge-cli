@@ -22,7 +22,6 @@ notification dispatch, and metric export.
 import logging
 from unittest.mock import MagicMock, patch
 
-
 from fluid_build.cli.apply import _actions_from_source
 
 LOG = logging.getLogger("test_apply_ext")

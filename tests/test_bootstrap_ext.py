@@ -21,7 +21,6 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-
 LOG = logging.getLogger(__name__)
 
 
