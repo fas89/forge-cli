@@ -519,38 +519,39 @@ def run(args, logger: logging.Logger) -> int:
         if console and not get_cli_arg(args, "non_interactive", False):
             print_welcome_panel(console)
 
-        # Check LLM readiness; offer inline setup if needed
+        # Check LLM readiness; load saved config or offer inline setup
         if not get_cli_arg(args, "non_interactive", False):
-            readiness = check_llm_readiness()
-            if not readiness.ready:
-                from fluid_build.cli.ai_setup import run_ai_setup_inline
+            from fluid_build.cli.ai_setup import run_ai_setup_inline
 
-                llm_config = run_ai_setup_inline(console)
-                if llm_config:
-                    # Inject the resolved config so copilot doesn't re-resolve from env
-                    args.llm_provider = llm_config.provider
-                    args.llm_model = llm_config.model
-                    args.llm_endpoint = llm_config.endpoint
-                    # Store key in env for resolve_llm_config() to find
-                    if llm_config.api_key:
-                        from fluid_build.cli.ai_setup import _set_session_env
-                        _set_session_env(llm_config.provider, llm_config.api_key)
-                    LOG.debug("Inline setup complete: provider=%s", llm_config.provider)
-                else:
-                    # AI not available — fall back to guided mode
-                    proceed = ask_confirmation(
-                        console,
-                        "Continue with guided mode (no AI)?",
-                        default=True,
-                    ) if console else False
-                    if proceed:
-                        return run_guided_mode(args, logger)
-                    if console:
-                        console.print(
-                            "[yellow]Use 'fluid forge --blank' for a bare contract,[/yellow]\n"
-                            "[yellow]or run 'fluid ai setup' to configure an LLM provider.[/yellow]"
-                        )
-                    return 1
+            # Always go through inline setup — it handles all cases:
+            # 1. Config file exists with key → loads it, sets env vars, returns config
+            # 2. Keyring has key → loads it, sets env vars, returns config
+            # 3. Nothing found → prompts user interactively
+            llm_config = run_ai_setup_inline(console)
+            if llm_config:
+                # Inject into args so copilot's resolve_llm_config() finds them
+                args.llm_provider = llm_config.provider
+                args.llm_model = llm_config.model
+                args.llm_endpoint = llm_config.endpoint
+                if llm_config.api_key:
+                    from fluid_build.cli.ai_setup import _set_session_env
+                    _set_session_env(llm_config.provider, llm_config.api_key)
+                LOG.debug("LLM config loaded: provider=%s", llm_config.provider)
+            else:
+                # AI not available — fall back to guided mode
+                proceed = ask_confirmation(
+                    console,
+                    "Continue with guided mode (no AI)?",
+                    default=True,
+                ) if console else False
+                if proceed:
+                    return run_guided_mode(args, logger)
+                if console:
+                    console.print(
+                        "[yellow]Use 'fluid forge --blank' for a bare contract,[/yellow]\n"
+                        "[yellow]or run 'fluid ai setup' to configure an LLM provider.[/yellow]"
+                    )
+                return 1
 
         return run_ai_copilot_mode(args, logger)
 

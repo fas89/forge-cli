@@ -712,12 +712,16 @@ class TestRunFunction:
         assert result == 0
         mock_memory.assert_called_once()
 
-    @patch("fluid_build.cli.forge.check_llm_readiness")
+    @patch("fluid_build.cli.ai_setup.run_ai_setup_inline")
     @patch("fluid_build.cli.forge.run_ai_copilot_mode", return_value=0)
-    def test_run_copilot_mode(self, _mock_copilot, mock_ready):
+    def test_run_copilot_mode(self, _mock_copilot, mock_inline):
         from fluid_build.cli.forge import run
+        from fluid_build.cli.forge_copilot_llm_providers import LlmConfig
 
-        mock_ready.return_value = MagicMock(ready=True)
+        mock_inline.return_value = LlmConfig(
+            provider="gemini", model="gemini-2.5-flash",
+            endpoint="https://example.com", api_key="fake-key",
+        )
         args = MagicMock()
         args.help = False
         args.mode = "copilot"
