@@ -191,9 +191,8 @@ class TestAIAgentBase:
         panel = agent.console.print.call_args.args[0]
         text = str(panel.renderable)
         assert "fluid validate contract.fluid.yaml" in text
-        assert "fluid plan contract.fluid.yaml --out runtime/plan.json" in text
-        assert "fluid apply runtime/plan.json" in text
-        assert "make validate" not in text
+        assert "/tmp" in text
+        assert "contract.fluid.yaml" in text
 
     def test_show_next_steps_healthcare(self):
         agent = AIAgentBase("t", "d", "healthcare")

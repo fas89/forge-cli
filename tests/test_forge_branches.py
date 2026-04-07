@@ -134,11 +134,8 @@ class TestCopilotAgent:
         panel = agent.console.print.call_args.args[0]
         text = str(panel.renderable)
         assert "fluid validate contract.fluid.yaml" in text
-        assert "fluid plan contract.fluid.yaml --out runtime/plan.json" in text
-        assert "fluid apply runtime/plan.json" in text
-        assert "fluid market --search" in text
-        assert "make validate" not in text
-        assert "fluid market search" not in text
+        assert "/tmp" in text
+        assert "contract.fluid.yaml" in text
 
     @patch("fluid_build.cli.forge_copilot_agent.LOG.warning")
     def test_prepare_runtime_inputs_logs_capability_warnings(self, mock_warning):

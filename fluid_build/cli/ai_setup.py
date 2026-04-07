@@ -28,6 +28,7 @@ __all__ = [
     "register",
     "run_ai_setup_interactive",
     "run_ai_setup_inline",
+    "set_session_env",
     "show_ai_status",
 ]
 
@@ -174,9 +175,11 @@ def _load_key_from_keyring(provider: str) -> Optional[str]:
         from fluid_build.credentials.keyring_store import KeyringCredentialStore
 
         return KeyringCredentialStore.get_credential(f"{_KEYRING_PREFIX}.{provider}")
-    except (ImportError, OSError):
+    except (ImportError, OSError) as exc:
+        LOG.debug("Could not load key from keyring for %s: %s", provider, exc)
         return None
-    except Exception:  # noqa: BLE001 — keyring backends can raise anything
+    except Exception as exc:  # noqa: BLE001 — keyring backends can raise anything
+        LOG.debug("Unexpected keyring error loading key for %s: %s", provider, exc)
         return None
 
 
@@ -186,9 +189,11 @@ def _clear_key_from_keyring(provider: str) -> bool:
 
         KeyringCredentialStore.delete_credential(f"{_KEYRING_PREFIX}.{provider}")
         return True
-    except (ImportError, OSError):
+    except (ImportError, OSError) as exc:
+        LOG.debug("Could not clear keyring for %s: %s", provider, exc)
         return False
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        LOG.debug("Unexpected keyring error clearing %s: %s", provider, exc)
         return False
 
 
@@ -199,11 +204,18 @@ def _query_ollama_models(host: str) -> list:
     """
     try:
         import httpx
+    except ImportError:
+        LOG.debug("httpx not installed — cannot query Ollama models")
+        return []
 
+    try:
         resp = httpx.get(f"{host.rstrip('/')}/api/tags", timeout=5)
         resp.raise_for_status()
         data = resp.json()
         return [m["name"] for m in data.get("models", []) if m.get("name")]
+    except httpx.ConnectError:
+        LOG.debug("Ollama is not running at %s", host)
+        return []
     except Exception:  # noqa: BLE001
         LOG.debug("Could not query Ollama models at %s", host, exc_info=True)
         return []
@@ -258,7 +270,7 @@ def _validate_api_key(provider: Any, api_key: str) -> Optional[str]:
         return f"Unexpected error: {exc}"
 
 
-def _set_session_env(provider: str, api_key: str) -> None:
+def set_session_env(provider: str, api_key: str) -> None:
     """Set the provider-specific env var for the current process only.
 
     This is necessary so that ``resolve_llm_config()`` can find the key
@@ -349,10 +361,10 @@ def _prompt_for_api_key(console: Any) -> Optional[LlmConfig]:
                 url_hint = f"\n[dim]Get your key at: [bold cyan]{signup_url}[/bold cyan][/dim]" if signup_url else ""
                 console.print(f"\n[bold]{label}[/bold] selected.{url_hint}")
         console.print(
-            "[dim]Paste your API key (saved securely in your system keychain).[/dim]"
+            "[dim]Paste your API key (input is hidden).[/dim]"
         )
 
-        raw = Prompt.ask("[bold]API key[/bold]", default="", show_default=False)
+        raw = Prompt.ask("[bold]API key[/bold]", password=True)
         raw = raw.strip()
         if not raw:
             console.print("[yellow]No key entered. You can run 'fluid ai setup' anytime.[/yellow]")
@@ -399,9 +411,9 @@ def _prompt_for_api_key(console: Any) -> Optional[LlmConfig]:
         if saved:
             console.print("[green]Saved to system keychain (you won't be asked again).[/green]")
         else:
-            console.print("[yellow]Could not save to keychain -- key will be used for this session only.[/yellow]")
+            console.print(f"[green]Saved to {_CONFIG_FILE} (you won't be asked again).[/green]")
 
-        _set_session_env(provider_choice, raw)
+        set_session_env(provider_choice, raw)
         _save_ai_config(provider_choice, provider.default_model, api_key=raw)
 
         env = dict(os.environ)
@@ -541,7 +553,7 @@ def run_ai_setup_inline(console: Any) -> Optional[LlmConfig]:
                 # Cloud provider — key is in config file (primary) or keyring (fallback)
                 api_key = saved.get("api_key") or _load_key_from_keyring(pname)
                 if api_key:
-                    _set_session_env(pname, api_key)
+                    set_session_env(pname, api_key)
                     env = dict(os.environ)
                     label = PROVIDER_DISPLAY_NAMES.get(pname, pname)
                     if console and RICH_AVAILABLE:

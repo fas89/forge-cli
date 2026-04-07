@@ -319,8 +319,7 @@ def _run_blank_mode(args: Any, logger: logging.Logger) -> int:
     """Create a minimal empty contract scaffold without AI."""
     from fluid_build.cli.forge_contract_factory import (
         build_minimal_contract,
-        validate_contract_file,
-        write_contract,
+        create_and_validate_contract,
     )
 
     console = Console() if RICH_AVAILABLE else None
@@ -331,7 +330,6 @@ def _run_blank_mode(args: Any, logger: logging.Logger) -> int:
             console.print(f"[dim]DRY RUN: Would create empty contract in {target_dir}[/dim]")
         return 0
 
-    target_dir.mkdir(parents=True, exist_ok=True)
     contract_path = target_dir / "contract.fluid.yaml"
     if contract_path.exists():
         if console:
@@ -342,17 +340,11 @@ def _run_blank_mode(args: Any, logger: logging.Logger) -> int:
         return 1
 
     contract = build_minimal_contract()
-    write_contract(contract, contract_path)
-
-    # Validate our own output
-    error = validate_contract_file(contract_path)
-    if error:
-        logger.error("Generated contract failed validation: %s", error)
-        if console:
-            console.print(f"[red]Generated contract is invalid: {error}[/red]")
+    result_path = create_and_validate_contract(contract, target_dir, logger, console)
+    if not result_path:
         return 1
 
-    _print_next_steps(console, target_dir, contract_path)
+    _print_next_steps(console, target_dir, result_path)
     return 0
 
 
@@ -432,16 +424,19 @@ def run(args, logger: logging.Logger) -> int:
                 args.llm_model = llm_config.model
                 args.llm_endpoint = llm_config.endpoint
                 if llm_config.api_key:
-                    from fluid_build.cli.ai_setup import _set_session_env
-                    _set_session_env(llm_config.provider, llm_config.api_key)
+                    from fluid_build.cli.ai_setup import set_session_env
+                    set_session_env(llm_config.provider, llm_config.api_key)
                 LOG.debug("LLM config loaded: provider=%s", llm_config.provider)
             else:
                 # AI not available — fall back to guided mode
-                proceed = ask_confirmation(
-                    console,
-                    "Continue with guided mode (no AI)?",
-                    default=True,
-                ) if console else False
+                if console:
+                    proceed = ask_confirmation(
+                        console,
+                        "Continue with guided mode (no AI)?",
+                        default=True,
+                    )
+                else:
+                    proceed = False
                 if proceed:
                     return run_guided_mode(args, logger)
                 if console:

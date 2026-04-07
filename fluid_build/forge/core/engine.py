@@ -779,7 +779,7 @@ class ForgeEngine:
                     "on_generation_complete", self.generation_context
                 )
 
-            rprint(f"[green]✅ Project created successfully at: {target_dir}[/green]")
+            logger.info("Project created successfully at: %s", target_dir)
             return True
 
         except Exception as e:

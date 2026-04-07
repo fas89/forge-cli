@@ -23,7 +23,7 @@ __all__ = [
     "run_forge_blueprint_impl",
     "run_guided_mode",
     "run_template_mode",
-]
+]  # Note: blueprint/domain_agent/template modes are deprecated but kept for backward compat
 
 
 import logging
@@ -533,11 +533,7 @@ def run_blueprint_mode(
         blueprint.generate_project(target_dir)
 
         if console:
-            console.print(f"[green]✅ Blueprint project created at {target_dir}[/green]")
-            console.print(
-                f"[dim]{blueprint.metadata.title} - {blueprint.metadata.description}[/dim]\n"
-            )
-            show_blueprint_next_steps(console)
+            show_blueprint_next_steps(console, target_dir=target_dir)
         else:
             success(f"Blueprint project created at {target_dir}")
             cprint(f"{blueprint.metadata.title} - {blueprint.metadata.description}\n")
@@ -582,13 +578,18 @@ def _scaffold_data_folder(target_dir: Path, context: dict, console: Any) -> None
             project_name = target_dir.name.replace("-", "_")
             dbt_project = dbt_dir / "dbt_project.yml"
             if not dbt_project.exists():
+                import yaml as _yaml
+
+                dbt_config = {
+                    "name": project_name,
+                    "version": "1.0.0",
+                    "config-version": 2,
+                    "model-paths": ["models"],
+                    "target-path": "target",
+                    "clean-targets": ["target", "dbt_packages"],
+                }
                 dbt_project.write_text(
-                    f"name: '{project_name}'\n"
-                    f"version: '1.0.0'\n"
-                    f"config-version: 2\n\n"
-                    f"model-paths: ['models']\n"
-                    f"target-path: 'target'\n"
-                    f"clean-targets: ['target', 'dbt_packages']\n",
+                    _yaml.dump(dbt_config, default_flow_style=False, sort_keys=False),
                     encoding="utf-8",
                 )
 
@@ -738,8 +739,7 @@ def run_guided_mode(
 
         from fluid_build.cli.forge_contract_factory import (
             build_minimal_contract,
-            validate_contract_file,
-            write_contract,
+            create_and_validate_contract,
         )
         from fluid_build.cli.forge_validation import sanitize_project_name
 
@@ -752,7 +752,6 @@ def run_guided_mode(
                 console.print(f"[dim]DRY RUN: Would create {safe_id} in {target_dir}[/dim]")
             return 0
 
-        target_dir.mkdir(parents=True, exist_ok=True)
         engine = "dbt" if provider in ("gcp", "local") else "sql"
         contract = build_minimal_contract(
             product_id=safe_id,
@@ -764,15 +763,8 @@ def run_guided_mode(
             tags=["guided"],
         )
 
-        contract_path = target_dir / "contract.fluid.yaml"
-        write_contract(contract, contract_path)
-
-        # Validate our own output
-        error = validate_contract_file(contract_path)
-        if error:
-            logger.error("Generated contract failed validation: %s", error)
-            if console:
-                console.print(f"[red]Generated contract is invalid: {error}[/red]")
+        contract_path = create_and_validate_contract(contract, target_dir, logger, console)
+        if not contract_path:
             return 1
 
         # Minimal directory scaffolding
@@ -783,7 +775,8 @@ def run_guided_mode(
         else:
             (target_dir / "sql").mkdir(exist_ok=True)
 
-        _DOCS_URL = "https://fluid-build.dev/docs/contracts"
+        from fluid_build.cli.forge_contract_factory import DOCS_URL as _DOCS_URL
+
         if console and RICH_AVAILABLE:
             from rich.panel import Panel
 

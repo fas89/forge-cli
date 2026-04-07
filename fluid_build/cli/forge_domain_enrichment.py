@@ -31,6 +31,7 @@ __all__ = [
 ]
 
 import logging
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -92,7 +93,7 @@ def detect_domain(context: Dict[str, Any]) -> Optional[str]:
 
     scores: Dict[str, int] = {}
     for domain, keywords in keywords_map.items():
-        hits = sum(1 for kw in keywords if kw in text)
+        hits = sum(1 for kw in keywords if re.search(rf"\b{re.escape(kw)}\b", text))
         if hits >= min_hits:
             scores[domain] = hits
 

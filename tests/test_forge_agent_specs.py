@@ -199,8 +199,9 @@ class TestDeclarativeDomainAgent:
         )
         panel = agent.console.print.call_args.args[0]
         text = str(panel.renderable)
-        assert "Review security and compliance requirements" in text
-        assert "Set up audit logging and access controls" in text
+        assert "/tmp" in text
+        assert "contract.fluid.yaml" in text
+        assert "fluid validate" in text
 
     def test_global_security_baseline_applies_to_all_agents(self):
         finance = FinanceAgent().analyze_requirements({"compliance_requirements": "none"})

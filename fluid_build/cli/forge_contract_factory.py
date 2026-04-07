@@ -24,6 +24,7 @@ from __future__ import annotations
 
 __all__ = [
     "build_minimal_contract",
+    "create_and_validate_contract",
     "write_contract",
     "validate_contract_file",
 ]
@@ -96,6 +97,33 @@ def write_contract(contract: Dict[str, Any], path: Path) -> None:
     body = yaml.dump(contract, default_flow_style=False, sort_keys=False, allow_unicode=True)
     path.write_text(header + body, encoding="utf-8")
     LOG.debug("Wrote contract to %s", path)
+
+
+def create_and_validate_contract(
+    contract: Dict[str, Any],
+    target_dir: Path,
+    logger: logging.Logger,
+    console: Any = None,
+) -> Optional[Path]:
+    """Write *contract* to ``target_dir/contract.fluid.yaml`` and validate.
+
+    Returns the contract path on success or ``None`` on failure.
+    Logs and optionally prints errors via *console*.
+    """
+    target_dir.mkdir(parents=True, exist_ok=True)
+    contract_path = target_dir / "contract.fluid.yaml"
+    write_contract(contract, contract_path)
+
+    error = validate_contract_file(contract_path)
+    if error:
+        logger.error("Generated contract failed validation: %s", error)
+        if console:
+            try:
+                console.print(f"[red]Generated contract is invalid: {error}[/red]")
+            except Exception:  # noqa: BLE001
+                pass
+        return None
+    return contract_path
 
 
 def validate_contract_file(path: Path) -> Optional[str]:

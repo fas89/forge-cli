@@ -23,11 +23,7 @@ from __future__ import annotations
 import argparse
 
 from fluid_build import __version__ as _VERSION
-from fluid_build.cli.forge_ui import (
-    FORGE_DIALOG_HINT,
-    FORGE_FLEXIBLE_INPUT_SUMMARY,
-    FORGE_WORKFLOW_STEPS,
-)
+
 
 try:
     from rich import box
@@ -266,221 +262,71 @@ def print_main_help(parser: argparse.ArgumentParser) -> None:
 
 
 def print_forge_help() -> None:
-    """Print beautiful help specifically for forge command"""
+    """Print concise, grouped help for the forge command."""
     if not RICH_AVAILABLE:
         return False
 
     console = Console()
-
-    # Header
-    console.print()
-    console.print(
-        Panel(
-            "[bold bright_magenta]🔨 FLUID Forge[/bold bright_magenta] [dim bright_white]v1.0.0[/dim bright_white]\n"
-            "[bright_white]The One Command You Need to Know[/bright_white]\n"
-            f"[dim]Create FLUID {_VERSION} data products with AI assistance[/dim]",
-            border_style="bright_magenta",
-            padding=(1, 2),
-            title="[bold bright_white]✨ Project Generator[/bold bright_white]",
-            title_align="left",
-        )
-    )
     console.print()
 
-    # Usage
-    console.print("[bold bright_white]Usage:[/bold bright_white]")
-    console.print("  [bright_cyan]fluid forge[/bright_cyan] [yellow][OPTIONS][/yellow]")
-    console.print(
-        "  [bright_cyan]fluid forge[/bright_cyan] [yellow]--mode[/yellow] [bright_green]copilot[/bright_green]"
-    )
-    console.print(
-        "  [bright_cyan]fluid forge[/bright_cyan] [yellow]--template[/yellow] [bright_white]analytics[/bright_white] [yellow]--provider[/yellow] [bright_white]gcp[/bright_white]"
-    )
+    # Header + usage
+    console.print("  [bold bright_cyan]fluid forge[/bold bright_cyan] [dim]— AI-powered data product creation[/dim]")
+    console.print()
+    console.print("  [bold]USAGE[/bold]   [bright_cyan]fluid forge[/bright_cyan] [dim][OPTIONS][/dim]")
     console.print()
 
-    # Creation Modes
-    modes_table = Table(
-        show_header=False, box=box.ROUNDED, padding=(0, 2), border_style="bright_magenta"
-    )
-    modes_table.add_column(style="bright_magenta bold", width=20)
-    modes_table.add_column(style="bright_white")
+    def _group_table(title: str, rows: list) -> None:
+        console.print(f"  [bold bright_yellow]{title}[/bold bright_yellow]")
+        tbl = Table(show_header=False, box=None, padding=(0, 1), pad_edge=False)
+        tbl.add_column(style="yellow", min_width=28, max_width=32)
+        tbl.add_column(style="bright_white")
+        for opt, desc in rows:
+            tbl.add_row(f"    {opt}", desc)
+        console.print(tbl)
+        console.print()
 
-    modes_table.add_row("copilot", "🤖 AI-powered intelligent project creation (recommended)")
-    modes_table.add_row("agent", "🎯 Specialized domain experts for specific industries")
-    modes_table.add_row("template", "📋 Traditional template-based creation")
-    modes_table.add_row("blueprint", "🏗️  Complete enterprise data product templates")
+    _group_table("Project", [
+        ("--target-dir, -d DIR", "Target directory for project creation"),
+        ("--provider, -p NAME", "Infrastructure provider"),
+        ("--domain NAME", "Domain hint (finance, healthcare, retail, telco)"),
+        ("--blank", "Empty contract without AI (no LLM needed)"),
+        ("--dry-run", "Preview without creating files"),
+        ("--non-interactive", "Use defaults without prompting"),
+        ("--context VALUE", "Additional AI context (JSON string or file path)"),
+    ])
 
-    console.print(
-        "[bold bright_magenta]🎨 Creation Modes[/bold bright_magenta] [dim](Choose your workflow)[/dim]"
-    )
-    console.print(modes_table)
-    console.print()
+    _group_table("AI Config", [
+        ("--llm-provider NAME", "LLM provider (openai, anthropic, claude, gemini, ollama)"),
+        ("--llm-model NAME", "Model identifier"),
+        ("--llm-endpoint URL", "HTTP endpoint override"),
+    ])
 
-    # Key Options
-    options_table = Table(
-        show_header=True, box=box.ROUNDED, padding=(0, 1), border_style="bright_yellow"
-    )
-    options_table.add_column("Option", style="bright_yellow bold", width=30)
-    options_table.add_column("Description", style="bright_white")
+    _group_table("Discovery", [
+        ("--discover", "Inspect local files before generation (default)"),
+        ("--no-discover", "Skip local discovery"),
+        ("--discovery-path PATH", "Additional path to scan"),
+    ])
 
-    options_table.add_row("--mode, -m", "Creation mode (copilot/agent/template/blueprint)")
-    options_table.add_row("--agent, -a", "Specific AI agent (finance/healthcare/retail/telco)")
-    options_table.add_row("--template, -t", "Project template name")
-    options_table.add_row("--provider, -p", "Infrastructure provider (gcp/aws/snowflake/local)")
-    options_table.add_row("--blueprint, -b", "Enterprise blueprint name")
-    options_table.add_row("--target-dir, -d", "Target directory for project creation")
-    options_table.add_row("--quickstart, -q", "Skip confirmations, use recommended defaults")
-    options_table.add_row("--interactive, -i", "Force interactive mode")
-    options_table.add_row("--dry-run", "Preview without creating files")
-    options_table.add_row("--context", "Additional AI context (JSON string or file)")
-    options_table.add_row(
-        "--llm-provider", "Built-in copilot adapter (openai/anthropic/gemini/ollama)"
-    )
-    options_table.add_row("--llm-model", "Model identifier for copilot mode")
-    options_table.add_row("--llm-endpoint", "Exact HTTP endpoint override for the selected adapter")
-    options_table.add_row(
-        "--discover / --no-discover", "Enable or disable local metadata discovery"
-    )
-    options_table.add_row("--discovery-path", "Extra local file or directory to scan for metadata")
-    options_table.add_row(
-        "--memory / --no-memory", "Enable or disable loading repo-local copilot memory"
-    )
-    options_table.add_row(
-        "--save-memory", "Persist repo-local copilot memory after a successful non-interactive run"
-    )
-    options_table.add_row(
-        "--show-memory", "Show the current project-scoped copilot memory summary and exit"
-    )
-    options_table.add_row(
-        "--reset-memory", "Delete the current project-scoped copilot memory file and exit"
-    )
-
-    console.print("[bold bright_yellow]⚙️  Options[/bold bright_yellow]")
-    console.print(options_table)
-    console.print()
+    _group_table("Memory", [
+        ("--memory", "Load copilot memory (default)"),
+        ("--no-memory", "Skip copilot memory for this run"),
+        ("--save-memory", "Persist memory after successful run"),
+        ("--show-memory", "Show memory summary and exit"),
+        ("--reset-memory", "Delete memory file and exit"),
+    ])
 
     # Examples
-    console.print("[bold bright_green]💡 Quick Start Examples[/bold bright_green]")
-    console.print()
-
+    console.print("  [bold bright_green]Examples[/bold bright_green]")
     examples = [
-        (
-            "AI Copilot Mode (Recommended):",
-            "fluid forge",
-            "Interactive copilot with discovery and validation",
-        ),
-        (
-            "OpenAI Copilot:",
-            "fluid forge --mode copilot --llm-provider openai --llm-model gpt-4o-mini",
-            "Generate a validated FLUID contract with OpenAI",
-        ),
-        (
-            "Local Ollama:",
-            "fluid forge --mode copilot --llm-provider ollama --llm-model llama3.1 --llm-endpoint http://localhost:11434/v1/chat/completions",
-            "Use a local model through the built-in Ollama adapter",
-        ),
-        (
-            "Non-Interactive Memory Save:",
-            "fluid forge --mode copilot --non-interactive --save-memory",
-            "Persist project-scoped copilot memory after a successful run",
-        ),
-        (
-            "Inspect Saved Memory:",
-            "fluid forge --show-memory",
-            "See what copilot currently remembers about this project",
-        ),
-        (
-            "Reset Saved Memory:",
-            "fluid forge --reset-memory",
-            "Clear the saved copilot memory for this project",
-        ),
-        (
-            "Specific Template:",
-            "fluid forge --template analytics --provider gcp",
-            "Use pre-built analytics template",
-        ),
-        (
-            "Domain Expert:",
-            "fluid forge --mode agent --agent finance",
-            "Finance-specific best practices",
-        ),
-        (
-            "TM Forum SID Telco Agent:",
-            "fluid forge --mode agent --agent telco",
-            "Telecom design guidance aligned to TM Forum SID",
-        ),
-        (
-            "Enterprise Blueprint:",
-            "fluid forge --mode blueprint --blueprint customer-360",
-            "Complete enterprise solution",
-        ),
-        ("Quick Start:", "fluid forge --quickstart", "Use smart defaults, no questions"),
-        (
-            "Preview First:",
-            "fluid forge --dry-run --template ml_pipeline",
-            "See what will be created",
-        ),
+        ("fluid forge", "AI copilot (interactive)"),
+        ("fluid forge --provider gcp", "Target GCP"),
+        ("fluid forge --domain finance", "Finance domain expertise"),
+        ("fluid forge --llm-provider ollama --llm-model llama3.1", "Use local Ollama model"),
+        ("fluid forge --blank --target-dir ./out", "Empty scaffold"),
     ]
-
-    for desc, cmd, help_text in examples:
-        console.print(f"  [bold bright_white]{desc}[/bold bright_white] [dim]{help_text}[/dim]")
-        syntax = Syntax(f"  {cmd}", "bash", theme="monokai", padding=(0, 2))
-        console.print(syntax)
-
-    # Workflow
+    for cmd, desc in examples:
+        console.print(f"    [bright_cyan]{cmd}[/bright_cyan]  [dim]{desc}[/dim]")
     console.print()
-    workflow_text = "\n".join(
-        (
-            f"[bold]Step {index}:[/bold] {step}"
-            if "fluid forge" not in step
-            else f"[bold]Step {index}:[/bold] Run [bright_cyan]fluid forge[/bright_cyan]"
-        )
-        for index, step in enumerate(FORGE_WORKFLOW_STEPS, start=1)
-    )
-    workflow_panel = Panel(
-        workflow_text
-        + "\n\n[dim]💡 First time? Just run [bright_cyan]fluid forge[/bright_cyan] and follow the prompts![/dim]",
-        title="[bold bright_green]🚀 How It Works[/bold bright_green]",
-        border_style="bright_green",
-        padding=(1, 2),
-    )
-    console.print(workflow_panel)
-    console.print()
-
-    # Tips
-    tips_panel = Panel(
-        "💡 [bold]Pro Tips:[/bold]\n\n"
-        "  • Start with [bright_cyan]--mode copilot[/bright_cyan] for AI-guided creation\n"
-        f"  • Interactive prompts accept {FORGE_FLEXIBLE_INPUT_SUMMARY}\n"
-        "  • Use [yellow]--dry-run[/yellow] to preview before generating\n"
-        "  • Use [yellow]--save-memory[/yellow] for non-interactive runs that should remember project conventions\n"
-        "  • Use [yellow]--show-memory[/yellow] to inspect what copilot remembers for this project\n"
-        "  • Try [yellow]--quickstart[/yellow] for instant setup with smart defaults\n"
-        "  • Explore templates: [bright_cyan]fluid blueprint list[/bright_cyan]\n"
-        "  • Get help anytime: [bright_cyan]fluid doctor[/bright_cyan]",
-        border_style="bright_yellow",
-        padding=(1, 2),
-        title="[bold]✨ Tips[/bold]",
-        title_align="left",
-    )
-    console.print(tips_panel)
-    console.print()
-
-    # Footer
-    console.print(
-        Panel(
-            "[bold bright_cyan]📚 Learn More[/bold bright_cyan]\n"
-            "   https://github.com/open-data-protocol/fluid/docs/forge\n\n"
-            "[bold bright_green]💬 Need Help?[/bold bright_green]\n"
-            "   Run: [bright_cyan]fluid forge[/bright_cyan] and let AI guide you\n"
-            "   Or: [bright_cyan]fluid doctor[/bright_cyan] to check your setup\n\n"
-            "[dim]Made with ❤️  for data engineers everywhere[/dim]",
-            title="[bold bright_white]📖 Resources[/bold bright_white]",
-            title_align="left",
-            border_style="bright_cyan",
-            padding=(1, 2),
-        )
-    )
 
     return True
 
@@ -845,17 +691,30 @@ def print_command_help(parser: argparse.ArgumentParser, command_name: str) -> No
         console.print()
 
     # ── Arguments & Options ──────────────────────────────────────────
+    # Global args inherited from the parent parser — hide from subcommand help
+    _GLOBAL_DESTS = frozenset({
+        "log_level", "log_file", "project", "region", "config_dir",
+        "no_color", "version", "profile", "health_check", "stats",
+        "safe_mode", "debug", "cmd",
+    })
+    # Groups that belong to the parent parser, not the subcommand
+    _GLOBAL_GROUPS = frozenset({"production & monitoring"})
+
     for group in subparser._action_groups:
+        title_raw = (group.title or "").strip()
+        if title_raw.lower() in _GLOBAL_GROUPS:
+            continue
+
         actions = [
             a
             for a in group._group_actions
             if not isinstance(a, (argparse._HelpAction, argparse._SubParsersAction))
+            and a.dest not in _GLOBAL_DESTS
         ]
         if not actions:
             continue
 
         # Section title
-        title_raw = (group.title or "").strip()
         low = title_raw.lower()
         if "positional" in low:
             label = "▸ Arguments"

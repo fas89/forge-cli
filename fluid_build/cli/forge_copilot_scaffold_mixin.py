@@ -35,8 +35,6 @@ from fluid_build.cli.forge_copilot_taxonomy import (
     normalize_use_case,
 )
 from fluid_build.cli.forge_ui import (
-    FORGE_MARKET_SEARCH_COMMAND,
-    build_standard_next_steps,
     show_copilot_analysis,
     show_next_steps_panel,
 )
@@ -400,12 +398,6 @@ For more advanced features, explore:
             return
         show_next_steps_panel(
             self.console,
+            target_dir=target_dir,
             provider=suggestions["recommended_provider"],
-            immediate_validation_text="check your setup",
-            extra_tips=[
-                f"Use `{FORGE_MARKET_SEARCH_COMMAND}` to discover similar data products",
-                "Run `fluid doctor` if you encounter any issues",
-                "Check `fluid auth status` for provider authentication",
-                "Use `fluid forge --show-memory` to inspect saved copilot conventions",
-            ],
         )

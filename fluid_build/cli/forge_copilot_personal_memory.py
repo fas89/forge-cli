@@ -106,8 +106,8 @@ def save_personal_memory(context: Dict[str, Any], console: Any = None) -> bool:
                     f"\n[dim]Your preferences saved to {_MEMORY_FILE}[/dim]\n"
                     "[dim](Edit or delete this file to reset your preferences.)[/dim]"
                 )
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001
+                LOG.debug("Could not print first-save hint: %s", exc)
 
         return True
     except OSError as exc:

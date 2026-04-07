@@ -130,5 +130,5 @@ class TestForgeDialogs:
                 else:
                     rendered_text.append(str(arg))
         combined = "\n".join(rendered_text)
-        assert "short phrase" in combined
-        assert "natural-language answers" in combined
+        assert "fluid forge" in combined
+        assert "AI-powered data product creation" in combined
