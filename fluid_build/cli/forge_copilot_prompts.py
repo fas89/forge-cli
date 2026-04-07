@@ -151,12 +151,25 @@ def build_clarification_user_prompt(
             "If use_case is ambiguous, prefer the canonical taxonomy with an Other / Not sure option.",
             "Assume the user may answer with fuzzy wording and use transcript raw_input plus resolved values together.",
             "If there was a generation failure, only ask questions that directly reduce that ambiguity.",
+            "If existing_products are listed and the user's project_goal is semantically similar to an existing product, "
+            "flag it in your reason field and ask: 'This looks similar to <existing_id>. Are you extending it or creating something new?'",
         ],
     }
     if project_memory:
         payload["project_memory"] = project_memory.to_prompt_payload()
     if previous_failure:
         payload["previous_failure"] = list(previous_failure)
+
+    # Inject domain-specific context if available in interview state
+    interview_ctx = interview_state.get("normalized_context") or interview_state
+    domain_expertise = interview_ctx.get("domain_expertise") if isinstance(interview_ctx, dict) else None
+    if domain_expertise:
+        payload["domain_expertise"] = domain_expertise
+        # Surface domain questions as suggested topics
+        domain_questions = domain_expertise.get("domain_questions")
+        if domain_questions:
+            payload["suggested_domain_questions"] = domain_questions
+
     return json.dumps(payload, indent=2, sort_keys=True)
 
 
@@ -190,6 +203,22 @@ def build_user_prompt(
             "prefer_manual_trigger_for_execute_compatibility": True,
         },
     }
+    # Inject domain expertise (architecture, security, modeling standards) if detected
+    domain_expertise = context.get("domain_expertise")
+    if domain_expertise:
+        prompt["domain_expertise"] = domain_expertise
+
+    # Inject data modeling flag — tells LLM to generate richer semantic blocks + dbt models
+    if context.get("data_modeling"):
+        prompt["data_modeling_requested"] = True
+        prompt["dbt_generation_instructions"] = (
+            "Generate dbt model SQL files in additional_files. "
+            "Use staging models (stg_ prefix) for source cleanup, "
+            "fact tables (fct_ prefix) for events/transactions, "
+            "and dimension tables (dim_ prefix) for entities. "
+            "Include a schema.yml with column descriptions."
+        )
+
     if project_memory:
         prompt["project_memory"] = project_memory.to_prompt_payload()
     if previous_errors:

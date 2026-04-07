@@ -197,3 +197,75 @@ conditional_next_step_tips:
     tips:
       - Review security and compliance requirements
       - Set up audit logging and access controls
+
+# Data modeling standards for finance domain.
+# These guide the AI when generating semantic blocks (entities, measures, dimensions)
+# and dbt model structures for financial data products.
+data_modeling_standards:
+  naming_conventions:
+    staging_prefix: "stg_"
+    fact_prefix: "fct_"
+    dimension_prefix: "dim_"
+    snapshot_prefix: "snp_"
+    column_style: "snake_case"
+    id_suffix: "_id"
+    date_suffix: "_date"
+    amount_suffix: "_amount"
+    flag_suffix: "_flag"
+
+  common_entities:
+    - name: account
+      type: primary
+      description: "Financial account (checking, savings, investment, credit)"
+    - name: customer
+      type: primary
+      description: "Individual or corporate customer"
+    - name: transaction
+      type: primary
+      description: "Financial transaction (debit, credit, transfer, payment)"
+    - name: product
+      type: foreign
+      description: "Financial product (loan, card, fund, insurance policy)"
+    - name: counterparty
+      type: foreign
+      description: "Counterparty in a transaction or trade"
+
+  common_measures:
+    - name: total_amount
+      agg: sum
+      description: "Sum of transaction amounts"
+    - name: transaction_count
+      agg: count
+      description: "Number of transactions"
+    - name: avg_balance
+      agg: avg
+      description: "Average account balance"
+    - name: max_exposure
+      agg: max
+      description: "Maximum risk exposure"
+
+  common_dimensions:
+    - name: transaction_date
+      type: time
+      description: "Date of transaction"
+      time_granularity: day
+    - name: account_type
+      type: categorical
+      description: "Type of account (checking, savings, etc.)"
+    - name: currency
+      type: categorical
+      description: "Transaction currency (ISO 4217)"
+    - name: region
+      type: categorical
+      description: "Geographic region or jurisdiction"
+
+  dbt_model_patterns:
+    staging:
+      - "stg_accounts -- one row per account, cleaned from source"
+      - "stg_transactions -- one row per transaction, deduplicated"
+      - "stg_customers -- one row per customer, PII handled"
+    marts:
+      - "fct_transactions -- grain: one row per transaction with amounts, dates, types"
+      - "dim_accounts -- SCD2 account dimension with history"
+      - "dim_customers -- customer dimension with segmentation"
+      - "fct_daily_balances -- daily account balance snapshots"

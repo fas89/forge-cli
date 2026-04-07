@@ -145,6 +145,27 @@ def enrich_context_with_domain(
     if spec.next_step_tips:
         expertise["next_step_tips"] = spec.next_step_tips
 
+    # Extract domain questions for the LLM to use during interview
+    if spec.questions:
+        expertise["domain_questions"] = [
+            {"key": q.get("key", ""), "question": q.get("question", "")}
+            for q in spec.questions[:5]
+        ]
+
+    # Load data_modeling_standards directly from YAML (not in AgentSpec dataclass)
+    try:
+        from fluid_build.cli.forge_agent_specs import AGENT_SPECS_DIR
+
+        spec_path = AGENT_SPECS_DIR / f"{domain}.yaml"
+        if spec_path.exists():
+            raw = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
+            modeling = raw.get("data_modeling_standards")
+            if modeling and isinstance(modeling, dict):
+                expertise["data_modeling_standards"] = modeling
+                LOG.debug("Loaded data modeling standards for %s", domain)
+    except (yaml.YAMLError, OSError):
+        pass
+
     context["domain_expertise"] = expertise
     LOG.info("Enriched context with %s domain expertise", domain)
     return context

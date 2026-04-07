@@ -118,6 +118,26 @@ def run_ai_copilot_mode(
             copilot_options["target_dir"] = str(Path(explicit_target_dir).expanduser())
 
         if not get_cli_arg_fn(args, "non_interactive", False):
+            # Load personal memory (per-engineer preferences)
+            try:
+                from fluid_build.cli.forge_copilot_personal_memory import load_personal_memory
+
+                personal_prefs = load_personal_memory()
+                if personal_prefs:
+                    # Apply as soft defaults (lower precedence than explicit args)
+                    for key in ("preferred_provider", "preferred_engine", "preferred_domain", "owner_team"):
+                        if personal_prefs.get(key) and key.replace("preferred_", "") not in context:
+                            mapped_key = key.replace("preferred_", "")
+                            context.setdefault(mapped_key, personal_prefs[key])
+                    if console:
+                        print_dialog_status(
+                            console,
+                            status="info",
+                            message="Loaded your personal preferences.",
+                        )
+            except ImportError:
+                personal_prefs = None
+
             runtime_inputs = copilot.prepare_runtime_inputs(copilot_options)
             copilot_options.update(runtime_inputs)
             capability_warnings = list(runtime_inputs.get("capability_warnings") or [])
@@ -131,11 +151,22 @@ def run_ai_copilot_mode(
                         "Continuing with best-effort defaults. You can review or override the provider later."
                     ),
                 )
+            # Show existing data products in workspace before interview
+            discovery_report = runtime_inputs["discovery_report"]
+            existing_contracts = getattr(discovery_report, "existing_contracts", None) or []
+            if existing_contracts and console:
+                _show_existing_products(console, existing_contracts)
+                # Pass to interview so LLM can detect duplicates
+                context["existing_products"] = [
+                    {"id": c.get("id", ""), "name": c.get("name", "")}
+                    for c in existing_contracts
+                ]
+
             interview_state = run_adaptive_copilot_interview(
                 initial_context=context,
                 console=console,
                 llm_config=runtime_inputs["llm_config"],
-                discovery_report=runtime_inputs["discovery_report"],
+                discovery_report=discovery_report,
                 capability_matrix=runtime_inputs["capability_matrix"],
                 project_memory=runtime_inputs["project_memory"],
             )
@@ -185,7 +216,21 @@ def run_ai_copilot_mode(
             copilot_options,
             dry_run=bool(get_cli_arg_fn(args, "dry_run", False)),
         )
-        return 0 if success_result else 1
+        if not success_result:
+            return 1
+
+        # Post-generation: create data + dbt scaffolding
+        _scaffold_data_folder(target_dir, context, console)
+
+        # Save personal memory (per-engineer preferences)
+        try:
+            from fluid_build.cli.forge_copilot_personal_memory import save_personal_memory
+
+            save_personal_memory(context, console)
+        except ImportError:
+            pass
+
+        return 0
     except KeyboardInterrupt:
         logger.info("AI Copilot cancelled by user")
         return 130
@@ -508,6 +553,96 @@ def run_blueprint_mode(
         else:
             console_error(f"Blueprint mode failed: {exc}")
         return 1
+
+
+def _scaffold_data_folder(target_dir: Path, context: dict, console: Any) -> None:
+    """Create data/ and optional dbt/ scaffolding after copilot generation."""
+    try:
+        # Always create data/ folder with guidance
+        data_dir = target_dir / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        (data_dir / ".gitkeep").touch(exist_ok=True)
+        readme = data_dir / "README.md"
+        if not readme.exists():
+            readme.write_text(
+                "# Sample Data\n\n"
+                "Place sample data files here (CSV, JSON, Parquet).\n"
+                "Forge will use them to infer schemas and enrich your contract.\n\n"
+                "Re-run `fluid forge` after adding files for richer generation.\n",
+                encoding="utf-8",
+            )
+
+        # Create dbt scaffolding if data_modeling was requested
+        if context.get("data_modeling"):
+            dbt_dir = target_dir / "dbt"
+            (dbt_dir / "models" / "staging").mkdir(parents=True, exist_ok=True)
+            (dbt_dir / "models" / "marts").mkdir(parents=True, exist_ok=True)
+
+            # dbt_project.yml
+            project_name = target_dir.name.replace("-", "_")
+            dbt_project = dbt_dir / "dbt_project.yml"
+            if not dbt_project.exists():
+                dbt_project.write_text(
+                    f"name: '{project_name}'\n"
+                    f"version: '1.0.0'\n"
+                    f"config-version: 2\n\n"
+                    f"model-paths: ['models']\n"
+                    f"target-path: 'target'\n"
+                    f"clean-targets: ['target', 'dbt_packages']\n",
+                    encoding="utf-8",
+                )
+
+            if console and RICH_AVAILABLE:
+                console.print(
+                    "\n[green]Created dbt project scaffolding:[/green]\n"
+                    f"  dbt/models/staging/  [dim](stg_ source models)[/dim]\n"
+                    f"  dbt/models/marts/    [dim](fct_ and dim_ tables)[/dim]\n"
+                    f"  dbt/dbt_project.yml\n\n"
+                    "[dim]Add sample data to data/ and re-run forge for richer contracts.[/dim]"
+                )
+        elif console and RICH_AVAILABLE:
+            console.print(
+                "\n[dim]Tip: Add sample data to data/ and re-run forge for richer contracts.[/dim]"
+            )
+    except OSError as exc:
+        if console and RICH_AVAILABLE:
+            console.print(f"[yellow]Could not create scaffolding: {exc}[/yellow]")
+
+
+def _show_existing_products(console: Any, existing_contracts: list) -> None:
+    """Display a table of data products already in the workspace."""
+    if not console or not RICH_AVAILABLE or not existing_contracts:
+        return
+    try:
+        from rich.table import Table as RichTable
+
+        table = RichTable(
+            title="Existing Data Products in Workspace",
+            border_style="dim",
+            show_lines=False,
+        )
+        table.add_column("#", style="dim", width=3)
+        table.add_column("ID", style="cyan")
+        table.add_column("Name", style="white")
+        table.add_column("Provider", style="green")
+
+        for i, contract in enumerate(existing_contracts[:10], 1):
+            providers = ", ".join(contract.get("providers") or ["—"])
+            table.add_row(
+                str(i),
+                contract.get("id", "—"),
+                contract.get("name", "—"),
+                providers,
+            )
+
+        console.print()
+        console.print(table)
+        console.print(
+            f"[dim]{len(existing_contracts)} data product(s) found. "
+            "The AI will check for duplicates during the interview.[/dim]\n"
+        )
+    except ImportError:
+        pass
 
 
 def run_guided_mode(

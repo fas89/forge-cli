@@ -538,6 +538,26 @@ def _ask_bootstrap_questions(
                 resolution_status="matched",
             )
 
+    # Ask about data modeling if domain expertise has modeling standards
+    domain_expertise = state.normalized_context.get("domain_expertise") or {}
+    if domain_expertise.get("data_modeling_standards") and not state.normalized_context.get("data_modeling"):
+        answer = ask_friendly_text(
+            console,
+            "Do you want data modeling (entities, measures, dimensions + dbt models)? (yes/no)",
+            required=False,
+        )
+        if answer and answer.strip().lower() in ("yes", "y", "yeah", "yep", "sure"):
+            state.apply_patch({"data_modeling": True}, source="interactive")
+            state.record_turn(
+                role="user",
+                content="yes",
+                field="data_modeling",
+                question_id="bootstrap_data_modeling",
+                raw_input=answer,
+                resolved_value="true",
+                resolution_status="matched",
+            )
+
 
 def _ask_dynamic_questions(
     state: CopilotInterviewState,
