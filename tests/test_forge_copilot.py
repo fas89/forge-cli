@@ -17,34 +17,18 @@
 from pathlib import Path
 
 from fluid_build.cli.forge import (
-    BlueprintNotFoundError,
     ContextValidationError,
     CopilotAgent,
     ForgeError,
     ForgeMode,
     InvalidProjectNameError,
     ProjectGenerationError,
-    TemplateNotFoundError,
 )
 
 # ── Custom exceptions ──
 
 
 class TestForgeExceptions:
-    def test_template_not_found(self):
-        # ForgeError inherits CLIError(exit_code, event, context)
-        # but forge.py __init__ passes a single message string —
-        # so we test the attributes that are set correctly.
-        try:
-            TemplateNotFoundError("foo", ["bar", "baz"])
-        except TypeError:
-            pass  # Known: CLIError signature mismatch
-        # At minimum, the class exists and is a ForgeError subclass
-        assert issubclass(TemplateNotFoundError, ForgeError)
-
-    def test_blueprint_not_found(self):
-        assert issubclass(BlueprintNotFoundError, ForgeError)
-
     def test_invalid_project_name(self):
         assert issubclass(InvalidProjectNameError, ForgeError)
 
@@ -60,10 +44,8 @@ class TestForgeExceptions:
 
 class TestForgeMode:
     def test_values(self):
-        assert ForgeMode.TEMPLATE.value == "template"
         assert ForgeMode.AI_COPILOT.value == "copilot"
-        assert ForgeMode.DOMAIN_AGENT.value == "agent"
-        assert ForgeMode.BLUEPRINT.value == "blueprint"
+        assert ForgeMode.BLANK.value == "blank"
 
 
 # ── CopilotAgent.analyze_requirements ──

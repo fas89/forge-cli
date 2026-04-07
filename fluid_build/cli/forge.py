@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import warnings
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -34,9 +33,6 @@ from typing import Any, Dict, List, Optional
 from fluid_build.cli.console import cprint
 from fluid_build.cli.console import error as console_error
 from fluid_build.cli.forge_agents import DOMAIN_AGENTS
-from fluid_build.cli.forge_context import (
-    gather_copilot_context as _gather_context,
-)
 from fluid_build.cli.forge_context import (
     get_cli_arg as _get_cli_arg,
 )
@@ -58,7 +54,6 @@ from fluid_build.cli.forge_copilot_agent import (
     recommend_template_for_use_case,
 )
 from fluid_build.cli.forge_copilot_interview import build_interview_summary_from_context
-from fluid_build.cli.forge_copilot_llm_providers import check_llm_readiness
 from fluid_build.cli.forge_copilot_memory import (
     CopilotMemoryStore,
     resolve_copilot_memory_root,
@@ -81,19 +76,7 @@ from fluid_build.cli.forge_modes import (
     run_ai_copilot_mode as _run_copilot,
 )
 from fluid_build.cli.forge_modes import (
-    run_blueprint_mode as _run_blueprint,
-)
-from fluid_build.cli.forge_modes import (
-    run_domain_agent_mode as _run_agent,
-)
-from fluid_build.cli.forge_modes import (
-    run_forge_blueprint_impl as _run_blueprint_legacy,
-)
-from fluid_build.cli.forge_modes import (
     run_guided_mode as _run_guided,
-)
-from fluid_build.cli.forge_modes import (
-    run_template_mode as _run_template,
 )
 
 try:
@@ -106,7 +89,6 @@ except ImportError:  # pragma: no cover - exercised through non-Rich fallbacks
     Panel = None  # type: ignore[assignment]
     RICH_AVAILABLE = False
 
-from ..blueprints import registry as blueprint_registry
 from ._common import CLIError
 
 COMMAND = "forge"
@@ -115,26 +97,6 @@ LOG = logging.getLogger("fluid.cli.forge")
 
 class ForgeError(CLIError):
     """Base exception for Forge command errors."""
-
-
-class TemplateNotFoundError(ForgeError):
-    """Template not found in registry."""
-
-    def __init__(self, template_name: str, available: List[str]):
-        self.template_name = template_name
-        self.available = available
-        super().__init__(f"Template '{template_name}' not found. Available: {', '.join(available)}")
-
-
-class BlueprintNotFoundError(ForgeError):
-    """Blueprint not found in registry."""
-
-    def __init__(self, blueprint_name: str, available: List[str]):
-        self.blueprint_name = blueprint_name
-        self.available = available
-        super().__init__(
-            f"Blueprint '{blueprint_name}' not found. Available: {', '.join(available)}"
-        )
 
 
 class InvalidProjectNameError(ForgeError):
@@ -155,20 +117,10 @@ class ContextValidationError(ForgeError):
 
 
 class ForgeMode(Enum):
-    """Forge creation modes.
-
-    After the UX redesign only ``AI_COPILOT`` and ``BLANK`` are first-class.
-    ``TEMPLATE``, ``DOMAIN_AGENT``, and ``BLUEPRINT`` are kept for backward
-    compatibility and emit deprecation warnings.
-    """
+    """Forge creation modes."""
 
     AI_COPILOT = "copilot"
     BLANK = "blank"
-
-    # Deprecated — kept so ``ForgeMode("template")`` doesn't crash callers.
-    TEMPLATE = "template"
-    DOMAIN_AGENT = "agent"
-    BLUEPRINT = "blueprint"
 
 
 class CopilotAgent(CopilotAgentBase):
@@ -329,25 +281,6 @@ def register(subparsers: argparse._SubParsersAction):
         help="Delete the copilot memory file and exit",
     )
 
-    # --- Deprecated flags (kept for backward compat) ---
-    parser.add_argument(
-        "--mode",
-        "-m",
-        choices=["copilot", "template", "agent", "blueprint", "blank"],
-        default=None,
-        help=argparse.SUPPRESS,  # Hidden — deprecated
-    )
-    parser.add_argument(
-        "--agent",
-        "-a",
-        choices=list(AI_AGENTS.keys()),
-        help=argparse.SUPPRESS,  # Hidden — deprecated
-    )
-    parser.add_argument("--template", "-t", help=argparse.SUPPRESS)
-    parser.add_argument("--blueprint", "-b", help=argparse.SUPPRESS)
-    parser.add_argument("--quickstart", "-q", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument("--interactive", "-i", action="store_true", help=argparse.SUPPRESS)
-
     parser.set_defaults(func=run)
 
 
@@ -473,49 +406,14 @@ def run(args, logger: logging.Logger) -> int:
             return handle_memory_management(args, logger)
 
         # --- Determine effective mode ---
-        explicit_mode = get_cli_arg(args, "mode")
         is_blank = get_cli_arg(args, "blank", False)
 
-        if is_blank or explicit_mode == "blank":
+        if is_blank:
             LOG.debug("Forge: blank mode selected")
             return _run_blank_mode(args, logger)
 
-        # --- Deprecated mode dispatch table ---
-        _DEPRECATED_MODES = {
-            "template": (
-                run_template_mode,
-                "forge --mode template is deprecated. Use 'fluid init --template' instead.",
-                "Template mode has moved to 'fluid init --template'.",
-            ),
-            "agent": (
-                None,  # Handled specially below
-                "forge --mode agent is deprecated. Domain expertise is now auto-detected by copilot.",
-                "Agent mode is deprecated -- copilot now auto-detects domains.",
-            ),
-            "blueprint": (
-                run_blueprint_mode,
-                "forge --mode blueprint is deprecated. Use 'fluid init' with a quickstart instead.",
-                "Blueprint mode has moved to 'fluid init'.",
-            ),
-        }
-
-        if explicit_mode in _DEPRECATED_MODES:
-            handler, warn_msg, user_msg = _DEPRECATED_MODES[explicit_mode]
-            warnings.warn(warn_msg, DeprecationWarning, stacklevel=2)
-            if console:
-                console.print(f"[yellow]{user_msg}[/yellow]")
-
-            if explicit_mode == "agent":
-                # Transfer agent name to domain context
-                agent_name = get_cli_arg(args, "agent")
-                if agent_name and agent_name != "copilot":
-                    args.domain = agent_name
-                return run_ai_copilot_mode(args, logger)
-
-            return handler(args, logger)
-
         # --- Default: AI Copilot with inline LLM setup ---
-        LOG.debug("Forge: copilot mode (default)")
+        LOG.debug("Forge: copilot mode")
         if console and not get_cli_arg(args, "non_interactive", False):
             print_welcome_panel(console)
 
@@ -600,46 +498,6 @@ def run_guided_mode(args, logger: logging.Logger) -> int:
     )
 
 
-def run_domain_agent_mode(args, logger: logging.Logger) -> int:
-    """Deprecated — routes through copilot with domain context."""
-    return _run_agent(
-        args,
-        logger,
-        ai_agents=AI_AGENTS,
-        gather_context_fn=gather_copilot_context,
-        load_context_fn=load_context,
-        get_target_directory_fn=get_target_directory,
-        context_error_cls=ContextValidationError,
-        console_factory=Console if RICH_AVAILABLE else None,
-    )
-
-
-def run_template_mode(args, logger: logging.Logger) -> int:
-    """Deprecated — use ``fluid init --template``."""
-    return _run_template(
-        args,
-        logger,
-        get_target_directory_fn=get_target_directory,
-        console_factory=Console if RICH_AVAILABLE else None,
-    )
-
-
-def gather_copilot_context(copilot: CopilotAgent, console) -> Dict[str, Any]:
-    return _gather_context(copilot, console)
-
-
-def run_blueprint_mode(args, logger: logging.Logger) -> int:
-    """Deprecated — use ``fluid init`` quickstarts."""
-    return _run_blueprint(
-        args,
-        logger,
-        blueprint_registry=blueprint_registry,
-        get_target_directory_fn=get_target_directory,
-        ask_confirmation_fn=ask_confirmation,
-        console_factory=Console if RICH_AVAILABLE else None,
-    )
-
-
 def load_context(
     context_input: str,
     console: Optional[Any] = None,
@@ -650,14 +508,6 @@ def load_context(
         context_input,
         console,
         context_error_cls=context_error_cls,
-    )
-
-
-def _run_forge_blueprint(args, blueprint_registry):
-    return _run_blueprint_legacy(
-        args,
-        blueprint_registry,
-        get_target_directory_fn=get_target_directory,
     )
 
 
@@ -693,7 +543,6 @@ def get_enhanced_templates():
 __all__ = [
     "AIAgent",
     "AI_AGENTS",
-    "BlueprintNotFoundError",
     "COMMAND",
     "ContextValidationError",
     "CopilotAgent",
@@ -701,9 +550,7 @@ __all__ = [
     "ForgeMode",
     "InvalidProjectNameError",
     "ProjectGenerationError",
-    "TemplateNotFoundError",
     "create_legacy_bootstrapper",
-    "gather_copilot_context",
     "get_cli_arg",
     "get_enhanced_templates",
     "get_target_directory",
@@ -713,8 +560,5 @@ __all__ = [
     "resolve_memory_store",
     "run",
     "run_ai_copilot_mode",
-    "run_blueprint_mode",
-    "run_domain_agent_mode",
     "run_guided_mode",
-    "run_template_mode",
 ]

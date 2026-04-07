@@ -33,24 +33,6 @@ class TestForgeExceptions:
         err = ForgeError(1, "test error")
         assert "test error" in str(err)
 
-    def test_template_not_found(self):
-        from fluid_build.cli.forge import TemplateNotFoundError
-
-        try:
-            err = TemplateNotFoundError("missing-tmpl", ["starter", "etl"])
-            assert "missing-tmpl" in str(err)
-        except TypeError:
-            pass  # CLIError signature mismatch
-
-    def test_blueprint_not_found(self):
-        from fluid_build.cli.forge import BlueprintNotFoundError
-
-        try:
-            err = BlueprintNotFoundError("bad-bp", ["quickstart", "enterprise"])
-            assert "bad-bp" in str(err)
-        except TypeError:
-            pass
-
     def test_invalid_project_name(self):
         from fluid_build.cli.forge import InvalidProjectNameError
 
@@ -80,10 +62,8 @@ class TestForgeMode:
     def test_all_modes(self):
         from fluid_build.cli.forge import ForgeMode
 
-        assert ForgeMode.TEMPLATE.value == "template"
         assert ForgeMode.AI_COPILOT.value == "copilot"
-        assert ForgeMode.DOMAIN_AGENT.value == "agent"
-        assert ForgeMode.BLUEPRINT.value == "blueprint"
+        assert ForgeMode.BLANK.value == "blank"
 
 
 # ---- AIAgent base class ----
@@ -729,54 +709,6 @@ class TestRunFunction:
         result = run(args, logger)
         assert result == 0
 
-    @patch("fluid_build.cli.forge.run_template_mode", return_value=0)
-    def test_run_template_mode_deprecated(self, _mock_tmpl):
-        from fluid_build.cli.forge import run
-
-        args = MagicMock()
-        args.help = False
-        args.mode = "template"
-        logger = logging.getLogger("test")
-        import warnings
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            result = run(args, logger)
-            assert result == 0
-            assert any("deprecated" in str(x.message).lower() for x in w)
-
-    @patch("fluid_build.cli.forge.run_ai_copilot_mode", return_value=0)
-    def test_run_agent_mode_deprecated(self, _mock_copilot):
-        from fluid_build.cli.forge import run
-
-        args = MagicMock()
-        args.help = False
-        args.mode = "agent"
-        logger = logging.getLogger("test")
-        import warnings
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            result = run(args, logger)
-            assert result == 0
-            assert any("deprecated" in str(x.message).lower() for x in w)
-
-    @patch("fluid_build.cli.forge.run_blueprint_mode", return_value=0)
-    def test_run_blueprint_mode_deprecated(self, _mock_bp):
-        from fluid_build.cli.forge import run
-
-        args = MagicMock()
-        args.help = False
-        args.mode = "blueprint"
-        logger = logging.getLogger("test")
-        import warnings
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            result = run(args, logger)
-            assert result == 0
-            assert any("deprecated" in str(x.message).lower() for x in w)
-
     def test_run_blank_mode(self):
         import tempfile
 
@@ -828,13 +760,15 @@ class TestRunFunction:
                         assert "analytics" in content
                         assert (target / "dbt" / "models").exists()
 
-    def test_run_exception(self):
+    def test_run_exception_returns_1(self):
+        """Unhandled exceptions in run() return exit code 1"""
         from fluid_build.cli.forge import run
 
         args = MagicMock()
         args.help = False
-        args.mode = "invalid_mode_xyz"
         args.blank = False
+        # Force an exception by making non_interactive raise
+        args.non_interactive = property(lambda self: 1/0)
         logger = logging.getLogger("test")
         result = run(args, logger)
         assert result == 1
@@ -986,178 +920,6 @@ class TestMemoryManagement:
         mock_store_cls.return_value.delete.assert_called_once()
 
 
-class TestRunDomainAgentMode:
-    @patch("fluid_build.cli.forge.CopilotAgent")
-    def test_agent_mode_with_name(self, mock_copilot_cls):
-        from fluid_build.cli.forge import run_domain_agent_mode
-
-        mock_agent = MagicMock()
-        mock_agent.create_project.return_value = True
-        mock_copilot_cls.return_value = mock_agent
-        args = MagicMock()
-        args.agent = "copilot"
-        args.context = None
-        args.non_interactive = True
-        args.target_dir = "/tmp/test"
-        logger = logging.getLogger("test")
-        result = run_domain_agent_mode(args, logger)
-        assert result in (0, 1)
-
-    def test_agent_mode_unknown_agent(self):
-        from fluid_build.cli.forge import run_domain_agent_mode
-
-        args = MagicMock()
-        args.agent = "nonexistent_agent_xyz"
-        args.non_interactive = True
-        args.target_dir = "/tmp/test"
-        logger = logging.getLogger("test")
-        result = run_domain_agent_mode(args, logger)
-        assert result == 1
-
-
-class TestRunBlueprintMode:
-    @patch("fluid_build.cli.forge.blueprint_registry")
-    def test_blueprint_not_found(self, mock_bp_reg):
-        from fluid_build.cli.forge import run_blueprint_mode
-
-        mock_bp_reg.get_blueprint.return_value = None
-        mock_bp_reg.list_blueprints.return_value = ["quickstart"]
-        args = MagicMock()
-        args.blueprint = "nonexistent"
-        args.non_interactive = True
-        args.target_dir = "/tmp/test"
-        logger = logging.getLogger("test")
-        result = run_blueprint_mode(args, logger)
-        assert result == 1
-
-    @patch("fluid_build.cli.forge.blueprint_registry")
-    def test_blueprint_success(self, mock_bp_reg):
-        from fluid_build.cli.forge import run_blueprint_mode
-
-        mock_bp = MagicMock()
-        mock_bp.generate_project.return_value = True
-        mock_bp_reg.get_blueprint.return_value = mock_bp
-        args = MagicMock()
-        args.blueprint = "quickstart"
-        args.non_interactive = True
-        args.target_dir = "/tmp/test-bp"
-        args.dry_run = False
-        logger = logging.getLogger("test")
-        result = run_blueprint_mode(args, logger)
-        assert result in (0, 1)
-
-    @patch("fluid_build.cli.forge.Console")
-    @patch("fluid_build.cli.forge.blueprint_registry")
-    def test_blueprint_success_shows_fluid_next_steps(self, mock_bp_reg, mock_console_cls):
-        from fluid_build.cli.forge import run_blueprint_mode
-
-        mock_bp = MagicMock()
-        mock_bp.metadata.title = "Customer 360"
-        mock_bp.metadata.description = "Enterprise blueprint"
-        mock_bp.generate_project.return_value = True
-        mock_bp_reg.get_blueprint.return_value = mock_bp
-        console = MagicMock()
-        mock_console_cls.return_value = console
-        args = MagicMock()
-        args.blueprint = "quickstart"
-        args.non_interactive = False
-        args.target_dir = "/tmp/test-bp"
-        args.dry_run = False
-        logger = logging.getLogger("test")
-
-        result = run_blueprint_mode(args, logger)
-
-        assert result in (0, 1)
-        panel = console.print.call_args_list[-1].args[0]
-        text = str(panel.renderable)
-        assert "fluid validate contract.fluid.yaml" in text
-        assert "fluid plan contract.fluid.yaml --out runtime/plan.json" in text
-        assert "fluid apply runtime/plan.json" in text
-        assert "python -m fluid_build" not in text
-
-
-class TestGatherCopilotContext:
-    def test_no_console(self):
-        from fluid_build.cli.forge import CopilotAgent, gather_copilot_context
-
-        agent = CopilotAgent()
-        result = gather_copilot_context(agent, None)
-        assert isinstance(result, dict)
-
-    def test_with_console(self):
-        from fluid_build.cli.forge import CopilotAgent, gather_copilot_context
-
-        agent = CopilotAgent()
-        console = MagicMock()
-        console.input.side_effect = [
-            "test goal",
-            "test source",
-            "Analytics & BI",
-            "",
-            "intermediate",
-        ]
-        result = gather_copilot_context(agent, console)
-        assert isinstance(result, dict)
-        assert result["raw_answers"]["project_goal"] == "test goal"
-        assert result["dialog_transcript"][0]["field"] == "project_goal"
-
-    def test_with_console_maps_labeled_use_case_choices(self):
-        from fluid_build.cli.forge import CopilotAgent, gather_copilot_context
-
-        agent = CopilotAgent()
-        console = MagicMock()
-        console.input.side_effect = [
-            "Customer 360",
-            "BigQuery tables",
-            "dashboards and BI",
-            "small team",
-            "advanced setup",
-        ]
-        result = gather_copilot_context(agent, console)
-        assert result["use_case"] == "analytics"
-        assert result["team_size"] == "small (2-5)"
-        assert result["complexity"] == "advanced"
-        assert result["raw_answers"]["use_case"] == "dashboards and BI"
-
-    def test_with_console_collects_use_case_other_follow_up(self):
-        from fluid_build.cli.forge import CopilotAgent, gather_copilot_context
-
-        agent = CopilotAgent()
-        console = MagicMock()
-        console.input.side_effect = [
-            "Customer 360",
-            "BigQuery tables",
-            "customer 360 graph",
-            "solo",
-            "simple",
-        ]
-        result = gather_copilot_context(agent, console)
-        assert result["use_case"] == "other"
-        assert result["use_case_other"] == "customer 360 graph"
-        assert result["dialog_transcript"][2]["raw_input"] == "customer 360 graph"
-
-    def test_with_domain_agent_captures_friendly_raw_answers(self):
-        from fluid_build.cli.forge import gather_copilot_context
-        from fluid_build.cli.forge_agents import FinanceAgent
-
-        agent = FinanceAgent()
-        console = MagicMock()
-        console.input.side_effect = [
-            "fraud analytics",
-            "card transactions",
-            "pci",
-            "yes",
-        ]
-
-        result = gather_copilot_context(agent, console)
-
-        assert result["product_type"] == "fraud_detection"
-        assert result["compliance_requirements"] == "pci_dss"
-        assert result["real_time"] == "yes"
-        assert result["raw_answers"]["product_type"] == "fraud analytics"
-        assert result["dialog_transcript"][0]["resolved_value"] == "fraud_detection"
-
-
 class TestGetEnhancedTemplates:
     def test_returns_dict(self):
         from fluid_build.cli.forge import get_enhanced_templates
@@ -1177,42 +939,6 @@ class TestCreateLegacyBootstrapper:
 
         assert result is not None
         assert callable(getattr(result, "run", None)) or hasattr(result, "target_dir")
-
-
-class TestRunForgeBlueprint:
-    @patch("fluid_build.cli.forge.blueprint_registry")
-    def test_no_blueprint(self, mock_bp_reg):
-        from fluid_build.cli.forge import _run_forge_blueprint
-
-        mock_bp_reg.get_blueprint.return_value = None
-        args = MagicMock()
-        args.blueprint = "missing"
-        result = _run_forge_blueprint(args, mock_bp_reg)
-        assert result == 1
-
-    @patch("fluid_build.cli.forge.blueprint_registry")
-    def test_dry_run(self, mock_bp_reg, tmp_path):
-        from fluid_build.cli.forge import _run_forge_blueprint
-
-        mock_bp = MagicMock()
-        mock_bp.validate.return_value = []  # No errors
-        mock_bp.path = tmp_path
-        mock_bp.metadata.name = "quickstart"
-        mock_bp.metadata.title = "Quickstart"
-        mock_bp.metadata.description = "Quickstart blueprint"
-        mock_bp.metadata.complexity.value = "simple"
-        mock_bp.metadata.setup_time = "5 min"
-        mock_bp.metadata.providers = ["local"]
-        mock_bp_reg.get_blueprint.return_value = mock_bp
-        target = tmp_path / "new_project"
-        args = MagicMock()
-        args.blueprint = "quickstart"
-        args.dry_run = True
-        args.non_interactive = True
-        args.target_dir = str(target)
-        args.quickstart = False
-        result = _run_forge_blueprint(args, mock_bp_reg)
-        assert result == 0
 
 
 class TestDomainEnrichment:
