@@ -111,7 +111,9 @@ def build_clarification_system_prompt(capability_matrix: Mapping[str, Any]) -> s
         "Supported question types are 'text' and 'choice'.\n"
         "Use context_patch to normalize obvious values from existing evidence.\n"
         "Use assumptions only for bounded defaults that are safe to surface to the user.\n"
-        "Mark status='ready' when enough intent is known to generate a defensible contract without more questioning."
+        "Mark status='ready' when enough intent is known to generate a defensible contract without more questioning.\n"
+        "If existing_products are listed in the interview state and the user's project_goal is semantically similar "
+        "to an existing product, flag it in your reason and ask whether they are extending it or creating something new."
     )
 
 
