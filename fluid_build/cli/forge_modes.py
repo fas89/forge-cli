@@ -21,11 +21,13 @@ __all__ = [
     "run_blueprint_mode",
     "run_domain_agent_mode",
     "run_forge_blueprint_impl",
+    "run_guided_mode",
     "run_template_mode",
 ]
 
 
 import logging
+import sys
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional
 
@@ -153,6 +155,26 @@ def run_ai_copilot_mode(
             context["interview_summary"] = build_interview_summary_fn(context)
 
         context = normalize_copilot_context(context)
+
+        # --- Domain auto-detection: load expertise packs transparently ---
+        explicit_domain = get_cli_arg_fn(args, "domain", None)
+        if explicit_domain or not context.get("domain_expertise"):
+            from fluid_build.cli.forge_domain_enrichment import (
+                detect_domain,
+                enrich_context_with_domain,
+            )
+
+            domain = explicit_domain or detect_domain(context)
+            logger.debug("Domain detection: explicit=%s, detected=%s", explicit_domain, domain)
+            if domain:
+                context = enrich_context_with_domain(context, domain)
+                if console:
+                    print_dialog_status(
+                        console,
+                        status="info",
+                        message=f"Detected {domain} domain — loading expertise pack.",
+                    )
+
         project_name = context.get("project_goal", "my-data-product").lower().replace(" ", "-")
         target_dir = get_target_directory_fn(args, project_name)
         copilot_options["target_dir"] = str(target_dir)
@@ -164,10 +186,19 @@ def run_ai_copilot_mode(
             dry_run=bool(get_cli_arg_fn(args, "dry_run", False)),
         )
         return 0 if success_result else 1
+    except KeyboardInterrupt:
+        logger.info("AI Copilot cancelled by user")
+        return 130
     except Exception as exc:  # noqa: BLE001
         logger.exception("AI Copilot mode failed")
+        is_key_error = "api_key" in str(exc).lower() or "missing_llm" in str(exc).lower()
         if console:
-            console.print(f"[red]❌ AI Copilot failed: {exc}[/red]")
+            console.print(f"[red]AI Copilot failed: {exc}[/red]")
+            if is_key_error:
+                console.print(
+                    "[yellow]Tip: Run 'fluid ai setup' to configure your LLM provider,[/yellow]\n"
+                    "[yellow]or use 'fluid forge --blank' / guided mode without AI.[/yellow]"
+                )
         return 1
 
 
@@ -476,6 +507,179 @@ def run_blueprint_mode(
             console.print(f"[red]❌ Blueprint mode failed: {exc}[/red]")
         else:
             console_error(f"Blueprint mode failed: {exc}")
+        return 1
+
+
+def run_guided_mode(
+    args: Any,
+    logger: logging.Logger,
+    *,
+    get_target_directory_fn: Callable[[Any, str], Path],
+    console_factory: Optional[Callable[[], Any]] = Console if RICH_AVAILABLE else None,
+) -> int:
+    """Create a data product via 4 quick interactive prompts (no LLM required)."""
+    import os
+
+    console = console_factory() if console_factory else None
+
+    # Guard: guided mode requires interactive stdin
+    if not sys.stdin.isatty():
+        logger.error("Guided mode requires an interactive terminal")
+        if console:
+            console.print("[red]Guided mode requires an interactive terminal.[/red]")
+        return 1
+
+    try:
+        from fluid_build.cli.forge_ui import ask_numbered_choice
+
+        if console and RICH_AVAILABLE:
+            from rich.panel import Panel
+            from rich.prompt import Prompt
+
+            console.print(
+                Panel(
+                    "Let's create a new data product in 3 quick steps.\n"
+                    "[dim]Press Enter to accept the default for any question.[/dim]",
+                    title="Forge — Guided Mode",
+                    border_style="cyan",
+                )
+            )
+
+            # Step 1: Name
+            product_id = Prompt.ask(
+                "[bold]Step 1/3:[/bold] What do you want to call this data product?",
+                default="my-data-product",
+            )
+
+            # Step 2: Domain
+            domain = ask_numbered_choice(
+                console,
+                "Step 2/3: What area does this data product belong to?",
+                [
+                    ("analytics", "Analytics -- dashboards, reports, metrics"),
+                    ("data-engineering", "Data Engineering -- pipelines, ETL, transformations"),
+                    ("ml", "Machine Learning -- features, models, predictions"),
+                    ("governance", "Governance -- data quality, compliance, lineage"),
+                ],
+                default=1,
+            )
+
+            # Step 3: Provider
+            provider = ask_numbered_choice(
+                console,
+                "Step 3/3: Where will this data product run?",
+                [
+                    ("local", "Local (DuckDB) -- great for getting started"),
+                    ("gcp", "Google Cloud (BigQuery)"),
+                    ("snowflake", "Snowflake"),
+                    ("aws", "AWS (S3 + Glue)"),
+                ],
+                default=1,
+            )
+
+            owner = os.getenv("USER", "data-team")
+            description = f"{product_id.replace('-', ' ').title()} data product"
+        else:
+            product_id = input("Step 1/3 -- Product name [my-data-product]: ").strip() or "my-data-product"
+
+            print("\nStep 2/3 -- What area does this belong to?")
+            print("  1. Analytics")
+            print("  2. Data Engineering")
+            print("  3. Machine Learning")
+            print("  4. Governance")
+            d = input("Enter number [1]: ").strip() or "1"
+            domain = {"1": "analytics", "2": "data-engineering", "3": "ml", "4": "governance"}.get(d, "analytics")
+
+            print("\nStep 3/3 -- Where will it run?")
+            print("  1. Local (DuckDB)")
+            print("  2. Google Cloud")
+            print("  3. Snowflake")
+            print("  4. AWS")
+            p = input("Enter number [1]: ").strip() or "1"
+            provider = {"1": "local", "2": "gcp", "3": "snowflake", "4": "aws"}.get(p, "local")
+
+            owner = os.getenv("USER", "data-team")
+            description = f"{product_id.replace('-', ' ').title()} data product"
+
+        from fluid_build.cli.forge_contract_factory import (
+            build_minimal_contract,
+            validate_contract_file,
+            write_contract,
+        )
+        from fluid_build.cli.forge_validation import sanitize_project_name
+
+        safe_id = sanitize_project_name(product_id, strict=False)
+        target_dir = get_target_directory_fn(args, safe_id)
+
+        dry_run = getattr(args, "dry_run", False)
+        if dry_run:
+            if console:
+                console.print(f"[dim]DRY RUN: Would create {safe_id} in {target_dir}[/dim]")
+            return 0
+
+        target_dir.mkdir(parents=True, exist_ok=True)
+        engine = "dbt" if provider in ("gcp", "local") else "sql"
+        contract = build_minimal_contract(
+            product_id=safe_id,
+            name=product_id.replace("-", " ").title(),
+            domain=domain,
+            owner=owner,
+            description=description,
+            engine=engine,
+            tags=["guided"],
+        )
+
+        contract_path = target_dir / "contract.fluid.yaml"
+        write_contract(contract, contract_path)
+
+        # Validate our own output
+        error = validate_contract_file(contract_path)
+        if error:
+            logger.error("Generated contract failed validation: %s", error)
+            if console:
+                console.print(f"[red]Generated contract is invalid: {error}[/red]")
+            return 1
+
+        # Minimal directory scaffolding
+        (target_dir / "config").mkdir(exist_ok=True)
+        (target_dir / "docs").mkdir(exist_ok=True)
+        if engine == "dbt":
+            (target_dir / "dbt" / "models").mkdir(parents=True, exist_ok=True)
+        else:
+            (target_dir / "sql").mkdir(exist_ok=True)
+
+        _DOCS_URL = "https://fluid-build.dev/docs/contracts"
+        if console and RICH_AVAILABLE:
+            from rich.panel import Panel
+
+            console.print(
+                Panel(
+                    f"[green]Created data product:[/green] [bold]{safe_id}[/bold]\n\n"
+                    f"  Contract: {contract_path}\n\n"
+                    "Next steps:\n"
+                    f"  1. cd {target_dir}\n"
+                    "  2. Edit contract.fluid.yaml with your builds\n"
+                    "  3. fluid validate contract.fluid.yaml\n"
+                    "  4. fluid plan contract.fluid.yaml --out runtime/plan.json\n"
+                    "  5. fluid apply runtime/plan.json\n\n"
+                    f"[dim]Docs: {_DOCS_URL}[/dim]\n"
+                    "[dim]Tip: run 'fluid ai setup' to unlock AI Copilot.[/dim]",
+                    title="Forge Complete",
+                    border_style="green",
+                )
+            )
+        else:
+            success(f"Created data product at {target_dir}")
+            cprint(f"Docs: {_DOCS_URL}")
+
+        return 0
+    except KeyboardInterrupt:
+        logger.info("Guided mode cancelled")
+        return 130
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Guided mode failed")
+        if console:
+            console.print(f"[red]Guided mode failed: {exc}[/red]")
         return 1
 
 

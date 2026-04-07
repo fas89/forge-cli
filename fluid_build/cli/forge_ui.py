@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 __all__ = [
+    "ask_numbered_choice",
     "build_copilot_analysis_text",
     "build_standard_next_steps",
     "print_assumptions_panel",
@@ -63,6 +64,80 @@ def _build_panel(renderable: str, *, title: str, border_style: str) -> Any:
     return Panel(renderable, title=title, border_style=border_style)
 
 
+def ask_numbered_choice(
+    console: Any,
+    prompt: str,
+    options: Sequence[tuple],
+    *,
+    default: int = 1,
+) -> str:
+    """Show a numbered menu and return the selected value.
+
+    *options* is a sequence of ``(value, label)`` tuples.  The user types
+    a number (1-based) instead of the exact string.  Accepts Enter for
+    the default.
+
+    Falls back to plain ``input()`` when Rich is not available.
+
+    Example::
+
+        choice = ask_numbered_choice(
+            console,
+            "Where will this data product run?",
+            [("local", "Local (DuckDB) -- great for getting started"),
+             ("gcp", "Google Cloud (BigQuery)"),
+             ("snowflake", "Snowflake"),
+             ("aws", "AWS (S3 + Glue)")],
+        )
+    """
+    if not options:
+        return ""
+
+    lines = []
+    for i, (_, label) in enumerate(options, 1):
+        marker = " [bold cyan](default)[/bold cyan]" if i == default and RICH_AVAILABLE else ""
+        prefix = f"  [bold cyan]{i}[/bold cyan]" if RICH_AVAILABLE else f"  {i}"
+        lines.append(f"{prefix}. {label}{marker}")
+    menu_text = "\n".join(lines)
+
+    if console and RICH_AVAILABLE:
+        console.print(f"\n[bold]{prompt}[/bold]")
+        console.print(menu_text)
+
+        try:
+            from rich.prompt import Prompt
+
+            raw = Prompt.ask(
+                "Enter number",
+                default=str(default),
+                show_default=True,
+            )
+        except (ImportError, EOFError):
+            raw = str(default)
+    else:
+        print(f"\n{prompt}")
+        for i, (_, label) in enumerate(options, 1):
+            marker = " (default)" if i == default else ""
+            print(f"  {i}. {label}{marker}")
+        raw = input(f"Enter number [{default}]: ").strip() or str(default)
+
+    try:
+        idx = int(raw) - 1
+        if 0 <= idx < len(options):
+            return options[idx][0]
+    except (ValueError, IndexError):
+        pass
+
+    # If input doesn't parse as a number, try matching by value or label
+    raw_lower = raw.strip().lower()
+    for value, label in options:
+        if raw_lower == value.lower() or raw_lower == label.lower():
+            return value
+
+    # Fall back to default
+    return options[default - 1][0]
+
+
 def show_lines_panel(
     console: Any,
     lines: Sequence[str],
@@ -80,16 +155,13 @@ def print_welcome_panel(console: Any) -> None:
     """Render the shared Forge welcome panel."""
     if not console or not RICH_AVAILABLE:
         return
-    welcome_text = """
-🔨 **FLUID Forge** - The one command you need to know
-
-Choose your creation mode:
-• **copilot** - AI-powered intelligent project creation (recommended)
-• **agent** - Specialized domain experts for specific industries
-• **template** - Traditional template-based creation
-• **blueprint** - Complete enterprise data product templates
-    """.strip()
-    console.print(_build_panel(welcome_text, title="Welcome to FLUID Forge", border_style="blue"))
+    welcome_text = (
+        "🔨 **Forge** — Create a new data product\n\n"
+        "AI Copilot will interview you and generate a complete\n"
+        "FLUID contract, README, and scaffolding.\n\n"
+        "[dim]Tip: use [bold]--blank[/bold] for an empty contract without AI.[/dim]"
+    )
+    console.print(_build_panel(welcome_text, title="FLUID Forge", border_style="blue"))
 
 
 def print_assumptions_panel(console: Any, assumptions: Sequence[str]) -> None:

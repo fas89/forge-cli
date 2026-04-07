@@ -29,6 +29,8 @@ __all__ = [
     "normalize_llm_provider_name",
     "resolve_llm_config",
     "call_llm",
+    "detect_provider_from_api_key",
+    "check_llm_readiness",
 ]
 
 import logging
@@ -44,6 +46,21 @@ import httpx
 from fluid_build.cli._common import CLIError
 
 LOG = logging.getLogger("fluid.cli.forge_copilot.llm")
+
+# Provider → environment variable mapping.  Shared across ai_setup.py and
+# this module to avoid duplication.
+PROVIDER_ENV_VARS: Dict[str, str] = {
+    "openai": "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "gemini": "GOOGLE_API_KEY",
+}
+
+PROVIDER_DISPLAY_NAMES: Dict[str, str] = {
+    "openai": "OpenAI",
+    "anthropic": "Anthropic (Claude)",
+    "gemini": "Google Gemini",
+    "ollama": "Ollama (local)",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -355,10 +372,20 @@ def call_llm(
                 )
                 time.sleep(delay)
                 continue
+            status = exc.response.status_code
+            suggestions = list(_LLM_REQUEST_SUGGESTIONS)
+            if status == 404 and config.provider == "ollama":
+                suggestions.insert(
+                    0,
+                    f"Model '{config.model}' may not be installed. "
+                    f"Run: ollama pull {config.model}",
+                )
+            elif status == 401:
+                suggestions.insert(0, "API key may be invalid or expired. Run: fluid ai setup")
             raise CopilotGenerationError(
                 "copilot_llm_request_failed",
-                f"LLM request failed for provider {config.provider}: {exc}",
-                suggestions=_LLM_REQUEST_SUGGESTIONS,
+                f"LLM request failed ({status}) for {config.provider} model '{config.model}'.",
+                suggestions=suggestions,
             ) from exc
         except httpx.HTTPError as exc:
             raise CopilotGenerationError(
@@ -403,10 +430,125 @@ def _infer_provider_from_env(env: Mapping[str, str]) -> Optional[str]:
 def _resolve_api_key(provider: str, env: Mapping[str, str]) -> Optional[str]:
     if env.get("FLUID_LLM_API_KEY"):
         return env["FLUID_LLM_API_KEY"]
-    if provider == "openai":
-        return env.get("OPENAI_API_KEY")
-    if provider == "anthropic":
-        return env.get("ANTHROPIC_API_KEY")
+    env_var = PROVIDER_ENV_VARS.get(provider)
+    if env_var:
+        return env.get(env_var)
+    # Gemini also accepts GEMINI_API_KEY as a fallback
     if provider == "gemini":
-        return env.get("GEMINI_API_KEY") or env.get("GOOGLE_API_KEY")
+        return env.get("GEMINI_API_KEY")
     return None
+
+
+# ---------------------------------------------------------------------------
+# API Key Detection & Readiness Helpers
+# ---------------------------------------------------------------------------
+
+
+def detect_provider_from_api_key(api_key: str) -> Optional[str]:
+    """Auto-detect the LLM provider from the format of an API key.
+
+    Recognised patterns::
+
+        sk-ant-...      -> anthropic
+        sk-...          -> openai
+        AIza[A-Za-z0-9] -> gemini  (Google API keys)
+
+    Returns the provider name or ``None`` if the key format is not recognised.
+    """
+    key = (api_key or "").strip()
+    if not key:
+        return None
+    if key.startswith("sk-ant-"):
+        return "anthropic"
+    if key.startswith("sk-"):
+        return "openai"
+    # Google API keys: AIza followed by alphanumeric chars, typically 35-45 total
+    if re.match(r"^AIza[A-Za-z0-9_-]{30,50}$", key):
+        return "gemini"
+    return None
+
+
+@dataclass
+class LlmReadinessCheck:
+    """Result of an LLM readiness probe."""
+
+    ready: bool
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    endpoint: Optional[str] = None
+    auth_available: bool = False
+    error: Optional[str] = None
+
+
+def check_llm_readiness(environ: Optional[Mapping[str, str]] = None) -> LlmReadinessCheck:
+    """Non-throwing check of whether an LLM provider is accessible.
+
+    Checks (in order): env vars, then ``~/.fluid/ai_config.json`` (which
+    contains the API key directly).  Used by ``fluid doctor`` and forge.
+    """
+    env = dict(environ or os.environ)
+
+    provider_name = env.get("FLUID_LLM_PROVIDER") or _infer_provider_from_env(env)
+    saved = None
+    saved_model = None
+    saved_key = None
+
+    # If env vars don't reveal a provider, check the saved config file
+    if not provider_name:
+        try:
+            from fluid_build.cli.ai_setup import _load_ai_config
+
+            saved = _load_ai_config()
+            if saved:
+                provider_name = saved.get("provider")
+                saved_model = saved.get("model")
+                saved_key = saved.get("api_key")
+                LOG.debug("LLM readiness: found provider=%s in config file", provider_name)
+        except ImportError:
+            pass
+
+    if not provider_name:
+        LOG.debug("LLM readiness: no provider detected from env or config")
+        return LlmReadinessCheck(
+            ready=False,
+            error="No LLM provider configured. Run 'fluid ai setup' or set an API key env var.",
+        )
+
+    provider = BUILTIN_LLM_PROVIDERS.get(provider_name)
+    if not provider:
+        return LlmReadinessCheck(
+            ready=False,
+            provider=provider_name,
+            error=f"Unknown LLM provider '{provider_name}'.",
+        )
+
+    # For ollama from config, ensure OLLAMA_HOST is set
+    if provider.name == "ollama" and saved and saved.get("ollama_host"):
+        if not env.get("OLLAMA_HOST"):
+            env["OLLAMA_HOST"] = saved["ollama_host"]
+
+    # Resolve API key: env vars → config file
+    api_key = _resolve_api_key(provider.name, env) or saved_key
+    auth_ok = bool(api_key) or provider.name == "ollama"
+
+    if not auth_ok:
+        LOG.debug("LLM readiness: provider=%s found but no API key", provider.name)
+        return LlmReadinessCheck(
+            ready=False,
+            provider=provider.name,
+            model=provider.default_model,
+            auth_available=False,
+            error=f"No API key found for {provider.name}. Run 'fluid ai setup'.",
+        )
+
+    model = env.get("FLUID_LLM_MODEL") or saved_model or provider.default_model
+    endpoint = env.get("FLUID_LLM_ENDPOINT") or provider.default_endpoint(model, env)
+
+    LOG.debug("LLM readiness: provider=%s model=%s ready=True", provider.name, model)
+    return LlmReadinessCheck(
+        ready=True,
+        provider=provider.name,
+        model=model,
+        endpoint=endpoint,
+        auth_available=True,
+    )

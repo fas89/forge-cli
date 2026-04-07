@@ -712,10 +712,12 @@ class TestRunFunction:
         assert result == 0
         mock_memory.assert_called_once()
 
+    @patch("fluid_build.cli.forge.check_llm_readiness")
     @patch("fluid_build.cli.forge.run_ai_copilot_mode", return_value=0)
-    def test_run_copilot_mode(self, _mock_copilot):
+    def test_run_copilot_mode(self, _mock_copilot, mock_ready):
         from fluid_build.cli.forge import run
 
+        mock_ready.return_value = MagicMock(ready=True)
         args = MagicMock()
         args.help = False
         args.mode = "copilot"
@@ -724,37 +726,103 @@ class TestRunFunction:
         assert result == 0
 
     @patch("fluid_build.cli.forge.run_template_mode", return_value=0)
-    def test_run_template_mode(self, _mock_tmpl):
+    def test_run_template_mode_deprecated(self, _mock_tmpl):
         from fluid_build.cli.forge import run
 
         args = MagicMock()
         args.help = False
         args.mode = "template"
         logger = logging.getLogger("test")
-        result = run(args, logger)
-        assert result == 0
+        import warnings
 
-    @patch("fluid_build.cli.forge.run_domain_agent_mode", return_value=0)
-    def test_run_agent_mode(self, _mock_agent):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = run(args, logger)
+            assert result == 0
+            assert any("deprecated" in str(x.message).lower() for x in w)
+
+    @patch("fluid_build.cli.forge.run_ai_copilot_mode", return_value=0)
+    def test_run_agent_mode_deprecated(self, _mock_copilot):
         from fluid_build.cli.forge import run
 
         args = MagicMock()
         args.help = False
         args.mode = "agent"
         logger = logging.getLogger("test")
-        result = run(args, logger)
-        assert result == 0
+        import warnings
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = run(args, logger)
+            assert result == 0
+            assert any("deprecated" in str(x.message).lower() for x in w)
 
     @patch("fluid_build.cli.forge.run_blueprint_mode", return_value=0)
-    def test_run_blueprint_mode(self, _mock_bp):
+    def test_run_blueprint_mode_deprecated(self, _mock_bp):
         from fluid_build.cli.forge import run
 
         args = MagicMock()
         args.help = False
         args.mode = "blueprint"
         logger = logging.getLogger("test")
-        result = run(args, logger)
-        assert result == 0
+        import warnings
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = run(args, logger)
+            assert result == 0
+            assert any("deprecated" in str(x.message).lower() for x in w)
+
+    def test_run_blank_mode(self):
+        import tempfile
+
+        from fluid_build.cli.forge import run
+
+        args = MagicMock()
+        args.help = False
+        args.mode = None
+        args.blank = True
+        args.dry_run = False
+        with tempfile.TemporaryDirectory() as tmp:
+            args.target_dir = str(Path(tmp) / "test-blank")
+            logger = logging.getLogger("test")
+            result = run(args, logger)
+            assert result == 0
+            assert (Path(tmp) / "test-blank" / "contract.fluid.yaml").exists()
+
+    def test_run_guided_mode(self):
+        import tempfile
+
+        from fluid_build.cli.forge_modes import run_guided_mode
+
+        args = MagicMock()
+        args.dry_run = False
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "my-guided-product"
+            logger = logging.getLogger("test")
+            mock_stdin = MagicMock()
+            mock_stdin.isatty.return_value = True
+            with patch("fluid_build.cli.forge_modes.RICH_AVAILABLE", False):
+                with patch("fluid_build.cli.forge_modes.sys") as mock_sys:
+                    mock_sys.stdin = mock_stdin
+                    with patch("builtins.input", side_effect=[
+                        "my-guided-product",  # product name (step 1)
+                        "1",                  # domain: analytics (step 2)
+                        "1",                  # provider: local (step 3)
+                    ]):
+                        result = run_guided_mode(
+                            args,
+                            logger,
+                            get_target_directory_fn=lambda a, name: target,
+                            console_factory=None,
+                        )
+                        assert result == 0
+                        contract = target / "contract.fluid.yaml"
+                        assert contract.exists()
+                        content = contract.read_text()
+                        assert "my-guided-product" in content
+                        assert "analytics" in content
+                        assert (target / "dbt" / "models").exists()
 
     def test_run_exception(self):
         from fluid_build.cli.forge import run
@@ -762,6 +830,7 @@ class TestRunFunction:
         args = MagicMock()
         args.help = False
         args.mode = "invalid_mode_xyz"
+        args.blank = False
         logger = logging.getLogger("test")
         result = run(args, logger)
         assert result == 1
@@ -1140,3 +1209,59 @@ class TestRunForgeBlueprint:
         args.quickstart = False
         result = _run_forge_blueprint(args, mock_bp_reg)
         assert result == 0
+
+
+class TestDomainEnrichment:
+    def test_detect_finance(self):
+        from fluid_build.cli.forge_domain_enrichment import detect_domain
+
+        ctx = {"project_goal": "Build a trading and risk analytics platform"}
+        assert detect_domain(ctx) == "finance"
+
+    def test_detect_healthcare(self):
+        from fluid_build.cli.forge_domain_enrichment import detect_domain
+
+        ctx = {"project_goal": "Patient clinical data warehouse", "data_sources": "hospital EHR"}
+        assert detect_domain(ctx) == "healthcare"
+
+    def test_detect_retail(self):
+        from fluid_build.cli.forge_domain_enrichment import detect_domain
+
+        ctx = {"project_goal": "E-commerce inventory and order analytics"}
+        assert detect_domain(ctx) == "retail"
+
+    def test_detect_telco(self):
+        from fluid_build.cli.forge_domain_enrichment import detect_domain
+
+        ctx = {"project_goal": "Telecom subscriber billing analytics"}
+        assert detect_domain(ctx) == "telco"
+
+    def test_detect_none_generic(self):
+        from fluid_build.cli.forge_domain_enrichment import detect_domain
+
+        ctx = {"project_goal": "Data analytics platform"}
+        assert detect_domain(ctx) is None
+
+    def test_detect_none_single_keyword(self):
+        from fluid_build.cli.forge_domain_enrichment import detect_domain
+
+        # Single keyword hit should NOT trigger detection (need 2+)
+        ctx = {"project_goal": "Build a risk dashboard"}
+        assert detect_domain(ctx) is None
+
+    def test_enrich_finance(self):
+        from fluid_build.cli.forge_domain_enrichment import enrich_context_with_domain
+
+        ctx = {"project_goal": "trading platform"}
+        result = enrich_context_with_domain(ctx, "finance")
+        assert "domain_expertise" in result
+        assert result["domain_expertise"]["domain"] == "finance"
+        assert "architecture_suggestions" in result["domain_expertise"]
+
+    def test_enrich_unknown_domain(self):
+        from fluid_build.cli.forge_domain_enrichment import enrich_context_with_domain
+
+        ctx = {"project_goal": "something"}
+        result = enrich_context_with_domain(ctx, "nonexistent_domain")
+        # Should return unchanged context (graceful degradation)
+        assert "domain_expertise" not in result

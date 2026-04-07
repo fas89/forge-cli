@@ -342,6 +342,42 @@ def _check_fluid_features() -> Tuple[bool, List[Dict[str, any]]]:
             }
         )
 
+    # AI Copilot readiness
+    try:
+        from fluid_build.cli.forge_copilot_llm_providers import check_llm_readiness
+
+        readiness = check_llm_readiness()
+        if readiness.ready:
+            checks.append(
+                {
+                    "check": "Forge AI Copilot",
+                    "category": "ai",
+                    "status": "✅ Ready",
+                    "ok": True,
+                    "details": f"{readiness.provider} / {readiness.model}",
+                }
+            )
+        else:
+            checks.append(
+                {
+                    "check": "Forge AI Copilot",
+                    "category": "ai",
+                    "status": "⚠️  Not configured",
+                    "ok": True,  # Non-critical
+                    "details": "Run 'fluid ai setup' to configure",
+                }
+            )
+    except Exception:
+        checks.append(
+            {
+                "check": "Forge AI Copilot",
+                "category": "ai",
+                "status": "⚠️  Not available",
+                "ok": True,
+                "details": "Run 'fluid ai setup' to configure",
+            }
+        )
+
     return all_ok, checks
 
 

@@ -513,6 +513,7 @@ def register_core_commands(sp: argparse._SubParsersAction) -> None:
     _try_register(sp, "odps_standard", "odps-standard")
     _try_register(sp, "odcs", "odcs")
     _try_register(sp, "datamesh_manager", "datamesh-manager", method="add_parser")
+    _try_register(sp, "ai_setup", "ai")
     _try_register(sp, "forge", "forge")
     _try_register(sp, "blueprint", "blueprint")
     _try_register(sp, "market", "market")

@@ -12,12 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Public Forge CLI entrypoint and compatibility surface."""
+"""Public Forge CLI entrypoint — AI-powered data product creation.
+
+After the UX redesign, ``fluid forge`` is the **repeatable** command for
+creating new data products inside an existing project.  It defaults to the
+AI Copilot interview and has a ``--blank`` escape hatch for users who want
+a bare contract scaffold without AI.
+
+First-time project setup lives in ``fluid init``.
+"""
 
 from __future__ import annotations
 
 import argparse
 import logging
+import warnings
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -49,6 +58,7 @@ from fluid_build.cli.forge_copilot_agent import (
     recommend_template_for_use_case,
 )
 from fluid_build.cli.forge_copilot_interview import build_interview_summary_from_context
+from fluid_build.cli.forge_copilot_llm_providers import check_llm_readiness
 from fluid_build.cli.forge_copilot_memory import (
     CopilotMemoryStore,
     resolve_copilot_memory_root,
@@ -66,6 +76,7 @@ from fluid_build.cli.forge_copilot_runtime import (
 )
 from fluid_build.cli.forge_copilot_taxonomy import normalize_copilot_context
 from fluid_build.cli.forge_dialogs import ask_confirmation
+from fluid_build.cli.forge_ui import print_welcome_panel
 from fluid_build.cli.forge_modes import (
     run_ai_copilot_mode as _run_copilot,
 )
@@ -79,16 +90,20 @@ from fluid_build.cli.forge_modes import (
     run_forge_blueprint_impl as _run_blueprint_legacy,
 )
 from fluid_build.cli.forge_modes import (
+    run_guided_mode as _run_guided,
+)
+from fluid_build.cli.forge_modes import (
     run_template_mode as _run_template,
 )
-from fluid_build.cli.forge_ui import print_welcome_panel
 
 try:
     from rich.console import Console
+    from rich.panel import Panel
 
     RICH_AVAILABLE = True
 except ImportError:  # pragma: no cover - exercised through non-Rich fallbacks
     Console = None  # type: ignore[assignment]
+    Panel = None  # type: ignore[assignment]
     RICH_AVAILABLE = False
 
 from ..blueprints import registry as blueprint_registry
@@ -140,10 +155,18 @@ class ContextValidationError(ForgeError):
 
 
 class ForgeMode(Enum):
-    """Forge creation modes."""
+    """Forge creation modes.
 
-    TEMPLATE = "template"
+    After the UX redesign only ``AI_COPILOT`` and ``BLANK`` are first-class.
+    ``TEMPLATE``, ``DOMAIN_AGENT``, and ``BLUEPRINT`` are kept for backward
+    compatibility and emit deprecation warnings.
+    """
+
     AI_COPILOT = "copilot"
+    BLANK = "blank"
+
+    # Deprecated — kept so ``ForgeMode("template")`` doesn't crash callers.
+    TEMPLATE = "template"
     DOMAIN_AGENT = "agent"
     BLUEPRINT = "blueprint"
 
@@ -205,42 +228,31 @@ if DOMAIN_AGENTS_AVAILABLE:
     AI_AGENTS.update(DOMAIN_AGENTS)
 
 
+# ---------------------------------------------------------------------------
+# CLI registration
+# ---------------------------------------------------------------------------
+
+
 def register(subparsers: argparse._SubParsersAction):
-    """Register the Forge command with AI agent support."""
+    """Register the Forge command — AI-powered data product creation."""
     parser = subparsers.add_parser(
         COMMAND,
-        help="🔨 The one command you need to know - Create FLUID data products with AI assistance",
+        help="🔨 Create a new data product with AI Copilot",
         add_help=False,
     )
     parser.add_argument("--help", "-h", action="store_true", help="Show this help message")
+
+    # --- Primary flags ---
     parser.add_argument(
-        "--mode",
-        "-m",
-        choices=[mode.value for mode in ForgeMode],
-        default="copilot",
-        help="Creation mode: template (traditional), copilot (AI assistant), agent (domain expert), blueprint (enterprise)",
-    )
-    parser.add_argument(
-        "--agent",
-        "-a",
-        choices=list(AI_AGENTS.keys()),
-        help="Specific AI agent to use (for --mode agent)",
+        "--blank",
+        action="store_true",
+        help="Scaffold an empty contract without AI (no LLM needed)",
     )
     parser.add_argument("--target-dir", "-d", help="Target directory for project creation")
-    parser.add_argument("--template", "-t", help="Project template to use (for template mode)")
     parser.add_argument("--provider", "-p", help="Infrastructure provider to use")
-    parser.add_argument("--blueprint", "-b", help="Blueprint to use (for blueprint mode)")
     parser.add_argument(
-        "--quickstart",
-        "-q",
-        action="store_true",
-        help="Skip confirmations and use recommended defaults",
-    )
-    parser.add_argument(
-        "--interactive",
-        "-i",
-        action="store_true",
-        help="Force interactive mode even with --quickstart",
+        "--domain",
+        help="Domain hint for AI (e.g., finance, healthcare, retail, telco)",
     )
     parser.add_argument(
         "--non-interactive",
@@ -253,18 +265,22 @@ def register(subparsers: argparse._SubParsersAction):
         help="Preview what would be created without generating files",
     )
     parser.add_argument(
-        "--context", help="Additional context for AI agents (JSON string or file path)"
+        "--context", help="Additional context for AI (JSON string or file path)"
     )
+
+    # --- LLM flags ---
     parser.add_argument(
         "--llm-provider",
         choices=["openai", "anthropic", "claude", "gemini", "ollama"],
-        help="LLM provider for copilot mode",
+        help="LLM provider for copilot",
     )
-    parser.add_argument("--llm-model", help="Model identifier for copilot mode")
+    parser.add_argument("--llm-model", help="Model identifier for copilot")
     parser.add_argument(
         "--llm-endpoint",
         help="Exact HTTP endpoint override for the selected LLM adapter",
     )
+
+    # --- Discovery ---
     parser.add_argument(
         "--discover",
         dest="discover",
@@ -280,14 +296,16 @@ def register(subparsers: argparse._SubParsersAction):
     )
     parser.add_argument(
         "--discovery-path",
-        help="Additional local file or directory path to scan for metadata-only discovery",
+        help="Additional path to scan for metadata-only discovery",
     )
+
+    # --- Memory ---
     parser.add_argument(
         "--memory",
         dest="memory",
         action="store_true",
         default=True,
-        help="Load project-scoped copilot memory when runtime/.state/copilot-memory.json exists",
+        help="Load project-scoped copilot memory",
     )
     parser.add_argument(
         "--no-memory",
@@ -298,23 +316,44 @@ def register(subparsers: argparse._SubParsersAction):
     parser.add_argument(
         "--save-memory",
         action="store_true",
-        help="Persist project-scoped copilot memory after a successful non-interactive copilot run",
+        help="Persist copilot memory after a successful non-interactive run",
     )
     parser.add_argument(
         "--show-memory",
         action="store_true",
-        help="Show the current project-scoped copilot memory summary and exit",
+        help="Show the current copilot memory summary and exit",
     )
     parser.add_argument(
         "--reset-memory",
         action="store_true",
-        help="Delete the current project-scoped copilot memory file and exit",
+        help="Delete the copilot memory file and exit",
+    )
+
+    # --- Deprecated flags (kept for backward compat) ---
+    parser.add_argument(
+        "--mode",
+        "-m",
+        choices=["copilot", "template", "agent", "blueprint", "blank"],
+        default=None,
+        help=argparse.SUPPRESS,  # Hidden — deprecated
     )
     parser.add_argument(
-        "--domain",
-        help="Specific domain for specialized agents (e.g., finance, healthcare, retail, telco)",
+        "--agent",
+        "-a",
+        choices=list(AI_AGENTS.keys()),
+        help=argparse.SUPPRESS,  # Hidden — deprecated
     )
+    parser.add_argument("--template", "-t", help=argparse.SUPPRESS)
+    parser.add_argument("--blueprint", "-b", help=argparse.SUPPRESS)
+    parser.add_argument("--quickstart", "-q", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--interactive", "-i", action="store_true", help=argparse.SUPPRESS)
+
     parser.set_defaults(func=run)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
 def get_target_directory(args, default_name: str = "my-fluid-project") -> Path:
@@ -338,44 +377,202 @@ def handle_memory_management(args, logger: logging.Logger) -> int:
     )
 
 
+# ---------------------------------------------------------------------------
+# Blank mode — scaffold empty contract, no AI
+# ---------------------------------------------------------------------------
+
+
+def _run_blank_mode(args: Any, logger: logging.Logger) -> int:
+    """Create a minimal empty contract scaffold without AI."""
+    from fluid_build.cli.forge_contract_factory import (
+        build_minimal_contract,
+        validate_contract_file,
+        write_contract,
+    )
+
+    console = Console() if RICH_AVAILABLE else None
+    target_dir = get_target_directory(args, "my-data-product")
+
+    if get_cli_arg(args, "dry_run", False):
+        if console:
+            console.print(f"[dim]DRY RUN: Would create empty contract in {target_dir}[/dim]")
+        return 0
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+    contract_path = target_dir / "contract.fluid.yaml"
+    if contract_path.exists():
+        if console:
+            console.print(
+                f"[yellow]contract.fluid.yaml already exists in {target_dir}[/yellow]\n"
+                "[dim]Delete it first or use a different --target-dir.[/dim]"
+            )
+        return 1
+
+    contract = build_minimal_contract()
+    write_contract(contract, contract_path)
+
+    # Validate our own output
+    error = validate_contract_file(contract_path)
+    if error:
+        logger.error("Generated contract failed validation: %s", error)
+        if console:
+            console.print(f"[red]Generated contract is invalid: {error}[/red]")
+        return 1
+
+    _print_next_steps(console, target_dir, contract_path)
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Shared UI helpers
+# ---------------------------------------------------------------------------
+
+_DOCS_URL = "https://fluid-build.dev/docs/contracts"
+
+
+def _print_next_steps(console: Any, target_dir: Path, contract_path: Path) -> None:
+    """Show post-creation next steps with doc link."""
+    steps = (
+        f"[green]Created contract at:[/green] {contract_path}\n\n"
+        "Next steps:\n"
+        f"  1. cd {target_dir}\n"
+        "  2. Edit contract.fluid.yaml\n"
+        "  3. fluid validate contract.fluid.yaml\n"
+        "  4. fluid plan contract.fluid.yaml --out runtime/plan.json\n"
+        "  5. fluid apply runtime/plan.json\n\n"
+        f"[dim]Docs: {_DOCS_URL}[/dim]"
+    )
+    if console and RICH_AVAILABLE:
+        console.print(Panel(steps, title="Forge Complete", border_style="green"))
+    else:
+        cprint(f"Created contract at {contract_path}")
+        cprint(f"Docs: {_DOCS_URL}")
+
+
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
+
+
 def run(args, logger: logging.Logger) -> int:
-    """Enhanced main entry point for forge command with AI agent support."""
+    """Main entry point for ``fluid forge``."""
+    console = Console() if RICH_AVAILABLE else None
     try:
-        console = Console() if RICH_AVAILABLE else None
-        if hasattr(args, "help") and args.help:
+        # --- Help ---
+        if getattr(args, "help", False):
             if console:
                 from .help_formatter import print_forge_help
 
                 print_forge_help()
                 return 0
-            cprint("Run 'fluid forge' to start the interactive wizard")
+            cprint("Run 'fluid forge' to start the AI Copilot, or 'fluid forge --blank' for an empty contract.")
             return 0
 
+        # --- Memory management shortcuts ---
         if get_cli_arg(args, "show_memory", False) or get_cli_arg(args, "reset_memory", False):
             return handle_memory_management(args, logger)
 
-        if console and not args.non_interactive:
+        # --- Determine effective mode ---
+        explicit_mode = get_cli_arg(args, "mode")
+        is_blank = get_cli_arg(args, "blank", False)
+
+        if is_blank or explicit_mode == "blank":
+            LOG.debug("Forge: blank mode selected")
+            return _run_blank_mode(args, logger)
+
+        # --- Deprecated mode dispatch table ---
+        _DEPRECATED_MODES = {
+            "template": (
+                run_template_mode,
+                "forge --mode template is deprecated. Use 'fluid init --template' instead.",
+                "Template mode has moved to 'fluid init --template'.",
+            ),
+            "agent": (
+                None,  # Handled specially below
+                "forge --mode agent is deprecated. Domain expertise is now auto-detected by copilot.",
+                "Agent mode is deprecated -- copilot now auto-detects domains.",
+            ),
+            "blueprint": (
+                run_blueprint_mode,
+                "forge --mode blueprint is deprecated. Use 'fluid init' with a quickstart instead.",
+                "Blueprint mode has moved to 'fluid init'.",
+            ),
+        }
+
+        if explicit_mode in _DEPRECATED_MODES:
+            handler, warn_msg, user_msg = _DEPRECATED_MODES[explicit_mode]
+            warnings.warn(warn_msg, DeprecationWarning, stacklevel=2)
+            if console:
+                console.print(f"[yellow]{user_msg}[/yellow]")
+
+            if explicit_mode == "agent":
+                # Transfer agent name to domain context
+                agent_name = get_cli_arg(args, "agent")
+                if agent_name and agent_name != "copilot":
+                    args.domain = agent_name
+                return run_ai_copilot_mode(args, logger)
+
+            return handler(args, logger)
+
+        # --- Default: AI Copilot with inline LLM setup ---
+        LOG.debug("Forge: copilot mode (default)")
+        if console and not get_cli_arg(args, "non_interactive", False):
             print_welcome_panel(console)
 
-        mode = ForgeMode(args.mode)
-        if mode == ForgeMode.AI_COPILOT:
-            return run_ai_copilot_mode(args, logger)
-        if mode == ForgeMode.DOMAIN_AGENT:
-            return run_domain_agent_mode(args, logger)
-        if mode == ForgeMode.BLUEPRINT:
-            return run_blueprint_mode(args, logger)
-        if mode == ForgeMode.TEMPLATE:
-            return run_template_mode(args, logger)
+        # Check LLM readiness; offer inline setup if needed
+        if not get_cli_arg(args, "non_interactive", False):
+            readiness = check_llm_readiness()
+            if not readiness.ready:
+                from fluid_build.cli.ai_setup import run_ai_setup_inline
 
-        args.mode = "copilot"
+                llm_config = run_ai_setup_inline(console)
+                if llm_config:
+                    # Inject the resolved config so copilot doesn't re-resolve from env
+                    args.llm_provider = llm_config.provider
+                    args.llm_model = llm_config.model
+                    args.llm_endpoint = llm_config.endpoint
+                    # Store key in env for resolve_llm_config() to find
+                    if llm_config.api_key:
+                        from fluid_build.cli.ai_setup import _set_session_env
+                        _set_session_env(llm_config.provider, llm_config.api_key)
+                    LOG.debug("Inline setup complete: provider=%s", llm_config.provider)
+                else:
+                    # AI not available — fall back to guided mode
+                    proceed = ask_confirmation(
+                        console,
+                        "Continue with guided mode (no AI)?",
+                        default=True,
+                    ) if console else False
+                    if proceed:
+                        return run_guided_mode(args, logger)
+                    if console:
+                        console.print(
+                            "[yellow]Use 'fluid forge --blank' for a bare contract,[/yellow]\n"
+                            "[yellow]or run 'fluid ai setup' to configure an LLM provider.[/yellow]"
+                        )
+                    return 1
+
         return run_ai_copilot_mode(args, logger)
+
+    except KeyboardInterrupt:
+        logger.info("Forge cancelled by user")
+        return 130
     except Exception as exc:  # noqa: BLE001
         logger.exception("Forge command failed")
-        if "console" in locals() and console:
-            console.print(f"[red]❌ Forge failed: {exc}[/red]")
+        if console:
+            console.print(
+                f"[red]Forge failed: {exc}[/red]\n"
+                f"[dim]Run 'fluid doctor' to diagnose, or see {_DOCS_URL}[/dim]"
+            )
         else:
             console_error(f"Forge failed: {exc}")
+            cprint(f"Run 'fluid doctor' to diagnose, or see {_DOCS_URL}")
         return 1
+
+
+# ---------------------------------------------------------------------------
+# Mode wrappers (thin delegation)
+# ---------------------------------------------------------------------------
 
 
 def run_ai_copilot_mode(args, logger: logging.Logger) -> int:
@@ -392,7 +589,18 @@ def run_ai_copilot_mode(args, logger: logging.Logger) -> int:
     )
 
 
+def run_guided_mode(args, logger: logging.Logger) -> int:
+    """Lightweight guided prompts — no AI needed."""
+    return _run_guided(
+        args,
+        logger,
+        get_target_directory_fn=get_target_directory,
+        console_factory=Console if RICH_AVAILABLE else None,
+    )
+
+
 def run_domain_agent_mode(args, logger: logging.Logger) -> int:
+    """Deprecated — routes through copilot with domain context."""
     return _run_agent(
         args,
         logger,
@@ -406,6 +614,7 @@ def run_domain_agent_mode(args, logger: logging.Logger) -> int:
 
 
 def run_template_mode(args, logger: logging.Logger) -> int:
+    """Deprecated — use ``fluid init --template``."""
     return _run_template(
         args,
         logger,
@@ -419,6 +628,7 @@ def gather_copilot_context(copilot: CopilotAgent, console) -> Dict[str, Any]:
 
 
 def run_blueprint_mode(args, logger: logging.Logger) -> int:
+    """Deprecated — use ``fluid init`` quickstarts."""
     return _run_blueprint(
         args,
         logger,
@@ -504,5 +714,6 @@ __all__ = [
     "run_ai_copilot_mode",
     "run_blueprint_mode",
     "run_domain_agent_mode",
+    "run_guided_mode",
     "run_template_mode",
 ]
