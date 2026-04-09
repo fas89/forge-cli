@@ -443,6 +443,14 @@ class TestLoadJsonRows:
         rows = list(load_json_rows(Path(tmp_path)))
         assert len(rows) == 2
 
+    def test_json_empty(self):
+        with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as f:
+            f.write("")
+            tmp_path = f.name
+
+        rows = list(load_json_rows(Path(tmp_path)))
+        assert rows == []
+
     def test_jsonl(self):
         with tempfile.NamedTemporaryFile(suffix=".jsonl", mode="w", delete=False) as f:
             f.write('{"a": 1}\n{"a": 2}\n')
@@ -507,6 +515,18 @@ class TestSummarizeSampleFile:
         summary = summarize_sample_file(Path(tmp_path))
         assert summary["format"] == "json"
         assert "id" in summary["columns"]
+
+    def test_invalid_json_warns(self):
+        with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as f:
+            f.write("{not json")
+            tmp_path = f.name
+
+        summary = summarize_sample_file(Path(tmp_path))
+        assert summary["format"] == "json"
+        assert summary["columns"] == {}
+        assert summary["sampled_rows"] == 0
+        assert "warnings" in summary
+        assert "Could not inspect JSON schema" in summary["warnings"][0]
 
     def test_parquet_no_library(self):
         with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as f:

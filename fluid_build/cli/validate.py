@@ -18,7 +18,8 @@ import argparse
 import logging
 import time
 from pathlib import Path
-from typing import Optional, Tuple
+from types import SimpleNamespace
+from typing import Any, Mapping, Optional, Tuple
 
 from fluid_build.cli.console import cprint
 from fluid_build.cli.console import error as console_error
@@ -166,8 +167,11 @@ def run(args, logger: logging.Logger) -> int:
         if args.list_versions:
             return _handle_list_versions(schema_manager, args, logger)
 
-        # Handle case where no contract is provided but required
+        # Handle case where no contract is provided — try workspace discovery.
         if not args.contract:
+            workspace_result = _try_workspace_validate(args, schema_manager, logger)
+            if workspace_result is not None:
+                return workspace_result
             raise CLIError(
                 1,
                 "contract_required",
@@ -607,3 +611,151 @@ def _output_text_results(result: ValidationResult, args, logger: logging.Logger)
         return 1
     else:
         return 0
+
+
+# ---------------------------------------------------------------------------
+# Public helpers for other CLI commands (publish, apply, …) that need to
+# run FLUID schema validation on an already-loaded contract dict.
+#
+# These exist so callers never have to reach into private ``_*`` helpers
+# or duplicate the error-formatting code. Keep this surface small: a
+# formatter and a one-shot validator.
+# ---------------------------------------------------------------------------
+
+
+def output_text_results(result: ValidationResult, args: Any, logger: logging.Logger) -> int:
+    """Public alias of the native text formatter used by ``fluid validate``.
+
+    Other CLI commands that want the exact same validation UX should call
+    this rather than reimplementing error/warning printing. ``args`` may be
+    any object (argparse Namespace, ``SimpleNamespace``, dataclass, ...)
+    that exposes ``quiet``, ``verbose``, and ``strict`` attributes.
+    """
+    return _output_text_results(result, args, logger)
+
+
+def run_on_contract_dict(
+    contract: Mapping[str, Any],
+    *,
+    strict: bool = False,
+    logger: Optional[logging.Logger] = None,
+    offline_only: bool = True,
+) -> Tuple[ValidationResult, int]:
+    """Validate an already-loaded FLUID contract and emit the native output.
+
+    **The schema version is auto-detected from the contract's own
+    ``fluidVersion`` field.** A 0.5.7 contract is validated against the
+    bundled 0.5.7 schema, a 0.7.1 contract against 0.7.1, a 0.7.2 contract
+    against 0.7.2, and so on. Callers that want to force a specific
+    validation target should construct a ``FluidSchemaManager`` and call
+    ``validate_contract(contract, schema_version=...)`` directly — but the
+    default here is backward-compatible auto-detection, which is what
+    ``fluid dmm publish`` and every other CLI embedding needs.
+
+    This is the one-call convenience wrapper for embedding schema validation
+    into other CLI commands (publish, apply, …). It:
+
+      1. runs :meth:`FluidSchemaManager.validate_contract` with
+         ``offline_only=True`` and no explicit ``schema_version`` (so the
+         contract's declared ``fluidVersion`` is honored)
+      2. prints errors/warnings via :func:`output_text_results` so the UX
+         is identical to ``fluid validate``
+      3. returns both the raw ``ValidationResult`` (for callers that want
+         to inspect errors programmatically) and the native exit code
+
+    ``strict=True`` upgrades warnings to errors in the returned exit code,
+    matching the ``fluid validate --strict`` semantics. Note that schema
+    *errors* always produce exit code ``1`` regardless of ``strict``.
+    """
+    log = logger or logging.getLogger(__name__)
+    schema_manager = FluidSchemaManager()
+    result = schema_manager.validate_contract(contract, offline_only=offline_only)
+    output_args = SimpleNamespace(quiet=False, verbose=False, strict=strict)
+    rc = output_text_results(result, output_args, log)
+    return result, rc
+
+
+# ---------------------------------------------------------------------------
+# Workspace-wide validation
+# ---------------------------------------------------------------------------
+
+
+def _try_workspace_validate(
+    args: Any,
+    schema_manager: FluidSchemaManager,
+    logger: logging.Logger,
+) -> Optional[int]:
+    """Validate all products in a workspace when no explicit contract is given.
+
+    Returns an exit code (0 = all valid, 1 = at least one failed),
+    or ``None`` if no workspace is detected (so the caller can fall through
+    to the normal "contract required" error).
+    """
+    try:
+        from fluid_build.cli.workspace_config import (
+            discover_workspace_products,
+            find_workspace_root,
+            load_workspace_config,
+        )
+    except ImportError:
+        return None
+
+    ws_root = find_workspace_root()
+    if ws_root is None:
+        # Also check if there's a single contract in cwd (legacy single-product).
+        cwd_contract = Path.cwd() / "contract.fluid.yaml"
+        if cwd_contract.is_file():
+            args.contract = str(cwd_contract)
+            return None  # Fall through to normal single-contract validation.
+        return None
+
+    products = discover_workspace_products(ws_root)
+    if not products:
+        return None
+
+    ws = load_workspace_config(ws_root)
+    ws_name = ws.name or ws_root.name
+
+    cprint(
+        f"\nValidating {len(products)} product{'s' if len(products) != 1 else ''} "
+        f"in workspace '{ws_name}'...\n"
+    )
+
+    passed = 0
+    failed = 0
+    for product in products:
+        try:
+            contract = _load_contract_for_workspace(product.contract_path, args, logger)
+            result = schema_manager.validate_contract(
+                contract,
+                strict=args.strict,
+                offline_only=getattr(args, "offline", False),
+            )
+            if result.is_valid:
+                cprint(f"  ✅ {product.name:<20} valid ({product.fluid_version or '?'})")
+                passed += 1
+            else:
+                cprint(f"  ❌ {product.name:<20} {len(result.errors)} error(s)")
+                for err in result.errors[:3]:
+                    cprint(f"     {err}")
+                failed += 1
+        except Exception as exc:  # noqa: BLE001
+            cprint(f"  ❌ {product.name:<20} load error: {exc}")
+            failed += 1
+
+    cprint("")
+    if failed:
+        cprint(f"Result: {passed} passed, {failed} failed")
+        return 1
+    cprint(f"All {passed} product{'s' if passed != 1 else ''} valid.")
+    return 0
+
+
+def _load_contract_for_workspace(
+    contract_path: Path,
+    args: Any,
+    logger: logging.Logger,
+) -> dict:
+    """Load a contract, applying environment overlay if requested."""
+    env = getattr(args, "env", None)
+    return load_contract_with_overlay(str(contract_path), env, logger)

@@ -393,7 +393,16 @@ def run(args, logger: logging.Logger) -> int:
 
         # Apply configuration overrides
         if args.config_override:
-            override_config = json.loads(args.config_override)
+            try:
+                override_config = json.loads(args.config_override)
+            except json.JSONDecodeError as exc:
+                error = CLIError(
+                    2,
+                    "invalid_config_override",
+                    {"error": str(exc), "config_override": args.config_override},
+                )
+                error.message = "Invalid --config-override JSON"
+                raise error from exc
             contract.update(override_config)
 
         # Simple mode execution
@@ -438,8 +447,10 @@ def run(args, logger: logging.Logger) -> int:
                     else:
                         region = None  # Let AwsProvider resolve from env/defaults
 
-            # Fallback to contract-level project or ID (GCP and others)
-            if not project and provider_name != "aws":
+            # Fallback to contract-level project or ID for providers that use it.
+            # Snowflake resolves database/account from binding + env and should not
+            # inherit the contract id as a pseudo-project.
+            if not project and provider_name not in {"aws", "snowflake"}:
                 project = contract.get("project") or contract.get("id", "local-project")
 
             # Set appropriate default region for provider

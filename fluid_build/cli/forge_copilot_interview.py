@@ -69,6 +69,8 @@ SUMMARY_FIELDS = {
     "provider",
     "provider_hint",
     "domain",
+    "canonical_model",
+    "supporting_standards",
     "owner_team",
     "build_engine",
     "output_kind",
@@ -81,13 +83,14 @@ SUMMARY_FIELDS = {
     "consumes",
 }
 
-LIST_LIKE_FIELDS = {"primary_measures", "primary_dimensions"}
+LIST_LIKE_FIELDS = {"primary_measures", "primary_dimensions", "supporting_standards"}
 SCALAR_FIELDS = {
     "project_goal",
     "data_sources",
     "provider",
     "provider_hint",
     "domain",
+    "canonical_model",
     "owner_team",
     "build_engine",
     "output_kind",
@@ -335,6 +338,8 @@ def build_interview_summary_from_context(context: Mapping[str, Any]) -> Dict[str
         "data_sources": normalized.get("data_sources"),
         "provider_hint": normalized.get("provider") or normalized.get("provider_hint"),
         "domain": normalized.get("domain"),
+        "canonical_model": normalized.get("canonical_model"),
+        "supporting_standards": _listify_strings(normalized.get("supporting_standards")),
         "owner_team": normalized.get("owner_team") or normalized.get("owner"),
         "build_engine": normalized.get("build_engine"),
         "output_kind": normalized.get("output_kind"),

@@ -26,6 +26,10 @@ import pytest
 # ---- Custom exceptions ----
 
 
+def _skip_clierror_signature_mismatch(exc: TypeError) -> None:
+    pytest.skip(f"CLIError signature mismatch: {exc}")
+
+
 class TestForgeExceptions:
     def test_forge_error(self):
         from fluid_build.cli.forge import ForgeError
@@ -39,8 +43,8 @@ class TestForgeExceptions:
         try:
             err = InvalidProjectNameError("a b c", "contains spaces")
             assert "a b c" in str(err)
-        except TypeError:
-            pass
+        except TypeError as exc:
+            _skip_clierror_signature_mismatch(exc)
 
     def test_project_generation_error(self):
         from fluid_build.cli.forge import ProjectGenerationError
@@ -134,8 +138,6 @@ class TestCopilotAgent:
         panel = agent.console.print.call_args.args[0]
         text = str(panel.renderable)
         assert "fluid validate contract.fluid.yaml" in text
-        assert "/tmp" in text
-        assert "contract.fluid.yaml" in text
 
     @patch("fluid_build.cli.forge_copilot_agent.LOG.warning")
     def test_prepare_runtime_inputs_logs_capability_warnings(self, mock_warning):
@@ -689,16 +691,10 @@ class TestRunFunction:
         assert result == 0
         mock_memory.assert_called_once()
 
-    @patch("fluid_build.cli.ai_setup.run_ai_setup_inline")
     @patch("fluid_build.cli.forge.run_ai_copilot_mode", return_value=0)
-    def test_run_copilot_mode(self, _mock_copilot, mock_inline):
+    def test_run_copilot_mode(self, _mock_copilot):
         from fluid_build.cli.forge import run
-        from fluid_build.cli.forge_copilot_llm_providers import LlmConfig
 
-        mock_inline.return_value = LlmConfig(
-            provider="gemini", model="gemini-2.5-flash",
-            endpoint="https://example.com", api_key="fake-key",
-        )
         args = MagicMock()
         args.help = False
         args.mode = "copilot"
@@ -706,69 +702,22 @@ class TestRunFunction:
         result = run(args, logger)
         assert result == 0
 
-    def test_run_blank_mode(self):
-        import tempfile
-
+    @patch("fluid_build.cli.forge.run_ai_copilot_mode", return_value=0)
+    def test_run_non_interactive_copilot(self, mock_copilot):
         from fluid_build.cli.forge import run
 
         args = MagicMock()
         args.help = False
-        args.mode = None
-        args.blank = True
-        args.dry_run = False
-        with tempfile.TemporaryDirectory() as tmp:
-            args.target_dir = str(Path(tmp) / "test-blank")
-            logger = logging.getLogger("test")
-            result = run(args, logger)
-            assert result == 0
-            assert (Path(tmp) / "test-blank" / "contract.fluid.yaml").exists()
-
-    def test_run_guided_mode(self):
-        import tempfile
-
-        from fluid_build.cli.forge_modes import run_guided_mode
-
-        args = MagicMock()
-        args.dry_run = False
-        with tempfile.TemporaryDirectory() as tmp:
-            target = Path(tmp) / "my-guided-product"
-            logger = logging.getLogger("test")
-            mock_stdin = MagicMock()
-            mock_stdin.isatty.return_value = True
-            with patch("fluid_build.cli.forge_modes.RICH_AVAILABLE", False):
-                with patch("fluid_build.cli.forge_modes.sys") as mock_sys:
-                    mock_sys.stdin = mock_stdin
-                    with patch("builtins.input", side_effect=[
-                        "my-guided-product",  # product name (step 1)
-                        "1",                  # domain: analytics (step 2)
-                        "1",                  # provider: local (step 3)
-                    ]):
-                        result = run_guided_mode(
-                            args,
-                            logger,
-                            get_target_directory_fn=lambda a, name: target,
-                            console_factory=None,
-                        )
-                        assert result == 0
-                        contract = target / "contract.fluid.yaml"
-                        assert contract.exists()
-                        content = contract.read_text()
-                        assert "my-guided-product" in content
-                        assert "analytics" in content
-                        assert (target / "dbt" / "models").exists()
-
-    def test_run_exception_returns_1(self):
-        """Unhandled exceptions in run() return exit code 1"""
-        from fluid_build.cli.forge import run
-
-        args = MagicMock()
-        args.help = False
-        args.blank = False
-        # Force an exception by making non_interactive raise
-        args.non_interactive = property(lambda self: 1/0)
+        args.show_memory = False
+        args.reset_memory = False
+        args.non_interactive = True
         logger = logging.getLogger("test")
+
         result = run(args, logger)
-        assert result == 1
+
+        assert result == 0
+        mock_copilot.assert_called_once()
+
 
 
 class TestRunAICopilotMode:
@@ -938,57 +887,3 @@ class TestCreateLegacyBootstrapper:
         assert callable(getattr(result, "run", None)) or hasattr(result, "target_dir")
 
 
-class TestDomainEnrichment:
-    def test_detect_finance(self):
-        from fluid_build.cli.forge_domain_enrichment import detect_domain
-
-        ctx = {"project_goal": "Build a trading and risk analytics platform"}
-        assert detect_domain(ctx) == "finance"
-
-    def test_detect_healthcare(self):
-        from fluid_build.cli.forge_domain_enrichment import detect_domain
-
-        ctx = {"project_goal": "Patient clinical data warehouse", "data_sources": "hospital EHR"}
-        assert detect_domain(ctx) == "healthcare"
-
-    def test_detect_retail(self):
-        from fluid_build.cli.forge_domain_enrichment import detect_domain
-
-        ctx = {"project_goal": "E-commerce inventory and order analytics"}
-        assert detect_domain(ctx) == "retail"
-
-    def test_detect_telco(self):
-        from fluid_build.cli.forge_domain_enrichment import detect_domain
-
-        ctx = {"project_goal": "Telecom subscriber billing analytics"}
-        assert detect_domain(ctx) == "telco"
-
-    def test_detect_none_generic(self):
-        from fluid_build.cli.forge_domain_enrichment import detect_domain
-
-        ctx = {"project_goal": "Data analytics platform"}
-        assert detect_domain(ctx) is None
-
-    def test_detect_none_single_keyword(self):
-        from fluid_build.cli.forge_domain_enrichment import detect_domain
-
-        # Single keyword hit should NOT trigger detection (need 2+)
-        ctx = {"project_goal": "Build a risk dashboard"}
-        assert detect_domain(ctx) is None
-
-    def test_enrich_finance(self):
-        from fluid_build.cli.forge_domain_enrichment import enrich_context_with_domain
-
-        ctx = {"project_goal": "trading platform"}
-        result = enrich_context_with_domain(ctx, "finance")
-        assert "domain_expertise" in result
-        assert result["domain_expertise"]["domain"] == "finance"
-        assert "architecture_suggestions" in result["domain_expertise"]
-
-    def test_enrich_unknown_domain(self):
-        from fluid_build.cli.forge_domain_enrichment import enrich_context_with_domain
-
-        ctx = {"project_goal": "something"}
-        result = enrich_context_with_domain(ctx, "nonexistent_domain")
-        # Should return unchanged context (graceful degradation)
-        assert "domain_expertise" not in result

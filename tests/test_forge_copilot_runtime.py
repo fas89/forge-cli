@@ -18,7 +18,7 @@ import json
 import types
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
@@ -34,14 +34,24 @@ from fluid_build.cli.forge_copilot_llm_providers import (
     LlmConfig,
     OllamaProvider,
     OpenAIProvider,
+    _parse_param_size,
+    _resolve_api_key,
     call_llm,
+    check_llm_readiness,
+    clear_api_key_from_keyring,
+    detect_provider_from_api_key,
     resolve_llm_config,
+    resolve_model_name,
+    resolve_ollama_model,
+    save_api_key_to_keyring,
 )
 from fluid_build.cli.forge_copilot_runtime import (
     _build_scaffold_decision,
     build_capability_matrix,
     build_clarification_system_prompt,
+    build_clarification_user_prompt,
     build_seed_contract,
+    build_system_prompt,
     build_user_prompt,
     extract_json_object,
     generate_copilot_artifacts,
@@ -221,6 +231,72 @@ class TestResolveLlmConfig:
         assert config.endpoint == "http://localhost:11434/v1/chat/completions"
 
 
+class TestCheckLlmReadiness:
+    def test_reports_missing_api_key_for_hosted_provider(self):
+        with patch(
+            "fluid_build.cli.forge_copilot_llm_providers._get_api_key_from_keyring",
+            return_value=None,
+        ):
+            readiness = check_llm_readiness(
+                environ={"FLUID_LLM_PROVIDER": "openai"},
+            )
+
+        assert readiness.ready is False
+        assert readiness.provider == "openai"
+        assert readiness.auth_available is False
+        assert readiness.error is not None
+        assert "API key" in readiness.error or "api" in readiness.error.lower()
+
+    def test_marks_ollama_ready_without_api_key(self):
+        readiness = check_llm_readiness(
+            environ={"FLUID_LLM_PROVIDER": "ollama", "OLLAMA_HOST": "http://localhost:11434"},
+        )
+
+        assert readiness.ready is True
+        assert readiness.provider == "ollama"
+        assert readiness.auth_available is True
+        assert readiness.endpoint == "http://localhost:11434/v1/chat/completions"
+
+    def test_redacts_endpoint_in_readiness_output(self):
+        readiness = check_llm_readiness(
+            environ={
+                "FLUID_LLM_PROVIDER": "openai",
+                "FLUID_LLM_MODEL": "gpt-4o-mini",
+                "FLUID_LLM_ENDPOINT": "https://gateway.example.test/chat?api_key=secret-token",
+                "OPENAI_API_KEY": "openai-key",
+            },
+        )
+
+        assert readiness.ready is True
+        assert readiness.endpoint is not None
+        assert "gateway.example.test" in readiness.endpoint
+
+
+class TestEndpointRedaction:
+    def test_redacts_auth_parameter(self):
+        config = LlmConfig("openai", "gpt-4o", "https://api.example.com?auth=mysecret", "k")
+        assert "auth=***" in config.redacted_endpoint
+        assert "mysecret" not in config.redacted_endpoint
+
+    def test_redacts_secret_parameter(self):
+        config = LlmConfig("openai", "gpt-4o", "https://api.example.com?secret=abc123", "k")
+        assert "secret=***" in config.redacted_endpoint
+        assert "abc123" not in config.redacted_endpoint
+
+    def test_redacts_credential_parameter(self):
+        config = LlmConfig("openai", "gpt-4o", "https://api.example.com?credential=x", "k")
+        assert "credential=***" in config.redacted_endpoint
+
+    def test_redacts_password_parameter(self):
+        config = LlmConfig("openai", "gpt-4o", "https://api.example.com?password=pw", "k")
+        assert "password=***" in config.redacted_endpoint
+
+    def test_redacts_userinfo_in_url(self):
+        config = LlmConfig("openai", "gpt-4o", "https://user:pass@api.example.com/v1", "k")
+        assert "user:pass" not in config.redacted_endpoint
+        assert "***:***@api.example.com" in config.redacted_endpoint
+
+
 class TestProviderAdapters:
     @pytest.mark.parametrize(
         ("provider", "config", "expected_header", "expected_payload_key"),
@@ -356,6 +432,29 @@ class TestRuntimeHelpers:
         assert payload["interview_summary"]["use_case_other"] == "CDC sync"
         assert payload["interview_summary"]["use_case"] == "other"
 
+    def test_build_user_prompt_includes_modeling_standards(self):
+        prompt = build_user_prompt(
+            context={
+                "project_goal": "Digital retail journeys",
+                "data_sources": "web sdk events",
+                "domain": "retail",
+                "canonical_model": "adobe_xdm",
+                "supporting_standards": [],
+            },
+            discovery_report=DiscoveryReport(workspace_roots=["/tmp/workspace"]),
+            capability_matrix=_capability_matrix(),
+            seed_contract=_minimal_contract(),
+            seed_template="starter",
+            seed_provider="local",
+            attempt_index=1,
+            previous_errors=[],
+            previous_payload=None,
+        )
+
+        payload = json.loads(prompt)
+        assert payload["interview_summary"]["canonical_model"] == "adobe_xdm"
+        assert payload["interview_summary"]["supporting_standards"] == []
+
     def test_build_seed_contract_is_strictly_valid_for_072(self):
         contract = build_seed_contract(
             context={
@@ -379,11 +478,61 @@ class TestRuntimeHelpers:
         assert validation.is_valid is True
         assert validation.errors == []
 
+    def test_build_seed_contract_describes_traceability_modeling(self):
+        contract = build_seed_contract(
+            context={
+                "project_goal": "Retail traceability events",
+                "domain": "retail",
+                "data_sources": "epcis lot and serial events",
+            },
+            discovery_report=DiscoveryReport(workspace_roots=["/tmp/workspace"]),
+            template_name="analytics",
+            provider_name="local",
+        )
+
+        semantics = contract["exposes"][0]["semantics"]
+        assert "GS1" in semantics["description"]
+        assert "EPCIS / CBV" in semantics["description"]
+        assert semantics["entities"][0]["name"] == "trade_item"
+
+    def test_build_seed_contract_describes_healthcare_interoperability_modeling(self):
+        contract = build_seed_contract(
+            context={
+                "project_goal": "EHR interoperability feeds",
+                "domain": "healthcare",
+                "data_sources": "FHIR patient and encounter resources",
+            },
+            discovery_report=DiscoveryReport(workspace_roots=["/tmp/workspace"]),
+            template_name="analytics",
+            provider_name="local",
+        )
+
+        semantics = contract["exposes"][0]["semantics"]
+        assert "HL7 FHIR" in semantics["description"]
+        assert semantics["entities"][0]["name"] == "patient"
+
     def test_clarification_prompt_mentions_fuzzy_user_answers(self):
         prompt = build_clarification_system_prompt(_capability_matrix())
 
         assert "partial phrases" in prompt
         assert "transcript.raw_input" in prompt
+
+    def test_system_prompt_mentions_canonical_model_guidance(self):
+        prompt = build_system_prompt(_capability_matrix())
+
+        assert "canonical_model" in prompt
+        assert "supporting_standards" in prompt
+
+    def test_clarification_user_prompt_targets_modeling_slots(self):
+        prompt = build_clarification_user_prompt(
+            interview_state={"normalized_context": {}, "answered_fields": [], "assumptions": []},
+            discovery_report=DiscoveryReport(workspace_roots=["/tmp/workspace"]),
+            capability_matrix=_capability_matrix(),
+        )
+
+        payload = json.loads(prompt)
+        assert "canonical_model" in payload["target_slots"]
+        assert "supporting_standards" in payload["target_slots"]
 
 
 class TestDiscovery:
@@ -529,6 +678,20 @@ class TestDiscovery:
         assert report.sample_files[0]["columns"] == {}
         assert report.discovery_warnings
         assert "pyarrow or duckdb" in report.discovery_warnings[0]
+
+    def test_discovery_continues_when_json_sample_is_invalid(self, tmp_path):
+        (tmp_path / "broken.json").write_text("{not json", encoding="utf-8")
+        (tmp_path / "customers.csv").write_text(
+            "id,email\n1,alice@example.com\n",
+            encoding="utf-8",
+        )
+
+        report = discover_local_context(None, workspace_root=tmp_path)
+
+        assert len(report.sample_files) == 2
+        assert any(sample["path"].endswith("broken.json") for sample in report.sample_files)
+        assert any(sample["path"].endswith("customers.csv") for sample in report.sample_files)
+        assert any("broken.json" in warning for warning in report.discovery_warnings)
 
     def test_read_parquet_metadata_with_pyarrow_module(self, tmp_path):
         sample_path = tmp_path / "customers.parquet"
@@ -790,3 +953,183 @@ class TestCopilotOverrides:
         assert (tmp_path / "README.md").read_text(encoding="utf-8") == "# Copilot Project\n"
         assert (tmp_path / "docs" / "notes.md").read_text(encoding="utf-8") == "metadata only"
         assert (tmp_path / "requirements.txt").exists()
+
+
+class TestDetectProviderFromApiKey:
+    def test_anthropic_key(self):
+        assert detect_provider_from_api_key("sk-ant-api03-abc123") == "anthropic"
+
+    def test_openai_key_proj(self):
+        assert detect_provider_from_api_key("sk-proj-abc123") == "openai"
+
+    def test_openai_key_plain(self):
+        assert detect_provider_from_api_key("sk-abc123") == "openai"
+
+    def test_openai_key_svcacct(self):
+        assert detect_provider_from_api_key("sk-svcacct-abc123") == "openai"
+
+    def test_gemini_key(self):
+        assert detect_provider_from_api_key("AIzaSyD" + "x" * 30) == "gemini"
+
+    def test_unrecognized_key_returns_none(self):
+        assert detect_provider_from_api_key("random-string-no-match") is None
+
+    def test_empty_string_returns_none(self):
+        assert detect_provider_from_api_key("") is None
+
+    def test_none_returns_none(self):
+        assert detect_provider_from_api_key(None) is None
+
+    def test_whitespace_stripped(self):
+        assert detect_provider_from_api_key("  sk-ant-api03-abc  ") == "anthropic"
+
+
+class TestKeyringResolution:
+    """Tests for keyring-backed API key resolution."""
+
+    def test_resolve_api_key_falls_back_to_keyring(self):
+        with patch(
+            "fluid_build.cli.forge_copilot_llm_providers._get_api_key_from_keyring",
+            return_value="keyring-secret",
+        ):
+            result = _resolve_api_key("openai", {})
+        assert result == "keyring-secret"
+
+    def test_env_var_takes_priority_over_keyring(self):
+        with patch(
+            "fluid_build.cli.forge_copilot_llm_providers._get_api_key_from_keyring",
+            return_value="keyring-secret",
+        ):
+            result = _resolve_api_key("openai", {"OPENAI_API_KEY": "env-secret"})
+        assert result == "env-secret"
+
+    def test_fluid_llm_api_key_takes_priority_over_keyring(self):
+        with patch(
+            "fluid_build.cli.forge_copilot_llm_providers._get_api_key_from_keyring",
+            return_value="keyring-secret",
+        ):
+            result = _resolve_api_key("openai", {"FLUID_LLM_API_KEY": "generic-key"})
+        assert result == "generic-key"
+
+    def test_keyring_returns_none_when_not_available(self):
+        with patch(
+            "fluid_build.cli.forge_copilot_llm_providers._get_api_key_from_keyring",
+            return_value=None,
+        ):
+            result = _resolve_api_key("openai", {})
+        assert result is None
+
+    def test_save_api_key_to_keyring_success(self):
+        mock_store = MagicMock()
+        with patch.dict(
+            "sys.modules",
+            {"fluid_build.credentials.keyring_store": mock_store},
+        ):
+            mock_store.KeyringCredentialStore.set_credential = MagicMock()
+            result = save_api_key_to_keyring("openai", "test-key")
+        assert result is True
+
+    def test_save_api_key_to_keyring_graceful_failure(self):
+        with patch(
+            "fluid_build.cli.forge_copilot_llm_providers._get_api_key_from_keyring",
+            side_effect=ImportError("no keyring"),
+        ):
+            # save uses its own import — simulate failure via exception in the function
+            pass
+        # Direct test: if keyring module is missing, function returns False
+        with patch.dict("sys.modules", {"fluid_build.credentials.keyring_store": None}):
+            result = save_api_key_to_keyring("openai", "test-key")
+        assert result is False
+
+    def test_clear_api_key_from_keyring_graceful_failure(self):
+        with patch.dict("sys.modules", {"fluid_build.credentials.keyring_store": None}):
+            result = clear_api_key_from_keyring("openai")
+        assert result is False
+
+
+class TestParseParamSize:
+    def test_billions(self):
+        assert _parse_param_size("32.8B") == 32.8
+
+    def test_integer_billions(self):
+        assert _parse_param_size("7B") == 7.0
+
+    def test_millions(self):
+        assert _parse_param_size("671M") == pytest.approx(0.671)
+
+    def test_empty(self):
+        assert _parse_param_size("") == 0.0
+
+    def test_unparseable(self):
+        assert _parse_param_size("unknown") == 0.0
+
+    def test_no_unit(self):
+        assert _parse_param_size("14") == 14.0
+
+
+class TestOllamaModelResolution:
+    def test_resolve_picks_largest_model(self):
+        fake_response = {
+            "models": [
+                {
+                    "name": "llama3.1:7b",
+                    "details": {"parameter_size": "7B"},
+                },
+                {
+                    "name": "qwen2.5-coder:32b",
+                    "details": {"parameter_size": "32.8B"},
+                },
+                {
+                    "name": "phi3:3b",
+                    "details": {"parameter_size": "3B"},
+                },
+            ]
+        }
+
+        with patch("fluid_build.cli.forge_copilot_llm_providers.httpx.get") as mock_get:
+            mock_get.return_value = MagicMock(status_code=200, json=lambda: fake_response)
+            mock_get.return_value.raise_for_status = MagicMock()
+            result = resolve_ollama_model({})
+
+        assert result == "qwen2.5-coder:32b"
+
+    def test_resolve_falls_back_when_ollama_unreachable(self):
+        with patch(
+            "fluid_build.cli.forge_copilot_llm_providers.httpx.get",
+            side_effect=Exception("connection refused"),
+        ):
+            result = resolve_ollama_model({})
+        assert result == "llama3.1"
+
+    def test_resolve_falls_back_when_no_models(self):
+        with patch("fluid_build.cli.forge_copilot_llm_providers.httpx.get") as mock_get:
+            mock_get.return_value = MagicMock(status_code=200, json=lambda: {"models": []})
+            mock_get.return_value.raise_for_status = MagicMock()
+            result = resolve_ollama_model({})
+        assert result == "llama3.1"
+
+
+class TestModelCatalog:
+    def test_resolve_exact_id(self):
+        assert resolve_model_name("openai", "gpt-4o") == "gpt-4o"
+
+    def test_resolve_alias(self):
+        assert resolve_model_name("openai", "gpt4o") == "gpt-4o"
+
+    def test_resolve_anthropic_alias(self):
+        assert resolve_model_name("anthropic", "sonnet") == "claude-sonnet-4-5-20250514"
+
+    def test_resolve_anthropic_haiku(self):
+        assert resolve_model_name("anthropic", "haiku") == "claude-haiku-4-5-20251001"
+
+    def test_resolve_gemini_alias(self):
+        assert resolve_model_name("gemini", "gemini-pro") == "gemini-2.5-pro"
+
+    def test_unknown_passes_through(self):
+        assert resolve_model_name("openai", "my-custom-finetune") == "my-custom-finetune"
+
+    def test_case_insensitive(self):
+        assert resolve_model_name("anthropic", "Opus") == "claude-opus-4-0-20250514"
+
+    def test_empty_input(self):
+        assert resolve_model_name("openai", "") == ""

@@ -61,10 +61,12 @@ class TestRegister:
 
 class TestDetectMode:
     def test_explicit_quickstart(self):
+        """--quickstart is now an alias for --template customer-360."""
         from fluid_build.cli.init import detect_mode
 
         args = _make_init_args(quickstart=True)
-        assert detect_mode(args, logging.getLogger("test")) == "quickstart"
+        assert detect_mode(args, logging.getLogger("test")) == "template"
+        assert args.template == "customer-360"
 
     def test_explicit_scan(self):
         from fluid_build.cli.init import detect_mode
@@ -73,10 +75,11 @@ class TestDetectMode:
         assert detect_mode(args, logging.getLogger("test")) == "scan"
 
     def test_explicit_wizard(self):
+        """--wizard is deprecated and maps to AI mode."""
         from fluid_build.cli.init import detect_mode
 
         args = _make_init_args(wizard=True)
-        assert detect_mode(args, logging.getLogger("test")) == "wizard"
+        assert detect_mode(args, logging.getLogger("test")) == "ai"
 
     def test_explicit_blank(self):
         from fluid_build.cli.init import detect_mode
@@ -101,50 +104,68 @@ class TestDetectMode:
             result = detect_mode(args, logging.getLogger("test"))
         assert result is None
 
-    def test_detect_dbt(self, tmp_path):
+    def test_dbt_project_falls_through_to_menu(self, tmp_path):
+        """dbt/terraform/sql detection no longer auto-routes to scan; falls through to creation menu."""
         from fluid_build.cli.init import detect_mode
 
         (tmp_path / "dbt_project.yml").write_text("name: dbt")
         args = _make_init_args()
-        with patch("fluid_build.cli.init.Path") as mock_path_cls:
+        with (
+            patch("fluid_build.cli.init.Path") as mock_path_cls,
+            patch("fluid_build.cli.init._ask_creation_mode", return_value="ai") as mock_menu,
+        ):
             mock_path_cls.cwd.return_value = tmp_path
             mock_path_cls.home.return_value = tmp_path
             result = detect_mode(args, logging.getLogger("test"))
-        assert result == "scan"
+        # Falls through to creation menu (first-time user path).
+        mock_menu.assert_called_once()
+        assert result == "ai"
 
-    def test_detect_terraform(self, tmp_path):
+    def test_terraform_project_falls_through_to_menu(self, tmp_path):
         from fluid_build.cli.init import detect_mode
 
         (tmp_path / "main.tf").write_text("resource {}")
         args = _make_init_args()
-        with patch("fluid_build.cli.init.Path") as mock_path_cls:
+        with (
+            patch("fluid_build.cli.init.Path") as mock_path_cls,
+            patch("fluid_build.cli.init._ask_creation_mode", return_value="template") as mock_menu,
+        ):
             mock_path_cls.cwd.return_value = tmp_path
             mock_path_cls.home.return_value = tmp_path
             result = detect_mode(args, logging.getLogger("test"))
-        assert result == "scan"
+        mock_menu.assert_called_once()
+        assert result == "template"
 
-    def test_detect_sql_files(self, tmp_path):
+    def test_sql_files_fall_through_to_menu(self, tmp_path):
         from fluid_build.cli.init import detect_mode
 
         (tmp_path / "query.sql").write_text("SELECT 1")
         args = _make_init_args(name=None)
-        with patch("fluid_build.cli.init.Path") as mock_path_cls:
+        with (
+            patch("fluid_build.cli.init.Path") as mock_path_cls,
+            patch("fluid_build.cli.init._ask_creation_mode", return_value="blank") as mock_menu,
+        ):
             mock_path_cls.cwd.return_value = tmp_path
             mock_path_cls.home.return_value = tmp_path
             result = detect_mode(args, logging.getLogger("test"))
-        assert result == "scan"
+        mock_menu.assert_called_once()
+        assert result == "blank"
 
     def test_first_time_user(self, tmp_path):
         from fluid_build.cli.init import detect_mode
 
         args = _make_init_args(name="myproject")
-        with patch("fluid_build.cli.init.Path") as mock_path_cls:
+        with (
+            patch("fluid_build.cli.init.Path") as mock_path_cls,
+            patch("fluid_build.cli.init._ask_creation_mode", return_value="ai") as mock_menu,
+        ):
             mock_path_cls.cwd.return_value = tmp_path
             # Ensure home/.fluid doesn't exist
             mock_home = tmp_path / "fakehome"
             mock_path_cls.home.return_value = mock_home
             result = detect_mode(args, logging.getLogger("test"))
-        assert result == "quickstart"
+        mock_menu.assert_called_once()
+        assert result == "ai"
 
 
 class TestShouldGenerateDag:
@@ -261,9 +282,10 @@ class TestRunFunction:
         args = _make_init_args(scan=True)
         assert run(args, logging.getLogger("test")) == 0
 
-    @patch("fluid_build.cli.init.wizard_mode", return_value=0)
-    @patch("fluid_build.cli.init.detect_mode", return_value="wizard")
-    def test_wizard_route(self, _mock_detect, _mock_wiz):
+    @patch("fluid_build.cli.init._ai_mode", return_value=0)
+    @patch("fluid_build.cli.init.detect_mode", return_value="ai")
+    def test_wizard_route(self, _mock_detect, _mock_ai):
+        """--wizard is deprecated and maps to AI mode."""
         from fluid_build.cli.init import run
 
         args = _make_init_args(wizard=True)

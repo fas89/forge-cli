@@ -114,7 +114,16 @@ class TestForgeDialogs:
             "fluid_build/cli/forge_dialogs.py",
         ):
             text = (repo_root / relative_path).read_text(encoding="utf-8")
-            assert "Prompt.ask(" not in text
+            # Allow Prompt.ask() only for password=True (secret input)
+            non_password_prompt_calls = [
+                line
+                for line in text.splitlines()
+                if "Prompt.ask(" in line and "password=True" not in line
+            ]
+            assert not non_password_prompt_calls, (
+                f"{relative_path} uses Prompt.ask() outside password input: "
+                f"{non_password_prompt_calls}"
+            )
             assert "Confirm.ask(" not in text
 
     def test_print_forge_help_mentions_flexible_answers(self):

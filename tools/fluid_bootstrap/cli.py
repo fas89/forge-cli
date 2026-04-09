@@ -231,24 +231,28 @@ def cmd_wizard(args: argparse.Namespace) -> int:
     return cmd_new_product(ns)
 
 
-def cmd_doctor(args: argparse.Namespace) -> int:
-    # Run diagnose script if present, else give hints
-    root = pathlib.Path(args.path).resolve()
-    diag = root / "scripts/diagnose.sh"
-    if diag.exists():
-        import subprocess
+_ALLOWED_PROVIDERS = frozenset({"local", "gcp", "aws", "snowflake", "redshift", "azure"})
 
-        provider = args.provider or "local"
-        result = subprocess.run(
-            [str(diag)],
-            env={**os.environ, "PROVIDER": provider},
-            check=False,
-        )
-        return result.returncode
-    print(
-        "scripts/diagnose.sh not found. Suggested next steps:\n - python -m fluid_build.cli providers\n - python -m fluid_build.cli doctor\n - python -m fluid_build.cli validate <contract>\n"
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    # Route through the main doctor command so built-in checks and
+    # optional extended diagnostics stay consistent.
+    root = pathlib.Path(args.path).resolve()
+    import re
+    import subprocess
+
+    raw_provider = args.provider or "local"
+    provider = re.sub(r"[^a-zA-Z0-9_-]", "", raw_provider).lower()
+    if provider not in _ALLOWED_PROVIDERS:
+        _log(f"Unknown provider '{provider}'. Using 'local'.")
+        provider = "local"
+    result = subprocess.run(
+        [sys.executable, "-m", "fluid_build.cli", "doctor", "--extended"],
+        env={**os.environ, "PROVIDER": provider},
+        check=False,
+        cwd=root,
     )
-    return 0
+    return result.returncode
 
 
 def main(argv: Optional[List[str]] = None) -> int:

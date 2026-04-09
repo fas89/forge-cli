@@ -324,6 +324,43 @@ class TestRunSimpleModeProviderDetection:
         result = run(self._make_args(dry_run=False), LOG)
         assert result == 0
 
+    @patch("fluid_build.cli.apply.RICH_AVAILABLE", False)
+    @patch("fluid_build.cli.apply.log_operation_start")
+    @patch("fluid_build.cli.apply.log_operation_success")
+    @patch("fluid_build.cli.apply.log_metric")
+    @patch("fluid_build.cli.apply._actions_from_source", return_value=[{"op": "sf.table.ensure"}])
+    @patch("fluid_build.cli.apply.build_provider")
+    @patch("fluid_build.cli.apply.load_contract_with_overlay")
+    def test_snowflake_does_not_use_contract_id_as_project(
+        self, mock_load, mock_bp, _mock_actions, _mock_metric, _mock_success, _mock_start
+    ):
+        """Snowflake should resolve account/database from binding and env, not contract id."""
+        from fluid_build.cli.apply import run
+
+        mock_load.return_value = {
+            "id": "snowflake.contract.id",
+            "exposes": [
+                {
+                    "binding": {
+                        "platform": "snowflake",
+                        "location": {
+                            "account": "acme-account",
+                            "database": "ANALYTICS",
+                            "schema": "CURATED",
+                            "table": "CUSTOMERS",
+                        },
+                    }
+                }
+            ],
+        }
+        mock_bp.return_value = MagicMock()
+
+        result = run(self._make_args(dry_run=True), LOG)
+        assert result == 0
+        call_args = mock_bp.call_args
+        assert call_args[0][0] == "snowflake"
+        assert call_args[0][1] is None
+
 
 # ---------------------------------------------------------------------------
 # Missing lines 560-610 – dry_run display in simple mode

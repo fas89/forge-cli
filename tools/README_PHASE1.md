@@ -31,7 +31,7 @@ python -m fluid_bootstrap add-dq products/silver/demo/my_product_v1/contract.flu
 # Guided creation
 python -m fluid_bootstrap wizard --path .
 
-# Diagnostics wrapper (uses your repo's scripts/diagnose.sh if present)
+# Diagnostics wrapper (runs built-in doctor checks and optional extended diagnostics)
 python -m fluid_bootstrap doctor --path . --provider local
 ```
 

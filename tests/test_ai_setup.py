@@ -148,7 +148,8 @@ class TestCheckLlmReadiness:
     def test_ready_with_openai_env(self):
         from fluid_build.cli.forge_copilot_llm_providers import check_llm_readiness
 
-        result = check_llm_readiness({"OPENAI_API_KEY": "sk-test"})
+        with patch("fluid_build.cli.ai_setup._load_ai_config", return_value=None):
+            result = check_llm_readiness({"OPENAI_API_KEY": "sk-test", "FLUID_LLM_PROVIDER": "openai"})
         assert result.ready
         assert result.provider == "openai"
         assert result.auth_available
@@ -157,8 +158,10 @@ class TestCheckLlmReadiness:
         from fluid_build.cli.forge_copilot_llm_providers import check_llm_readiness
 
         # Patch the inline import target so the real config file is not read
+        # Also patch _infer_provider_from_env to avoid detecting local Ollama
         with patch("fluid_build.cli.ai_setup._load_ai_config", return_value=None), \
-             patch("fluid_build.cli.ai_setup._CONFIG_FILE", Path("/nonexistent/ai_config.json")):
+             patch("fluid_build.cli.ai_setup._CONFIG_FILE", Path("/nonexistent/ai_config.json")), \
+             patch("fluid_build.cli.forge_copilot_llm_providers._infer_provider_from_env", return_value=None):
             result = check_llm_readiness({})
             assert not result.ready
             assert result.error is not None

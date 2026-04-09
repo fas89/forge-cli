@@ -49,6 +49,8 @@ from rich.prompt import Confirm, IntPrompt, Prompt
 from rich.table import Table
 from rich.tree import Tree
 
+from fluid_build.schema_manager import FluidSchemaManager
+
 from .interfaces import ComplexityLevel, GenerationContext
 from .registry import (
     extension_registry,
@@ -866,7 +868,7 @@ class ForgeEngine:
             "owner": "data-team",
             "template": "starter",
             "provider": "local",
-            "fluid_version": "0.5.7",
+            "fluid_version": FluidSchemaManager.latest_bundled_version(),
             "target_dir": Path.cwd() / "my-data-product",
         }
 

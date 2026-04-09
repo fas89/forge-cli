@@ -61,6 +61,23 @@ except ImportError:  # pragma: no cover
 
 LOG = logging.getLogger("fluid.cli.ai_setup")
 
+# SSRF guard: restrict Ollama host to localhost addresses only.
+_LOCALHOST_PREFIXES = (
+    "http://localhost",
+    "http://127.0.0.1",
+    "http://[::1]",
+    "http://0.0.0.0",
+)
+
+
+def _sanitize_ollama_host(host: str) -> str:
+    """Return *host* if it points to localhost, otherwise fall back to the default."""
+    clean = (host or "http://localhost:11434").rstrip("/")
+    if not any(clean.lower().startswith(p) for p in _LOCALHOST_PREFIXES):
+        LOG.warning("OLLAMA_HOST points to a non-localhost address (%s), ignoring.", clean)
+        return "http://localhost:11434"
+    return clean
+
 # Keyring key prefix used when persisting API keys.
 _KEYRING_PREFIX = "llm_api_key"
 
@@ -102,7 +119,7 @@ def _save_ai_config(
     import stat
 
     try:
-        _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        _CONFIG_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
         data: dict = {"provider": provider, "model": model}
         if api_key:
             data["api_key"] = api_key
@@ -433,9 +450,8 @@ def _setup_ollama(console: Any) -> Optional[LlmConfig]:
     from fluid_build.cli.forge_ui import ask_numbered_choice
 
     provider = BUILTIN_LLM_PROVIDERS["ollama"]
-    host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-    if not os.environ.get("OLLAMA_HOST"):
-        os.environ["OLLAMA_HOST"] = host
+    host = _sanitize_ollama_host(os.environ.get("OLLAMA_HOST", "http://localhost:11434"))
+    os.environ["OLLAMA_HOST"] = host
 
     available_models = _query_ollama_models(host)
     if not available_models:
@@ -536,9 +552,10 @@ def run_ai_setup_inline(console: Any) -> Optional[LlmConfig]:
         provider = BUILTIN_LLM_PROVIDERS.get(pname)
         if provider:
             if pname == "ollama":
-                ollama_host = saved.get("ollama_host", "http://localhost:11434")
-                if not os.environ.get("OLLAMA_HOST"):
-                    os.environ["OLLAMA_HOST"] = ollama_host
+                ollama_host = _sanitize_ollama_host(
+                    saved.get("ollama_host", "http://localhost:11434")
+                )
+                os.environ["OLLAMA_HOST"] = ollama_host
                 env = dict(os.environ)
                 if console and RICH_AVAILABLE:
                     console.print(f"[dim]Using Ollama ({model or provider.default_model}).[/dim]")
@@ -586,8 +603,8 @@ def run_ai_setup_inline(console: Any) -> Optional[LlmConfig]:
             )
 
     # 3. Check Ollama env var
-    ollama_host = os.environ.get("OLLAMA_HOST")
-    if ollama_host:
+    ollama_host = _sanitize_ollama_host(os.environ.get("OLLAMA_HOST", ""))
+    if os.environ.get("OLLAMA_HOST"):
         provider = BUILTIN_LLM_PROVIDERS["ollama"]
         env = dict(os.environ)
         if console and RICH_AVAILABLE:

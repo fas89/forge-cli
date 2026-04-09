@@ -201,6 +201,8 @@ def validate_context_dict(context: dict) -> Tuple[bool, Optional[str]]:
         "complexity",
         "team_size",
         "domain",
+        "canonical_model",
+        "supporting_standards",
         "owner_team",
         "build_engine",
         "output_kind",

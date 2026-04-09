@@ -22,6 +22,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from fluid_build.schema_manager import FluidSchemaManager
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -251,7 +253,9 @@ class TestScanMode:
             "models": [],
             "sensitive_columns": [],
         }
-        mock_gen.return_value = [{"name": "c1", "version": "0.7.1"}]
+        mock_gen.return_value = [
+            {"name": "c1", "version": FluidSchemaManager.latest_bundled_version()}
+        ]
 
         with patch("fluid_build.cli.init.detect_project_type", return_value=mock_detector):
             with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
@@ -267,6 +271,28 @@ class TestScanMode:
         args = _make_args()
         result = scan_mode(args, logger)
         assert result == 1
+
+    def test_scan_zero_model_dbt_fails_without_writing_contract(
+        self, tmp_path, logger, monkeypatch
+    ):
+        from fluid_build.cli.init import scan_mode
+
+        monkeypatch.chdir(tmp_path)
+        args = _make_args(provider="local")
+        mock_detector = MagicMock()
+        mock_detector.scan.return_value = {
+            "project_type": "dbt",
+            "metadata": {"project_name": "empty-dbt", "target_platform": "duckdb"},
+            "models": [],
+            "sensitive_columns": [],
+        }
+
+        with patch("fluid_build.cli.init.detect_project_type", return_value=mock_detector):
+            with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
+                result = scan_mode(args, logger)
+
+        assert result == 1
+        assert list(tmp_path.glob("*.fluid.yaml")) == []
 
     @patch("fluid_build.cli.init.show_migration_summary")
     @patch("fluid_build.cli.init.generate_cicd")
@@ -306,48 +332,18 @@ class TestScanMode:
 
 
 # ===========================================================================
-# wizard_mode
-# ===========================================================================
-
-
-class TestWizardMode:
-    def test_wizard_import_error_no_rich_returns_1(self, logger, monkeypatch):
-        from fluid_build.cli.init import wizard_mode
-
-        args = _make_args(provider="local")
-        # Remove wizard module if cached so import fails inside wizard_mode
-        monkeypatch.delitem(sys.modules, "fluid_build.cli.wizard", raising=False)
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
-            with patch.dict("sys.modules", {"fluid_build.cli.wizard": None}):
-                result = wizard_mode(args, logger)
-        assert result == 1
-
-    def test_wizard_run_delegates_when_importable(self, logger):
-        from fluid_build.cli.init import wizard_mode
-
-        args = _make_args(name="wiz-proj", provider="gcp")
-        mock_run = MagicMock(return_value=7)
-        mock_mod = MagicMock()
-        mock_mod.run = mock_run
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
-            with patch.dict("sys.modules", {"fluid_build.cli.wizard": mock_mod}):
-                result = wizard_mode(args, logger)
-        assert result == 7
-        mock_run.assert_called_once()
-
-
-# ===========================================================================
 # blank_mode
 # ===========================================================================
 
 
 class TestBlankMode:
-    def test_existing_directory_returns_1(self, tmp_path, logger):
+    def test_existing_directory_returns_1(self, tmp_path, logger, monkeypatch):
         from fluid_build.cli.init import blank_mode
 
+        monkeypatch.chdir(tmp_path)
         existing = tmp_path / "blank-existing"
         existing.mkdir()
-        args = _make_args(name=str(existing))
+        args = _make_args(name="blank-existing")
         result = blank_mode(args, logger)
         assert result == 1
 
@@ -364,7 +360,10 @@ class TestBlankMode:
         assert result == 0
         contract = tmp_path / "blank-new-project" / "contract.fluid.yaml"
         assert contract.exists()
-        assert "blank-new-project" in contract.read_text()
+        content = contract.read_text()
+        assert f'fluidVersion: "{FluidSchemaManager.latest_bundled_version()}"' in content
+        assert "id: blank.blank-new-project" in content
+        assert 'name: "blank-new-project"' in content
 
     def test_product_new_run_called_when_available(self, tmp_path, logger, monkeypatch):
         from fluid_build.cli.init import blank_mode
@@ -1166,30 +1165,31 @@ class TestSqlFileDetector:
 
 class TestApplyGovernancePolicies:
     def test_no_rich_returns_contracts_unchanged(self, logger):
-        from fluid_build.cli.init import apply_governance_policies
+        from fluid_build.cli.init_scan import apply_governance_policies
 
         contracts = [{"name": "c1"}]
         results = {"sensitive_columns": [{"col": "email"}]}
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
+        with patch("fluid_build.cli.init_scan.RICH_AVAILABLE", False):
             out = apply_governance_policies(contracts, results, logger)
         assert out == contracts
 
     def test_no_sensitive_returns_unchanged(self, logger):
-        from fluid_build.cli.init import apply_governance_policies
+        from fluid_build.cli.init_scan import apply_governance_policies
 
         contracts = [{"name": "c1"}]
         results = {"sensitive_columns": []}
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
+        with patch("fluid_build.cli.init_scan.RICH_AVAILABLE", True):
             out = apply_governance_policies(contracts, results, logger)
         assert out == contracts
 
     def test_applies_masking_rules_when_user_confirms(self, logger):
-        from fluid_build.cli.init import apply_governance_policies
+        from fluid_build.cli.init_scan import apply_governance_policies
 
+        # 0.7.2 shape: ``exposes[*]`` with ``exposeId``.
         contracts = [
             {
                 "name": "c1",
-                "produces": [{"name": "users", "schema": []}],
+                "exposes": [{"exposeId": "users", "contract": {"schema": []}}],
             }
         ]
         results = {
@@ -1203,37 +1203,37 @@ class TestApplyGovernancePolicies:
             ],
             "metadata": {"target_database": ""},
         }
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
-            with patch("fluid_build.cli.init.console") as mock_con:
+        with patch("fluid_build.cli.init_scan.RICH_AVAILABLE", True):
+            with patch("fluid_build.cli.init_scan.console") as mock_con:
                 mock_con.print = MagicMock()
-                with patch("fluid_build.cli.init.Confirm") as mock_confirm:
+                with patch("fluid_build.cli.init_scan.Confirm") as mock_confirm:
                     mock_confirm.ask.return_value = True
                     out = apply_governance_policies(contracts, results, logger)
-        assert "policy" in out[0]["produces"][0]
-        masking = out[0]["produces"][0]["policy"]["masking"]
+        assert "policy" in out[0]["exposes"][0]
+        masking = out[0]["exposes"][0]["policy"]["masking"]
         assert masking[0]["column"] == "email"
 
     def test_user_declines_governance_unchanged(self, logger):
-        from fluid_build.cli.init import apply_governance_policies
+        from fluid_build.cli.init_scan import apply_governance_policies
 
-        contracts = [{"name": "c1", "produces": [{"name": "users"}]}]
+        contracts = [{"name": "c1", "exposes": [{"exposeId": "users"}]}]
         results = {
             "sensitive_columns": [
                 {"model": "users", "column": "email", "type": "EMAIL", "confidence": 0.85}
             ],
             "metadata": {},
         }
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
-            with patch("fluid_build.cli.init.console"):
-                with patch("fluid_build.cli.init.Confirm") as mock_confirm:
+        with patch("fluid_build.cli.init_scan.RICH_AVAILABLE", True):
+            with patch("fluid_build.cli.init_scan.console"):
+                with patch("fluid_build.cli.init_scan.Confirm") as mock_confirm:
                     mock_confirm.ask.return_value = False
                     out = apply_governance_policies(contracts, results, logger)
         assert out == contracts
 
     def test_high_confidence_uses_sha256(self, logger):
-        from fluid_build.cli.init import apply_governance_policies
+        from fluid_build.cli.init_scan import apply_governance_policies
 
-        contracts = [{"name": "c1", "produces": [{"name": "payments"}]}]
+        contracts = [{"name": "c1", "exposes": [{"exposeId": "payments"}]}]
         results = {
             "sensitive_columns": [
                 {
@@ -1245,66 +1245,88 @@ class TestApplyGovernancePolicies:
             ],
             "metadata": {},
         }
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
-            with patch("fluid_build.cli.init.console") as mock_con:
+        with patch("fluid_build.cli.init_scan.RICH_AVAILABLE", True):
+            with patch("fluid_build.cli.init_scan.console") as mock_con:
                 mock_con.print = MagicMock()
-                with patch("fluid_build.cli.init.Confirm") as mock_confirm:
+                with patch("fluid_build.cli.init_scan.Confirm") as mock_confirm:
                     mock_confirm.ask.return_value = True
                     out = apply_governance_policies(contracts, results, logger)
-        masking = out[0]["produces"][0]["policy"]["masking"]
+        masking = out[0]["exposes"][0]["policy"]["masking"]
         assert masking[0]["method"] == "SHA256"
 
+    def test_logs_warning_for_legacy_produces_only_contract(self):
+        """Regression guard: callers that still emit the legacy ``produces[]``
+        shape must get a loud warning rather than a silent governance skip."""
+        from fluid_build.cli.init_scan import apply_governance_policies
 
-# ===========================================================================
-# show_migration_summary
-# ===========================================================================
+        mock_logger = MagicMock()
+        contracts = [{"name": "legacy-c1", "produces": [{"name": "orders"}]}]
+        results = {
+            "sensitive_columns": [
+                {"model": "orders", "column": "email", "type": "EMAIL", "confidence": 0.9}
+            ],
+            "metadata": {},
+        }
+        with patch("fluid_build.cli.init_scan.RICH_AVAILABLE", True):
+            with patch("fluid_build.cli.init_scan.console"):
+                with patch("fluid_build.cli.init_scan.Confirm") as mock_confirm:
+                    mock_confirm.ask.return_value = True
+                    out = apply_governance_policies(contracts, results, mock_logger)
+
+        mock_logger.warning.assert_called_once()
+        warning_args = mock_logger.warning.call_args
+        assert "legacy 'produces[]'" in warning_args[0][0]
+        assert "legacy-c1" in warning_args[0]
+        # Contract unchanged — no policy added to the legacy produces entry.
+        assert "policy" not in out[0]["produces"][0]
 
 
 class TestShowMigrationSummary:
     def test_no_rich_prints_count(self, logger):
-        from fluid_build.cli.init import show_migration_summary
+        from fluid_build.cli.init_scan import show_migration_summary
 
         contracts = [{"name": "c1"}, {"name": "c2"}]
         results = {}
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
-            with patch("fluid_build.cli.init.cprint") as mock_cprint:
+        with patch("fluid_build.cli.init_scan.RICH_AVAILABLE", False):
+            with patch("fluid_build.cli.init_scan.cprint") as mock_cprint:
                 show_migration_summary(contracts, results, logger)
         calls = " ".join(str(c) for c in mock_cprint.call_args_list)
         assert "2" in calls
 
     def test_rich_shows_contract_details(self, logger):
-        from fluid_build.cli.init import show_migration_summary
+        from fluid_build.cli.init_scan import show_migration_summary
 
         contracts = [
             {
                 "name": "analytics",
-                "version": "0.7.1",
-                "binding": {"provider": "gcp"},
-                "produces": [{"name": "m1"}, {"name": "m2"}],
+                "fluidVersion": FluidSchemaManager.latest_bundled_version(),
+                "exposes": [
+                    {"exposeId": "m1", "binding": {"platform": "gcp"}},
+                    {"exposeId": "m2", "binding": {"platform": "gcp"}},
+                ],
             }
         ]
         results = {}
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
-            with patch("fluid_build.cli.init.console") as mock_con:
+        with patch("fluid_build.cli.init_scan.RICH_AVAILABLE", True):
+            with patch("fluid_build.cli.init_scan.console") as mock_con:
                 mock_con.print = MagicMock()
                 show_migration_summary(contracts, results, logger)
         mock_con.print.assert_called()
 
     def test_rich_shows_gdpr_flag_when_sovereignty(self, logger):
-        from fluid_build.cli.init import show_migration_summary
+        from fluid_build.cli.init_scan import show_migration_summary
 
         contracts = [
             {
                 "name": "eu-data",
-                "version": "0.7.1",
-                "binding": {"provider": "gcp"},
-                "produces": [],
+                "fluidVersion": FluidSchemaManager.latest_bundled_version(),
+                "exposes": [],
                 "sovereignty": {"jurisdiction": "EU"},
             }
         ]
         results = {}
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
-            with patch("fluid_build.cli.init.console") as mock_con:
+        with patch("fluid_build.cli.init_scan.RICH_AVAILABLE", True):
+            with patch("fluid_build.cli.init_scan.console") as mock_con:
                 mock_con.print = MagicMock()
                 show_migration_summary(contracts, results, logger)
         calls = " ".join(str(c) for c in mock_con.print.call_args_list)
@@ -1331,9 +1353,9 @@ class TestRunRouting:
 
         assert run(_make_args(scan=True), logger) == 0
 
-    @patch("fluid_build.cli.init.wizard_mode", return_value=0)
-    @patch("fluid_build.cli.init.detect_mode", return_value="wizard")
-    def test_routes_wizard(self, _mock_detect, _mock_wiz, logger):
+    @patch("fluid_build.cli.init._ai_mode", return_value=0)
+    @patch("fluid_build.cli.init.detect_mode", return_value="ai")
+    def test_routes_ai(self, _mock_detect, _mock_ai, logger):
         from fluid_build.cli.init import run
 
         assert run(_make_args(wizard=True), logger) == 0

@@ -21,6 +21,9 @@ __all__ = [
     "build_copilot_analysis_text",
     "build_standard_next_steps",
     "print_assumptions_panel",
+    "print_copilot_intro_panel",
+    "print_copilot_recovery_panel",
+    "print_free_tier_guide",
     "print_welcome_panel",
     "show_copilot_analysis",
     "show_domain_analysis",
@@ -153,7 +156,7 @@ def show_lines_panel(
 
 
 def print_welcome_panel(console: Any) -> None:
-    """Render the shared Forge welcome panel."""
+    """Render the interactive mode chooser welcome panel."""
     if not console or not RICH_AVAILABLE:
         return
     welcome_text = (
@@ -163,6 +166,60 @@ def print_welcome_panel(console: Any) -> None:
         "[dim]Tip: use [bold]--blank[/bold] for an empty contract without AI.[/dim]"
     )
     console.print(_build_panel(welcome_text, title="FLUID Forge", border_style="blue"))
+
+
+def print_copilot_intro_panel(console: Any) -> None:
+    """Render the concise intro used when copilot is ready to start."""
+    if not console or not RICH_AVAILABLE:
+        return
+    intro_text = """
+🤖 **AI Copilot** is ready
+
+Forge found an available LLM and will guide you through project setup.
+You'll answer a few questions, review assumptions, and generate a validated contract.
+    """.strip()
+    console.print(_build_panel(intro_text, title="Starting AI Copilot", border_style="blue"))
+
+
+def print_copilot_recovery_panel(
+    console: Any,
+    *,
+    message: str,
+    suggestions: Sequence[str],
+) -> None:
+    """Render the onboarding recovery panel when copilot prerequisites are missing."""
+    if not console or not RICH_AVAILABLE:
+        return
+    lines = [
+        "🤖 **AI Copilot** can't start yet",
+        "",
+        message,
+    ]
+    if suggestions:
+        lines.extend(["", "Helpful next steps:"])
+        lines.extend(f"• {item}" for item in suggestions[:4])
+    console.print(
+        _build_panel("\n".join(lines), title="Copilot Setup Needed", border_style="yellow")
+    )
+
+
+def print_free_tier_guide(console: Any) -> None:
+    """Show links to free LLM API key providers."""
+    if not console or not RICH_AVAILABLE:
+        return
+    lines = [
+        "[bold]No API key? Here's how to get one free:[/bold]",
+        "",
+        "  [cyan]Google AI Studio[/cyan]  Free Gemini key (15 req/min)",
+        "  https://aistudio.google.com/apikey",
+        "",
+        "  [cyan]OpenRouter[/cyan]        Free models available",
+        "  https://openrouter.ai/keys",
+        "",
+        "  [cyan]Ollama[/cyan]            Run models locally (no key needed)",
+        "  https://ollama.com/download",
+    ]
+    show_lines_panel(console, lines, title="Free AI Options", border_style="blue")
 
 
 def print_assumptions_panel(console: Any, assumptions: Sequence[str]) -> None:

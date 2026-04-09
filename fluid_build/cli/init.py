@@ -34,8 +34,22 @@ from typing import Any, Dict, List, Optional
 
 from fluid_build.cli.console import cprint, success, warning
 from fluid_build.cli.console import error as console_error
+from fluid_build.cli.workspace_config import (
+    WORKSPACE_FILENAME,
+    discover_workspace_products,
+    find_workspace_root,
+    load_workspace_config,
+    save_workspace_config,
+)
+from fluid_build.schema_manager import FluidSchemaManager
+from fluid_build.util.contract import slugify_identifier
 
 from ._logging import error, info
+from .init_scan import (
+    apply_governance_policies,
+    generate_contracts_from_scan,
+    show_migration_summary,
+)
 
 # Try Rich for beautiful output
 try:
@@ -52,6 +66,16 @@ except ImportError:
     console = None
 
 COMMAND = "init"
+
+
+def _latest_fluid_version() -> str:
+    """Return the newest bundled FLUID schema version.
+
+    Resolved lazily at call time so runtime schema updates (or test patches)
+    are respected. Avoids the import-time-constant pattern that silently goes
+    stale if ``BUNDLED_VERSIONS`` is repopulated.
+    """
+    return FluidSchemaManager.latest_bundled_version()
 
 
 def _mark_first_run_complete():
@@ -87,7 +111,9 @@ def register(subparsers: argparse._SubParsersAction):
         help="🎯 Import existing dbt/Terraform project (enterprise migration)",
     )
     mode_group.add_argument(
-        "--wizard", action="store_true", help="🎨 Interactive guided setup (full control)"
+        "--wizard",
+        action="store_true",
+        help="(deprecated — use 'fluid init' for the interactive menu)",
     )
     mode_group.add_argument(
         "--blank", action="store_true", help="🔧 Empty project skeleton (power users)"
@@ -131,29 +157,49 @@ def register(subparsers: argparse._SubParsersAction):
 
 
 def run(args, logger: logging.Logger) -> int:
-    """Main entry point - routes to appropriate handler"""
+    """Main entry point — routes to appropriate handler."""
 
     try:
-        # Determine mode (auto-detect if not specified)
+        # Determine mode (auto-detect if not specified).
         mode = detect_mode(args, logger)
 
         if mode is None:
-            return 1  # Error already displayed
+            return 1  # Error already displayed or user redirected.
 
-        # Route to appropriate handler
-        if mode == "quickstart":
-            return quickstart_mode(args, logger)
-        elif mode == "scan":
-            return scan_mode(args, logger)
-        elif mode == "wizard":
-            return wizard_mode(args, logger)
-        elif mode == "blank":
-            return blank_mode(args, logger)
-        elif mode == "template":
-            return template_mode(args, logger)
-        else:
+        # Ensure workspace structure exists for all modes.
+        _ensure_workspace(args, logger)
+
+        # Industry picker — only on first interactive init (no existing skills file).
+        # Skip when --yes, --template, --quickstart, --scan, or --blank is set.
+        ws_root = find_workspace_root(Path.cwd()) or Path.cwd()
+        skills_path = ws_root / ".fluid" / "skills.yaml"
+        is_non_interactive = (
+            getattr(args, "yes", False)
+            or getattr(args, "template", None)
+            or getattr(args, "quickstart", False)
+            or getattr(args, "scan", False)
+            or getattr(args, "blank", False)
+        )
+        if not skills_path.exists() and not is_non_interactive:
+            _ask_industry(ws_root)
+
+        # Route to appropriate handler.
+        handlers = {
+            "ai": _ai_mode,
+            "quickstart": quickstart_mode,
+            "scan": scan_mode,
+            "blank": blank_mode,
+            "template": template_mode,
+        }
+        handler = handlers.get(mode)
+        if handler is None:
             error(logger, "unknown_mode", mode=mode)
             return 1
+
+        result = handler(args, logger)
+        if result == 0:
+            _mark_first_run_complete()
+        return result
 
     except KeyboardInterrupt:
         if RICH_AVAILABLE:
@@ -170,70 +216,357 @@ def run(args, logger: logging.Logger) -> int:
         return 1
 
 
-def detect_mode(args, logger: logging.Logger) -> Optional[str]:
-    """Smart detection of best mode based on context"""
+def _ensure_workspace(args, logger: logging.Logger) -> None:
+    """Create ``fluid.workspace.yaml`` if it doesn't exist yet."""
+    cwd = Path.cwd()
+    ws_root = find_workspace_root(cwd)
+    if ws_root is not None:
+        return  # Workspace already exists.
 
-    # Explicit mode flags take precedence
+    project_name = getattr(args, "name", None) or cwd.name
+    provider = getattr(args, "provider", None) or "local"
+
+    save_workspace_config(
+        cwd,
+        name=project_name,
+        provider=provider,
+    )
+    if RICH_AVAILABLE:
+        console.print(
+            f"[dim]Created {WORKSPACE_FILENAME} — shared config for your data products.[/dim]\n"
+        )
+
+
+def _ai_mode(args, logger: logging.Logger) -> int:
+    """Let AI design the data product — delegates to forge copilot inline."""
+    if RICH_AVAILABLE:
+        console.print(
+            Panel(
+                "🤖 [bold]AI Copilot[/bold]\n\n"
+                "I'll ask about your data and goals, then generate\n"
+                "a production-ready contract tailored to your needs.",
+                title="AI-Assisted Setup",
+                border_style="blue",
+            )
+        )
+
+    try:
+        from .forge import (
+            ContextValidationError,
+            CopilotAgent,
+            build_interview_summary_from_context,
+            get_cli_arg,
+            get_target_directory,
+            load_context,
+        )
+        from .forge import run_ai_copilot_mode as _run_copilot
+
+        # Determine target directory for the product.
+        product_name = args.name
+        if not product_name and RICH_AVAILABLE:
+            product_name = Prompt.ask("Product name", default="my-data-product")
+        product_name = product_name or "my-data-product"
+
+        ws_root = find_workspace_root(Path.cwd())
+        if ws_root:
+            ws_config = load_workspace_config(ws_root)
+            products_dir = (ws_root / ws_config.products_dir).resolve()
+            # Guard against path traversal in products_dir from workspace YAML.
+            try:
+                products_dir.relative_to(ws_root.resolve())
+            except ValueError:
+                products_dir = ws_root / "products"
+        else:
+            products_dir = Path.cwd() / "products"
+
+        target = products_dir / slugify_identifier(product_name)
+        target.mkdir(parents=True, exist_ok=True)
+
+        # Inject target dir so forge writes there.
+        args.target_dir = str(target)
+        args.mode = "copilot"
+        if not hasattr(args, "non_interactive"):
+            args.non_interactive = False
+        # Ensure forge recovery flow is enabled.
+        args._enable_copilot_recovery = True
+
+        result = _run_copilot(
+            args,
+            logger,
+            copilot_class=CopilotAgent,
+            get_cli_arg_fn=get_cli_arg,
+            load_context_fn=load_context,
+            get_target_directory_fn=lambda a, default: target,
+            context_error_cls=ContextValidationError,
+            build_interview_summary_fn=build_interview_summary_from_context,
+        )
+
+        if result == 0:
+            _show_init_success(target, ws_root or Path.cwd())
+        return result
+
+    except ImportError:
+        if RICH_AVAILABLE:
+            console.print(
+                "[yellow]AI copilot not available. Falling back to template mode.[/yellow]"
+            )
+        args.template = "customer-360"
+        return template_mode(args, logger)
+
+
+def _show_init_success(product_dir: Path, workspace_root: Path) -> None:
+    """Show the success panel with structure and next steps."""
+    if not RICH_AVAILABLE:
+        success(f"Created {product_dir}")
+        return
+
+    try:
+        rel = product_dir.relative_to(workspace_root)
+    except ValueError:
+        rel = product_dir.name
+    lines = [
+        f"[bold green]✅ Project created: {workspace_root.name}/[/bold green]",
+        "",
+        f"  {WORKSPACE_FILENAME}    [dim]← project config (team, domain, provider)[/dim]",
+        f"  {rel}/",
+        "  └── contract.fluid.yaml",
+        "",
+        "[bold]What's next?[/bold]",
+        f"  [cyan]cd {workspace_root.name}[/cyan]",
+        "  [cyan]fluid validate[/cyan]          [dim]← check your contract[/dim]",
+        "  [cyan]fluid forge[/cyan]             [dim]← add another data product[/dim]",
+        "  [cyan]fluid doctor[/cyan]            [dim]← check your environment[/dim]",
+    ]
+    console.print(Panel("\n".join(lines), border_style="green"))
+
+
+def detect_mode(args, logger: logging.Logger) -> Optional[str]:
+    """Smart detection of best mode based on context."""
+
+    # Explicit mode flags take precedence.
     if args.quickstart:
-        return "quickstart"
+        # --quickstart is now an alias for --template customer-360 --yes
+        args.template = args.template or "customer-360"
+        args.yes = True
+        return "template"
     if args.scan:
         return "scan"
-    if args.wizard:
-        return "wizard"
+    if getattr(args, "wizard", False):
+        # --wizard is deprecated; map to AI mode (its replacement).
+        if RICH_AVAILABLE:
+            console.print(
+                "[yellow]--wizard is deprecated. "
+                "Use [bold]fluid init[/bold] for the interactive menu.[/yellow]\n"
+            )
+        return "ai"
     if args.blank:
         return "blank"
     if args.template:
         return "template"
 
-    # Auto-detection based on current directory
     cwd = Path.cwd()
+    is_first_time = not (Path.home() / ".fluid").exists()
 
-    # Check for existing FLUID project
+    # --- Inside an existing workspace? Redirect instead of blocking. ---
+    ws_root = find_workspace_root(cwd)
+    if ws_root is not None:
+        existing = discover_workspace_products(ws_root)
+        if existing:
+            return _redirect_existing_workspace(existing, ws_root, is_first_time)
+
+    # --- Existing contract at root (legacy single-product project) ---
     if (cwd / "contract.fluid.yaml").exists():
         if RICH_AVAILABLE:
-            console.print("[yellow]⚠️  FLUID contract already exists in this directory![/yellow]\n")
-            console.print("Did you mean:")
-            console.print("  [cyan]$ fluid validate contract.fluid.yaml[/cyan]")
-            console.print("  [cyan]$ fluid plan contract.fluid.yaml[/cyan]")
-            console.print("  [cyan]$ fluid viz contract.fluid.yaml --open[/cyan]")
+            if is_first_time:
+                _print_welcome_panel()
+            console.print("[dim]📂 This directory already has a contract.fluid.yaml.[/dim]\n")
+            console.print("To add another product:")
+            console.print("  [cyan]fluid forge[/cyan]          ← all creation modes\n")
+            console.print("To work with the existing contract:")
+            console.print("  [cyan]fluid validate[/cyan]")
+            console.print("  [cyan]fluid plan[/cyan]")
+            console.print("  [cyan]fluid viz --open[/cyan]")
         else:
-            warning("FLUID contract already exists!")
-            cprint("Did you mean: fluid validate contract.fluid.yaml")
+            cprint("This directory already has a contract. Use 'fluid forge' to add products.")
+        if is_first_time:
+            _mark_first_run_complete()
         return None
 
-    # Check for existing projects to import
-    if (cwd / "dbt_project.yml").exists():
+    # --- First-time user (no ~/.fluid directory) ---
+    if is_first_time:
         if RICH_AVAILABLE:
-            console.print("🔍 [cyan]Detected dbt project[/cyan]")
-            console.print(
-                "Suggestion: Use [bold]fluid init --scan[/bold] to import your dbt models"
+            _print_welcome_panel()
+        return _ask_creation_mode()
+
+    # --- Returning user, empty directory ---
+    return _ask_creation_mode()
+
+
+def _print_welcome_panel() -> None:
+    """Show the expanded welcome panel for first-time users."""
+    if not RICH_AVAILABLE:
+        return
+    console.print(
+        Panel(
+            "[bold]FLUID[/bold] is a declarative framework for data products — "
+            "like Terraform, but for data.\n\n"
+            "You define a [cyan]contract[/cyan] (contract.fluid.yaml) that "
+            "describes your entire data product in one file:\n\n"
+            "  [bold]exposes[/bold]       What data you publish (tables, APIs, files)\n"
+            "  [bold]quality[/bold]       Data quality rules & anomaly detection\n"
+            "  [bold]consumes[/bold]      Upstream dependencies you rely on\n"
+            "  [bold]build[/bold]         How it's built (dbt, SQL, Spark)\n"
+            "  [bold]governance[/bold]    Ownership, access policies, SLAs\n"
+            "  [bold]sovereignty[/bold]   Where data must reside (EU, US)\n\n"
+            "Then FLUID validates, plans, and ships it — "
+            "just like [cyan]terraform plan[/cyan] and [cyan]terraform apply[/cyan].\n\n"
+            "Let's set up your first project.",
+            title="Welcome to FLUID",
+            border_style="blue",
+        )
+    )
+    console.print()
+
+
+def _ask_industry(workspace_root: Path) -> Optional[str]:
+    """Present the industry picker and generate ``.fluid/skills.yaml``.
+
+    Returns the selected industry key (e.g. ``"telco"``) or ``None`` if
+    Rich is unavailable.
+    """
+    from .industry_skills import generate_skills_file, list_industries
+
+    industries = list_industries()
+
+    if not RICH_AVAILABLE:
+        # Non-interactive: skip industry picker, generate tools-only skills.
+        generate_skills_file(None, workspace_root)
+        return None
+
+    console.print("[dim]What industry is this project for?[/dim]\n")
+    for i, ind in enumerate(industries, 1):
+        desc = f"  [dim]({ind['description']})[/dim]" if ind["description"] else ""
+        console.print(f"  [bold]{i}.[/bold] {ind['label']}{desc}")
+    console.print()
+
+    valid = [str(i) for i in range(1, len(industries) + 1)]
+    choice = Prompt.ask("Choose", choices=valid, default=str(len(industries)))
+    selected = industries[int(choice) - 1]
+
+    industry_key = selected["key"]
+    out_path = generate_skills_file(industry_key, workspace_root)
+
+    if industry_key == "other":
+        console.print(
+            '\n[yellow]No industry-specific skills shipped for "Other".[/yellow]\n'
+            "[dim]Agents will work without domain-specific guidance.\n"
+            "You can add industry skills later with:[/dim] "
+            "[cyan]fluid skills update[/cyan]\n"
+        )
+    else:
+        console.print(
+            Panel(
+                f"[bold]Generated .fluid/skills.yaml for {selected['label']}[/bold]\n\n"
+                "This file contains industry-specific knowledge that\n"
+                "all FLUID agents will use:\n"
+                f"  [dim]Industry:[/dim]    {selected['label']}\n"
+                f"  [dim]File:[/dim]        {out_path.relative_to(workspace_root)}\n\n"
+                "Keep this file in version control — your whole\n"
+                "team will benefit from shared project context.",
+                border_style="green",
             )
-        return "scan"
+        )
 
-    if (cwd / "main.tf").exists() or list(cwd.glob("*.tf")):
-        if RICH_AVAILABLE:
-            console.print("🔍 [cyan]Detected Terraform project[/cyan]")
-            console.print(
-                "Suggestion: Use [bold]fluid init --scan[/bold] to import your infrastructure"
-            )
-        return "scan"
+    return industry_key
 
-    if list(cwd.glob("*.sql")) and not args.name:
-        if RICH_AVAILABLE:
-            console.print("🔍 [cyan]Detected SQL files[/cyan]")
-            console.print("Suggestion: Use [bold]fluid init --scan[/bold] to import your SQL")
-        return "scan"
 
-    # Check if first-time user (no ~/.fluid directory)
-    fluid_home = Path.home() / ".fluid"
-    if not fluid_home.exists():
-        if RICH_AVAILABLE:
-            console.print("👋 [bold]Welcome to FLUID![/bold]")
-            console.print("Creating a quickstart project with sample data...\n")
-        return "quickstart"
+def _ask_creation_mode() -> str:
+    """Present the creation menu and return the selected mode."""
+    if not RICH_AVAILABLE:
+        return "quickstart"  # non-Rich fallback
 
-    # Default to quickstart for empty directory
-    return "quickstart"
+    console.print(
+        Panel(
+            "A [bold]workspace[/bold] is a home for your data products.\n"
+            "Each product gets its own folder and contract.\n"
+            "You can add more products later with [cyan]fluid forge[/cyan].",
+            title="New Project",
+            border_style="blue",
+        )
+    )
+    console.print("[dim]How would you like to create your first data product?[/dim]\n")
+    console.print(
+        "  [bold]1.[/bold] Let AI help me design it [dim](recommended — just answer questions)[/dim]"
+    )
+    console.print(
+        "  [bold]2.[/bold] Start from a template     [dim](pre-built, customize later)[/dim]"
+    )
+    console.print(
+        "  [bold]3.[/bold] Empty contract             [dim](for experienced users)[/dim]\n"
+    )
+
+    choice = Prompt.ask(
+        "Choose",
+        choices=["1", "2", "3"],
+        default="1",
+    )
+    return {"1": "ai", "2": "template", "3": "blank"}.get(choice, "ai")
+
+
+def _print_workspace_products(existing: List, ws_name: str) -> None:
+    """Print the workspace product listing (shared by redirect paths)."""
+    console.print(
+        f"[dim]Workspace: [bold]{ws_name}[/bold] ({len(existing)} existing product"
+        f"{'s' if len(existing) != 1 else ''})[/dim]"
+    )
+    for product in existing[:10]:
+        parts = [product.name]
+        if product.expose_count:
+            parts.append(f"{product.expose_count} expose{'s' if product.expose_count != 1 else ''}")
+        if product.provider:
+            parts.append(f"provider: {product.provider}")
+        console.print(f"[dim]  • {', '.join(parts)}[/dim]")
+    console.print()
+
+
+def _redirect_existing_workspace(
+    existing: List,
+    ws_root: Path,
+    is_first_time: bool = False,
+) -> Optional[str]:
+    """Show existing products and redirect the user.
+
+    When *is_first_time* is ``True`` the user has never run FLUID on this
+    machine (no ``~/.fluid``), so we show a short welcome explaining what FLUID
+    is before the redirect.
+    """
+    if not RICH_AVAILABLE:
+        cprint(f"This is already a FLUID workspace with {len(existing)} product(s).")
+        cprint("Use 'fluid forge' to add another product.")
+        if is_first_time:
+            _mark_first_run_complete()
+        return None
+
+    ws_config = load_workspace_config(ws_root)
+    name = ws_config.name or ws_root.name
+
+    # New colleague who cloned the repo — explain what FLUID is first.
+    if is_first_time:
+        _print_welcome_panel()
+        _print_workspace_products(existing, name)
+        console.print("This workspace is already set up. To add a product:")
+        console.print("  [cyan]fluid forge[/cyan]\n")
+        console.print("To work with existing products:")
+        console.print("  [cyan]fluid validate[/cyan]       [dim]← check all contracts[/dim]")
+        console.print("  [cyan]fluid plan[/cyan]           [dim]← generate execution plan[/dim]")
+        console.print("  [cyan]fluid doctor[/cyan]         [dim]← check your environment[/dim]")
+        _mark_first_run_complete()
+        return None
+
+    # Returning user — short redirect.
+    _print_workspace_products(existing, name)
+    console.print("To add another product:  [cyan]fluid forge[/cyan]")
+    return None
 
 
 # ============================================================================
@@ -334,10 +667,14 @@ def generate_dag_for_project(
 def create_basic_dag(project_dir: Path, contract: dict, logger):
     """Create a basic DAG template if generate-airflow is not available."""
 
+    import re as _re
+
     contract_name = contract.get("name", "my_product")
     orchestration = contract.get("orchestration", {})
-    dag_id = contract_name.replace("-", "_").replace(" ", "_")
-    schedule = orchestration.get("schedule", "@daily")
+    # Sanitize values to prevent code injection in generated Python.
+    dag_id = _re.sub(r"[^a-zA-Z0-9_]", "_", contract_name)[:128]
+    schedule = _re.sub(r"[^a-zA-Z0-9@*/, _-]", "", orchestration.get("schedule", "@daily"))[:64]
+    contract_name = _re.sub(r"[^a-zA-Z0-9 _.-]", "_", contract_name)[:128]
 
     dag_content = f'''"""
 Airflow DAG for FLUID contract: {contract_name}
@@ -486,7 +823,7 @@ For more information, see: https://fluid.dev/docs/orchestration
 def quickstart_mode(args, logger: logging.Logger) -> int:
     """Creates working example in 2 minutes"""
 
-    project_name = args.name or "my-first-product"
+    project_name = slugify_identifier(args.name, fallback="my-first-product")
     template = "customer-360"  # Default template
 
     if RICH_AVAILABLE:
@@ -503,6 +840,14 @@ def quickstart_mode(args, logger: logging.Logger) -> int:
         cprint(f"🚀 Creating {project_name} with customer analytics...")
 
     project_dir = Path(project_name)
+
+    # Guard against symlink attacks.
+    if project_dir.is_symlink():
+        if RICH_AVAILABLE:
+            console.print(f"[red]❌ '{project_name}' is a symlink — refusing to write[/red]")
+        else:
+            console_error(f"'{project_name}' is a symlink — refusing to write")
+        return 1
 
     # Check if directory already exists
     if project_dir.exists() and any(project_dir.iterdir()):
@@ -630,7 +975,14 @@ def scan_mode(args, logger: logging.Logger) -> int:
                 return 0
 
         # Generate contracts
-        contracts = generate_contracts_from_scan(scan_results, args.provider, logger)
+        try:
+            contracts = generate_contracts_from_scan(scan_results, args.provider, logger)
+        except ValueError as exc:
+            if RICH_AVAILABLE:
+                console.print(f"[red]❌ {exc}[/red]")
+            else:
+                cprint(f"\n❌ {exc}")
+            return 1
 
         # Apply governance if PII detected
         if scan_results.get("sensitive_columns"):
@@ -665,63 +1017,10 @@ def scan_mode(args, logger: logging.Logger) -> int:
         return 1
 
 
-def wizard_mode(args, logger: logging.Logger) -> int:
-    """Interactive guided setup"""
-
-    if RICH_AVAILABLE:
-        console.print(
-            Panel(
-                "🎨 [bold]Interactive Wizard[/bold]\n\n"
-                "I'll guide you through creating a custom FLUID project.",
-                title="Wizard Mode",
-                border_style="magenta",
-            )
-        )
-    else:
-        cprint("🎨 Interactive Wizard")
-
-    try:
-        # Import existing wizard functionality
-        from .wizard import run as wizard_run
-
-        # Create a mock args object for wizard
-        class WizardArgs:
-            def __init__(self):
-                self.provider = args.provider
-                self.project = args.name
-                self.env = None
-
-        wizard_args = WizardArgs()
-        return wizard_run(wizard_args, logger)
-
-    except ImportError:
-        # Wizard not available - provide basic interactive flow
-        if not RICH_AVAILABLE:
-            console_error("Wizard mode requires rich library")
-            cprint("Try: fluid init --quickstart")
-            return 1
-
-        console.print("\n[bold]Let's create your FLUID project![/bold]\n")
-
-        # Ask basic questions
-        project_name = args.name or Prompt.ask("Project name", default="my-data-product")
-        Prompt.ask(
-            "Use case",
-            choices=["data-product", "ai-agent", "analytics", "api"],
-            default="data-product",
-        )
-
-        # Route to template based on use case
-        args.template = "customer-360"  # Default
-        args.name = project_name
-
-        return template_mode(args, logger)
-
-
 def blank_mode(args, logger: logging.Logger) -> int:
     """Empty project skeleton"""
 
-    project_name = args.name or "my-project"
+    project_name = slugify_identifier(args.name, fallback="my-project")
     project_dir = Path(project_name)
 
     if RICH_AVAILABLE:
@@ -735,6 +1034,12 @@ def blank_mode(args, logger: logging.Logger) -> int:
         )
     else:
         cprint(f"🔧 Creating minimal project: {project_name}")
+
+    # Guard against symlink attacks.
+    if project_dir.is_symlink():
+        if RICH_AVAILABLE:
+            console.print(f"[red]❌ '{project_name}' is a symlink — refusing to write[/red]")
+        return 1
 
     if project_dir.exists():
         if RICH_AVAILABLE:
@@ -760,17 +1065,32 @@ def blank_mode(args, logger: logging.Logger) -> int:
         # Create minimal structure manually
         project_dir.mkdir(parents=True)
 
-        # Create minimal contract
-        contract_content = f"""version: "0.7.1"
-kind: fluid
-name: {project_name}
-description: FLUID data product
+        # Create minimal contract. The expose is a placeholder so that the
+        # scaffold validates cleanly against the bundled FLUID schema
+        # (``exposes`` has ``minItems: 1``); users replace it with their real
+        # output on first edit.
+        project_slug = slugify_identifier(project_name, fallback="project")
+        contract_content = f"""fluidVersion: "{_latest_fluid_version()}"
+kind: DataProduct
+id: blank.{project_slug}
+name: "{project_name}"
+description: "FLUID data product"
+domain: example
 
-exposes: []
-produces: []
+metadata:
+  owner:
+    team: data-team
 
-binding:
-  provider: {args.provider}
+exposes:
+  - exposeId: example_output
+    kind: table
+    binding:
+      platform: local
+      format: parquet
+      location:
+        path: data/example_output.parquet
+    contract:
+      schema: []
 """
 
         contract_path = project_dir / "contract.fluid.yaml"
@@ -789,7 +1109,7 @@ def template_mode(args, logger: logging.Logger) -> int:
     """Create from specific template"""
 
     template_name = args.template
-    project_name = args.name or template_name
+    project_name = slugify_identifier(args.name or template_name, fallback="my-project")
     project_dir = Path(project_name)
 
     if RICH_AVAILABLE:
@@ -1993,202 +2313,4 @@ def show_scan_results(results: Dict[str, Any]):
     else:
         console.print("\n✅ [green]No obvious PII detected[/green]")
 
-    console.print()
-
-
-def generate_contracts_from_scan(
-    results: Dict[str, Any], provider: str, logger: logging.Logger
-) -> List[Dict]:
-    """Generate FLUID contracts from scan results"""
-
-    contracts = []
-    project_type = results["project_type"]
-
-    if RICH_AVAILABLE:
-        console.print("\n⚙️  [bold]Generating FLUID contracts...[/bold]\n")
-
-    if project_type == "dbt":
-        # Generate contract for dbt project
-        contract = {
-            "version": "0.7.1",
-            "kind": "fluid",
-            "name": results["metadata"].get("project_name", "imported-project"),
-            "description": f"Imported from dbt project on {Path.cwd().name}",
-            "exposes": [],
-            "produces": [],
-        }
-
-        # Add models as produces
-        for model in results.get("models", [])[:5]:  # Limit to first 5 for demo
-            produce = {
-                "name": model["name"],
-                "description": f"Imported dbt model: {model['name']}",
-                "from": {
-                    "type": "sql",
-                    "sql": "-- Imported from dbt\n" + model.get("raw_sql", "")[:200] + "...",
-                },
-            }
-
-            if model.get("columns"):
-                produce["schema"] = [
-                    {"name": col["name"], "type": col.get("type", "string")}
-                    for col in model["columns"][:10]  # Limit columns
-                ]
-
-            contract["produces"].append(produce)
-
-        # Add binding
-        target_platform = results["metadata"].get("target_platform", "local")
-        contract["binding"] = {
-            "provider": (
-                target_platform if target_platform in ["gcp", "snowflake", "aws"] else "local"
-            )
-        }
-
-        if target_platform == "gcp":
-            contract["binding"]["location"] = {
-                "project": results["metadata"].get("target_database", "my-project"),
-                "dataset": results["metadata"].get("target_schema", "analytics"),
-            }
-
-        contracts.append(contract)
-
-        if RICH_AVAILABLE:
-            console.print(f"✅ Generated contract with {len(contract['produces'])} models")
-
-    elif project_type == "terraform":
-        # Generate basic contract for Terraform
-        contract = {
-            "version": "0.7.1",
-            "kind": "fluid",
-            "name": "terraform-import",
-            "description": "Imported from Terraform configuration",
-            "exposes": [],
-            "produces": [],
-            "binding": {"provider": results["metadata"].get("target_platform", "local")},
-        }
-        contracts.append(contract)
-
-    elif project_type == "sql":
-        # Generate contract for SQL files
-        contract = {
-            "version": "0.7.1",
-            "kind": "fluid",
-            "name": "sql-import",
-            "description": "Imported from SQL files",
-            "exposes": [],
-            "produces": [],
-            "binding": {"provider": provider},
-        }
-        contracts.append(contract)
-
-    return contracts
-
-
-def apply_governance_policies(
-    contracts: List[Dict], results: Dict[str, Any], logger: logging.Logger
-) -> List[Dict]:
-    """Apply governance policies based on PII detection"""
-
-    if not RICH_AVAILABLE:
-        return contracts
-
-    sensitive = results.get("sensitive_columns", [])
-    if not sensitive:
-        return contracts
-
-    console.print("\n" + "━" * 70)
-    console.print("🛡️  [bold]Governance Configuration[/bold]")
-    console.print("━" * 70 + "\n")
-
-    console.print(f"Found {len(sensitive)} potentially sensitive columns.\n")
-
-    # Ask if user wants to apply governance
-    if not Confirm.ask("Apply data governance policies?", default=True):
-        return contracts
-
-    # Group by model
-    by_model = {}
-    for finding in sensitive:
-        model = finding["model"]
-        if model not in by_model:
-            by_model[model] = []
-        by_model[model].append(finding)
-
-    # Apply masking to contracts
-    for contract in contracts:
-        _policies = []  # noqa: F841
-
-        for produce in contract.get("produces", []):
-            model_name = produce["name"]
-
-            if model_name in by_model:
-                console.print(f"\n📋 [bold]{model_name}[/bold]:")
-
-                masking_rules = []
-                for finding in by_model[model_name][:3]:  # Limit to 3
-                    console.print(
-                        f"  • {finding['column']} ([{finding['type']}], {finding['confidence']:.0%} confidence)"
-                    )
-
-                    masking_rules.append(
-                        {
-                            "column": finding["column"],
-                            "method": "SHA256" if finding["confidence"] > 0.8 else "MASK",
-                            "reason": f"Detected {finding['type']} with {finding['confidence']:.0%} confidence",
-                        }
-                    )
-
-                if masking_rules:
-                    if "policy" not in produce:
-                        produce["policy"] = {}
-                    produce["policy"]["masking"] = masking_rules
-
-        # Add jurisdiction if detected
-        target_db = results.get("metadata", {}).get("target_database", "")
-        if "eu" in target_db.lower():
-            if Confirm.ask("\nApply GDPR sovereignty controls?", default=True):
-                contract["sovereignty"] = {
-                    "jurisdiction": "EU",
-                    "dataResidency": {"allowedRegions": ["europe-west1", "europe-west4"]},
-                    "jurisdictionRequirements": ["GDPR"],
-                }
-
-    console.print("\n✅ Governance policies applied\n")
-
-    return contracts
-
-
-def show_migration_summary(contracts: List[Dict], results: Dict[str, Any], logger: logging.Logger):
-    """Show migration summary"""
-
-    if not RICH_AVAILABLE:
-        cprint(f"\n✅ Generated {len(contracts)} FLUID contract(s)")
-        return
-
-    console.print("━" * 70)
-    console.print("✅ [green bold]Migration Complete![/green bold]\n")
-
-    console.print(f"Generated: [bold]{len(contracts)} FLUID contract(s)[/bold]")
-
-    for contract in contracts:
-        console.print(f"\n📄 [cyan]{contract['name']}.fluid.yaml[/cyan]")
-        console.print(f"   Version: {contract['version']}")
-        console.print(f"   Provider: {contract['binding']['provider']}")
-        console.print(f"   Models: {len(contract.get('produces', []))}")
-
-        if contract.get("sovereignty"):
-            console.print("   Governance: [yellow]GDPR controls enabled[/yellow]")
-
-    console.print("\n[bold]Next Steps:[/bold]\n")
-    console.print("  1. Review generated contracts:")
-    console.print("     [cyan]$ ls *.fluid.yaml[/cyan]")
-    console.print("\n  2. Validate contracts:")
-    console.print("     [cyan]$ fluid validate *.fluid.yaml[/cyan]")
-    console.print("\n  3. Test locally:")
-    console.print("     [cyan]$ fluid plan <contract>.fluid.yaml --provider local[/cyan]")
-    console.print("\n  4. Deploy:")
-    console.print("     [cyan]$ fluid apply <contract>.fluid.yaml[/cyan]")
-
-    console.print("\n" + "━" * 70)
     console.print()

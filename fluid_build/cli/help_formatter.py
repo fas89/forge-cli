@@ -75,7 +75,9 @@ def print_first_run_help(parser: argparse.ArgumentParser) -> None:
     steps.add_column(style="dim bright_white")
 
     steps.add_row(
-        "1.", "fluid init my-project --quickstart", "Create a working project with sample data"
+        "1.",
+        "fluid init my-project --template customer-360",
+        "Create a working project with sample data",
     )
     steps.add_row(
         "2.", "cd my-project && fluid validate contract.fluid.yaml", "Check the generated contract"
@@ -159,7 +161,7 @@ def print_main_help(parser: argparse.ArgumentParser) -> None:
         "Core Workflow",
         "bright_blue",
         [
-            ("init", "Create a new project  [dim]--quickstart · --scan · --wizard[/dim]"),
+            ("init", "Create a new project  [dim]--template · --blank[/dim]"),
             ("validate", "Check contract syntax and provider rules"),
             ("plan", "Preview what will change  [dim]--env · --out[/dim]"),
             ("apply", "Execute the contract  [dim]--yes · --dry-run · --provider[/dim]"),
@@ -175,7 +177,7 @@ def print_main_help(parser: argparse.ArgumentParser) -> None:
         [
             ("generate-airflow", "Produce Airflow DAG  [dim](GCP · AWS · Snowflake)[/dim]"),
             ("export", "Export to Airflow · Dagster · Prefect  [dim]--engine[/dim]"),
-            ("forge", "AI-powered project creation  [dim]--mode copilot[/dim]"),
+            ("forge", "Add a data product  [dim]AI copilot · template · agent · blueprint[/dim]"),
             ("blueprint", "Browse / scaffold reusable templates"),
             ("scaffold-ci", "Generate CI/CD pipeline config"),
         ],
@@ -243,7 +245,7 @@ def print_main_help(parser: argparse.ArgumentParser) -> None:
     console.print(f"  {bar}")
     console.print(
         "  [bold bright_green]⚡ Quick Start[/bold bright_green]     "
-        "[bright_cyan]fluid init my-project --quickstart[/bright_cyan]  →  "
+        "[bright_cyan]fluid init my-project --template customer-360[/bright_cyan]  →  "
         "[bright_cyan]fluid validate contract.fluid.yaml[/bright_cyan]  →  "
         "[bright_cyan]fluid apply contract.fluid.yaml --yes[/bright_cyan]"
     )
@@ -545,7 +547,7 @@ _COMMAND_ENRICHMENT: dict[str, tuple[str, str]] = {
     ),
     "wizard": (
         "Step-by-step guided setup wizard with interactive prompts for creating data products.",
-        ("  fluid wizard\n" "  fluid wizard --provider gcp\n" "  fluid wizard --skip-preview"),
+        ("  fluid wizard\n  fluid wizard --provider gcp\n  fluid wizard --skip-preview"),
     ),
     "diff": (
         "Detect configuration drift by comparing contract (desired state) with actual deployed resources.",
@@ -557,8 +559,13 @@ _COMMAND_ENRICHMENT: dict[str, tuple[str, str]] = {
         ),
     ),
     "doctor": (
-        "Run comprehensive diagnostics — checks FLUID core, providers, schemas, and dependencies.",
-        ("  fluid doctor\n" "  fluid doctor --verbose\n" "  fluid doctor --features-only"),
+        "Run built-in health checks, with optional extended workspace diagnostics.",
+        (
+            "  fluid doctor\n"
+            "  fluid doctor --verbose\n"
+            "  fluid doctor --extended\n"
+            "  fluid doctor --features-only"
+        ),
     ),
     "admin": (
         "System administration — diagnostics, tests, templates, pipeline scaffolds, registries.",

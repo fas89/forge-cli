@@ -198,7 +198,13 @@ def discover_local_context(
                 suffix in DISCOVERABLE_SAMPLE_SUFFIXES
                 and len(report.sample_files) < MAX_SAMPLE_FILES
             ):
-                sample = summarize_sample_file(path)
+                try:
+                    sample = summarize_sample_file(path)
+                except Exception as exc:  # noqa: BLE001
+                    report.discovery_warnings.append(
+                        f"Could not inspect sample file {path.name}: {exc}"
+                    )
+                    continue
                 report.sample_files.append(sample)
                 detected_sources.append(sample)
                 provider_counts.update(sample.get("provider_hints") or [])

@@ -90,10 +90,12 @@ class TestMarkFirstRunComplete:
 
 class TestDetectMode:
     def test_explicit_quickstart(self, logger):
+        """--quickstart is now an alias for --template customer-360."""
         args = SimpleNamespace(
             quickstart=True, scan=False, wizard=False, blank=False, template=False, name=None
         )
-        assert detect_mode(args, logger) == "quickstart"
+        assert detect_mode(args, logger) == "template"
+        assert args.template == "customer-360"
 
     def test_explicit_scan(self, logger):
         args = SimpleNamespace(
@@ -102,10 +104,11 @@ class TestDetectMode:
         assert detect_mode(args, logger) == "scan"
 
     def test_explicit_wizard(self, logger):
+        """--wizard is deprecated and maps to AI mode."""
         args = SimpleNamespace(
             quickstart=False, scan=False, wizard=True, blank=False, template=False, name=None
         )
-        assert detect_mode(args, logger) == "wizard"
+        assert detect_mode(args, logger) == "ai"
 
     def test_explicit_blank(self, logger):
         args = SimpleNamespace(
@@ -127,46 +130,54 @@ class TestDetectMode:
         )
         assert detect_mode(args, logger) is None
 
-    def test_dbt_project_returns_scan(self, logger, tmp_path, monkeypatch):
+    def test_dbt_project_falls_through(self, logger, tmp_path, monkeypatch):
+        """dbt/terraform/sql auto-detect removed; falls through to creation menu."""
         (tmp_path / "dbt_project.yml").write_text("name: test")
         monkeypatch.chdir(tmp_path)
         args = SimpleNamespace(
             quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None
         )
-        assert detect_mode(args, logger) == "scan"
+        with patch("fluid_build.cli.init._ask_creation_mode", return_value="ai"):
+            assert detect_mode(args, logger) == "ai"
 
-    def test_terraform_returns_scan(self, logger, tmp_path, monkeypatch):
+    def test_terraform_falls_through(self, logger, tmp_path, monkeypatch):
         (tmp_path / "main.tf").write_text("resource {}")
         monkeypatch.chdir(tmp_path)
         args = SimpleNamespace(
             quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None
         )
-        assert detect_mode(args, logger) == "scan"
+        with patch("fluid_build.cli.init._ask_creation_mode", return_value="template"):
+            assert detect_mode(args, logger) == "template"
 
-    def test_sql_files_without_name_returns_scan(self, logger, tmp_path, monkeypatch):
+    def test_sql_files_fall_through(self, logger, tmp_path, monkeypatch):
         (tmp_path / "query.sql").write_text("SELECT 1")
         monkeypatch.chdir(tmp_path)
         args = SimpleNamespace(
             quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None
         )
-        assert detect_mode(args, logger) == "scan"
+        with patch("fluid_build.cli.init._ask_creation_mode", return_value="blank"):
+            assert detect_mode(args, logger) == "blank"
 
-    def test_first_time_user_returns_quickstart(self, logger, tmp_path, monkeypatch):
+    def test_first_time_user_shows_menu(self, logger, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(Path, "home", lambda: tmp_path / "nohome")
         args = SimpleNamespace(
             quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None
         )
-        assert detect_mode(args, logger) == "quickstart"
+        with patch("fluid_build.cli.init._ask_creation_mode", return_value="ai") as m:
+            assert detect_mode(args, logger) == "ai"
+            m.assert_called_once()
 
-    def test_default_returns_quickstart(self, logger, tmp_path, monkeypatch):
+    def test_default_shows_menu(self, logger, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         (tmp_path / ".fluid").mkdir()
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         args = SimpleNamespace(
             quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None
         )
-        assert detect_mode(args, logger) == "quickstart"
+        with patch("fluid_build.cli.init._ask_creation_mode", return_value="template") as m:
+            assert detect_mode(args, logger) == "template"
+            m.assert_called_once()
 
 
 # ── should_generate_dag ─────────────────────────────────────────────
@@ -448,37 +459,43 @@ class TestRun:
 
         assert run(args, logger) == 1
 
+    @patch("fluid_build.cli.init._ask_industry", return_value=None)
     @patch("fluid_build.cli.init.quickstart_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="quickstart")
-    def test_quickstart_dispatch(self, _mock_dm, _mock_qs, logger):
+    def test_quickstart_dispatch(self, _mock_dm, _mock_qs, _mock_ind, logger):
         from fluid_build.cli.init import run
 
         assert run(SimpleNamespace(), logger) == 0
 
+    @patch("fluid_build.cli.init._ask_industry", return_value=None)
     @patch("fluid_build.cli.init.scan_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="scan")
-    def test_scan_dispatch(self, _mock_dm, _mock_sc, logger):
+    def test_scan_dispatch(self, _mock_dm, _mock_sc, _mock_ind, logger):
         from fluid_build.cli.init import run
 
         assert run(SimpleNamespace(), logger) == 0
 
-    @patch("fluid_build.cli.init.wizard_mode", return_value=0)
-    @patch("fluid_build.cli.init.detect_mode", return_value="wizard")
-    def test_wizard_dispatch(self, _mock_dm, _mock_wiz, logger):
+    @patch("fluid_build.cli.init._ask_industry", return_value=None)
+    @patch("fluid_build.cli.init._ai_mode", return_value=0)
+    @patch("fluid_build.cli.init.detect_mode", return_value="ai")
+    def test_wizard_dispatch(self, _mock_dm, _mock_ai, _mock_ind, logger):
+        """--wizard is deprecated and maps to AI mode."""
         from fluid_build.cli.init import run
 
         assert run(SimpleNamespace(), logger) == 0
 
+    @patch("fluid_build.cli.init._ask_industry", return_value=None)
     @patch("fluid_build.cli.init.blank_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="blank")
-    def test_blank_dispatch(self, _mock_dm, _mock_bl, logger):
+    def test_blank_dispatch(self, _mock_dm, _mock_bl, _mock_ind, logger):
         from fluid_build.cli.init import run
 
         assert run(SimpleNamespace(), logger) == 0
 
+    @patch("fluid_build.cli.init._ask_industry", return_value=None)
     @patch("fluid_build.cli.init.template_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="template")
-    def test_template_dispatch(self, _mock_dm, _mock_tm, logger):
+    def test_template_dispatch(self, _mock_dm, _mock_tm, _mock_ind, logger):
         from fluid_build.cli.init import run
 
         assert run(SimpleNamespace(), logger) == 0
@@ -543,6 +560,10 @@ class TestGenerateDagForProject:
 
 
 class TestGenerateContractsFromScan:
+    """All assertions are against the FLUID 0.7.2 canonical shape:
+    ``fluidVersion`` / ``kind: DataProduct`` / ``exposes[*]`` with per-expose
+    ``binding.platform`` and nested ``contract.schema``."""
+
     @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
     def test_dbt_basic(self, logger):
         results = {
@@ -559,8 +580,10 @@ class TestGenerateContractsFromScan:
         contracts = generate_contracts_from_scan(results, "local", logger)
         assert len(contracts) == 1
         assert contracts[0]["name"] == "test-dbt"
-        assert len(contracts[0]["produces"]) == 1
-        assert "schema" in contracts[0]["produces"][0]
+        assert contracts[0]["kind"] == "DataProduct"
+        assert len(contracts[0]["exposes"]) == 1
+        expose = contracts[0]["exposes"][0]
+        assert expose["contract"]["schema"][0]["name"] == "id"
 
     @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
     def test_dbt_no_columns(self, logger):
@@ -571,13 +594,14 @@ class TestGenerateContractsFromScan:
         }
         contracts = generate_contracts_from_scan(results, "local", logger)
         assert len(contracts) == 1
-        assert "schema" not in contracts[0]["produces"][0]
+        # 0.7.2 shape: empty schema is an empty list, not an absent field.
+        assert contracts[0]["exposes"][0]["contract"]["schema"] == []
 
     @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
     def test_dbt_gcp_platform(self, logger):
         results = {
             "project_type": "dbt",
-            "models": [],
+            "models": [{"name": "orders", "columns": []}],
             "metadata": {
                 "target_platform": "gcp",
                 "target_database": "my-proj",
@@ -585,28 +609,50 @@ class TestGenerateContractsFromScan:
             },
         }
         contracts = generate_contracts_from_scan(results, "local", logger)
-        assert contracts[0]["binding"]["provider"] == "gcp"
-        assert "location" in contracts[0]["binding"]
+        binding = contracts[0]["exposes"][0]["binding"]
+        assert binding["platform"] == "gcp"
+        assert binding["location"]["project"] == "my-proj"
+        assert binding["location"]["dataset"] == "ds"
 
     @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
     def test_dbt_snowflake_platform(self, logger):
         results = {
             "project_type": "dbt",
-            "models": [],
+            "models": [{"name": "orders", "columns": []}],
             "metadata": {"target_platform": "snowflake"},
         }
         contracts = generate_contracts_from_scan(results, "local", logger)
-        assert contracts[0]["binding"]["provider"] == "snowflake"
+        assert contracts[0]["exposes"][0]["binding"]["platform"] == "snowflake"
 
     @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
     def test_dbt_unknown_platform_falls_to_local(self, logger):
         results = {
             "project_type": "dbt",
-            "models": [],
+            "models": [{"name": "orders", "columns": []}],
             "metadata": {"target_platform": "oracle"},
         }
         contracts = generate_contracts_from_scan(results, "local", logger)
-        assert contracts[0]["binding"]["provider"] == "local"
+        assert contracts[0]["exposes"][0]["binding"]["platform"] == "local"
+
+    @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
+    def test_dbt_redshift_platform_keeps_warehouse_coordinates(self, logger):
+        results = {
+            "project_type": "dbt",
+            "models": [{"name": "orders", "columns": []}],
+            "metadata": {
+                "target_platform": "redshift",
+                "target_database": "analytics",
+                "target_schema": "mart",
+                "target_table": "orders",
+            },
+        }
+        contracts = generate_contracts_from_scan(results, "aws", logger)
+        binding = contracts[0]["exposes"][0]["binding"]
+        assert binding["platform"] == "aws"
+        assert binding["format"] == "other"
+        assert binding["location"]["database"] == "analytics"
+        assert binding["location"]["schema"] == "mart"
+        assert binding["location"]["table"] == "orders"
 
     @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
     def test_terraform(self, logger):
@@ -617,7 +663,7 @@ class TestGenerateContractsFromScan:
         contracts = generate_contracts_from_scan(results, "local", logger)
         assert len(contracts) == 1
         assert contracts[0]["name"] == "terraform-import"
-        assert contracts[0]["binding"]["provider"] == "gcp"
+        assert contracts[0]["exposes"][0]["binding"]["platform"] == "gcp"
 
     @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
     def test_sql(self, logger):
@@ -628,7 +674,7 @@ class TestGenerateContractsFromScan:
         contracts = generate_contracts_from_scan(results, "aws", logger)
         assert len(contracts) == 1
         assert contracts[0]["name"] == "sql-import"
-        assert contracts[0]["binding"]["provider"] == "aws"
+        assert contracts[0]["exposes"][0]["binding"]["platform"] == "aws"
 
 
 # ── CI/CD generators ────────────────────────────────────────────────

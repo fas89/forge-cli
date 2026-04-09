@@ -99,7 +99,7 @@
 
 | Card | Priority | Status | Evidence |
 |------|----------|:------:|----------|
-| **5.1** Extract Provider SDK | P1 | ✅ | `fluid-provider-sdk/` exists with `pyproject.toml` (v0.1.0), `src/fluid_provider_sdk/`. Main CLI imports it and lists it as a dependency. |
+| **5.1** Extract Provider SDK | P1 | ✅ | `forge-cli-sdk/` exists with `pyproject.toml` (v0.1.0), `src/fluid_provider_sdk/`. Main CLI imports it and lists it as a dependency. |
 | **5.2** Separate Providers into SDK Packages | P1 | 🟡 | `entry_points` declared in `pyproject.toml` for plugin discovery (local, aws, gcp, snowflake, odps). But providers **still live inside** `fluid_build/providers/` — not yet extracted to separate packages. |
 
 ### Remaining work — Epic 5
@@ -216,7 +216,7 @@
 | Fix hardcoded password | 2.1 | Edit `market.py:880-881` — require config/env var instead of `'admin'` default |
 | Replace `123456789012` | 2.2 | `grep -rn "123456789012" . \| sed` across 17 files → `YOUR_AWS_ACCOUNT_ID` |
 | Create CODEOWNERS | 9.1 | Create `.github/CODEOWNERS` with team ownership rules |
-| Add CI badge to README | 7.4 | Add `![CI](https://github.com/agentics-rising/fluid-forge-cli/actions/workflows/ci.yml/badge.svg)` |
+| Add CI badge to README | 7.4 | Add `![CI](https://github.com/Agentics-Rising/forge-cli/actions/workflows/ci.yml/badge.svg)` |
 | Create CHANGELOG.md | 10.1 | Generate from git log + release notes |
 | Add "What is FLUID?" to README | 8.1 | Add 2-paragraph section at top of README |
 

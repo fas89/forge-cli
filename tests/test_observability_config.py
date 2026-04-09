@@ -89,3 +89,14 @@ command_center:
             with patch("pathlib.Path.home", return_value=tmp_path):
                 cfg = CommandCenterConfig.from_environment()
                 assert cfg.url is None  # defaults still work
+
+    def test_repr_masks_api_key_with_short_fixed_preview(self):
+        cfg = CommandCenterConfig(
+            url="https://cc.example.com",
+            api_key="fluid_abcdefghijklmnopqrstuvwxyz",
+        )
+
+        rendered = repr(cfg)
+
+        assert "fluid_abcdefghijklmnopqrstuvwxyz" not in rendered
+        assert "api_key=flui***REDACTED***" in rendered

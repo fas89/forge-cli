@@ -118,7 +118,7 @@ class AnalyticsTemplate(ProjectTemplate):
         provider = project_config.get("provider", "gcp")
 
         contract = {
-            "fluidVersion": "0.5.7",
+            "fluidVersion": project_config.get("fluid_version", "0.5.7"),
             "kind": "DataProduct",
             "id": f"{project_name.replace('-', '_')}_analytics",
             "name": f"{project_name} Analytics",

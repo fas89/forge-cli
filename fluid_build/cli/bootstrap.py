@@ -365,7 +365,7 @@ def cmd_visualize_plan_run(args: argparse.Namespace, logger: logging.Logger) -> 
         label = a.get("op", "op")
         dot_lines.append(f"  n{i} [label={json.dumps(label)} tooltip={json.dumps(json.dumps(a))}];")
         if i > 0:
-            dot_lines.append(f"  n{i-1} -> n{i};")
+            dot_lines.append(f"  n{i - 1} -> n{i};")
     dot_lines.append("}")
     dot_src = "\n".join(dot_lines)
 
@@ -434,6 +434,9 @@ def register_core_commands(sp: argparse._SubParsersAction) -> None:
 
     # 🚀 FLUID Init - Universal Onboarding
     _try_register(sp, "init", "init")
+
+    # 🎯 Industry Skills
+    _try_register(sp, "skills", "skills_cmd")
 
     # validate (enhanced → fallback)
     if is_command_enabled("validate"):

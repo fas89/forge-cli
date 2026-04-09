@@ -24,6 +24,7 @@ from typing import List, Optional
 
 from fluid_build.cli.console import cprint, info, warning
 from fluid_build.cli.console import error as console_error
+from fluid_build.observability import install_secret_redacting_filter
 
 from ._common import CLIError
 from .bootstrap import register_core_commands  # your aggregator that wires subcommands
@@ -468,14 +469,19 @@ def _setup_enhanced_logging(
             # Simple format for console
             formatter = logging.Formatter("%(message)s")
 
-    # Setup root logger
-    logging.basicConfig(level=numeric, format="%(message)s" if not log_file else None, handlers=[])
+    # Setup root logger — clear any pre-existing handlers (from a prior CLI
+    # invocation in the same interpreter or from ``logging.basicConfig``
+    # side-effects elsewhere) so the CLI always owns the output pipeline.
+    root_logger = logging.getLogger()
+    for existing_handler in list(root_logger.handlers):
+        root_logger.removeHandler(existing_handler)
+    root_logger.setLevel(numeric)
 
     # Console handler — send to stderr so stdout stays clean for command output
     console_handler = logging.StreamHandler(sys.stderr)
     console_handler.setLevel(numeric)
     console_handler.setFormatter(formatter)
-    logging.getLogger().addHandler(console_handler)
+    root_logger.addHandler(console_handler)
 
     # File handler if specified
     if log_file:
@@ -487,9 +493,11 @@ def _setup_enhanced_logging(
                     '{"time":"%(asctime)s","level":"%(levelname)s","name":"%(name)s","message":"%(message)s"}'
                 )
             )
-            logging.getLogger().addHandler(file_handler)
+            root_logger.addHandler(file_handler)
         except Exception as e:
             LOG.warning(f"Failed to setup file logging: {e}")
+
+    install_secret_redacting_filter(root_logger)
 
     # Return production logger wrapper
     return ProductionLogger(LOG)

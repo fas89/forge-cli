@@ -333,6 +333,8 @@ def load_context(
             "complexity",
             "team_size",
             "domain",
+            "canonical_model",
+            "supporting_standards",
             "provider",
             "owner",
             "description",

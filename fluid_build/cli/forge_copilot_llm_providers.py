@@ -19,26 +19,40 @@ from __future__ import annotations
 __all__ = [
     "CopilotGenerationError",
     "LlmConfig",
+    "LlmReadinessCheck",
     "LlmProvider",
     "OpenAIProvider",
     "OllamaProvider",
     "AnthropicProvider",
     "GeminiProvider",
     "BUILTIN_LLM_PROVIDERS",
+    "PROVIDER_DISPLAY_NAMES",
+    "check_llm_readiness",
+    "clear_api_key_from_keyring",
+    "get_catalog_default",
+    "detect_ollama_available",
+    "detect_provider_from_api_key",
     "get_llm_provider",
     "normalize_llm_provider_name",
+    "query_ollama_models",
+    "reset_llm_caches",
     "resolve_llm_config",
+    "resolve_model_name",
+    "resolve_ollama_model",
+    "save_api_key_to_keyring",
     "call_llm",
     "detect_provider_from_api_key",
     "check_llm_readiness",
 ]
 
+import json
 import logging
 import os
 import re
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
 
 import httpx
@@ -104,7 +118,15 @@ class LlmConfig:
     @property
     def redacted_endpoint(self) -> str:
         endpoint = self.endpoint
-        endpoint = re.sub(r"([?&](?:key|token|api_key)=)[^&]+", r"\1***", endpoint, flags=re.I)
+        # Redact common credential query parameters
+        endpoint = re.sub(
+            r"([?&](?:key|token|api_key|auth|secret|credential|password)=)[^&]+",
+            r"\1***",
+            endpoint,
+            flags=re.I,
+        )
+        # Redact userinfo in URLs (user:pass@host)
+        endpoint = re.sub(r"(https?://)([^@/]+)@", r"\1***:***@", endpoint)
         return endpoint
 
 
@@ -139,10 +161,14 @@ class OpenAIProvider(LlmProvider):
     default_model = "gpt-4o-mini"
 
     def default_endpoint(self, model: str, env: Mapping[str, str]) -> str:
-        return (
-            env.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
-            + "/chat/completions"
-        )
+        base = env.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+        if base != "https://api.openai.com/v1":
+            LOG.warning(
+                "OPENAI_BASE_URL is set to a non-default value (%s). "
+                "Your API key will be sent to this host.",
+                base,
+            )
+        return base + "/chat/completions"
 
     def build_request(
         self, config: LlmConfig, system_prompt: str, user_prompt: str
@@ -217,7 +243,10 @@ class GeminiProvider(LlmProvider):
     default_model = "gemini-2.5-flash"
 
     def default_endpoint(self, model: str, env: Mapping[str, str]) -> str:
-        return f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        safe_model = _sanitize_model_for_url(model)
+        return (
+            f"https://generativelanguage.googleapis.com/v1beta/models/{safe_model}:generateContent"
+        )
 
     def build_request(
         self, config: LlmConfig, system_prompt: str, user_prompt: str
@@ -302,7 +331,17 @@ def resolve_llm_config(args: Any, environ: Optional[Mapping[str, str]] = None) -
         or "openai"
     )
     provider = get_llm_provider(provider_name)
-    model = getattr(args, "llm_model", None) or env.get("FLUID_LLM_MODEL") or provider.default_model
+
+    # Resolve model: explicit flag → env var → catalog default → class default.
+    catalog_default = get_catalog_default(provider.name)
+    explicit_model = getattr(args, "llm_model", None) or env.get("FLUID_LLM_MODEL")
+    if explicit_model:
+        model = resolve_model_name(provider.name, explicit_model)
+    elif provider.name == "ollama":
+        model = resolve_ollama_model(env)
+    else:
+        model = catalog_default or provider.default_model
+
     if not model:
         raise CopilotGenerationError(
             "copilot_missing_llm_model",
@@ -411,6 +450,19 @@ def call_llm(
 # Private helpers
 # ---------------------------------------------------------------------------
 
+_SAFE_MODEL_RE = re.compile(r"^[a-zA-Z0-9._:/-]+$")
+
+
+def _sanitize_model_for_url(model: str) -> str:
+    """Reject model names that could cause path traversal in URL interpolation."""
+    if not model or not _SAFE_MODEL_RE.match(model) or ".." in model:
+        raise CopilotGenerationError(
+            "copilot_invalid_model_name",
+            f"Model name contains unsafe characters: {model!r}",
+            suggestions=["Use a model name like 'gemini-2.5-flash' or 'gpt-4o'"],
+        )
+    return model
+
 
 def _infer_provider_from_env(env: Mapping[str, str]) -> Optional[str]:
     detected = []
@@ -420,8 +472,22 @@ def _infer_provider_from_env(env: Mapping[str, str]) -> Optional[str]:
         detected.append("anthropic")
     if env.get("GEMINI_API_KEY") or env.get("GOOGLE_API_KEY"):
         detected.append("gemini")
-    if env.get("OLLAMA_HOST"):
+    if env.get("OLLAMA_HOST") or detect_ollama_available(env):
         detected.append("ollama")
+    if len(detected) == 1:
+        return detected[0]
+    if not detected:
+        # No env vars found — check the keyring for any saved provider key.
+        return _infer_provider_from_keyring()
+    return None
+
+
+def _infer_provider_from_keyring() -> Optional[str]:
+    """Return the provider name if exactly one has a saved keyring key."""
+    detected = []
+    for name in ("openai", "anthropic", "gemini"):
+        if _get_api_key_from_keyring(name):
+            detected.append(name)
     if len(detected) == 1:
         return detected[0]
     return None
@@ -432,40 +498,111 @@ def _resolve_api_key(provider: str, env: Mapping[str, str]) -> Optional[str]:
         return env["FLUID_LLM_API_KEY"]
     env_var = PROVIDER_ENV_VARS.get(provider)
     if env_var:
-        return env.get(env_var)
-    # Gemini also accepts GEMINI_API_KEY as a fallback
+        key = env.get(env_var)
+        if key:
+            return key
+    # Gemini also accepts GOOGLE_API_KEY as a fallback
     if provider == "gemini":
-        return env.get("GEMINI_API_KEY")
+        key = env.get("GOOGLE_API_KEY")
+        if key:
+            return key
+    # Fallback: check the OS keyring for a saved key.
+    return _get_api_key_from_keyring(provider)
+
+
+# ---------------------------------------------------------------------------
+# Keyring helpers
+# ---------------------------------------------------------------------------
+
+_LLM_KEYRING_PREFIX = "llm"
+
+
+def _keyring_key(provider: str) -> str:
+    return f"{_LLM_KEYRING_PREFIX}.{provider}.api_key"
+
+
+def _get_api_key_from_keyring(provider: str) -> Optional[str]:
+    """Retrieve a saved LLM API key from the OS keyring."""
+    try:
+        from fluid_build.credentials.keyring_store import KeyringCredentialStore
+
+        return KeyringCredentialStore.get_credential(_keyring_key(provider))
+    except Exception:  # noqa: BLE001
+        LOG.debug("Keyring read failed for %s", _keyring_key(provider))
+        return None
+
+
+def save_api_key_to_keyring(provider: str, api_key: str) -> bool:
+    """Persist an LLM API key in the OS keyring for future runs."""
+    try:
+        from fluid_build.credentials.keyring_store import KeyringCredentialStore
+
+        KeyringCredentialStore.set_credential(_keyring_key(provider), api_key)
+        return True
+    except Exception:  # noqa: BLE001
+        LOG.debug("Keyring write failed for %s", _keyring_key(provider))
+        return False
+
+
+def clear_api_key_from_keyring(provider: str) -> bool:
+    """Remove a saved LLM API key from the OS keyring."""
+    try:
+        from fluid_build.credentials.keyring_store import KeyringCredentialStore
+
+        KeyringCredentialStore.delete_credential(_keyring_key(provider))
+        return True
+    except Exception:  # noqa: BLE001
+        LOG.debug("Keyring delete failed for %s", _keyring_key(provider))
+        return False
+
+
+def reset_llm_caches() -> None:
+    """Clear per-process caches so detection and catalog are re-evaluated."""
+    global _ollama_available_cache, _model_catalog_cache  # noqa: PLW0603
+    _ollama_available_cache = None
+    _model_catalog_cache = None
+
+
+def _redact_endpoint_text(endpoint: Any) -> str:
+    if not endpoint:
+        return ""
+    return LlmConfig(provider="", model="", endpoint=str(endpoint), api_key=None).redacted_endpoint
+
+
+# ---------------------------------------------------------------------------
+# API Key Detection
+# ---------------------------------------------------------------------------
+
+PROVIDER_DISPLAY_NAMES = {
+    "openai": "OpenAI",
+    "anthropic": "Anthropic (Claude)",
+    "gemini": "Google Gemini",
+    "ollama": "Ollama",
+}
+
+
+def detect_provider_from_api_key(api_key: str) -> Optional[str]:
+    """Detect the LLM provider from an API key's format.
+
+    Returns the provider name (``"openai"``, ``"anthropic"``, ``"gemini"``)
+    or ``None`` if the format is not recognised.
+    """
+    key = (api_key or "").strip()
+    if not key:
+        return None
+    # Anthropic keys start with sk-ant- — check before the generic sk- prefix.
+    if key.startswith("sk-ant-"):
+        return "anthropic"
+    if key.startswith("sk-"):
+        return "openai"
+    if key.startswith("AIza") and 35 <= len(key) <= 45:
+        return "gemini"
     return None
 
 
 # ---------------------------------------------------------------------------
 # API Key Detection & Readiness Helpers
 # ---------------------------------------------------------------------------
-
-
-def detect_provider_from_api_key(api_key: str) -> Optional[str]:
-    """Auto-detect the LLM provider from the format of an API key.
-
-    Recognised patterns::
-
-        sk-ant-...      -> anthropic
-        sk-...          -> openai
-        AIza[A-Za-z0-9] -> gemini  (Google API keys)
-
-    Returns the provider name or ``None`` if the key format is not recognised.
-    """
-    key = (api_key or "").strip()
-    if not key:
-        return None
-    if key.startswith("sk-ant-"):
-        return "anthropic"
-    if key.startswith("sk-"):
-        return "openai"
-    # Google API keys: AIza followed by alphanumeric chars, typically 35-45 total
-    if re.match(r"^AIza[A-Za-z0-9_-]{30,50}$", key):
-        return "gemini"
-    return None
 
 
 @dataclass
@@ -552,3 +689,132 @@ def check_llm_readiness(environ: Optional[Mapping[str, str]] = None) -> LlmReadi
         endpoint=endpoint,
         auth_available=True,
     )
+
+
+# ---------------------------------------------------------------------------
+# Model Catalog
+# ---------------------------------------------------------------------------
+
+_model_catalog_cache: Optional[Dict[str, Any]] = None
+
+
+def _load_model_catalog() -> Dict[str, Any]:
+    """Load the bundled ``llm_models.json`` catalog (cached after first call)."""
+    global _model_catalog_cache  # noqa: PLW0603
+    if _model_catalog_cache is not None:
+        return _model_catalog_cache
+    catalog_path = Path(__file__).with_name("llm_models.json")
+    try:
+        _model_catalog_cache = json.loads(catalog_path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        LOG.warning("Could not load model catalog %s: %s", catalog_path, exc)
+        _model_catalog_cache = {}
+    return _model_catalog_cache
+
+
+def get_catalog_default(provider: str) -> Optional[str]:
+    """Return the catalog's default model for *provider*, or ``None``."""
+    catalog = _load_model_catalog()
+    entry = catalog.get("providers", {}).get(provider)
+    if entry:
+        return entry.get("default")
+    return None
+
+
+def resolve_model_name(provider: str, user_input: str) -> str:
+    """Resolve a potentially fuzzy model name to its canonical id.
+
+    Checks the bundled catalog for exact id matches and aliases.
+    Returns *user_input* unchanged if no match is found (the API will
+    decide whether it is valid).
+    """
+    text = (user_input or "").strip()
+    if not text:
+        return text
+    catalog = _load_model_catalog()
+    models = catalog.get("providers", {}).get(provider, {}).get("models") or []
+    lower = text.lower()
+    for entry in models:
+        if lower == entry["id"].lower():
+            return entry["id"]
+        for alias in entry.get("aliases") or []:
+            if lower == alias.lower():
+                return entry["id"]
+    return text
+
+
+# ---------------------------------------------------------------------------
+# Ollama Auto-Detection
+# ---------------------------------------------------------------------------
+
+
+_LOCALHOST_PREFIXES = (
+    "http://localhost",
+    "http://127.0.0.1",
+    "http://[::1]",
+    "http://0.0.0.0",
+)
+
+_ollama_available_cache: Optional[bool] = None
+
+
+def _ollama_host(env: Mapping[str, str]) -> str:
+    host = (env.get("OLLAMA_HOST") or "http://localhost:11434").rstrip("/")
+    # SSRF guard: only allow localhost targets for Ollama.
+    if not any(host.lower().startswith(prefix) for prefix in _LOCALHOST_PREFIXES):
+        LOG.warning("OLLAMA_HOST points to a non-localhost address (%s), ignoring.", host)
+        return "http://localhost:11434"
+    return host
+
+
+def detect_ollama_available(env: Mapping[str, str]) -> bool:
+    """Return ``True`` if a local Ollama instance is reachable (cached per-process)."""
+    global _ollama_available_cache  # noqa: PLW0603
+    if _ollama_available_cache is not None:
+        return _ollama_available_cache
+    try:
+        resp = httpx.get(f"{_ollama_host(env)}/api/version", timeout=1.0)
+        _ollama_available_cache = resp.status_code == 200
+    except Exception:  # noqa: BLE001
+        _ollama_available_cache = False
+    return _ollama_available_cache
+
+
+def _parse_param_size(value: str) -> float:
+    """Parse an Ollama ``parameter_size`` string like ``'32.8B'`` into a float."""
+    text = (value or "").strip().upper()
+    match = re.match(r"^([\d.]+)\s*([BM]?)$", text)
+    if not match:
+        return 0.0
+    number = float(match.group(1))
+    unit = match.group(2)
+    if unit == "M":
+        return number / 1000.0
+    return number
+
+
+def query_ollama_models(env: Mapping[str, str]) -> List[Dict[str, Any]]:
+    """Query the local Ollama instance for downloaded models.
+
+    Returns a list of model dicts sorted by parameter size (largest first),
+    or an empty list if Ollama is unreachable.
+    """
+    try:
+        resp = httpx.get(f"{_ollama_host(env)}/api/tags", timeout=2.0)
+        resp.raise_for_status()
+        models = resp.json().get("models") or []
+        for m in models:
+            size_str = (m.get("details") or {}).get("parameter_size", "")
+            m["_param_size"] = _parse_param_size(size_str)
+        models.sort(key=lambda m: m["_param_size"], reverse=True)
+        return models
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def resolve_ollama_model(env: Mapping[str, str]) -> str:
+    """Return the best locally-available Ollama model, or the static fallback."""
+    models = query_ollama_models(env)
+    if models:
+        return models[0]["name"]
+    return get_catalog_default("ollama") or OllamaProvider.default_model

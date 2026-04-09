@@ -36,6 +36,7 @@ from fluid_build.providers.base import ApplyResult, BaseProvider, ProviderError
 
 from .plan.planner import plan_actions
 from .util.auth import get_auth_report
+from .util.config import resolve_snowflake_settings
 from .util.logging import redact_dict
 from .util.retry import with_retry
 
@@ -85,18 +86,49 @@ class SnowflakeProviderEnhanced(BaseProvider):
         # Normalize database/project
         database = database or project
 
-        # Store kwargs for later use in connections
-        self._kwargs = kwargs
-
         super().__init__(project=database, region=region, logger=logger, **kwargs)
 
-        # Import config utilities
-        from .util.config import resolve_account_and_warehouse
+        resolved = resolve_snowflake_settings(
+            account=account,
+            warehouse=warehouse,
+            database=database,
+            schema=schema,
+            user=kwargs.get("user"),
+            role=kwargs.get("role"),
+            authenticator=kwargs.get("authenticator"),
+            password=kwargs.get("password"),
+            private_key_path=kwargs.get("private_key_path"),
+            private_key_passphrase=kwargs.get("private_key_passphrase"),
+            oauth_token=kwargs.get("oauth_token"),
+            project_root=kwargs.get("project_root"),
+            environment=kwargs.get("environment"),
+        )
 
-        self.account, self.warehouse = resolve_account_and_warehouse(account, warehouse)
-        self.database = database
-        self.schema = schema or "PUBLIC"
+        # Store resolved kwargs for later use in actions / auth checks.
+        self._kwargs = dict(kwargs)
+        for key in [
+            "user",
+            "password",
+            "private_key_path",
+            "private_key_passphrase",
+            "oauth_token",
+            "role",
+            "authenticator",
+            "project_root",
+            "environment",
+        ]:
+            if resolved.get(key) is not None:
+                self._kwargs[key] = resolved[key]
+
+        self.account = resolved.get("account")
+        self.warehouse = resolved.get("warehouse")
+        self.database = resolved.get("database") or database
+        self.schema = resolved.get("schema") or "PUBLIC"
+        self.user = resolved.get("user")
+        self.role = resolved.get("role")
+        self.authenticator = resolved.get("authenticator")
         self.region = region
+        self._resolved_config = resolved
 
         self.info_kv(
             event="provider_initialized",
@@ -104,6 +136,8 @@ class SnowflakeProviderEnhanced(BaseProvider):
             account=self.account,
             warehouse=self.warehouse,
             database=self.database,
+            schema=self.schema,
+            role=self.role,
         )
 
     def capabilities(self) -> Mapping[str, bool]:
@@ -250,7 +284,7 @@ class SnowflakeProviderEnhanced(BaseProvider):
     def auth_report(self) -> Dict[str, Any]:
         """Generate authentication and environment report for diagnostics."""
         try:
-            return get_auth_report(self.account, self.warehouse, self.database)
+            return get_auth_report(self._resolved_config)
         except Exception as e:
             return {"status": "error", "error": str(e), "provider": "snowflake"}
 

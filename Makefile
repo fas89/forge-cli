@@ -203,14 +203,13 @@ else vp=$(PYTHON); fi; \
 echo "Using: $$vp"; \
 $$vp -m pytest -q --maxfail=1 --disable-warnings;'
 
-doctor: ## Run built-in doctor plus diagnostics script
+doctor: ## Run doctor with optional extended workspace diagnostics
 	@bash -lc '\
 if [ -x "$(VENV)/bin/python" ]; then vp="$(VENV)/bin/python"; \
 elif [ -x "$(VENV)/Scripts/python.exe" ]; then vp="$(VENV)/Scripts/python.exe"; \
 else vp=$(PYTHON); fi; \
 echo "Using: $$vp"; \
-FLUID_LOG_LEVEL=INFO $$vp -m fluid_build.cli doctor || true;'
-	@bash scripts/diagnose.sh || true
+FLUID_LOG_LEVEL=INFO $$vp -m fluid_build.cli doctor --extended || true;'
 
 # ---- pipx flows ----
 

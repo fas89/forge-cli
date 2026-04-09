@@ -78,15 +78,15 @@ class TestResolveAccountAndWarehouse:
         assert warehouse == "my_wh"
 
     def test_env_var_fallback(self):
-        """When credential adapter throws, falls back to env vars."""
+        """Environment variables beat stored credentials for env-specific runs."""
         with patch.dict(
             os.environ,
             {"SNOWFLAKE_ACCOUNT": "env_account", "SNOWFLAKE_WAREHOUSE": "env_wh"},
-            clear=False,
+            clear=True,
         ):
             with patch(
-                "fluid_build.providers.snowflake.credentials.SnowflakeCredentialAdapter",
-                side_effect=Exception("no adapter"),
+                "fluid_build.providers.snowflake.util.config._resolve_with_adapter",
+                return_value=(None, None),
             ):
                 account, warehouse = resolve_account_and_warehouse()
                 assert account == "env_account"
@@ -94,8 +94,12 @@ class TestResolveAccountAndWarehouse:
 
     def test_no_account_raises(self):
         with patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(ValueError, match="Snowflake account not specified"):
-                resolve_account_and_warehouse()
+            with patch(
+                "fluid_build.providers.snowflake.util.config._resolve_with_adapter",
+                return_value=(None, None),
+            ):
+                with pytest.raises(ValueError, match="Snowflake account not specified"):
+                    resolve_account_and_warehouse()
 
 
 class TestGetConnectionParamsLegacy:

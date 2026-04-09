@@ -16,6 +16,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from fluid_build.cli.forge import (
     ContextValidationError,
     CopilotAgent,

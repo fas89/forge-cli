@@ -297,6 +297,12 @@ class TestHealthcareAgent:
     def test_analyze_default(self):
         result = HealthcareAgent().analyze_requirements({"product_type": "patient_analytics"})
         assert "analytics" in result["recommended_template"]
+        assert result["canonical_model"] == "omop_cdm"
+
+    def test_analyze_ehr_integration_prefers_fhir(self):
+        result = HealthcareAgent().analyze_requirements({"product_type": "ehr_integration"})
+        assert result["canonical_model"] == "hl7_fhir"
+        assert "hl7_fhir_resource_model" in result["recommended_patterns"]
 
     def test_analyze_hipaa_required(self):
         result = HealthcareAgent().analyze_requirements({"hipaa_required": "yes"})
@@ -339,6 +345,21 @@ class TestRetailAgent:
     def test_analyze_customer_360(self):
         result = RetailAgent().analyze_requirements({"product_type": "customer_360"})
         assert "customer360" in result["recommended_template"]
+        assert result["canonical_model"] == "nrf_arts"
+        assert "gs1_gdm" in result["supporting_standards"]
+
+    def test_analyze_digital_retail_modeling_context(self):
+        result = RetailAgent().analyze_requirements({"modeling_context": "digital experience"})
+        assert result["canonical_model"] == "adobe_xdm"
+        assert "adobe_xdm_experience_events" in result["recommended_patterns"]
+
+    def test_analyze_traceability_modeling_context(self):
+        result = RetailAgent().analyze_requirements(
+            {"modeling_context": "traceability", "product_type": "inventory_optimization"}
+        )
+        assert result["canonical_model"] == "gs1_gdm"
+        assert "gs1_epcis_cbv" in result["supporting_standards"]
+        assert "epcis_event_modeling" in result["recommended_patterns"]
 
     def test_analyze_friendly_scale_phrase(self):
         result = RetailAgent().analyze_requirements({"scale": "enterprise scale"})
@@ -347,6 +368,7 @@ class TestRetailAgent:
     def test_analyze_default(self):
         result = RetailAgent().analyze_requirements({"product_type": "price_optimization"})
         assert "analytics" in result["recommended_template"]
+        assert result["canonical_model"] == "nrf_arts"
 
     def test_analyze_real_time(self):
         result = RetailAgent().analyze_requirements({"real_time_personalization": "yes"})
@@ -398,6 +420,7 @@ class TestTelcoAgent:
     def test_analyze_real_time_operations(self):
         result = TelcoAgent().analyze_requirements({"real_time_operations": "yes"})
         assert "streaming_pipeline" in result["recommended_patterns"]
+        assert result["canonical_model"] == "tmf_sid"
         assert any("GDPR-aligned retention" in item for item in result["security_requirements"])
 
 

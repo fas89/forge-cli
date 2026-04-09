@@ -266,6 +266,8 @@ class TestValidateContextDict:
                 "complexity": "intermediate",
                 "data_sources": "BigQuery",
                 "use_case_other": "customer 360",
+                "canonical_model": "omop_cdm",
+                "supporting_standards": ["gs1_gdm"],
             }
         )
         assert ok is True
