@@ -266,15 +266,7 @@ def _ai_mode(args, logger: logging.Logger) -> int:
         )
 
     try:
-        from .forge import (
-            ContextValidationError,
-            CopilotAgent,
-            build_interview_summary_from_context,
-            get_cli_arg,
-            get_target_directory,
-            load_context,
-        )
-        from .forge import run_ai_copilot_mode as _run_copilot
+        from .forge import run_ai_copilot_mode
 
         # Determine target directory for the product.
         product_name = args.name
@@ -297,24 +289,12 @@ def _ai_mode(args, logger: logging.Logger) -> int:
         target = products_dir / slugify_identifier(product_name)
         target.mkdir(parents=True, exist_ok=True)
 
-        # Inject target dir so forge writes there.
+        # Inject target dir so the forge wrapper writes there.
         args.target_dir = str(target)
-        args.mode = "copilot"
         if not hasattr(args, "non_interactive"):
             args.non_interactive = False
-        # Ensure forge recovery flow is enabled.
-        args._enable_copilot_recovery = True
 
-        result = _run_copilot(
-            args,
-            logger,
-            copilot_class=CopilotAgent,
-            get_cli_arg_fn=get_cli_arg,
-            load_context_fn=load_context,
-            get_target_directory_fn=lambda a, default: target,
-            context_error_cls=ContextValidationError,
-            build_interview_summary_fn=build_interview_summary_from_context,
-        )
+        result = run_ai_copilot_mode(args, logger)
 
         if result == 0:
             _show_init_success(target, ws_root or Path.cwd())
