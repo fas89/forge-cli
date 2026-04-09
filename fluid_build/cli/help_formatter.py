@@ -740,6 +740,10 @@ def print_command_help(parser: argparse.ArgumentParser, command_name: str) -> No
         tbl.add_column(style="bright_white")
 
         for act in actions:
+            # Skip suppressed (deprecated) options.
+            if act.help == argparse.SUPPRESS:
+                continue
+
             # Option / positional string
             if act.option_strings:
                 opt = ", ".join(act.option_strings)

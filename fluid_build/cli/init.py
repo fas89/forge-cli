@@ -114,7 +114,7 @@ def register(subparsers: argparse._SubParsersAction):
     mode_group.add_argument(
         "--wizard",
         action="store_true",
-        help="(deprecated — use 'fluid init' for the interactive menu)",
+        help=argparse.SUPPRESS,  # deprecated — silently maps to AI mode
     )
     mode_group.add_argument(
         "--blank", action="store_true", help="🔧 Empty project skeleton (power users)"
