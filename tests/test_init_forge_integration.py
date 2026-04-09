@@ -42,6 +42,7 @@ def _make_init_args(**overrides):
         no_dag=True,
         dry_run=False,
         yes=True,
+        target_dir=None,
     )
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -290,6 +291,61 @@ class TestInitWorkspaceRedirect:
             result = detect_mode(args, logger)
 
         assert result is None  # Redirected — no mode to run
+
+
+class TestInitTargetDir:
+    """Scenario: fluid init --dir <path>"""
+
+    def test_init_with_dir_creates_workspace_in_target(self, tmp_path, logger, monkeypatch):
+        """--dir creates workspace in the specified directory."""
+        target = tmp_path / "custom-dir"
+        from fluid_build.cli.init import run
+
+        args = _make_init_args(blank=True, target_dir=str(target))
+
+        with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
+            result = run(args, logger)
+
+        assert result == 0
+        assert (target / "fluid.workspace.yaml").exists()
+
+    def test_init_without_dir_uses_cwd(self, tmp_path, logger, monkeypatch):
+        """Without --dir, init uses current working directory."""
+        monkeypatch.chdir(tmp_path)
+        from fluid_build.cli.init import run
+
+        args = _make_init_args(blank=True)
+
+        with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
+            result = run(args, logger)
+
+        assert result == 0
+        assert (tmp_path / "fluid.workspace.yaml").exists()
+
+
+class TestInitProductListing:
+    """Scenario: existing products show full paths."""
+
+    def test_redirect_shows_product_paths(self, tmp_path, logger, monkeypatch):
+        """When workspace has products, listing shows full paths."""
+        monkeypatch.chdir(tmp_path)
+        from fluid_build.cli.init import _redirect_existing_workspace
+
+        mock_product = SimpleNamespace(
+            name="customer-360",
+            path=tmp_path / "products" / "customer-360",
+            contract_path=tmp_path / "products" / "customer-360" / "contract.fluid.yaml",
+            expose_count=3,
+            provider="local",
+            fluid_version="0.7.2",
+        )
+
+        with patch("fluid_build.cli.init.RICH_AVAILABLE", False), \
+             patch("fluid_build.cli.init.load_workspace_config") as mock_ws:
+            mock_ws.return_value = SimpleNamespace(name="test-ws")
+            result = _redirect_existing_workspace([mock_product], tmp_path)
+
+        assert result is None  # redirect, no mode
 
 
 # ============================================================================

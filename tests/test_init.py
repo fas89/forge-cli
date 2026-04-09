@@ -43,6 +43,7 @@ def _make_args(**overrides):
         no_dag=False,
         dry_run=False,
         yes=True,
+        target_dir=None,
     )
     defaults.update(overrides)
     return argparse.Namespace(**defaults)

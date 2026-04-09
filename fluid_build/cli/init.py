@@ -27,6 +27,7 @@ Strategy: Router pattern - delegates to existing commands (blueprint, product-ne
 
 import argparse
 import logging
+import os
 import re
 import shutil
 from pathlib import Path
@@ -152,6 +153,12 @@ def register(subparsers: argparse._SubParsersAction):
         "--dry-run", action="store_true", help="Preview what would be created without doing it"
     )
     p.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompts")
+    p.add_argument(
+        "--dir",
+        "-C",
+        dest="target_dir",
+        help="Directory to initialize (default: current directory)",
+    )
 
     p.set_defaults(cmd=COMMAND, func=run)
 
@@ -160,6 +167,14 @@ def run(args, logger: logging.Logger) -> int:
     """Main entry point — routes to appropriate handler."""
 
     try:
+        # If --dir is specified, switch to that directory first.
+        target_dir = getattr(args, "target_dir", None)
+        if target_dir:
+            target_path = Path(target_dir).resolve()
+            target_path.mkdir(parents=True, exist_ok=True)
+            os.chdir(target_path)
+            logger.debug("Changed working directory to %s", target_path)
+
         # Determine mode (auto-detect if not specified).
         mode = detect_mode(args, logger)
 
@@ -520,12 +535,14 @@ def _print_workspace_products(existing: List, ws_name: str) -> None:
         f"{'s' if len(existing) != 1 else ''})[/dim]"
     )
     for product in existing[:10]:
-        parts = [product.name]
+        meta = []
         if product.expose_count:
-            parts.append(f"{product.expose_count} expose{'s' if product.expose_count != 1 else ''}")
+            meta.append(f"{product.expose_count} expose{'s' if product.expose_count != 1 else ''}")
         if product.provider:
-            parts.append(f"provider: {product.provider}")
-        console.print(f"[dim]  • {', '.join(parts)}[/dim]")
+            meta.append(f"provider: {product.provider}")
+        suffix = f"  ({', '.join(meta)})" if meta else ""
+        console.print(f"[dim]  • [bold]{product.name}[/bold]{suffix}[/dim]")
+        console.print(f"[dim]    {product.path}[/dim]")
     console.print()
 
 
@@ -542,6 +559,8 @@ def _redirect_existing_workspace(
     """
     if not RICH_AVAILABLE:
         cprint(f"This is already a FLUID workspace with {len(existing)} product(s).")
+        for product in existing[:10]:
+            cprint(f"  • {product.name}  ({product.path})")
         cprint("Use 'fluid forge' to add another product.")
         if is_first_time:
             _mark_first_run_complete()
