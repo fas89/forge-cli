@@ -233,39 +233,82 @@ class TestDemoMode:
 
 
 class TestBlankMode:
-    def test_existing_directory_returns_1(self, tmp_path, logger, monkeypatch):
+    """Slice UX-F rewrite: blank_mode goes directly through
+    build_minimal_contract + write_contract + ReceiptBuilder.  It no
+    longer delegates to product_new_run.  See slice UX-F in the plan
+    file for the rationale (unify init --blank with forge --blank)."""
+
+    def test_non_empty_existing_directory_returns_1(self, tmp_path, logger, monkeypatch):
+        """A pre-existing non-empty dir blocks the scaffold with exit 1."""
         from fluid_build.cli.init import blank_mode
 
         monkeypatch.chdir(tmp_path)
         existing = tmp_path / "blank-existing"
         existing.mkdir()
+        (existing / "some-existing-file.txt").write_text("hands off")
         args = _make_args(name="blank-existing")
         result = blank_mode(args, logger)
         assert result == 1
 
-    def test_creates_contract_via_import_error_path(self, tmp_path, logger, monkeypatch):
+    def test_empty_existing_directory_is_accepted(self, tmp_path, logger, monkeypatch):
+        """An empty stub dir is fine — blank_mode populates it."""
+        from fluid_build.cli.init import blank_mode
+
+        monkeypatch.chdir(tmp_path)
+        existing = tmp_path / "blank-empty"
+        existing.mkdir()
+        args = _make_args(name="blank-empty", dry_run=False)
+        result = blank_mode(args, logger)
+        assert result == 0
+        assert (existing / "contract.fluid.yaml").exists()
+
+    def test_creates_v072_yaml_contract_via_build_minimal_contract(
+        self, tmp_path, logger, monkeypatch
+    ):
+        """blank_mode writes a v0.7.2 YAML contract through
+        build_minimal_contract + write_contract.  The result has
+        metadata.provenance and the new shape (top-level domain,
+        metadata.layer: Bronze, SQL embedded-logic build)."""
+        import yaml as _yaml
         from fluid_build.cli.init import blank_mode
 
         monkeypatch.chdir(tmp_path)
         args = _make_args(name="blank-new-project", provider="local", dry_run=False)
-        # Remove product_new from sys.modules to ensure ImportError inside blank_mode
-        monkeypatch.delitem(sys.modules, "fluid_build.cli.product_new", raising=False)
         with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
-            with patch.dict("sys.modules", {"fluid_build.cli.product_new": None}):
-                result = blank_mode(args, logger)
+            result = blank_mode(args, logger)
         assert result == 0
+
         contract = tmp_path / "blank-new-project" / "contract.fluid.yaml"
         assert contract.exists()
-        content = contract.read_text()
-        assert f'fluidVersion: "{FluidSchemaManager.latest_bundled_version()}"' in content
-        assert "id: blank.blank-new-project" in content
-        assert 'name: "blank-new-project"' in content
+        doc = _yaml.safe_load(contract.read_text())
+        # New v0.7.2 shape
+        assert doc["id"] == "blank-new-project"
+        assert doc["domain"] == "analytics"  # top-level, not metadata.domain
+        assert doc["metadata"]["layer"] == "Bronze"
+        assert "provenance" in doc["metadata"]
+        assert doc["builds"][0]["pattern"] == "embedded-logic"
 
-    def test_product_new_run_called_when_available(self, tmp_path, logger, monkeypatch):
+    def test_writes_forge_receipt_inside_product(self, tmp_path, logger, monkeypatch):
+        """Slice UX-F: blank_mode also writes .fluid/forge-receipt.json
+        inside the new product so fluid status finds it."""
+        from fluid_build.cli.init import blank_mode
+        from fluid_build.cli.artifact_paths import product_forge_receipt_path
+
+        monkeypatch.chdir(tmp_path)
+        args = _make_args(name="blank-receipt-check", provider="local", dry_run=False)
+        with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
+            blank_mode(args, logger)
+
+        receipt = product_forge_receipt_path(tmp_path / "blank-receipt-check")
+        assert receipt.is_file()
+
+    def test_does_not_delegate_to_product_new_run(self, tmp_path, logger, monkeypatch):
+        """Regression guard against the old delegation path: slice UX-F
+        removed the call to product_new.run entirely."""
         from fluid_build.cli.init import blank_mode
 
         monkeypatch.chdir(tmp_path)
-        args = _make_args(name="blank-delegate", provider="local", dry_run=False)
+        args = _make_args(name="blank-no-delegate", provider="local", dry_run=False)
         mock_run = MagicMock(return_value=0)
         mock_mod = MagicMock()
         mock_mod.run = mock_run
@@ -273,17 +316,16 @@ class TestBlankMode:
         with patch.dict("sys.modules", {"fluid_build.cli.product_new": mock_mod}):
             result = blank_mode(args, logger)
         assert result == 0
-        mock_run.assert_called_once()
+        # product_new.run MUST NOT be called — UX-F removed that path
+        mock_run.assert_not_called()
 
     def test_default_name_my_project(self, tmp_path, logger, monkeypatch):
         from fluid_build.cli.init import blank_mode
 
         monkeypatch.chdir(tmp_path)
         args = _make_args(provider="local", dry_run=False)
-        monkeypatch.delitem(sys.modules, "fluid_build.cli.product_new", raising=False)
         with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
-            with patch.dict("sys.modules", {"fluid_build.cli.product_new": None}):
-                result = blank_mode(args, logger)
+            result = blank_mode(args, logger)
         assert result == 0
         assert (tmp_path / "my-project" / "contract.fluid.yaml").exists()
 

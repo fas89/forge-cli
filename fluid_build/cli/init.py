@@ -729,43 +729,57 @@ def _print_welcome_panel() -> None:
     console.print()
 
 
+def _list_filesystem_templates() -> List[str]:
+    """Return the list of template names that ``copy_template`` can
+    actually find on disk.
+
+    The registry (``simple_forge.list_templates``) returns logical
+    template names (``starter``, ``analytics``, ``etl_pipeline``…)
+    that do NOT correspond 1:1 to filesystem directories under
+    ``fluid_build/templates/``.  If the interactive menu offers those
+    logical names, ``copy_template`` crashes with "Template 'starter'
+    not found".  This helper walks the filesystem directly so the
+    picker only ever offers names that exist.
+    """
+    templates_dir = Path(__file__).parent.parent / "templates"
+    try:
+        return sorted(
+            p.name
+            for p in templates_dir.iterdir()
+            if p.is_dir() and not p.name.startswith(".") and p.name != "__pycache__"
+        )
+    except (OSError, FileNotFoundError):
+        return []
+
+
 def _ask_template_name() -> Optional[str]:
     """Prompt the user to pick a template when 'Start from a template' is chosen.
 
-    Lists the installed templates (via the same registry ``fluid init
-    --list-templates`` uses) and asks the user to type one name.
-    Defaults to ``customer-360``.  Falls back to ``customer-360`` when
-    Rich is unavailable or the template list can't be loaded — that
-    way the caller never receives ``None`` and ``template_mode``
-    never gets an empty ``args.template``.
+    Lists the filesystem templates under ``fluid_build/templates/``
+    (the ones ``copy_template`` can actually copy) and prompts for a
+    choice.  Defaults to ``customer-360`` when it exists, otherwise to
+    the first alphabetically.  Falls back to the default when Rich is
+    unavailable or the prompt is cancelled — the caller never receives
+    ``None`` so ``template_mode`` cannot crash on an empty
+    ``args.template``.
     """
     default_name = "customer-360"
 
-    if not RICH_AVAILABLE:
+    names = _list_filesystem_templates()
+    if not names:
+        # No templates on disk — absolute fallback so at least the
+        # default path is wired.  template_mode will still fail
+        # cleanly if the default isn't present, but the caller won't
+        # see the Path/None TypeError.
         return default_name
 
-    # Load the template list.  Mirror the two-path loader used by
-    # ``_print_templates_list`` so we stay resilient to the
-    # simple_forge recursion workaround.
-    try:
-        from fluid_build.forge.simple_forge import list_templates  # type: ignore
-
-        try:
-            names = list_templates()
-        except RecursionError:
-            from fluid_build.forge.core.simple_registry import (
-                initialize_registries,
-                list_templates as registry_list_templates,
-            )
-
-            initialize_registries()
-            names = registry_list_templates()
-    except ImportError:
-        names = [default_name]
-
-    names = sorted(names or [default_name])
     if default_name not in names:
-        names.insert(0, default_name)
+        # Default is missing from disk — pick the first alphabetical
+        # template as the fallback default so the picker stays usable.
+        default_name = names[0]
+
+    if not RICH_AVAILABLE:
+        return default_name
 
     console.print()
     console.print("[dim]Available templates:[/dim]")
@@ -775,7 +789,7 @@ def _ask_template_name() -> Optional[str]:
     console.print()
 
     valid_indices = [str(i) for i in range(1, len(names) + 1)]
-    default_index = str(names.index(default_name) + 1) if default_name in names else "1"
+    default_index = str(names.index(default_name) + 1)
     try:
         choice = Prompt.ask("Choose template", choices=valid_indices, default=default_index)
     except Exception:  # noqa: BLE001 — never crash the init flow over a prompt
@@ -1304,7 +1318,29 @@ def demo_mode(args, logger: logging.Logger) -> int:
 
 
 def blank_mode(args, logger: logging.Logger) -> int:
-    """Empty project skeleton"""
+    """Empty project skeleton.
+
+    Slice UX-F rewrite: goes directly through
+    :func:`fluid_build.cli.forge_contract_factory.build_minimal_contract`
+    + :func:`fluid_build.cli.forge_contract_factory.write_contract` so
+    the output shape matches what ``fluid forge --blank`` produces —
+    v0.7.2 YAML contract with ``metadata.provenance`` envelope
+    alongside the workspace config, the ``.gitignore`` template, and
+    the init receipt.
+
+    The previous implementation delegated to ``product_new.run``, which
+    emitted a legacy v0.5.7 JSON contract under ``bronze_<name>/``.
+    That left three different scaffolding paths with three different
+    contract formats (blank / forge-blank / template).  This slice
+    unifies them.
+    """
+    from fluid_build.cli.forge_contract_factory import (
+        build_minimal_contract,
+        create_and_validate_contract,
+    )
+    from fluid_build.cli.artifact_envelope import dump_json_with_envelope
+    from fluid_build.cli.artifact_paths import product_forge_receipt_path
+    from fluid_build.cli.artifact_receipts import ReceiptBuilder
 
     project_name = slugify_identifier(args.name, fallback="my-project")
     project_dir = Path(project_name)
@@ -1327,15 +1363,20 @@ def blank_mode(args, logger: logging.Logger) -> int:
             console.print(f"[red]❌ '{project_name}' is a symlink — refusing to write[/red]")
         return 1
 
-    if project_dir.exists():
+    if project_dir.exists() and any(project_dir.iterdir()):
         if RICH_AVAILABLE:
-            console.print(f"[red]❌ Directory '{project_name}' already exists[/red]")
+            console.print(
+                f"[red]❌ Directory '{project_name}' already exists and is not empty[/red]"
+            )
+        else:
+            console_error(f"Directory '{project_name}' already exists and is not empty")
         return 1
 
     if getattr(args, "dry_run", False):
         preview_lines = [
             f"  📁 {project_name}/",
             f"  📄 {project_name}/contract.fluid.yaml",
+            f"  📄 {project_name}/.fluid/forge-receipt.json",
         ]
         if RICH_AVAILABLE:
             console.print("[yellow]🔍 Dry run - would create:[/yellow]")
@@ -1347,63 +1388,75 @@ def blank_mode(args, logger: logging.Logger) -> int:
                 cprint(line)
         return 0
 
+    # Derive a contract id from the workspace name — mirrors what
+    # ``fluid forge --blank`` does when no --context is supplied.
+    product_slug = slugify_identifier(project_name, fallback="my-data-product")
+
+    contract = build_minimal_contract(
+        product_id=product_slug,
+        name=project_name,
+    )
+
+    result_path = create_and_validate_contract(
+        contract,
+        project_dir,
+        logger,
+        console=console if RICH_AVAILABLE else None,
+    )
+    if result_path is None:
+        return 1
+
+    # Write a forge-receipt.json inside the product so `fluid status`,
+    # drift detection, and any downstream tooling see the same shape
+    # `fluid forge --blank` produces.
     try:
-        # Try to use existing product-new command
-        from .product_new import run as product_new_run
+        from fluid_build import __version__ as tool_version
+    except Exception:  # pragma: no cover — defensive
+        tool_version = ""
 
-        class ProductNewArgs:
-            def __init__(self):
-                self.id = f"bronze.{project_name}"
-                self.out_dir = str(project_dir.parent)
-                self.name = project_name
-                self.provider = args.provider
-                self.minimal = True
-                self.dry_run = args.dry_run
+    builder = ReceiptBuilder(flow="blank", dry_run=False)
+    # Record the contract write with a sha256 for drift-awareness.
+    import hashlib
 
-        return product_new_run(ProductNewArgs(), logger)
+    try:
+        sha = hashlib.sha256(result_path.read_bytes()).hexdigest()
+        size = result_path.stat().st_size
+    except OSError:
+        sha, size = None, 0
+    builder.record_entry(
+        path=Path("contract.fluid.yaml"),
+        action="create",
+        sha256=sha,
+        size=size,
+    )
+    builder.set_inputs(
+        blank=True,
+        flow="init-blank",
+        provider=getattr(args, "provider", None),
+        name=project_name,
+    )
 
-    except ImportError:
-        # Create minimal structure manually
-        project_dir.mkdir(parents=True)
+    try:
+        receipt_path = product_forge_receipt_path(project_dir)
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        receipt_bytes = dump_json_with_envelope(
+            builder.build_document().to_payload(),
+            kind="ForgeReceipt",
+            command=f"fluid init {project_name} --blank",
+            tool_version=str(tool_version),
+        )
+        receipt_path.write_text(receipt_bytes, encoding="utf-8")
+        logger.debug("blank_mode_receipt_written", extra={"path": str(receipt_path)})
+    except Exception as exc:  # noqa: BLE001 — receipt is best-effort
+        logger.debug("blank_mode_receipt_write_failed", extra={"error": str(exc)})
 
-        # Create minimal contract. The expose is a placeholder so that the
-        # scaffold validates cleanly against the bundled FLUID schema
-        # (``exposes`` has ``minItems: 1``); users replace it with their real
-        # output on first edit.
-        project_slug = slugify_identifier(project_name, fallback="project")
-        contract_content = f"""fluidVersion: "{_latest_fluid_version()}"
-kind: DataProduct
-id: blank.{project_slug}
-name: "{project_name}"
-description: "FLUID data product"
-domain: example
+    if RICH_AVAILABLE:
+        console.print(f"\n✅ Created [cyan]{project_name}/contract.fluid.yaml[/cyan]")
+        console.print(f"[dim]Next:[/dim] [cyan]cd {project_name} && fluid validate[/cyan]")
+    else:
+        cprint(f"Created {project_name}/contract.fluid.yaml")
 
-metadata:
-  owner:
-    team: data-team
-
-exposes:
-  - exposeId: example_output
-    kind: table
-    binding:
-      platform: local
-      format: parquet
-      location:
-        path: data/example_output.parquet
-    contract:
-      schema: []
-"""
-
-        contract_path = project_dir / "contract.fluid.yaml"
-        contract_path.write_text(contract_content)
-
-        if RICH_AVAILABLE:
-            console.print(f"\n✅ Created {project_name}/contract.fluid.yaml")
-            console.print("\nNext steps:")
-            console.print(f"  $ cd {project_name}")
-            console.print("  $ code contract.fluid.yaml")
-
-        return 0
+    return 0
 
 
 def template_mode(args, logger: logging.Logger) -> int:
@@ -1442,27 +1495,153 @@ def template_mode(args, logger: logging.Logger) -> int:
     else:
         cprint(f"📦 Creating from template: {template_name}")
 
+    used_blueprint = False
     try:
         # Try to use existing blueprint command
         from .blueprint import create_from_template
 
         if not create_from_template(template_name, project_dir, logger):
             return 1
-
-        if RICH_AVAILABLE:
-            console.print(f"\n✅ Created project from {template_name} template")
-
-        return 0
+        used_blueprint = True
 
     except (ImportError, AttributeError):
         # Blueprint command not available - use our own template copy
         success = copy_template(project_dir, template_name, logger)
-        return 0 if success else 1
+        if not success:
+            return 1
+
+    # Slice UX-F: after the template files have landed, rewrite the
+    # product's contract.fluid.yaml through ``write_contract`` so it
+    # carries the ``metadata.provenance`` envelope (slice 4) and
+    # record a forge receipt under ``.fluid/forge-receipt.json`` so
+    # the product looks the same as one produced by ``fluid forge``.
+    _finalise_template_product(
+        template_name=template_name,
+        project_name=project_name,
+        project_dir=project_dir,
+        logger=logger,
+    )
+
+    if RICH_AVAILABLE:
+        console.print(f"\n✅ Created project from {template_name} template")
+
+    return 0
+
+
+def _finalise_template_product(
+    *,
+    template_name: str,
+    project_name: str,
+    project_dir: Path,
+    logger: logging.Logger,
+) -> None:
+    """Post-copy hook: inject provenance envelope + write forge receipt.
+
+    Runs after ``copy_template`` / ``create_from_template`` lands the
+    template files.  Best-effort: never raises.  When the template
+    doesn't include a ``contract.fluid.yaml``, the provenance step is
+    silently skipped.
+    """
+    import hashlib
+
+    from fluid_build.cli.artifact_envelope import dump_json_with_envelope, build_envelope
+    from fluid_build.cli.artifact_paths import product_forge_receipt_path
+    from fluid_build.cli.artifact_receipts import ReceiptBuilder
+
+    try:
+        import yaml
+    except ImportError:  # pragma: no cover — yaml is a hard dep
+        return
+
+    contract_path = project_dir / "contract.fluid.yaml"
+    if not contract_path.is_file():
+        return  # some templates don't ship a contract; nothing to stamp.
+
+    try:
+        from fluid_build import __version__ as tool_version
+    except Exception:  # pragma: no cover — defensive
+        tool_version = ""
+
+    # Load the template's contract and inject metadata.provenance.
+    try:
+        doc = yaml.safe_load(contract_path.read_text(encoding="utf-8")) or {}
+        if not isinstance(doc, dict):
+            return
+
+        metadata = doc.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+        metadata = dict(metadata)
+        metadata["provenance"] = build_envelope(
+            kind="ContractMetadata",
+            command=f"fluid init {project_name} --template {template_name}",
+            tool_version=str(tool_version),
+        )
+        doc["metadata"] = metadata
+
+        contract_path.write_text(
+            "# FLUID Data Product Contract\n"
+            "# Docs: https://fluid-build.dev/docs/contracts\n"
+            + yaml.dump(doc, default_flow_style=False, sort_keys=False, allow_unicode=True),
+            encoding="utf-8",
+        )
+    except Exception as exc:  # noqa: BLE001 — provenance is best-effort
+        logger.debug("template_provenance_inject_failed", extra={"error": str(exc)})
+
+    # Write the forge-receipt.json inside the product.
+    try:
+        builder = ReceiptBuilder(flow="template", dry_run=False)
+        try:
+            sha = hashlib.sha256(contract_path.read_bytes()).hexdigest()
+            size = contract_path.stat().st_size
+        except OSError:
+            sha, size = None, 0
+        builder.record_entry(
+            path=Path("contract.fluid.yaml"),
+            action="create",
+            sha256=sha,
+            size=size,
+        )
+        builder.set_inputs(
+            template=template_name,
+            name=project_name,
+        )
+        receipt_path = product_forge_receipt_path(project_dir)
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        receipt_path.write_text(
+            dump_json_with_envelope(
+                builder.build_document().to_payload(),
+                kind="ForgeReceipt",
+                command=f"fluid init {project_name} --template {template_name}",
+                tool_version=str(tool_version),
+            ),
+            encoding="utf-8",
+        )
+        logger.debug("template_receipt_written", extra={"path": str(receipt_path)})
+    except Exception as exc:  # noqa: BLE001 — receipt is best-effort
+        logger.debug("template_receipt_write_failed", extra={"error": str(exc)})
 
 
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
+
+
+#: Filename suffixes that should NEVER be copied from a template source.
+#: ``*.old`` files are template-author scratch artifacts (backup copies of
+#: old contract shapes), not something the user should see inherit into
+#: their new project.
+_TEMPLATE_IGNORE_SUFFIXES = (".old", ".bak", ".tmp", ".swp")
+_TEMPLATE_IGNORE_NAMES = {"__pycache__", ".DS_Store"}
+
+
+def _should_copy_template_entry(entry: Path) -> bool:
+    """Return True if *entry* should be copied into a new project dir."""
+    if entry.name in _TEMPLATE_IGNORE_NAMES:
+        return False
+    if any(entry.name.endswith(suffix) for suffix in _TEMPLATE_IGNORE_SUFFIXES):
+        return False
+    return True
 
 
 def copy_template(project_dir: Path, template_name: str, logger: logging.Logger) -> bool:
@@ -1485,12 +1664,23 @@ def copy_template(project_dir: Path, template_name: str, logger: logging.Logger)
     try:
         project_dir.mkdir(parents=True, exist_ok=True)
 
-        # Copy all files from template
-        for item in templates_dir.iterdir():
-            if item.is_file():
-                shutil.copy2(item, project_dir / item.name)
-            elif item.is_dir() and item.name != "__pycache__":
-                shutil.copytree(item, project_dir / item.name, dirs_exist_ok=True)
+        # Copy all files from template, skipping template-author scratch
+        # artifacts (``*.old``/``*.bak``/``*.tmp``/``*.swp``) and
+        # ``__pycache__``.  Historically the customer-360 template
+        # carried a ``contract.fluid.yaml.old`` backup that every new
+        # project inherited — see slice UX-F for the fix.
+        def _copy_tree_filtered(src: Path, dst: Path) -> None:
+            dst.mkdir(parents=True, exist_ok=True)
+            for item in src.iterdir():
+                if not _should_copy_template_entry(item):
+                    continue
+                target = dst / item.name
+                if item.is_file():
+                    shutil.copy2(item, target)
+                elif item.is_dir():
+                    _copy_tree_filtered(item, target)
+
+        _copy_tree_filtered(templates_dir, project_dir)
 
         if RICH_AVAILABLE:
             console.print(f"✅ Copied template files from {template_name}")

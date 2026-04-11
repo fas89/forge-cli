@@ -468,9 +468,18 @@ class TestCiTaxonomyNormalization(unittest.TestCase):
 
 class TestCiConstants(unittest.TestCase):
     def test_provider_values_match_pipeline_provider_enum(self):
+        """_CI_PROVIDER_VALUES uses the CLI-facing names, which differ
+        from the underlying PipelineProvider enum for the CircleCI
+        entry (``circleci`` vs ``circle_ci``).  Slice UX-E added an
+        alias map so both spellings flow through ``_resolve_ci_choice``
+        — this assertion normalises the enum side before comparing."""
         from fluid_build.forge.core.pipeline_templates import PipelineProvider
+        from fluid_build.cli.forge_modes import _CI_PROVIDER_ALIASES
 
-        enum_values = {p.value for p in PipelineProvider}
+        def _normalise(value: str) -> str:
+            return _CI_PROVIDER_ALIASES.get(value, value)
+
+        enum_values = {_normalise(p.value) for p in PipelineProvider}
         self.assertEqual(_CI_PROVIDER_VALUES, enum_values)
 
     def test_complexity_values_match_pipeline_complexity_enum(self):
