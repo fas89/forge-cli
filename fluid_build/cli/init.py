@@ -37,6 +37,7 @@ from fluid_build.cli.artifact_paths import workspace_init_receipt_path
 from fluid_build.cli.artifact_receipts import ReceiptBuilder
 from fluid_build.cli.artifact_scan import diff_snapshots, snapshot_workspace
 from fluid_build.cli.console import cprint, success, warning
+from fluid_build.cli.next_steps import print_next_steps
 from fluid_build.cli.console import error as console_error
 from fluid_build.cli.workspace_config import (
     WORKSPACE_FILENAME,
@@ -174,31 +175,51 @@ def register(subparsers: argparse._SubParsersAction):
         help="Infrastructure provider (default: local = DuckDB, no cloud needed)",
     )
 
-    # Use case / persona
-    p.add_argument(
-        "--use-case",
-        choices=["data-product", "ai-agent", "analytics", "api"],
-        help="Use case configuration (adds opinionated defaults)",
+    # Use case / persona (advanced — hidden from default --help)
+    from fluid_build.cli.help_advanced import mark_advanced
+
+    mark_advanced(
+        p.add_argument(
+            "--use-case",
+            choices=["data-product", "ai-agent", "analytics", "api"],
+            help="Use case configuration (adds opinionated defaults)",
+        )
     )
 
-    # Control options
-    p.add_argument(
-        "--no-run", action="store_true", help="Don't auto-execute pipeline after creation"
-    )
-    p.add_argument(
-        "--no-dag",
-        action="store_true",
-        help="Don't auto-generate Airflow DAG (even if contract has orchestration config)",
-    )
+    # Control options — the basics stay visible
+    p.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompts")
     p.add_argument(
         "--dry-run", action="store_true", help="Preview what would be created without doing it"
     )
-    p.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompts")
     p.add_argument(
         "--dir",
         "-C",
         dest="target_dir",
         help="Directory to initialize (default: current directory)",
+    )
+    p.add_argument(
+        "--quiet",
+        "-q",
+        action="store_true",
+        help="Suppress the next-steps panel and other post-success hints",
+    )
+    # Advanced: post-run control knobs — hidden unless --advanced is passed
+    mark_advanced(
+        p.add_argument(
+            "--no-run",
+            action="store_true",
+            help="Don't auto-execute pipeline after creation",
+        )
+    )
+    mark_advanced(
+        p.add_argument(
+            "--no-dag",
+            action="store_true",
+            help=(
+                "Don't auto-generate Airflow DAG "
+                "(even if contract has orchestration config)"
+            ),
+        )
     )
 
     p.set_defaults(cmd=COMMAND, func=run)
@@ -268,6 +289,12 @@ def run(args, logger: logging.Logger) -> int:
                 before_snapshot=before_snapshot,
                 scan_root=scan_root,
                 logger=logger,
+            )
+            # Slice UX-C: point the user at their second command.
+            print_next_steps(
+                "init",
+                console=console if RICH_AVAILABLE else None,
+                args=args,
             )
         return result
 

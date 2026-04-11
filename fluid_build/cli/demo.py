@@ -45,6 +45,7 @@ from fluid_build.cli.artifact_paths import workspace_init_receipt_path
 from fluid_build.cli.artifact_receipts import ReceiptBuilder
 from fluid_build.cli.artifact_scan import diff_snapshots, snapshot_workspace
 from fluid_build.cli.console import cprint, error as console_error
+from fluid_build.cli.next_steps import print_next_steps
 
 try:
     from rich.console import Console
@@ -91,6 +92,12 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         "--no-run",
         action="store_true",
         help="Scaffold the project but skip running the pipeline",
+    )
+    parser.add_argument(
+        "--quiet",
+        "-q",
+        action="store_true",
+        help="Suppress the next-steps panel and other post-success hints",
     )
     parser.set_defaults(cmd=COMMAND, func=run)
 
@@ -317,6 +324,13 @@ def run(args: Any, logger: logging.Logger) -> int:
             logger=logger,
         )
         _print_success_panel(name, target.resolve())
+        # Slice UX-C: show the shared next-steps panel after the demo's
+        # own success panel.  Skips when --quiet is passed.
+        print_next_steps(
+            "demo",
+            console=_console if RICH_AVAILABLE else None,
+            args=args,
+        )
     elif rc != 0:
         _print_failure_panel(name, RuntimeError(f"exit code {rc}"))
 

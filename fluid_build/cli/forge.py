@@ -36,6 +36,7 @@ from fluid_build.cli.artifact_receipts import ReceiptBuilder
 from fluid_build.cli.artifact_scan import diff_snapshots, snapshot_workspace
 from fluid_build.cli.console import cprint
 from fluid_build.cli.console import error as console_error
+from fluid_build.cli.next_steps import print_next_steps
 from fluid_build.cli.forge_agents import DOMAIN_AGENTS
 from fluid_build.cli.forge_context import (
     get_cli_arg as _get_cli_arg,
@@ -462,6 +463,7 @@ def run(args, logger: logging.Logger) -> int:
                     scan_root=scan_root,
                     logger=logger,
                 )
+                print_next_steps("forge", console=console, args=args)
             return result
 
         # --- Default: AI Copilot with inline LLM setup ---
@@ -507,6 +509,7 @@ def run(args, logger: logging.Logger) -> int:
                             scan_root=scan_root,
                             logger=logger,
                         )
+                        print_next_steps("forge", console=console, args=args)
                     return result
                 if console:
                     console.print(
@@ -524,6 +527,7 @@ def run(args, logger: logging.Logger) -> int:
                 scan_root=scan_root,
                 logger=logger,
             )
+            print_next_steps("forge", console=console, args=args)
         return result
 
     except KeyboardInterrupt:
