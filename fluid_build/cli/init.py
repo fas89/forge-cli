@@ -32,6 +32,10 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from fluid_build.cli.artifact_envelope import dump_json_with_envelope
+from fluid_build.cli.artifact_paths import workspace_init_receipt_path
+from fluid_build.cli.artifact_receipts import ReceiptBuilder
+from fluid_build.cli.artifact_scan import diff_snapshots, snapshot_workspace
 from fluid_build.cli.console import cprint, success, warning
 from fluid_build.cli.console import error as console_error
 from fluid_build.cli.workspace_config import (
@@ -222,6 +226,11 @@ def run(args, logger: logging.Logger) -> int:
         if mode is None:
             return 1  # Error already displayed or user redirected.
 
+        # Snapshot state before any handler runs so we can build a receipt
+        # of what this run wrote.  See fluid_build.cli.artifact_scan.
+        scan_root = Path.cwd()
+        before_snapshot = snapshot_workspace(scan_root)
+
         # Ensure workspace structure exists for all modes.
         _ensure_workspace(args, logger)
 
@@ -253,6 +262,13 @@ def run(args, logger: logging.Logger) -> int:
         result = handler(args, logger)
         if result == 0:
             _mark_first_run_complete()
+            _write_init_receipt(
+                flow=mode,
+                args=args,
+                before_snapshot=before_snapshot,
+                scan_root=scan_root,
+                logger=logger,
+            )
         return result
 
     except KeyboardInterrupt:
@@ -268,6 +284,97 @@ def run(args, logger: logging.Logger) -> int:
         else:
             console_error(f"Init failed: {e}")
         return 1
+
+
+def _write_init_receipt(
+    *,
+    flow: str,
+    args,
+    before_snapshot,
+    scan_root: Path,
+    logger: logging.Logger,
+) -> None:
+    """Write ``.fluid/init-receipt.json`` describing what this run wrote.
+
+    Never raises — receipt writing is a best-effort post-success side
+    effect.  If the workspace root can't be located or the write fails,
+    the command still reports success to the user.
+    """
+    try:
+        ws_root = find_workspace_root(Path.cwd()) or scan_root
+        after_snapshot = snapshot_workspace(ws_root)
+        entries = diff_snapshots(before_snapshot, after_snapshot)
+
+        # Drop no-op entries — the receipt is about what this run changed.
+        entries = [e for e in entries if e.action != "unchanged"]
+        if not entries:
+            return  # Nothing to record; skip the write entirely.
+
+        builder = ReceiptBuilder(flow=flow, dry_run=False)
+        for entry in entries:
+            builder.record_entry(
+                path=Path(entry.path),
+                action=entry.action,
+                sha256=entry.sha256,
+                size=entry.size,
+                reason=entry.reason,
+            )
+
+        builder.set_inputs(
+            template=getattr(args, "template", None),
+            provider=getattr(args, "provider", None),
+            use_case=getattr(args, "use_case", None),
+            quickstart=bool(getattr(args, "quickstart", False)) or None,
+            blank=bool(getattr(args, "blank", False)) or None,
+        )
+
+        doc = builder.build_document()
+
+        try:
+            from fluid_build import __version__ as tool_version
+        except Exception:  # pragma: no cover — defensive
+            tool_version = ""
+
+        command = _format_init_command(args, flow)
+        payload_bytes = dump_json_with_envelope(
+            doc.to_payload(),
+            kind="InitReceipt",
+            command=command,
+            tool_version=str(tool_version),
+        )
+
+        receipt_path = workspace_init_receipt_path(ws_root)
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        receipt_path.write_text(payload_bytes, encoding="utf-8")
+        logger.debug("init_receipt_written", extra={"path": str(receipt_path)})
+    except Exception as exc:  # noqa: BLE001 — receipt write must never abort init
+        logger.debug("init_receipt_write_failed", extra={"error": str(exc)})
+
+
+def _format_init_command(args, flow: str) -> str:
+    """Build a short human-readable command string for the receipt envelope.
+
+    The command string goes into ``generated_by.command`` so the receipt
+    carries enough context to tell two runs apart.  Secrets are never
+    included — only the mode flags and explicit knobs.
+    """
+    parts = ["fluid init"]
+    if getattr(args, "name", None):
+        parts.append(str(args.name))
+    if getattr(args, "blank", False):
+        parts.append("--blank")
+    elif getattr(args, "quickstart", False):
+        parts.append("--quickstart")
+    elif getattr(args, "template", None):
+        parts.append(f"--template {args.template}")
+    elif flow == "ai":
+        # No explicit flag — AI is the interactive default.
+        pass
+    if getattr(args, "provider", None) and args.provider != "local":
+        parts.append(f"--provider {args.provider}")
+    if getattr(args, "yes", False):
+        parts.append("--yes")
+    return " ".join(parts)
 
 
 def _ensure_workspace(args, logger: logging.Logger) -> None:
