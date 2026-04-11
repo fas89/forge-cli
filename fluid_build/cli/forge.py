@@ -30,6 +30,10 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from fluid_build.cli.artifact_envelope import dump_json_with_envelope
+from fluid_build.cli.artifact_paths import product_forge_receipt_path
+from fluid_build.cli.artifact_receipts import ReceiptBuilder
+from fluid_build.cli.artifact_scan import diff_snapshots, snapshot_workspace
 from fluid_build.cli.console import cprint
 from fluid_build.cli.console import error as console_error
 from fluid_build.cli.forge_agents import DOMAIN_AGENTS
@@ -435,12 +439,30 @@ def run(args, logger: logging.Logger) -> int:
         if get_cli_arg(args, "show_memory", False) or get_cli_arg(args, "reset_memory", False):
             return handle_memory_management(args, logger)
 
+        # --- Snapshot for the forge receipt ---
+        # Scan cwd before any mode runs so the diff catches every file the
+        # mode handler wrote.  find_workspace_root is cheap and localised;
+        # if this isn't a workspace yet, we fall back to cwd and still
+        # produce a receipt.
+        scan_root = Path.cwd()
+        before_snapshot = snapshot_workspace(scan_root)
+
         # --- Determine effective mode ---
         is_blank = get_cli_arg(args, "blank", False)
+        flow = "blank" if is_blank else "copilot"
 
         if is_blank:
             LOG.debug("Forge: blank mode selected")
-            return _run_blank_mode(args, logger)
+            result = _run_blank_mode(args, logger)
+            if result == 0:
+                _write_forge_receipt(
+                    flow=flow,
+                    args=args,
+                    before_snapshot=before_snapshot,
+                    scan_root=scan_root,
+                    logger=logger,
+                )
+            return result
 
         # --- Default: AI Copilot with inline LLM setup ---
         LOG.debug("Forge: copilot mode")
@@ -476,7 +498,16 @@ def run(args, logger: logging.Logger) -> int:
                 else:
                     proceed = False
                 if proceed:
-                    return run_guided_mode(args, logger)
+                    result = run_guided_mode(args, logger)
+                    if result == 0:
+                        _write_forge_receipt(
+                            flow="guided",
+                            args=args,
+                            before_snapshot=before_snapshot,
+                            scan_root=scan_root,
+                            logger=logger,
+                        )
+                    return result
                 if console:
                     console.print(
                         "[yellow]Use 'fluid forge --blank' for a bare contract,[/yellow]\n"
@@ -484,7 +515,16 @@ def run(args, logger: logging.Logger) -> int:
                     )
                 return 1
 
-        return run_ai_copilot_mode(args, logger)
+        result = run_ai_copilot_mode(args, logger)
+        if result == 0:
+            _write_forge_receipt(
+                flow="copilot",
+                args=args,
+                before_snapshot=before_snapshot,
+                scan_root=scan_root,
+                logger=logger,
+            )
+        return result
 
     except KeyboardInterrupt:
         logger.info("Forge cancelled by user")
@@ -549,6 +589,134 @@ def create_legacy_bootstrapper(target_dir: Optional[str] = None, **kwargs):
     from .forge_legacy import ForgeBootstrapper
 
     return ForgeBootstrapper(target_dir, **kwargs)
+
+
+def _write_forge_receipt(
+    *,
+    flow: str,
+    args,
+    before_snapshot,
+    scan_root: Path,
+    logger: logging.Logger,
+) -> None:
+    """Write ``<product>/.fluid/forge-receipt.json`` for this run.
+
+    Never raises — receipt writing is best-effort post-success.  The
+    forge receipt lives next to the product it describes, so we
+    identify the product by diffing the workspace snapshot and scoping
+    to the directory of whichever contract was just (re)written.
+
+    If the diff turns up multiple contracts (e.g. an interactive flow
+    that touched several products), the receipt is scoped to the most
+    recently modified one.
+    """
+    try:
+        after_snapshot = snapshot_workspace(scan_root)
+        entries = diff_snapshots(before_snapshot, after_snapshot)
+        # Ignore no-op rows — the receipt only records what changed.
+        changed = [e for e in entries if e.action != "unchanged"]
+        if not changed:
+            return
+
+        # Find the product directory for this run — the dir containing
+        # the (new or updated) contract.fluid.yaml is the scope root for
+        # the receipt.  Fall back to cwd when the flow wrote files
+        # without touching any contract (shouldn't happen in practice,
+        # but be defensive).
+        product_root = _resolve_product_root(changed, scan_root)
+        if product_root is None:
+            logger.debug("forge_receipt_no_product_root")
+            return
+
+        builder = ReceiptBuilder(flow=flow, dry_run=False)
+        for entry in changed:
+            # Re-anchor the path to the product root so the receipt is
+            # self-contained and portable across clones.
+            abs_path = (scan_root / entry.path).resolve()
+            try:
+                rel = abs_path.relative_to(product_root.resolve())
+                path_str = str(rel)
+            except ValueError:
+                path_str = str(abs_path)
+            builder.record_entry(
+                path=Path(path_str),
+                action=entry.action,
+                sha256=entry.sha256,
+                size=entry.size,
+                reason=entry.reason,
+            )
+
+        builder.set_inputs(
+            blank=bool(get_cli_arg(args, "blank", False)) or None,
+            non_interactive=bool(get_cli_arg(args, "non_interactive", False)) or None,
+            context=get_cli_arg(args, "context", None),
+            target_dir=get_cli_arg(args, "target_dir", None),
+        )
+
+        doc = builder.build_document()
+
+        try:
+            from fluid_build import __version__ as tool_version
+        except Exception:  # pragma: no cover — defensive
+            tool_version = ""
+
+        command = _format_forge_command(args, flow)
+        payload_bytes = dump_json_with_envelope(
+            doc.to_payload(),
+            kind="ForgeReceipt",
+            command=command,
+            tool_version=str(tool_version),
+        )
+
+        receipt_path = product_forge_receipt_path(product_root)
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        receipt_path.write_text(payload_bytes, encoding="utf-8")
+        logger.debug("forge_receipt_written", extra={"path": str(receipt_path)})
+    except Exception as exc:  # noqa: BLE001 — never abort forge on receipt failure
+        logger.debug("forge_receipt_write_failed", extra={"error": str(exc)})
+
+
+def _resolve_product_root(changed_entries, scan_root: Path) -> Optional[Path]:
+    """Return the product directory the forge receipt should live under.
+
+    The product is identified by the `contract.fluid.yaml` file that
+    appears in the diff.  When multiple contracts changed, the most
+    recently modified one wins.
+    """
+    candidates: List[Path] = []
+    for entry in changed_entries:
+        if not entry.path.endswith("contract.fluid.yaml"):
+            continue
+        abs_path = (scan_root / entry.path).resolve()
+        candidates.append(abs_path.parent)
+
+    if not candidates:
+        return None
+
+    if len(candidates) == 1:
+        return candidates[0]
+
+    # Multiple contracts changed — pick the one whose contract file has
+    # the newest mtime.  Falls back to the first candidate on stat error.
+    def _mtime(parent: Path) -> float:
+        try:
+            return (parent / "contract.fluid.yaml").stat().st_mtime
+        except OSError:
+            return 0.0
+
+    return max(candidates, key=_mtime)
+
+
+def _format_forge_command(args, flow: str) -> str:
+    """Build a short human-readable command string for the receipt."""
+    parts = ["fluid forge"]
+    if get_cli_arg(args, "blank", False):
+        parts.append("--blank")
+    if get_cli_arg(args, "non_interactive", False):
+        parts.append("--non-interactive")
+    if get_cli_arg(args, "target_dir", None):
+        parts.append(f"--target-dir {args.target_dir}")
+    return " ".join(parts)
 
 
 def get_enhanced_templates():
