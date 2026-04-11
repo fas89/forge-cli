@@ -105,18 +105,55 @@ class TestResolveCiChoice(unittest.TestCase):
         self.assertEqual(prov, "github_actions")
         self.assertEqual(complexity, "advanced")
 
-    def test_non_interactive_without_flag_skips(self):
+    def test_non_interactive_without_flag_and_no_context_skips(self):
+        """Non-interactive + no flag + empty context → silent skip."""
         args = _make_args()  # ci=None, non_interactive=True
         ask_mock = MagicMock()
         prov, _ = _resolve_ci_choice(
             args,
-            {"ci_provider": "github_actions"},  # memory default — should be ignored
+            {},  # no ci-state / memory context either
             is_interactive=False,
             ask_dialog_question_fn=ask_mock,
             get_cli_arg_fn=_get_cli_arg,
         )
         self.assertIsNone(prov)
         ask_mock.assert_not_called()
+
+    def test_non_interactive_with_ci_state_context_autoselects(self):
+        """Slice 8: non-interactive + recorded ci-state provider → use it.
+
+        This is what makes `fluid forge` on a teammate's clone refresh
+        the committed CI files without the user typing --ci.  The
+        caller (_scaffold_ci_pipeline) seeds context["ci_provider"]
+        from the committed ci-state.json before calling into us.
+        """
+        args = _make_args()  # ci=None, non_interactive=True
+        ask_mock = MagicMock()
+        prov, complexity = _resolve_ci_choice(
+            args,
+            {"ci_provider": "github_actions", "ci_complexity": "advanced"},
+            is_interactive=False,
+            ask_dialog_question_fn=ask_mock,
+            get_cli_arg_fn=_get_cli_arg,
+        )
+        self.assertEqual(prov, "github_actions")
+        # complexity in args wins over context when both are set, but
+        # context["ci_complexity"] is the fallback.  _make_args sets
+        # ci_complexity="standard" by default, which is used here.
+        self.assertEqual(complexity, "standard")
+        ask_mock.assert_not_called()
+
+    def test_non_interactive_with_unknown_provider_in_context_skips(self):
+        """Unknown provider in context falls back to silent skip."""
+        args = _make_args()
+        prov, _ = _resolve_ci_choice(
+            args,
+            {"ci_provider": "not-a-real-provider"},
+            is_interactive=False,
+            ask_dialog_question_fn=MagicMock(),
+            get_cli_arg_fn=_get_cli_arg,
+        )
+        self.assertIsNone(prov)
 
     def test_interactive_ask_opens_menu_and_uses_memory_default(self):
         args = _make_args(ci="ask", non_interactive=False)

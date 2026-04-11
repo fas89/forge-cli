@@ -550,9 +550,18 @@ def _resolve_ci_choice(
         2. ``--no-ci`` or ``--ci none``
         3. ``--ci <provider>`` explicit value
         4. ``--ci ask`` → force interactive menu
-        5. Personal memory default → used only as preselection in the menu
-        6. Interactive menu (no preselection)
-        7. Non-interactive with no flag → silently skip
+        5. Recorded ci-state (from slice 7) — auto-selects the same
+           provider that produced the committed CI files so re-runs on
+           any teammate's machine refresh them without prompting.  Set
+           by the caller in ``context["ci_provider"]`` /
+           ``context["ci_complexity"]``.  ci-state beats personal
+           memory because it is product-scoped (committed next to the
+           CI files it describes).
+        6. Personal memory default → used only as preselection in the
+           interactive menu
+        7. Interactive menu (no preselection)
+        8. Non-interactive with a recorded ci-state provider → use it
+        9. Non-interactive with no flag and no ci-state → silently skip
     """
     # 1. Kill switch
     if _ci_killswitch_enabled():
@@ -589,8 +598,12 @@ def _resolve_ci_choice(
                 pass
         return (None, complexity)
 
-    # 4/5/6. Interactive path
+    # 4/5/6/7. Interactive path
     if is_interactive:
+        # In interactive mode, the context-seeded value (from ci-state
+        # or personal memory) becomes the menu's preselected default.
+        # ci-state has already been merged into context by the caller,
+        # so this single lookup honours the documented precedence.
         memory_default = context.get("ci_provider")
         if memory_default not in _CI_PROVIDER_VALUES:
             memory_default = None
@@ -601,7 +614,14 @@ def _resolve_ci_choice(
             complexity_default=complexity,
         )
 
-    # 7. Non-interactive without a flag → silent skip
+    # 8. Non-interactive with a recorded ci-state provider → use it.
+    # This is what makes `fluid forge` on another teammate's machine
+    # automatically refresh the committed CI files without --ci.
+    recorded_provider = context.get("ci_provider")
+    if recorded_provider in _CI_PROVIDER_VALUES:
+        return (recorded_provider, complexity)
+
+    # 9. Non-interactive with no flag and no ci-state → silent skip
     return (None, complexity)
 
 
@@ -621,6 +641,27 @@ def _scaffold_ci_pipeline(
     in dry-run), otherwise ``(None, None)``.
     """
     is_interactive = not bool(get_cli_arg_fn(args, "non_interactive", False))
+
+    # Slice 8: a committed ci-state.json in the target dir records the
+    # provider/complexity that last produced the committed CI files.
+    # Thread its values into context BEFORE _resolve_ci_choice runs so
+    # the recorded choice beats personal memory (but stays beneath
+    # explicit --ci flags and the kill switch).
+    try:
+        from fluid_build.cli.artifact_ci_state import load_ci_state
+
+        recorded = load_ci_state(target_dir)
+    except Exception:  # noqa: BLE001 — ci-state read is best-effort
+        recorded = None
+
+    if recorded is not None:
+        # ci-state beats personal memory (product-scoped > user-scoped).
+        # Explicit --ci / --ci-complexity flags still win because
+        # _resolve_ci_choice consults them before looking at context.
+        context = dict(context)
+        context["ci_provider"] = recorded.provider
+        context["ci_complexity"] = recorded.complexity
+
     provider, complexity = _resolve_ci_choice(
         args,
         context,
@@ -671,20 +712,75 @@ def _scaffold_ci_pipeline(
                 pass
         return (None, None)
 
-    collisions = [name for name in files if (target_dir / name).exists()]
-    if collisions and not dry_run:
+    # Drift-aware collision check (slice 8).  We use the recorded
+    # ci-state.json to distinguish three cases:
+    #
+    #   pristine          → file exists and its body matches what the
+    #                       last generation recorded.  Safe to silently
+    #                       overwrite.
+    #   drifted           → file exists but its body differs from the
+    #                       recorded sha.  The user has hand-edited it.
+    #                       Skip the whole scaffold to preserve the
+    #                       edits (legacy behavior for this case).
+    #   missing_from_state → file exists but ci-state has no record of
+    #                       it.  This is the first-ever generation in
+    #                       a repo that already has CI files from
+    #                       another source.  Skip to be safe.
+    #
+    # When none of the above trip, the generation proceeds.
+    try:
+        from fluid_build.cli.artifact_ci_state import (
+            classify_ci_drift,
+            load_ci_state,
+        )
+
+        state = load_ci_state(target_dir)
+        drift = classify_ci_drift(target_dir, files, state=state)
+    except Exception as exc:  # noqa: BLE001 — drift detection is best-effort
+        state = None
+        drift = None
         if console:
             try:
+                console.print(f"[dim]ci-state drift check skipped: {exc}[/dim]")
+            except Exception:  # noqa: BLE001
+                pass
+
+    if drift is not None and not dry_run:
+        if drift.drifted:
+            if console:
+                try:
+                    console.print(
+                        f"\n[yellow]Skipping CI scaffold — hand-edited files would be overwritten: "
+                        f"{', '.join(drift.drifted)}[/yellow]"
+                    )
+                    console.print(
+                        "[dim]Delete the files or run 'fluid generate-pipeline --output-dir .' to regenerate explicitly.[/dim]"
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+            return (None, None)
+
+        if drift.missing_from_state:
+            if console:
+                try:
+                    console.print(
+                        f"\n[yellow]Skipping CI scaffold — existing files would be overwritten: "
+                        f"{', '.join(drift.missing_from_state)}[/yellow]"
+                    )
+                    console.print(
+                        "[dim]No ci-state.json recorded these — delete them or run 'fluid generate-pipeline --output-dir .' to regenerate.[/dim]"
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+            return (None, None)
+
+        if drift.pristine and console:
+            try:
                 console.print(
-                    f"\n[yellow]Skipping CI scaffold — existing files would be overwritten: "
-                    f"{', '.join(collisions)}[/yellow]"
-                )
-                console.print(
-                    "[dim]Run 'fluid generate-pipeline --output-dir .' to regenerate explicitly.[/dim]"
+                    f"[dim]CI already up to date ({len(drift.pristine)} file(s)); regenerating cleanly.[/dim]"
                 )
             except Exception:  # noqa: BLE001
                 pass
-        return (None, None)
 
     if console:
         try:
@@ -739,6 +835,7 @@ def _scaffold_ci_pipeline(
                 },
                 written_files=written_paths,
                 product_root=target_dir,
+                body_contents=files,
             )
             write_ci_state(
                 doc,

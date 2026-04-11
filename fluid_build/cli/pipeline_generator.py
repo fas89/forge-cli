@@ -360,6 +360,7 @@ def run(args: argparse.Namespace, logger: logging.Logger) -> int:
                 },
                 written_files=written_paths,
                 product_root=output_dir,
+                body_contents=files,
             )
             write_ci_state(
                 doc,
