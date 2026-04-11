@@ -80,18 +80,18 @@ def logger():
 # ============================================================================
 
 
-class TestInitQuickstart:
-    """Scenarios 1-2: fluid init --quickstart"""
+class TestDemoMode:
+    """Scenarios 1-2: fluid demo (demo_mode handler)"""
 
-    def test_quickstart_dry_run_returns_zero(self, tmp_path, logger, monkeypatch):
-        """Scenario 1: --quickstart --dry-run previews without creating files."""
+    def test_demo_dry_run_returns_zero(self, tmp_path, logger, monkeypatch):
+        """Scenario 1: demo --dry-run previews without creating files."""
         monkeypatch.chdir(tmp_path)
-        from fluid_build.cli.init import quickstart_mode
+        from fluid_build.cli.init import demo_mode
 
         args = _make_init_args(name=str(tmp_path / "qs-project"), dry_run=True)
 
         with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
-            result = quickstart_mode(args, logger)
+            result = demo_mode(args, logger)
 
         assert result == 0
         assert not (tmp_path / "qs-project" / "contract.fluid.yaml").exists()
@@ -100,12 +100,12 @@ class TestInitQuickstart:
     @patch("fluid_build.cli.init.init_local_db")
     @patch("fluid_build.cli.init.copy_sample_data")
     @patch("fluid_build.cli.init.copy_template", return_value=True)
-    def test_quickstart_full_creates_project(
+    def test_demo_full_creates_project(
         self, mock_copy, mock_data, mock_db, mock_success, tmp_path, logger, monkeypatch
     ):
-        """Scenario 2: --quickstart --yes creates project with sample data."""
+        """Scenario 2: fluid demo creates project with sample data."""
         monkeypatch.chdir(tmp_path)
-        from fluid_build.cli.init import quickstart_mode
+        from fluid_build.cli.init import demo_mode
 
         args = _make_init_args(
             name=str(tmp_path / "qs-project"),
@@ -115,7 +115,7 @@ class TestInitQuickstart:
         )
 
         with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
-            result = quickstart_mode(args, logger)
+            result = demo_mode(args, logger)
 
         assert result == 0
         mock_copy.assert_called_once()
@@ -485,11 +485,11 @@ class TestInitForgeHandover:
         self, mock_success, mock_db, mock_data, mock_copy,
         tmp_path, logger, monkeypatch
     ):
-        """Scenario 20: Sequential workflow — init quickstart then forge blank."""
+        """Scenario 20: Sequential workflow — demo_mode scaffold then forge blank."""
         monkeypatch.chdir(tmp_path)
 
-        # Phase 1: Init quickstart
-        from fluid_build.cli.init import quickstart_mode
+        # Phase 1: demo_mode scaffold (the `fluid demo` code path)
+        from fluid_build.cli.init import demo_mode
 
         init_args = _make_init_args(
             name=str(tmp_path / "project"),
@@ -497,7 +497,7 @@ class TestInitForgeHandover:
         )
 
         with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
-            init_result = quickstart_mode(init_args, logger)
+            init_result = demo_mode(init_args, logger)
 
         assert init_result == 0
 

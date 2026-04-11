@@ -21,10 +21,14 @@ __all__ = [
     "SUPPORTING_STANDARD_LABELS",
     "USE_CASE_CHOICES",
     "USE_CASE_LABELS",
+    "CI_PROVIDER_VALUES",
+    "CI_COMPLEXITY_VALUES",
     "clean_text",
     "canonicalize_use_case_text",
     "infer_modeling_context",
     "normalize_canonical_model",
+    "normalize_ci_complexity",
+    "normalize_ci_provider",
     "normalize_use_case",
     "format_use_case_label",
     "normalize_copilot_context",
@@ -134,6 +138,57 @@ SUPPORTING_STANDARD_ALIASES = {
     "gs1 cbv": "gs1_epcis_cbv",
     "gs1 epcis cbv": "gs1_epcis_cbv",
     "gs1_epcis_cbv": "gs1_epcis_cbv",
+}
+
+
+# CI/CD providers — must stay in sync with PipelineProvider in
+# ``fluid_build/forge/core/pipeline_templates.py``. Inlined here to avoid
+# importing a ``forge.core`` module from the ``cli`` taxonomy layer.
+CI_PROVIDER_VALUES = frozenset(
+    {
+        "github_actions",
+        "gitlab_ci",
+        "azure_devops",
+        "jenkins",
+        "bitbucket",
+        "circle_ci",
+        "tekton",
+    }
+)
+
+CI_COMPLEXITY_VALUES = frozenset({"basic", "standard", "advanced", "enterprise"})
+
+CI_PROVIDER_ALIASES = {
+    "gh": "github_actions",
+    "gha": "github_actions",
+    "github": "github_actions",
+    "github actions": "github_actions",
+    "github_actions": "github_actions",
+    "ghactions": "github_actions",
+    "gl": "gitlab_ci",
+    "gitlab": "gitlab_ci",
+    "gitlab ci": "gitlab_ci",
+    "gitlab_ci": "gitlab_ci",
+    "gitlabci": "gitlab_ci",
+    "azure": "azure_devops",
+    "azdo": "azure_devops",
+    "ado": "azure_devops",
+    "azure devops": "azure_devops",
+    "azure_devops": "azure_devops",
+    "azurepipelines": "azure_devops",
+    "azure pipelines": "azure_devops",
+    "jenkins": "jenkins",
+    "jenkinsfile": "jenkins",
+    "bb": "bitbucket",
+    "bitbucket": "bitbucket",
+    "bitbucket pipelines": "bitbucket",
+    "bitbucket_pipelines": "bitbucket",
+    "circle": "circle_ci",
+    "circleci": "circle_ci",
+    "circle ci": "circle_ci",
+    "circle_ci": "circle_ci",
+    "tekton": "tekton",
+    "tkn": "tekton",
 }
 
 
@@ -398,6 +453,36 @@ def infer_modeling_context(context: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def normalize_ci_provider(value: Any) -> Optional[str]:
+    """Canonicalize a CI provider string into a ``PipelineProvider`` value.
+
+    Returns ``None`` when the value is empty or unrecognized.
+    """
+    text = clean_text(value)
+    if not text:
+        return None
+    key = text.lower().replace("-", " ").replace("_", " ")
+    key = re.sub(r"\s+", " ", key).strip()
+    # Try the compound alias first, then collapse spaces for canonical lookup.
+    if key in CI_PROVIDER_ALIASES:
+        return CI_PROVIDER_ALIASES[key]
+    collapsed = key.replace(" ", "_")
+    if collapsed in CI_PROVIDER_ALIASES:
+        return CI_PROVIDER_ALIASES[collapsed]
+    if collapsed in CI_PROVIDER_VALUES:
+        return collapsed
+    return None
+
+
+def normalize_ci_complexity(value: Any) -> Optional[str]:
+    """Canonicalize a CI complexity string into a ``PipelineComplexity`` value."""
+    text = clean_text(value)
+    if not text:
+        return None
+    key = text.lower().strip()
+    return key if key in CI_COMPLEXITY_VALUES else None
+
+
 def normalize_copilot_context(context: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize known copilot context fields without dropping unknown keys."""
     normalized = dict(context)
@@ -431,4 +516,16 @@ def normalize_copilot_context(context: Dict[str, Any]) -> Dict[str, Any]:
         normalized["supporting_standards"] = merged_supporting
     else:
         normalized.pop("supporting_standards", None)
+
+    # CI/CD pipeline preferences (auto-scaffold inside `fluid forge`).
+    ci_provider = normalize_ci_provider(normalized.get("ci_provider"))
+    if ci_provider:
+        normalized["ci_provider"] = ci_provider
+    else:
+        normalized.pop("ci_provider", None)
+    ci_complexity = normalize_ci_complexity(normalized.get("ci_complexity"))
+    if ci_complexity:
+        normalized["ci_complexity"] = ci_complexity
+    else:
+        normalized.pop("ci_complexity", None)
     return normalized

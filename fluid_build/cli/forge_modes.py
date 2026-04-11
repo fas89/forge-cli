@@ -178,7 +178,7 @@ def _create_session_llm_config(
                     console,
                     status="warning",
                     message="Could not save key to keychain (keyring unavailable).",
-                    detail="Set an env var like OPENAI_API_KEY for persistence, or re-run the wizard next time.",
+                    detail="Set an env var like OPENAI_API_KEY for persistence, or re-run setup next time.",
                 )
 
     return LlmConfig(provider=provider.name, model=model, endpoint=endpoint, api_key=api_key)
@@ -434,6 +434,287 @@ def _print_discovery_hint(console: Any) -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# CI/CD auto-scaffolding hook (post-copilot)
+# ---------------------------------------------------------------------------
+
+
+_CI_PROVIDER_CHOICES = [
+    {"label": "GitHub Actions", "value": "github_actions"},
+    {"label": "GitLab CI", "value": "gitlab_ci"},
+    {"label": "Azure DevOps", "value": "azure_devops"},
+    {"label": "Jenkins", "value": "jenkins"},
+    {"label": "Bitbucket Pipelines", "value": "bitbucket"},
+    {"label": "CircleCI", "value": "circle_ci"},
+    {"label": "Tekton", "value": "tekton"},
+    {"label": "None (skip)", "value": "none"},
+]
+
+_CI_COMPLEXITY_CHOICES = [
+    {"label": "Basic — validate → apply", "value": "basic"},
+    {"label": "Standard — full workflow with tests", "value": "standard"},
+    {"label": "Advanced — multi-env, approvals, security", "value": "advanced"},
+    {"label": "Enterprise — full governance and compliance", "value": "enterprise"},
+]
+
+_CI_COMPLEXITY_VALUES = {c["value"] for c in _CI_COMPLEXITY_CHOICES}
+_CI_PROVIDER_VALUES = {
+    c["value"] for c in _CI_PROVIDER_CHOICES if c["value"] != "none"
+}
+
+
+def _ci_killswitch_enabled() -> bool:
+    """Return True if the env kill switch disables CI auto-scaffolding."""
+    return os.environ.get("FLUID_FORGE_AUTO_CI", "").strip().lower() in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+
+
+def _prompt_ci_menu(
+    console: Any,
+    ask_dialog_question_fn: Callable[[Any, Any], Any],
+    *,
+    memory_default: Optional[str],
+    complexity_default: str,
+) -> tuple[Optional[str], str]:
+    """Interactive CI provider + complexity menu.
+
+    Returns ``(provider, complexity)``; ``provider`` is ``None`` when the
+    user selects *None (skip)* or the prompt is cancelled.
+    """
+    # Lazy import to avoid cycles through forge_modes → interview → dialogs.
+    from fluid_build.cli.forge_copilot_interview import InterviewQuestion
+
+    if console:
+        try:
+            console.print("\n[bold blue]🛠  CI/CD pipeline[/bold blue]")
+            if memory_default:
+                console.print(
+                    f"[dim]Default from your preferences: {memory_default}[/dim]"
+                )
+        except Exception:  # noqa: BLE001
+            pass
+
+    effective_default = (
+        memory_default if memory_default in _CI_PROVIDER_VALUES else None
+    )
+
+    provider_question = InterviewQuestion(
+        id="ci_provider",
+        field="ci_provider",
+        prompt="Generate a CI/CD pipeline now? Pick a provider (or 'none' to skip).",
+        type="choice",
+        choices=list(_CI_PROVIDER_CHOICES),
+        required=False,
+        allow_skip=True,
+        default=effective_default,
+    )
+    provider_result = ask_dialog_question_fn(console, provider_question)
+    provider_value = getattr(provider_result, "value", None)
+    if not provider_value or provider_value == "none":
+        return (None, complexity_default)
+
+    complexity_question = InterviewQuestion(
+        id="ci_complexity",
+        field="ci_complexity",
+        prompt="Pipeline complexity?",
+        type="choice",
+        choices=list(_CI_COMPLEXITY_CHOICES),
+        required=False,
+        allow_skip=True,
+        default=complexity_default if complexity_default in _CI_COMPLEXITY_VALUES else "standard",
+    )
+    complexity_result = ask_dialog_question_fn(console, complexity_question)
+    resolved_complexity = getattr(complexity_result, "value", None) or complexity_default
+    if resolved_complexity not in _CI_COMPLEXITY_VALUES:
+        resolved_complexity = "standard"
+    return (provider_value, resolved_complexity)
+
+
+def _resolve_ci_choice(
+    args: Any,
+    context: Dict[str, Any],
+    *,
+    is_interactive: bool,
+    ask_dialog_question_fn: Callable[[Any, Any], Any],
+    get_cli_arg_fn: Callable[[Any, str, Any], Any],
+    console: Any = None,
+) -> tuple[Optional[str], str]:
+    """Resolve (provider, complexity) for the auto-CI hook.
+
+    Precedence (highest first):
+        1. ``FLUID_FORGE_AUTO_CI=0`` env kill switch
+        2. ``--no-ci`` or ``--ci none``
+        3. ``--ci <provider>`` explicit value
+        4. ``--ci ask`` → force interactive menu
+        5. Personal memory default → used only as preselection in the menu
+        6. Interactive menu (no preselection)
+        7. Non-interactive with no flag → silently skip
+    """
+    # 1. Kill switch
+    if _ci_killswitch_enabled():
+        return (None, "standard")
+
+    # 2. Explicit "no CI"
+    if get_cli_arg_fn(args, "no_ci", False):
+        return (None, "standard")
+
+    raw_complexity = (
+        get_cli_arg_fn(args, "ci_complexity", None)
+        or context.get("ci_complexity")
+        or "standard"
+    )
+    complexity = raw_complexity if raw_complexity in _CI_COMPLEXITY_VALUES else "standard"
+
+    ci_flag = get_cli_arg_fn(args, "ci", None)
+
+    # 2b. Explicit "none" sentinel from --ci
+    if ci_flag == "none":
+        return (None, complexity)
+
+    # 3. Explicit provider value (not the "ask" sentinel)
+    if ci_flag and ci_flag != "ask":
+        if ci_flag in _CI_PROVIDER_VALUES:
+            return (ci_flag, complexity)
+        # Unknown provider — warn and skip rather than crash.
+        if console:
+            try:
+                console.print(
+                    f"[yellow]Unknown CI provider: {ci_flag!r}. Skipping auto-scaffold.[/yellow]"
+                )
+            except Exception:  # noqa: BLE001
+                pass
+        return (None, complexity)
+
+    # 4/5/6. Interactive path
+    if is_interactive:
+        memory_default = context.get("ci_provider")
+        if memory_default not in _CI_PROVIDER_VALUES:
+            memory_default = None
+        return _prompt_ci_menu(
+            console,
+            ask_dialog_question_fn,
+            memory_default=memory_default,
+            complexity_default=complexity,
+        )
+
+    # 7. Non-interactive without a flag → silent skip
+    return (None, complexity)
+
+
+def _scaffold_ci_pipeline(
+    args: Any,
+    target_dir: Path,
+    context: Dict[str, Any],
+    console: Any,
+    *,
+    ask_dialog_question_fn: Callable[[Any, Any], Any],
+    get_cli_arg_fn: Callable[[Any, str, Any], Any],
+    dry_run: bool,
+) -> tuple[Optional[str], Optional[str]]:
+    """Resolve the CI choice and invoke ``PipelineTemplateGenerator``.
+
+    Returns ``(provider, complexity)`` when files were generated (or planned
+    in dry-run), otherwise ``(None, None)``.
+    """
+    is_interactive = not bool(get_cli_arg_fn(args, "non_interactive", False))
+    provider, complexity = _resolve_ci_choice(
+        args,
+        context,
+        is_interactive=is_interactive,
+        ask_dialog_question_fn=ask_dialog_question_fn,
+        get_cli_arg_fn=get_cli_arg_fn,
+        console=console,
+    )
+
+    if not provider:
+        # Surface an explicit acknowledgement only when the user actively
+        # opted out; silent skips (non-interactive without flag) stay quiet.
+        explicit_skip = (
+            get_cli_arg_fn(args, "no_ci", False)
+            or get_cli_arg_fn(args, "ci", None) == "none"
+        )
+        if explicit_skip and console:
+            try:
+                console.print("[dim]CI scaffolding skipped.[/dim]")
+            except Exception:  # noqa: BLE001
+                pass
+        return (None, None)
+
+    try:
+        from fluid_build.cli.pipeline_generator import (
+            build_pipeline_config,
+            write_pipeline_files,
+        )
+        from fluid_build.forge.core.pipeline_templates import PipelineTemplateGenerator
+    except ImportError as exc:
+        if console:
+            try:
+                console.print(
+                    f"[yellow]Could not load pipeline generator: {exc}[/yellow]"
+                )
+            except Exception:  # noqa: BLE001
+                pass
+        return (None, None)
+
+    try:
+        config = build_pipeline_config(provider=provider, complexity=complexity)
+        files = PipelineTemplateGenerator().generate_pipeline(config)
+    except Exception as exc:  # noqa: BLE001
+        if console:
+            try:
+                console.print(f"[yellow]CI generation failed: {exc}[/yellow]")
+            except Exception:  # noqa: BLE001
+                pass
+        return (None, None)
+
+    collisions = [name for name in files if (target_dir / name).exists()]
+    if collisions and not dry_run:
+        if console:
+            try:
+                console.print(
+                    f"\n[yellow]Skipping CI scaffold — existing files would be overwritten: "
+                    f"{', '.join(collisions)}[/yellow]"
+                )
+                console.print(
+                    "[dim]Run 'fluid generate-pipeline --output-dir .' to regenerate explicitly.[/dim]"
+                )
+            except Exception:  # noqa: BLE001
+                pass
+        return (None, None)
+
+    if console:
+        try:
+            console.print(
+                f"\n[bold blue]🛠  Generating {provider} pipeline ({complexity})…[/bold blue]"
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+    try:
+        write_pipeline_files(files, target_dir, dry_run=dry_run, console=console)
+    except OSError as exc:
+        if console:
+            try:
+                console.print(f"[yellow]Could not write CI files: {exc}[/yellow]")
+            except Exception:  # noqa: BLE001
+                pass
+        return (None, None)
+
+    if console and not dry_run:
+        try:
+            console.print(
+                "[dim]Tip: run 'fluid generate-pipeline --help' to regenerate later.[/dim]"
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+    return (provider, complexity)
+
+
 def run_ai_copilot_mode(
     args: Any,
     logger: logging.Logger,
@@ -519,8 +800,18 @@ def run_ai_copilot_mode(
 
                 personal_prefs = load_personal_memory()
                 if personal_prefs:
-                    # Apply as soft defaults (lower precedence than explicit args)
-                    for key in ("preferred_provider", "preferred_engine", "preferred_domain", "owner_team"):
+                    # Apply as soft defaults (lower precedence than explicit args).
+                    # ``ci_provider`` / ``ci_complexity`` are used later by the
+                    # auto-CI hook only in interactive mode.
+                    pref_keys = (
+                        "preferred_provider",
+                        "preferred_engine",
+                        "preferred_domain",
+                        "owner_team",
+                        "preferred_ci_provider",
+                        "preferred_ci_complexity",
+                    )
+                    for key in pref_keys:
                         if personal_prefs.get(key) and key.replace("preferred_", "") not in context:
                             mapped_key = key.replace("preferred_", "")
                             context.setdefault(mapped_key, personal_prefs[key])
@@ -542,7 +833,7 @@ def run_ai_copilot_mode(
                 needs_setup = not readiness.ready and readiness.error is not None
                 readiness_error = readiness.error if needs_setup else None
             if needs_setup:
-                # Synthesise a minimal error to enter the recovery wizard.
+                # Synthesise a minimal error to enter the recovery flow.
                 if readiness_error is None:
                     readiness_error = CopilotGenerationError(
                         "copilot_llm_setup_needed",
@@ -665,6 +956,21 @@ def run_ai_copilot_mode(
 
         # Post-generation: create data + dbt scaffolding
         _scaffold_data_folder(target_dir, context, console)
+
+        # Post-generation: auto-scaffold a CI/CD pipeline (optional).
+        ci_provider, ci_complexity = _scaffold_ci_pipeline(
+            args,
+            target_dir,
+            context,
+            console,
+            ask_dialog_question_fn=ask_dialog_question_fn,
+            get_cli_arg_fn=get_cli_arg_fn,
+            dry_run=bool(get_cli_arg_fn(args, "dry_run", False)),
+        )
+        if ci_provider:
+            context["ci_provider"] = ci_provider
+        if ci_complexity:
+            context["ci_complexity"] = ci_complexity
 
         # Save personal memory (per-engineer preferences)
         try:

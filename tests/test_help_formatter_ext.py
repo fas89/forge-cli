@@ -129,13 +129,13 @@ class TestPrintCommandHelpRendersContent:
 
     def test_command_from_enrichment_dict_renders(self):
         """Commands present in _COMMAND_ENRICHMENT should fill description/epilog."""
-        parser = _make_parser_with_sub("wizard")  # no description in parser
+        parser = _make_parser_with_sub("context")  # no description in parser
 
         with patch("fluid_build.cli.help_formatter.RICH_AVAILABLE", True):
             from fluid_build.cli.help_formatter import print_command_help
 
             # Should not raise and should use enrichment data
-            print_command_help(parser, "wizard")
+            print_command_help(parser, "context")
 
     def test_epilog_with_backslash_continuation(self):
         """Lines ending with \\ trigger the continuation branch."""

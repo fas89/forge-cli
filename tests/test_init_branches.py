@@ -252,14 +252,6 @@ class TestMarkFirstRunComplete:
 
 
 class TestRunFunction:
-    @patch("fluid_build.cli.init.quickstart_mode", return_value=0)
-    @patch("fluid_build.cli.init.detect_mode", return_value="quickstart")
-    def test_quickstart_route(self, _mock_detect, _mock_qs):
-        from fluid_build.cli.init import run
-
-        args = _make_init_args(quickstart=True)
-        assert run(args, logging.getLogger("test")) == 0
-
     @patch("fluid_build.cli.init.blank_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="blank")
     def test_blank_route(self, _mock_detect, _mock_blank):

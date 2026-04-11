@@ -22,6 +22,7 @@ tailored to their preferred provider and requirements.
 import argparse
 import logging
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from fluid_build.cli.console import cprint, success, warning
 from fluid_build.cli.console import error as console_error
@@ -34,6 +35,86 @@ from ..forge.core.pipeline_templates import (
 )
 
 COMMAND = "generate-pipeline"
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers — used by this CLI wrapper and by the forge auto-CI hook
+# ---------------------------------------------------------------------------
+
+
+def build_pipeline_config(
+    provider: str,
+    complexity: str = "standard",
+    environments: Optional[List[str]] = None,
+    *,
+    enable_approvals: bool = False,
+    enable_security_scan: bool = True,
+    enable_marketplace_publishing: bool = False,
+) -> PipelineConfig:
+    """Coerce string inputs into a :class:`PipelineConfig`.
+
+    Passing ``environments=None`` lets :meth:`PipelineConfig.__post_init__`
+    pick complexity-appropriate defaults. Raises ``ValueError`` with a helpful
+    message on unknown provider or complexity.
+    """
+    try:
+        provider_enum = PipelineProvider(provider)
+    except ValueError as exc:
+        raise ValueError(
+            f"Unknown CI provider: {provider!r}. "
+            f"Valid: {', '.join(p.value for p in PipelineProvider)}"
+        ) from exc
+    try:
+        complexity_enum = PipelineComplexity(complexity)
+    except ValueError as exc:
+        raise ValueError(
+            f"Unknown pipeline complexity: {complexity!r}. "
+            f"Valid: {', '.join(c.value for c in PipelineComplexity)}"
+        ) from exc
+    return PipelineConfig(
+        provider=provider_enum,
+        complexity=complexity_enum,
+        environments=environments,
+        enable_approvals=enable_approvals,
+        enable_security_scan=enable_security_scan,
+        enable_marketplace_publishing=enable_marketplace_publishing,
+    )
+
+
+def write_pipeline_files(
+    files: Dict[str, str],
+    output_dir: Path,
+    *,
+    dry_run: bool = False,
+    console: Any = None,
+) -> List[Path]:
+    """Write generated pipeline files under *output_dir*.
+
+    In ``dry_run`` mode, reports planned writes without touching disk.
+    Returns the list of written (or planned) paths in insertion order.
+    """
+    written: List[Path] = []
+    if not dry_run:
+        output_dir.mkdir(parents=True, exist_ok=True)
+    for filename, content in files.items():
+        file_path = output_dir / filename
+        if dry_run:
+            message = f"would write: {file_path}"
+            if console is not None:
+                try:
+                    console.print(f"[dim]{message}[/dim]")
+                except Exception:  # noqa: BLE001
+                    cprint(message)
+            else:
+                cprint(message)
+            written.append(file_path)
+            continue
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        with file_path.open("w") as f:
+            f.write(content)
+        success(f"Created: {file_path}")
+        written.append(file_path)
+    return written
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
@@ -120,9 +201,9 @@ def run(args: argparse.Namespace, logger: logging.Logger) -> int:
             enable_marketplace = args.enable_marketplace
 
         # Create configuration
-        config = PipelineConfig(
-            provider=PipelineProvider(provider),
-            complexity=PipelineComplexity(complexity),
+        config = build_pipeline_config(
+            provider=provider,
+            complexity=complexity,
             environments=environments,
             enable_approvals=enable_approvals,
             enable_security_scan=enable_security_scan,
@@ -144,16 +225,7 @@ def run(args: argparse.Namespace, logger: logging.Logger) -> int:
 
         # Write files to output directory
         output_dir = Path(args.output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        for filename, content in files.items():
-            file_path = output_dir / filename
-            file_path.parent.mkdir(parents=True, exist_ok=True)
-
-            with file_path.open("w") as f:
-                f.write(content)
-
-            success(f"Created: {file_path}")
+        write_pipeline_files(files, output_dir)
 
         cprint(f"\n🎉 Successfully generated {len(files)} pipeline files!")
         _show_next_steps(provider, output_dir)

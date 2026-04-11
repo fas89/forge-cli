@@ -125,11 +125,11 @@ class TestDetectMode:
     def test_menu_quickstart_normalizes_to_template_mode(self, tmp_path):
         """Menu option 'Quickstart' should route to template_mode, same as --quickstart flag.
 
-        This is the load-bearing overlap fix: both the CLI flag and the
-        interactive menu label produce the same artifacts (bare
-        customer-360 scaffold). Without _resolve_menu_choice, the menu
-        path used to dispatch to quickstart_mode (kitchen sink) while
-        the CLI flag dispatched to template_mode (bare scaffold).
+        Both the CLI flag and the interactive menu label must produce the
+        same artifacts (bare customer-360 scaffold). ``_resolve_menu_choice``
+        rewrites the menu's ``"quickstart"`` return value to
+        ``--template customer-360 --yes`` so both paths go through
+        ``template_mode``.
         """
         from fluid_build.cli.init import detect_mode
 

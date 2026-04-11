@@ -28,9 +28,6 @@ python -m fluid_bootstrap add-exposure products/silver/demo/my_product_v1/contra
 
 python -m fluid_bootstrap add-dq products/silver/demo/my_product_v1/contract.fluid.yaml       --exposure-id demo_tbl --rule not_null --columns id --on-failure alert
 
-# Guided creation
-python -m fluid_bootstrap wizard --path .
-
 # Diagnostics wrapper (runs built-in doctor checks and optional extended diagnostics)
 python -m fluid_bootstrap doctor --path . --provider local
 ```

@@ -213,24 +213,6 @@ def cmd_add_dq(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_wizard(args: argparse.Namespace) -> int:
-    print("Welcome to FLUID Bootstrap Wizard\n")
-    product_id = input("Product ID (e.g., silver.demo.my_product_v1): ").strip()
-    name = input("Name (e.g., My Product): ").strip() or "My Product"
-    domain = input("Domain (e.g., Demo): ").strip() or "Demo"
-    layer = input("Layer (Bronze/Silver/Gold): ").strip() or "Silver"
-    provider = input("Provider (local/snowflake/gcp): ").strip() or "local"
-    ns = argparse.Namespace(
-        path=args.path,
-        product_id=product_id,
-        name=name,
-        domain=domain,
-        layer=layer,
-        provider=provider,
-    )
-    return cmd_new_product(ns)
-
-
 _ALLOWED_PROVIDERS = frozenset({"local", "gcp", "aws", "snowflake", "redshift", "azure"})
 
 
@@ -304,10 +286,6 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--on-failure", default="alert", choices=["alert", "reject_row", "fail_pipeline"]
     )
     p.set_defaults(func=cmd_add_dq)
-
-    p = sub.add_parser("wizard", help="Interactive product creator")
-    p.add_argument("--path", default=".")
-    p.set_defaults(func=cmd_wizard)
 
     p = sub.add_parser("doctor", help="Run workspace diagnostics if available")
     p.add_argument("--path", default=".")

@@ -72,6 +72,12 @@ def save_personal_memory(context: Dict[str, Any], console: Any = None) -> bool:
         "preferred_engine": context.get("build_engine") or existing.get("preferred_engine"),
         "preferred_domain": context.get("domain") or existing.get("preferred_domain"),
         "owner_team": context.get("owner_team") or existing.get("owner_team"),
+        "preferred_ci_provider": (
+            context.get("ci_provider") or existing.get("preferred_ci_provider")
+        ),
+        "preferred_ci_complexity": (
+            context.get("ci_complexity") or existing.get("preferred_ci_complexity")
+        ),
     }
 
     # Track recent domains (FIFO, max _MAX_ITEMS)

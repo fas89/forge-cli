@@ -53,11 +53,11 @@ def logger():
 
 
 # ===========================================================================
-# quickstart_mode
+# demo_mode
 # ===========================================================================
 
 
-class TestQuickstartMode:
+class TestDemoMode:
     @patch("fluid_build.cli.init.show_success_message")
     @patch("fluid_build.cli.init.run_local_pipeline")
     @patch("fluid_build.cli.init.init_local_db")
@@ -74,11 +74,11 @@ class TestQuickstartMode:
         logger,
         monkeypatch,
     ):
-        from fluid_build.cli.init import quickstart_mode
+        from fluid_build.cli.init import demo_mode
 
         monkeypatch.chdir(tmp_path)
         args = _make_args(name="qs-project", no_run=True, no_dag=True)
-        result = quickstart_mode(args, logger)
+        result = demo_mode(args, logger)
         assert result == 0
         mock_copy.assert_called_once()
 
@@ -86,25 +86,25 @@ class TestQuickstartMode:
     def test_copy_template_fails_returns_1(
         self, _mock_copy, tmp_path, logger, monkeypatch
     ):
-        from fluid_build.cli.init import quickstart_mode
+        from fluid_build.cli.init import demo_mode
 
         monkeypatch.chdir(tmp_path)
         args = _make_args(name="qs-fail", no_run=True, no_dag=True)
-        result = quickstart_mode(args, logger)
+        result = demo_mode(args, logger)
         assert result == 1
 
     def test_dry_run_returns_0(self, tmp_path, logger, monkeypatch):
-        from fluid_build.cli.init import quickstart_mode
+        from fluid_build.cli.init import demo_mode
 
         monkeypatch.chdir(tmp_path)
         args = _make_args(name="qs-dry", dry_run=True)
-        result = quickstart_mode(args, logger)
+        result = demo_mode(args, logger)
         assert result == 0
 
     def test_existing_nonempty_dir_returns_1(self, tmp_path, logger, monkeypatch):
-        from fluid_build.cli.init import quickstart_mode
+        from fluid_build.cli.init import demo_mode
 
-        # quickstart_mode resolves the project dir relative to the current
+        # demo_mode resolves the project dir relative to the current
         # working directory after slugifying args.name, so the existing dir
         # needs to live there with the matching slug name.
         monkeypatch.chdir(tmp_path)
@@ -112,7 +112,7 @@ class TestQuickstartMode:
         existing.mkdir()
         (existing / "some_file.txt").write_text("content")
         args = _make_args(name="existing-project")
-        result = quickstart_mode(args, logger)
+        result = demo_mode(args, logger)
         assert result == 1
 
     @patch("fluid_build.cli.init.show_success_message")
@@ -131,11 +131,11 @@ class TestQuickstartMode:
         logger,
         monkeypatch,
     ):
-        from fluid_build.cli.init import quickstart_mode
+        from fluid_build.cli.init import demo_mode
 
         monkeypatch.chdir(tmp_path)
         args = _make_args(no_run=True, no_dag=True)
-        result = quickstart_mode(args, logger)
+        result = demo_mode(args, logger)
         assert result == 0
 
     @patch("fluid_build.cli.init.show_success_message")
@@ -154,11 +154,11 @@ class TestQuickstartMode:
         logger,
         monkeypatch,
     ):
-        from fluid_build.cli.init import quickstart_mode
+        from fluid_build.cli.init import demo_mode
 
         monkeypatch.chdir(tmp_path)
         args = _make_args(name="run-test", no_run=False, no_dag=True)
-        quickstart_mode(args, logger)
+        demo_mode(args, logger)
         mock_run_pipeline.assert_called_once()
 
     @patch("fluid_build.cli.init.show_success_message")
@@ -177,20 +177,20 @@ class TestQuickstartMode:
         logger,
         monkeypatch,
     ):
-        from fluid_build.cli.init import quickstart_mode
+        from fluid_build.cli.init import demo_mode
 
         monkeypatch.chdir(tmp_path)
         args = _make_args(name="no-run-test", no_run=True, no_dag=True)
-        quickstart_mode(args, logger)
+        demo_mode(args, logger)
         mock_run_pipeline.assert_not_called()
 
     @patch("fluid_build.cli.init.copy_template", side_effect=RuntimeError("boom"))
     def test_exception_returns_1(self, _mock_copy, tmp_path, logger, monkeypatch):
-        from fluid_build.cli.init import quickstart_mode
+        from fluid_build.cli.init import demo_mode
 
         monkeypatch.chdir(tmp_path)
         args = _make_args(name="qs-exc", no_run=True, no_dag=True)
-        result = quickstart_mode(args, logger)
+        result = demo_mode(args, logger)
         assert result == 1
 
     @patch("fluid_build.cli.init.show_success_message")
@@ -211,7 +211,7 @@ class TestQuickstartMode:
         logger,
         monkeypatch,
     ):
-        from fluid_build.cli.init import quickstart_mode
+        from fluid_build.cli.init import demo_mode
 
         monkeypatch.chdir(tmp_path)
         args = _make_args(name="dag-project", no_run=True, no_dag=False)
@@ -223,7 +223,7 @@ class TestQuickstartMode:
 
         with patch("fluid_build.cli.init.copy_template", side_effect=_create_contract):
             with patch("yaml.safe_load", return_value={"name": "test", "orchestration": {}}):
-                result = quickstart_mode(args, logger)
+                result = demo_mode(args, logger)
         assert result == 0
 
 
@@ -778,13 +778,6 @@ class TestShowMigrationSummary:
 
 
 class TestRunRouting:
-    @patch("fluid_build.cli.init.quickstart_mode", return_value=0)
-    @patch("fluid_build.cli.init.detect_mode", return_value="quickstart")
-    def test_routes_quickstart(self, _mock_detect, _mock_qs, logger):
-        from fluid_build.cli.init import run
-
-        assert run(_make_args(quickstart=True), logger) == 0
-
     @patch("fluid_build.cli.init._ai_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="ai")
     def test_routes_ai(self, _mock_detect, _mock_ai, logger):

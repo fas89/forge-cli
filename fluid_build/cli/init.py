@@ -18,7 +18,6 @@ FLUID Init Command - Universal Project Onboarding
 The front door to FLUID - intelligently routes users to the right experience:
 - Quickstart: Working example in 2 minutes (local, no cloud)
 - Scan: Import existing dbt/Terraform projects (Agent Zero)
-- Wizard: Interactive guided setup
 - Template: Specific use case templates
 - Blank: Empty project skeleton
 
@@ -243,7 +242,6 @@ def run(args, logger: logging.Logger) -> int:
         # Route to appropriate handler.
         handlers = {
             "ai": _ai_mode,
-            "quickstart": quickstart_mode,
             "blank": blank_mode,
             "template": template_mode,
         }
@@ -431,13 +429,9 @@ def detect_mode(args, logger: logging.Logger) -> Optional[str]:
     def _resolve_menu_choice(mode: str) -> str:
         """Normalize menu return values so they match the CLI-flag code paths.
 
-        Menu option 'Quickstart' should produce exactly the same artifacts
-        as ``fluid init --quickstart`` (a bare customer-360 template
-        scaffold). Without this, the menu path used to dispatch to
-        ``quickstart_mode`` — which bundles DAG generation, DuckDB init,
-        pipeline execution, and CI/CD file writes — while the CLI flag
-        dispatched to ``template_mode``, producing surprisingly different
-        output for the same user intent.
+        The menu's 'Quickstart' label is rewritten to
+        ``--template customer-360 --yes`` so it dispatches through
+        ``template_mode`` — same as ``fluid init --quickstart``.
         """
         if mode == "quickstart":
             args.template = "customer-360"
@@ -895,8 +889,17 @@ For more information, see: https://fluid.dev/docs/orchestration
 # ============================================================================
 
 
-def quickstart_mode(args, logger: logging.Logger) -> int:
-    """Creates working example in 2 minutes"""
+def demo_mode(args, logger: logging.Logger) -> int:
+    """Scaffold and run a working customer-360 example.
+
+    This is the handler for ``fluid demo``. It scaffolds customer-360
+    template files, initializes a local DuckDB database, optionally
+    generates an Airflow DAG, and executes the pipeline end-to-end.
+
+    Note: ``fluid init --quickstart`` does NOT route here — it is
+    rewritten in ``detect_mode`` to ``--template customer-360 --yes``
+    and dispatches through ``template_mode`` (scaffold only, no run).
+    """
 
     project_name = slugify_identifier(args.name, fallback="my-first-product")
     template = "customer-360"  # Default template
@@ -997,9 +1000,9 @@ def quickstart_mode(args, logger: logging.Logger) -> int:
         return 0
 
     except Exception as e:
-        error(logger, "quickstart_failed", error=str(e))
+        error(logger, "demo_failed", error=str(e))
         if RICH_AVAILABLE:
-            console.print(f"[red]❌ Quickstart failed: {e}[/red]")
+            console.print(f"[red]❌ Demo failed: {e}[/red]")
         return 1
 
 

@@ -443,14 +443,6 @@ class TestRun:
         assert run(args, logger) == 1
 
     @patch("fluid_build.cli.init._ask_industry", return_value=None)
-    @patch("fluid_build.cli.init.quickstart_mode", return_value=0)
-    @patch("fluid_build.cli.init.detect_mode", return_value="quickstart")
-    def test_quickstart_dispatch(self, _mock_dm, _mock_qs, _mock_ind, logger):
-        from fluid_build.cli.init import run
-
-        assert run(SimpleNamespace(), logger) == 0
-
-    @patch("fluid_build.cli.init._ask_industry", return_value=None)
     @patch("fluid_build.cli.init.blank_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="blank")
     def test_blank_dispatch(self, _mock_dm, _mock_bl, _mock_ind, logger):

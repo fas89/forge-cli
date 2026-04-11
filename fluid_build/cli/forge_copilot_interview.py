@@ -81,6 +81,8 @@ SUMMARY_FIELDS = {
     "time_granularity",
     "refresh_cadence",
     "consumes",
+    "ci_provider",
+    "ci_complexity",
 }
 
 LIST_LIKE_FIELDS = {"primary_measures", "primary_dimensions", "supporting_standards"}
@@ -99,6 +101,8 @@ SCALAR_FIELDS = {
     "time_granularity",
     "refresh_cadence",
     "use_case_other",
+    "ci_provider",
+    "ci_complexity",
 }
 
 

@@ -244,7 +244,7 @@ def run(args: Any, logger: logging.Logger) -> int:
     """Entry point for ``fluid demo``.
 
     Delegates the actual scaffolding + pipeline run to
-    :func:`fluid_build.cli.init.quickstart_mode` but wraps it with
+    :func:`fluid_build.cli.init.demo_mode` but wraps it with
     demo-specific UX (intro panel, retention-focused success panel,
     friendly recovery).
     """
@@ -252,7 +252,7 @@ def run(args: Any, logger: logging.Logger) -> int:
 
     target = Path(name)
 
-    # Refuse symlinks — mirrors quickstart_mode's guard.  A malicious
+    # Refuse symlinks — mirrors demo_mode's guard.  A malicious
     # symlink pointing at a system directory would otherwise let us
     # write files outside the demo's intended location.
     if target.is_symlink():
@@ -265,7 +265,7 @@ def run(args: Any, logger: logging.Logger) -> int:
             console_error(f"'{name}' is a symlink — refusing to write")
         return 1
 
-    # Refuse to clobber an existing non-empty directory — mirrors quickstart_mode.
+    # Refuse to clobber an existing non-empty directory — mirrors demo_mode.
     if target.exists() and any(target.iterdir()):
         if RICH_AVAILABLE and _console is not None:
             _console.print(
@@ -280,9 +280,9 @@ def run(args: Any, logger: logging.Logger) -> int:
 
     _print_intro_panel(name)
 
-    # Build a minimal args namespace for quickstart_mode.  It reads:
+    # Build a minimal args namespace for demo_mode.  It reads:
     #   name, dry_run, no_dag, no_run, provider
-    from fluid_build.cli.init import quickstart_mode
+    from fluid_build.cli.init import demo_mode
 
     shim = argparse.Namespace(
         name=name,
@@ -293,9 +293,9 @@ def run(args: Any, logger: logging.Logger) -> int:
     )
 
     try:
-        rc = quickstart_mode(shim, logger)
+        rc = demo_mode(shim, logger)
     except Exception as exc:  # noqa: BLE001 — we want friendly recovery for any failure
-        logger.exception("fluid demo: quickstart_mode raised")
+        logger.exception("fluid demo: demo_mode raised")
         _print_failure_panel(name, exc)
         return 1
 

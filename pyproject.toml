@@ -83,7 +83,7 @@ opds = [
   "ruamel.yaml>=0.18",
 ]
 
-# Optional TUI wizard (future: `fluid wizard`)
+# Optional TUI extras
 tui = [
   "textual>=0.58",
 ]

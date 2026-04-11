@@ -31,7 +31,6 @@ python -m fluid_build.cli version
 - providers — list registered providers.
 - auth — provider auth flows.
 - context — default provider/project/region.
-- wizard — TUI onboarding (prompt embedded).
 - docs — static docs index.
 - doctor — run diagnose script.
 - diff — drift detection (prompt embedded).

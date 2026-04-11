@@ -81,7 +81,7 @@ def print_first_run_help(parser: argparse.ArgumentParser) -> None:
     fast.add_column(style="bright_cyan", width=46)
     fast.add_column(style="dim bright_white")
     fast.add_row("fluid init --list-templates", "See what templates are available")
-    fast.add_row("fluid init my-project --quickstart", "Ships a working customer-360 example")
+    fast.add_row("fluid init my-project --quickstart", "Scaffold a customer-360 project (run with fluid apply)")
     fast.add_row("cd my-project && fluid apply --yes", "Run the pipeline end-to-end")
     console.print(fast)
 
@@ -254,7 +254,6 @@ def print_main_help(parser: argparse.ArgumentParser) -> None:
     extras.add_row("  context", "Switch project / environment")
     extras.add_row("  copilot", "Interactive AI assistant")
     extras.add_row("  execute", "Run build jobs manually")
-    extras.add_row("  wizard", "Step-by-step guided setup")
     extras.add_row("  marketplace", "Extended marketplace browser")
     extras.add_row("  odps-bitol", "ODPS-Bitol v1.0 (Entropy Data)")
     extras.add_row("  preview", "Dry-run alias for apply")
@@ -363,7 +362,7 @@ _COMMAND_ENRICHMENT: dict[str, tuple[str, str]] = {
         "Create a new FLUID project — quickstart, AI-designed, template, or empty.",
         (
             "  fluid init my-project                             Interactive (AI-assisted)\n"
-            "  fluid init my-project --quickstart                Zero-question customer-360 example\n"
+            "  fluid init my-project --quickstart                Scaffold customer-360 (run with fluid apply)\n"
             "  fluid init my-project --template ml-features      Start from a template\n"
             "  fluid init --list-templates                       Browse available templates\n"
             "  fluid init my-project --provider snowflake        Target a cloud provider\n"
@@ -605,10 +604,6 @@ _COMMAND_ENRICHMENT: dict[str, tuple[str, str]] = {
             "  fluid dmm list\n"
             "  fluid dmm teams"
         ),
-    ),
-    "wizard": (
-        "Step-by-step guided setup wizard with interactive prompts for creating data products.",
-        ("  fluid wizard\n  fluid wizard --provider gcp\n  fluid wizard --skip-preview"),
     ),
     "diff": (
         "Detect configuration drift by comparing contract (desired state) with actual deployed resources.",

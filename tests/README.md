@@ -20,7 +20,6 @@ tests/
 │   ├── test_apply.py          # Resource deployment
 │   ├── test_diff.py           # Drift detection ⭐ NEW
 │   ├── test_product_add.py    # Add sources/exposures ⭐ NEW
-│   ├── test_wizard.py         # Interactive wizard ⭐ NEW
 │   ├── test_forge.py          # Code generation
 │   ├── test_doctor.py         # System diagnostics
 │   └── ... (20+ more)
@@ -55,7 +54,7 @@ python tests/test_runner.py --cli
 python tests/test_runner.py --runtime
 
 # Specific test files
-python tests/test_runner.py diff wizard product_add
+python tests/test_runner.py diff product_add
 
 # Single test file directly
 python tests/cli/test_diff.py
@@ -108,21 +107,6 @@ test creates and drops a temporary schema inside that database.
 - `test_add_exposure_to_contract()` - Exposure addition
 - `test_deduplication_on_add()` - Duplicate handling
 - `test_get_section_key()` - Section mapping
-
-### ✅ wizard Command Tests (`tests/cli/test_wizard.py`)
-- Interactive wizard flow
-- Provider detection (GCP, Snowflake, AWS, local)
-- Product information gathering
-- Contract generation for different providers
-- Directory structure creation
-- Scaffolding generation (README, dbt, SQL)
-- Context saving
-
-**Key Tests:**
-- `test_detect_provider_with_gcp_env()` - Auto-detection
-- `test_generate_contract_for_different_providers()` - Multi-provider
-- `test_create_directory_structure()` - File system setup
-- `test_full_wizard_flow_local()` - End-to-end
 
 ### ✅ Dataform Runtime Tests (`tests/runtimes/test_dataform_gcp.py`)
 - Google Cloud Dataform API integration
@@ -229,7 +213,7 @@ python tests/test_runner.py --cli --verbose 1
 ## Test Categories
 
 ### 🖥️ CLI Tests (`tests/cli/`)
-Core CLI commands, validation, planning, drift detection, wizards
+Core CLI commands, validation, planning, drift detection
 
 ### ⚙️ Runtime Tests (`tests/runtimes/`)
 dbt, Dataform, and other runtime integrations
@@ -258,7 +242,6 @@ See [TESTING_GUIDE.md](./TESTING_GUIDE.md) for:
 ✅ **December 2025:**
 - Added comprehensive tests for new `diff` command
 - Added tests for `product-add` command with deduplication
-- Added tests for interactive `wizard` command
 - Added Dataform runtime integration tests
 - Enhanced error framework tests (40+ test cases)
 - Created comprehensive testing guide

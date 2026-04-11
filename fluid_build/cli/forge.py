@@ -287,6 +287,38 @@ def register(subparsers: argparse._SubParsersAction):
         action="store_true",
         help="Delete the copilot memory file and exit",
     )
+
+    # --- CI/CD auto-scaffolding (post-generation hook) ---
+    # Listed values are kept in sync with PipelineProvider in
+    # fluid_build/forge/core/pipeline_templates.py plus the control sentinels
+    # ``none`` (skip) and ``ask`` (force interactive menu even with memory).
+    parser.add_argument(
+        "--ci",
+        choices=[
+            "github_actions",
+            "gitlab_ci",
+            "azure_devops",
+            "jenkins",
+            "bitbucket",
+            "circle_ci",
+            "tekton",
+            "none",
+            "ask",
+        ],
+        default=None,
+        help="Auto-generate a CI/CD pipeline after scaffolding (e.g. 'github_actions'); 'none' skips, 'ask' always prompts",
+    )
+    parser.add_argument(
+        "--ci-complexity",
+        choices=["basic", "standard", "advanced", "enterprise"],
+        default="standard",
+        help="Complexity of the auto-generated CI pipeline (default: standard)",
+    )
+    parser.add_argument(
+        "--no-ci",
+        action="store_true",
+        help="Skip CI/CD pipeline auto-scaffolding (equivalent to --ci none)",
+    )
     parser.set_defaults(func=run)
 
 

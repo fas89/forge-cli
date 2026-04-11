@@ -39,23 +39,6 @@ Comprehensive review and enhancement of the FLUID Build CLI testing infrastructu
 - Deduplication of duplicate IDs
 - Section key mapping
 
-#### `test_wizard.py` (340+ lines)
-**Coverage:** Interactive wizard for new products
-- Command registration
-- Provider auto-detection (GCP, Snowflake, AWS, local)
-- User input gathering
-- Contract generation for different providers
-- Directory structure creation
-- Scaffolding generation (README, dbt, SQL)
-- Context saving to `.fluid/context.json`
-
-**Key Test Cases:**
-- Provider detection from environment variables
-- Product info gathering
-- Multi-provider contract generation
-- File system structure creation
-- Full wizard flow end-to-end
-
 #### `test_dataform_gcp.py` (180+ lines)
 **Coverage:** Google Cloud Dataform runtime
 - API integration
@@ -106,7 +89,7 @@ Comprehensive review and enhancement of the FLUID Build CLI testing infrastructu
 ```bash
 python tests/test_runner.py --coverage
 python tests/test_runner.py --cli
-python tests/test_runner.py diff wizard
+python tests/test_runner.py diff
 ```
 
 #### `TESTING_GUIDE.md` (Comprehensive guide)
@@ -151,7 +134,6 @@ python tests/test_runner.py diff wizard
 |-----------|-------|-------|----------|
 | test_diff.py | 282 | 15 | 100% |
 | test_product_add.py | 265 | 18 | 100% |
-| test_wizard.py | 342 | 20 | 95% |
 | test_dataform_gcp.py | 183 | 12 | 85% |
 | test_error_framework.py | 432 | 40+ | 100% |
 | **Total New** | **1,504** | **105+** | **96%** |
@@ -195,7 +177,7 @@ Proper mocking of:
 ### Quick Validation
 ```bash
 # Run all new tests
-python tests/test_runner.py diff product_add wizard
+python tests/test_runner.py diff product_add
 
 # Run with coverage
 python tests/test_runner.py --coverage
@@ -211,9 +193,6 @@ python tests/cli/test_diff.py
 
 # Product-add tests
 python tests/cli/test_product_add.py
-
-# Wizard tests
-python tests/cli/test_wizard.py
 
 # Dataform tests
 python tests/runtimes/test_dataform_gcp.py
@@ -334,4 +313,4 @@ The CLI testing improvements provide:
 - ✅ **Best practices** demonstrated throughout
 - ✅ **CI/CD ready** with proper mocking and cleanup
 
-All new commands (`diff`, `product-add`, `wizard`, Dataform runtime) now have comprehensive test coverage following established patterns and best practices.
+All new commands (`diff`, `product-add`, Dataform runtime) now have comprehensive test coverage following established patterns and best practices.

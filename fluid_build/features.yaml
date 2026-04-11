@@ -294,7 +294,6 @@ command_groups:
     description: "Experimental AI and advanced features"
     commands:
       - copilot
-      - wizard
       - analytics
       - performance
     reason: "Proof of concept - not production ready"

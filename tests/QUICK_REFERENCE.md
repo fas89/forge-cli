@@ -21,13 +21,12 @@ python tests/test_runner.py --runtime    # Runtimes only
 
 ### Run Specific Tests
 ```bash
-python tests/test_runner.py diff wizard product_add
+python tests/test_runner.py diff product_add
 ```
 
 ### Individual Test Files
 ```bash
 python tests/cli/test_diff.py
-python tests/cli/test_wizard.py
 python tests/cli/test_product_add.py
 python tests/runtimes/test_dataform_gcp.py
 python tests/test_error_framework.py
@@ -46,7 +45,6 @@ python tests/test_error_framework.py
 
 - ✅ `test_diff.py` - Drift detection (15 tests)
 - ✅ `test_product_add.py` - Add sources/exposures (18 tests)
-- ✅ `test_wizard.py` - Interactive wizard (20 tests)
 - ✅ `test_dataform_gcp.py` - Dataform runtime (12 tests)
 - ✅ `test_error_framework.py` - Enhanced errors (40+ tests)
 

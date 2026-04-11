@@ -134,3 +134,27 @@ class TestSavePersonalMemory:
             save_personal_memory({"provider": "gcp"}, console=console)
             # On second save, no hint should be shown
             console.print.assert_not_called()
+
+    def test_save_persists_ci_provider_and_complexity(self, tmp_path):
+        from fluid_build.cli.forge_copilot_personal_memory import save_personal_memory
+
+        mem_file = tmp_path / "engineer_memory.json"
+        with patch("fluid_build.cli.forge_copilot_personal_memory._MEMORY_FILE", mem_file):
+            save_personal_memory({"ci_provider": "github_actions", "ci_complexity": "advanced"})
+            data = json.loads(mem_file.read_text())
+            assert data["preferred_ci_provider"] == "github_actions"
+            assert data["preferred_ci_complexity"] == "advanced"
+
+    def test_save_preserves_existing_ci_when_new_context_empty(self, tmp_path):
+        from fluid_build.cli.forge_copilot_personal_memory import save_personal_memory
+
+        mem_file = tmp_path / "engineer_memory.json"
+        mem_file.write_text(
+            '{"preferred_ci_provider": "jenkins", "preferred_ci_complexity": "enterprise"}'
+        )
+        with patch("fluid_build.cli.forge_copilot_personal_memory._MEMORY_FILE", mem_file):
+            save_personal_memory({"provider": "aws"})
+            data = json.loads(mem_file.read_text())
+            assert data["preferred_ci_provider"] == "jenkins"
+            assert data["preferred_ci_complexity"] == "enterprise"
+            assert data["preferred_provider"] == "aws"

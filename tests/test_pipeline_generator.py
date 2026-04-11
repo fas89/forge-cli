@@ -21,7 +21,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from fluid_build.cli.pipeline_generator import _show_next_steps, register, run
+from fluid_build.cli.pipeline_generator import (
+    _show_next_steps,
+    build_pipeline_config,
+    register,
+    run,
+    write_pipeline_files,
+)
 from fluid_build.forge.core.pipeline_templates import (
     PipelineComplexity,
     PipelineConfig,
@@ -275,6 +281,115 @@ class TestShowNextSteps(unittest.TestCase):
         _show_next_steps("circleci", Path("/tmp/out"))
         # Generic branch — should still print something
         self.assertTrue(mock_cprint.called)
+
+
+# ---------------------------------------------------------------------------
+# build_pipeline_config — extracted factory helper
+# ---------------------------------------------------------------------------
+
+
+class TestBuildPipelineConfig(unittest.TestCase):
+    def test_coerces_string_provider_and_complexity(self):
+        config = build_pipeline_config(provider="github_actions", complexity="basic")
+        self.assertEqual(config.provider, PipelineProvider.GITHUB_ACTIONS)
+        self.assertEqual(config.complexity, PipelineComplexity.BASIC)
+
+    def test_none_environments_delegates_to_dataclass_defaults(self):
+        config = build_pipeline_config(provider="jenkins", complexity="basic")
+        # __post_init__ picks dev-only for BASIC
+        self.assertEqual(config.environments, ["dev"])
+
+    def test_explicit_environments_preserved(self):
+        config = build_pipeline_config(
+            provider="gitlab_ci",
+            complexity="advanced",
+            environments=["qa", "prod"],
+        )
+        self.assertEqual(config.environments, ["qa", "prod"])
+
+    def test_unknown_provider_raises_valueerror(self):
+        with self.assertRaises(ValueError) as ctx:
+            build_pipeline_config(provider="nope", complexity="standard")
+        self.assertIn("Unknown CI provider", str(ctx.exception))
+
+    def test_unknown_complexity_raises_valueerror(self):
+        with self.assertRaises(ValueError) as ctx:
+            build_pipeline_config(provider="jenkins", complexity="nope")
+        self.assertIn("Unknown pipeline complexity", str(ctx.exception))
+
+    def test_flags_plumbed_through(self):
+        config = build_pipeline_config(
+            provider="github_actions",
+            complexity="enterprise",
+            enable_approvals=True,
+            enable_security_scan=False,
+            enable_marketplace_publishing=True,
+        )
+        self.assertTrue(config.enable_approvals)
+        self.assertFalse(config.enable_security_scan)
+        self.assertTrue(config.enable_marketplace_publishing)
+
+
+# ---------------------------------------------------------------------------
+# write_pipeline_files — extracted writer helper
+# ---------------------------------------------------------------------------
+
+
+class TestWritePipelineFiles(unittest.TestCase):
+    def test_writes_files_to_output_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            files = {
+                ".github/workflows/a.yml": "a\n",
+                "Jenkinsfile": "pipeline {}\n",
+            }
+            written = write_pipeline_files(files, out)
+            self.assertEqual(len(written), 2)
+            self.assertTrue((out / ".github/workflows/a.yml").is_file())
+            self.assertTrue((out / "Jenkinsfile").is_file())
+            self.assertEqual(
+                (out / ".github/workflows/a.yml").read_text(), "a\n"
+            )
+
+    def test_creates_parent_dirs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "does/not/exist/yet"
+            files = {".github/workflows/b.yml": "b\n"}
+            write_pipeline_files(files, out)
+            self.assertTrue((out / ".github/workflows/b.yml").is_file())
+
+    def test_dry_run_creates_no_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            files = {".github/workflows/c.yml": "c\n"}
+            with patch("fluid_build.cli.pipeline_generator.cprint") as mock_cprint:
+                written = write_pipeline_files(files, out, dry_run=True)
+            # Path returned but not created
+            self.assertEqual(len(written), 1)
+            self.assertFalse((out / ".github/workflows/c.yml").exists())
+            # "would write" message emitted
+            calls = " ".join(str(c) for c in mock_cprint.call_args_list)
+            self.assertIn("would write", calls)
+
+    def test_dry_run_with_console_uses_console_print(self):
+        console = MagicMock()
+        with tempfile.TemporaryDirectory() as tmp:
+            write_pipeline_files(
+                {".github/workflows/d.yml": "d\n"},
+                Path(tmp),
+                dry_run=True,
+                console=console,
+            )
+        console.print.assert_called()
+        self.assertIn("would write", str(console.print.call_args_list[0]))
+
+    def test_returns_paths_in_insertion_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            files = {"a.yml": "1", "b.yml": "2", "c.yml": "3"}
+            written = write_pipeline_files(files, out)
+            names = [p.name for p in written]
+            self.assertEqual(names, ["a.yml", "b.yml", "c.yml"])
 
 
 if __name__ == "__main__":

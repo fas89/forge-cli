@@ -537,7 +537,6 @@ def register_core_commands(sp: argparse._SubParsersAction) -> None:
     _try_register(sp, "preview", "preview")
     _try_register(sp, "diff", "diff")
     _try_register(sp, "context", "context")
-    _try_register(sp, "wizard", "wizard")
     _try_register(sp, "product_add", "product-add")
     _try_register(sp, "pipeline_generator", "generate-pipeline")
     _try_register(sp, "copilot", "copilot")
