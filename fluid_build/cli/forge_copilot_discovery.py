@@ -44,9 +44,16 @@ LOG = logging.getLogger("fluid.cli.forge_copilot.discovery")
 MAX_DISCOVERY_FILES = 300
 MAX_SQL_FILES = 25
 MAX_READMES = 10
-MAX_SAMPLE_FILES = 12
+MAX_SAMPLE_FILES = 6  # Slice UX-G: lowered from 12 — copilot only uses a handful
 MAX_EXISTING_CONTRACTS = 12
 MAX_README_LINES = 80
+#: Hard cap on how deep the BFS walks below each discovery root.  Slice
+#: UX-G added this to bound the "AI mode is extremely slow" latency on
+#: deeply-nested repos.  Previously the walk was effectively unbounded —
+#: it would only stop when ``MAX_DISCOVERY_FILES`` was hit, which means
+#: a 10-deep tree with 50 dirs/level could easily stat hundreds of
+#: thousands of nodes before yielding its first sample.
+MAX_DISCOVERY_DEPTH = 6
 DISCOVERABLE_SAMPLE_SUFFIXES = {".csv", ".json", ".jsonl", ".parquet", ".pq", ".avro"}
 RUN_STATE_PATH_PARTS = tuple(Path(RUN_STATE_DIR).parts)
 
@@ -259,16 +266,31 @@ def discover_local_context(
 
 
 def _iter_candidate_files(root: Path) -> Iterable[Path]:
+    """BFS walk under *root* yielding candidate files for discovery.
+
+    Slice UX-G optimizations (see MAX_DISCOVERY_DEPTH docstring):
+
+    1. Each queue entry carries its depth-below-root so we can skip
+       directories deeper than ``MAX_DISCOVERY_DEPTH``.  Without this,
+       the walk was effectively unbounded — it only stopped on
+       ``MAX_DISCOVERY_FILES``, which for a deeply-nested monorepo
+       still meant thousands of ``stat`` calls before the first yield.
+
+    2. As soon as ``yielded >= MAX_DISCOVERY_FILES`` the inner loop
+       breaks instead of appending more subdirectories to the queue.
+       The previous version kept walking directories to append them
+       even though their contents would be ignored.
+    """
     if root.is_file():
         yield root
         return
     if not root.is_dir():
         return
 
-    queue: deque[Path] = deque([root])
+    queue: deque[tuple[Path, int]] = deque([(root, 0)])
     yielded = 0
     while queue and yielded < MAX_DISCOVERY_FILES:
-        current = queue.popleft()
+        current, depth = queue.popleft()
         try:
             entries = sorted(current.iterdir(), key=lambda item: item.name)
         except OSError:
@@ -277,7 +299,8 @@ def _iter_candidate_files(root: Path) -> Iterable[Path]:
             if entry.name in IGNORED_DIRECTORIES:
                 continue
             if entry.is_dir():
-                queue.append(entry)
+                if depth < MAX_DISCOVERY_DEPTH:
+                    queue.append((entry, depth + 1))
                 continue
             yielded += 1
             yield entry

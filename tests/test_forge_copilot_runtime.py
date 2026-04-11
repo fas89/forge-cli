@@ -758,6 +758,19 @@ class TestDiscovery:
 
 
 class TestGenerationValidation:
+    def setup_method(self):
+        """Slice UX-G memoizes build_capability_matrix() at module level.
+        Clear the cache between tests that monkey-patch the registry so
+        each test sees its own fresh computation."""
+        from fluid_build.cli.forge_copilot_runtime import clear_capability_matrix_cache
+
+        clear_capability_matrix_cache()
+
+    def teardown_method(self):
+        from fluid_build.cli.forge_copilot_runtime import clear_capability_matrix_cache
+
+        clear_capability_matrix_cache()
+
     def test_build_capability_matrix_falls_back_to_builtin_providers_when_registry_listing_fails(
         self,
     ):

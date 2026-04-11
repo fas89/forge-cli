@@ -21,7 +21,9 @@ so that ``from forge_copilot_runtime import X`` keeps working everywhere.
 
 from __future__ import annotations
 
+import copy
 import logging
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
@@ -238,7 +240,57 @@ def redact_secret_like_text(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Capability matrix cache (slice UX-G)
+# ---------------------------------------------------------------------------
+# build_capability_matrix() iterates every provider + template in the
+# registry, calling get() + get_metadata() for each.  On a fat registry
+# this was a 1-2 second hit on every copilot invocation.  The matrix
+# only changes when the process reloads the registries, so we memoize
+# it for the lifetime of the process behind a lock.
+#
+# Callers that want to force a fresh build (e.g. tests that mutate the
+# registry mid-run) should call ``clear_capability_matrix_cache()``
+# before invoking ``build_capability_matrix`` again.
+_CAPABILITY_MATRIX_CACHE: Optional[Dict[str, Any]] = None
+_CAPABILITY_MATRIX_LOCK = threading.Lock()
+
+
+def clear_capability_matrix_cache() -> None:
+    """Drop the process-wide capability matrix cache.
+
+    Tests (and any future ``fluid doctor refresh`` command) can call
+    this to force the next ``build_capability_matrix()`` to recompute
+    from scratch.
+    """
+    global _CAPABILITY_MATRIX_CACHE
+    with _CAPABILITY_MATRIX_LOCK:
+        _CAPABILITY_MATRIX_CACHE = None
+
+
 def build_capability_matrix() -> Dict[str, Any]:
+    """Describe the locally available templates, providers, and supported engines.
+
+    Cached per-process (slice UX-G).  The first call pays the full
+    registry-scan cost; subsequent calls return a deep copy of the
+    cached dict so callers that mutate the result can't poison the
+    cache for the next caller.  See ``clear_capability_matrix_cache``
+    for how to invalidate.
+    """
+    global _CAPABILITY_MATRIX_CACHE
+    with _CAPABILITY_MATRIX_LOCK:
+        if _CAPABILITY_MATRIX_CACHE is not None:
+            return copy.deepcopy(_CAPABILITY_MATRIX_CACHE)
+
+    matrix = _build_capability_matrix_uncached()
+    with _CAPABILITY_MATRIX_LOCK:
+        # Another thread may have populated the cache between our checks;
+        # that's fine — last writer wins, the content is identical.
+        _CAPABILITY_MATRIX_CACHE = matrix
+    return copy.deepcopy(matrix)
+
+
+def _build_capability_matrix_uncached() -> Dict[str, Any]:
     """Describe the locally available templates, providers, and supported engines."""
     warnings: List[str] = []
     try:

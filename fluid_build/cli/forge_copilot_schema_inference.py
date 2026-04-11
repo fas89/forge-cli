@@ -18,6 +18,7 @@ from __future__ import annotations
 
 __all__ = [
     "summarize_sample_file",
+    "clear_sample_file_cache",
     "read_parquet_metadata",
     "read_avro_metadata",
     "extract_provider_hints",
@@ -27,14 +28,61 @@ __all__ = [
     "map_inferred_type_to_contract_type",
 ]
 
+import copy
 import csv
 import json
+import os
 import re
+import threading
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
-MAX_SAMPLE_ROWS = 20
+#: Lowered from 20 to 5 in slice UX-G.  The copilot only inspects column
+#: names and inferred types — sampling 20 rows per file was pure
+#: overhead on every discovery run.
+MAX_SAMPLE_ROWS = 5
+
+
+# ---------------------------------------------------------------------------
+# Schema summary cache (slice UX-G)
+# ---------------------------------------------------------------------------
+# summarize_sample_file() opens and parses every candidate sample file
+# on every copilot invocation.  On a repo with a dozen CSVs/parquets
+# that's 500ms-1.5s of pure I/O and parse work, and it doesn't change
+# between runs unless the file does.  Memoize the result keyed on
+# (resolved path, mtime, size) so back-to-back copilot invocations in
+# the same process pay the parse cost only once per unchanged file.
+_SAMPLE_CACHE: Dict[Tuple[str, int, int], Dict[str, Any]] = {}
+_SAMPLE_CACHE_LOCK = threading.Lock()
+
+
+def clear_sample_file_cache() -> None:
+    """Drop the process-wide sample-file schema cache.
+
+    Tests and any future ``fluid doctor refresh`` command can force
+    a cold re-parse by calling this.
+    """
+    with _SAMPLE_CACHE_LOCK:
+        _SAMPLE_CACHE.clear()
+
+
+def _sample_cache_key(path: Path) -> Optional[Tuple[str, int, int]]:
+    """Return a cache key for *path* or None if the file is unreadable.
+
+    The key combines the resolved absolute path, the file's mtime
+    (as an integer ns — good enough for change detection), and its
+    size.  Any of those changing invalidates the cache entry.
+    """
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    try:
+        resolved = str(path.resolve())
+    except OSError:
+        resolved = str(path)
+    return (resolved, stat.st_mtime_ns, stat.st_size)
 
 
 # ---------------------------------------------------------------------------
@@ -43,7 +91,32 @@ MAX_SAMPLE_ROWS = 20
 
 
 def summarize_sample_file(path: Path) -> Dict[str, Any]:
-    """Extract schema-only metadata from a data file (CSV, JSON, Parquet, Avro)."""
+    """Extract schema-only metadata from a data file (CSV, JSON, Parquet, Avro).
+
+    Slice UX-G: results are memoized per-process keyed on the file's
+    ``(resolved path, mtime, size)`` tuple so re-running the copilot
+    on an unchanged repo re-parses nothing.  Files that can't be
+    stat'd bypass the cache entirely (the parser still runs and
+    returns whatever it can).
+    """
+    cache_key = _sample_cache_key(path)
+    if cache_key is not None:
+        with _SAMPLE_CACHE_LOCK:
+            cached = _SAMPLE_CACHE.get(cache_key)
+        if cached is not None:
+            return copy.deepcopy(cached)
+
+    summary = _summarize_sample_file_uncached(path)
+
+    if cache_key is not None:
+        with _SAMPLE_CACHE_LOCK:
+            _SAMPLE_CACHE[cache_key] = copy.deepcopy(summary)
+
+    return summary
+
+
+def _summarize_sample_file_uncached(path: Path) -> Dict[str, Any]:
+    """The raw parse path for :func:`summarize_sample_file`."""
     suffix = path.suffix.lower()
     columns: Dict[str, str] = {}
     sampled_rows = 0
