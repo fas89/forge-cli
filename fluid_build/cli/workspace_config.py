@@ -42,9 +42,17 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
+from fluid_build.cli.artifact_paths import (
+    CONTRACT_FILENAME,
+    WORKSPACE_CONFIG_FILENAME,
+    WORKSPACE_STATE_DIRNAME,
+)
+
 LOG = logging.getLogger("fluid.cli.workspace_config")
 
-WORKSPACE_FILENAME = "fluid.workspace.yaml"
+#: Re-exported from :mod:`fluid_build.cli.artifact_paths` for backward compat.
+#: New callers should import from ``artifact_paths`` directly.
+WORKSPACE_FILENAME = WORKSPACE_CONFIG_FILENAME
 DEFAULT_PRODUCTS_DIR = "."
 
 # Directories to skip when scanning for contracts.
@@ -62,7 +70,7 @@ _IGNORED_DIRS = {
     "dist",
     "build",
     "target",
-    ".fluid",
+    WORKSPACE_STATE_DIRNAME,
     ".fluid-workspace",
 }
 
@@ -253,14 +261,13 @@ def _iter_contracts(root: Path, max_depth: int = 2, _depth: int = 0):
     ``workspace/product-name/contract.fluid.yaml``).  Use ``-1`` for
     unlimited depth.
     """
+    # Accept the canonical filename from the registry plus the legacy .json variant.
+    contract_filenames = (CONTRACT_FILENAME, "contract.fluid.json")
     try:
         for entry in sorted(root.iterdir()):
             if entry.is_symlink():
                 continue  # Prevent symlink-based traversal outside the workspace.
-            if entry.is_file() and entry.name in (
-                "contract.fluid.yaml",
-                "contract.fluid.json",
-            ):
+            if entry.is_file() and entry.name in contract_filenames:
                 yield entry
             elif entry.is_dir() and entry.name not in _IGNORED_DIRS:
                 if max_depth == -1 or _depth < max_depth:

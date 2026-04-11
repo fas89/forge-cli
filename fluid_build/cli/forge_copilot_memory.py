@@ -35,12 +35,15 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
 
 from fluid_build.cli._common import redact_secrets, resolve_provider_from_contract
+from fluid_build.cli.artifact_paths import PRODUCT_MEMORY_FILENAME
 from fluid_build.config import RUN_STATE_DIR
 from fluid_build.util.contract import get_builds
 
 LOG = logging.getLogger("fluid.cli.forge_copilot_memory")
 
-MEMORY_FILENAME = "copilot-memory.json"
+#: Re-exported for backward compatibility.  New callers should import
+#: ``PRODUCT_MEMORY_FILENAME`` from :mod:`fluid_build.cli.artifact_paths`.
+MEMORY_FILENAME = PRODUCT_MEMORY_FILENAME
 MEMORY_SCHEMA_VERSION = 1
 MAX_MEMORY_LIST_VALUES = 8
 MAX_MEMORY_SCHEMA_SUMMARIES = 8

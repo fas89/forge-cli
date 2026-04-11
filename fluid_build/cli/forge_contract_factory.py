@@ -35,6 +35,8 @@ from typing import Any, Dict, Optional
 
 import yaml
 
+from fluid_build.cli.artifact_paths import CONTRACT_FILENAME
+
 LOG = logging.getLogger("fluid.cli.forge.contract_factory")
 
 DOCS_URL = "https://fluid-build.dev/docs/contracts"
@@ -111,7 +113,7 @@ def create_and_validate_contract(
     Logs and optionally prints errors via *console*.
     """
     target_dir.mkdir(parents=True, exist_ok=True)
-    contract_path = target_dir / "contract.fluid.yaml"
+    contract_path = target_dir / CONTRACT_FILENAME
     write_contract(contract, contract_path)
 
     error = validate_contract_file(contract_path)
