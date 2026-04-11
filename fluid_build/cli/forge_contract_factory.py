@@ -140,7 +140,12 @@ def create_and_validate_contract(
     """Write *contract* to ``target_dir/contract.fluid.yaml`` and validate.
 
     Returns the contract path on success or ``None`` on failure.
-    Logs and optionally prints errors via *console*.
+
+    On failure, prints an ``ActionableError`` panel via
+    :func:`fluid_build.cli.errors.print_actionable_error` so the user
+    sees a ``Fix:`` line in addition to the symptom.  The function
+    still returns ``None`` (not raises) for backward compatibility
+    with existing callers that check the return value.
     """
     target_dir.mkdir(parents=True, exist_ok=True)
     contract_path = target_dir / CONTRACT_FILENAME
@@ -149,11 +154,27 @@ def create_and_validate_contract(
     error = validate_contract_file(contract_path)
     if error:
         logger.error("Generated contract failed validation: %s", error)
-        if console:
-            try:
-                console.print(f"[red]Generated contract is invalid: {error}[/red]")
-            except Exception:  # noqa: BLE001
-                pass
+        try:
+            from fluid_build.cli.errors import (
+                ActionableError,
+                print_actionable_error,
+            )
+
+            actionable = ActionableError(
+                f"The generated contract at {contract_path} is invalid: {error}",
+                fix=(
+                    f"Delete {contract_path} and re-run 'fluid forge --blank', "
+                    f"or manually edit the contract to add the missing keys."
+                ),
+                docs_url="https://fluid-build.dev/docs/contracts",
+            )
+            print_actionable_error(actionable, console=console)
+        except Exception:  # noqa: BLE001 — defensive; never let errors printer crash
+            if console:
+                try:
+                    console.print(f"[red]Generated contract is invalid: {error}[/red]")
+                except Exception:  # noqa: BLE001
+                    pass
         return None
     return contract_path
 
