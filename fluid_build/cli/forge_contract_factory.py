@@ -57,32 +57,58 @@ def build_minimal_contract(
     This is the single source of truth for scaffold contracts used by
     both ``--blank`` and guided mode.
     """
+    owner_metadata: Dict[str, Any]
+    if isinstance(owner, dict):
+        owner_metadata = dict(owner)
+    else:
+        owner_metadata = {"team": str(owner)}
+
+    build_doc: Dict[str, Any] = {
+        "id": "main",
+        "engine": engine,
+    }
+    if engine == "sql":
+        build_doc["pattern"] = "embedded-logic"
+        build_doc["properties"] = {"sql": "SELECT 1 AS placeholder"}
+    else:
+        build_doc["pattern"] = "hybrid-reference"
+        build_doc["repository"] = "./models"
+        build_doc["properties"] = {"model": "main"}
+
     return {
-        "fluidVersion": "0.7.1",
+        "fluidVersion": "0.7.2",
         "kind": "DataProduct",
         "id": product_id,
         "name": name or product_id.replace("-", " ").title(),
+        "description": description,
+        "domain": domain,
+        "tags": tags or [],
         "metadata": {
-            "domain": domain,
-            "owner": owner,
-            "description": description,
-            "tags": tags or [],
+            "layer": "Bronze",
+            "owner": owner_metadata,
         },
-        "builds": [
-            {
-                "id": "main",
-                "pattern": "command",
-                "engine": engine,
-                "properties": {
-                    "sql": "SELECT 1 AS placeholder",
-                },
-            },
-        ],
+        "builds": [build_doc],
         "exposes": [
             {
-                "id": "output",
+                "exposeId": "output",
                 "kind": "table",
-                "from_build": "main",
+                "version": "1.0.0",
+                "binding": {
+                    "platform": "local",
+                    "format": "parquet",
+                    "location": {
+                        "path": "runtime/output.parquet",
+                    },
+                },
+                "contract": {
+                    "schema": [
+                        {
+                            "name": "placeholder",
+                            "type": "integer",
+                            "required": True,
+                        }
+                    ]
+                },
             },
         ],
     }

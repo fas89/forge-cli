@@ -76,13 +76,16 @@ def snapshot_workspace(root: Path, *, max_product_depth: int = 2) -> ArtifactSna
 
     Tracked files:
 
-    * ``<root>/fluid.workspace.yaml``
+    * ``<root>/fluid.workspace.yaml`` — workspace config
+    * ``<root>/.gitignore`` — gitignore template written by ``fluid init``
     * ``<root>/.fluid/skills.yaml``
-    * ``<root>/contract.fluid.yaml`` (the legacy flat layout)
-    * ``<root>/<subdir>/contract.fluid.yaml`` down to
+    * ``<root>/contract.fluid.yaml`` and ``<root>/contract.fluid.json``
+      (legacy flat layout; both formats are supported by the loader)
+    * ``<root>/<subdir>/contract.fluid.{yaml,json}`` down to
       ``max_product_depth`` levels deep (so a new product scaffolded by
       ``fluid init`` is caught regardless of whether the handler placed
-      it at the root or in a named subdirectory).
+      it at the root or in a named subdirectory, and regardless of the
+      serialisation format the scaffolder chose).
 
     Non-existent files are silently omitted.  Unreadable files (permission
     errors) are also omitted — the scan is best-effort and never raises.
@@ -91,11 +94,13 @@ def snapshot_workspace(root: Path, *, max_product_depth: int = 2) -> ArtifactSna
     snapshot = ArtifactSnapshot(root=root)
 
     _maybe_record(snapshot, root / WORKSPACE_CONFIG_FILENAME)
+    _maybe_record(snapshot, root / ".gitignore")
     _maybe_record(
         snapshot,
         root / WORKSPACE_STATE_DIRNAME / WORKSPACE_SKILLS_FILENAME,
     )
     _maybe_record(snapshot, root / CONTRACT_FILENAME)
+    _maybe_record(snapshot, root / "contract.fluid.json")
 
     for contract_path in _iter_contracts(root, max_depth=max_product_depth):
         _maybe_record(snapshot, contract_path)
@@ -198,12 +203,17 @@ def _maybe_record(snapshot: ArtifactSnapshot, path: Path) -> None:
     snapshot.files[path.resolve()] = hashlib.sha256(data).hexdigest()
 
 
+_CONTRACT_FILENAMES = frozenset({CONTRACT_FILENAME, "contract.fluid.json"})
+
+
 def _iter_contracts(root: Path, *, max_depth: int) -> Iterator[Path]:
-    """Yield every ``contract.fluid.yaml`` file under *root*.
+    """Yield every ``contract.fluid.{yaml,json}`` file under *root*.
 
     Walks only up to *max_depth* levels deep (the workspace root is
     depth 0).  Ignores virtualenvs, git metadata, and the hidden
-    ``.fluid/`` directory.
+    ``.fluid/`` directory.  Both YAML and JSON contract forms are
+    collected because the blank-init path historically writes JSON
+    while forge writes YAML.
     """
     def walk(current: Path, depth: int) -> Iterator[Path]:
         if depth > max_depth:
@@ -216,7 +226,7 @@ def _iter_contracts(root: Path, *, max_depth: int) -> Iterator[Path]:
             if entry.is_symlink():
                 continue
             if entry.is_file():
-                if entry.name == CONTRACT_FILENAME:
+                if entry.name in _CONTRACT_FILENAMES:
                     yield entry
             elif entry.is_dir() and entry.name not in _IGNORED_DIR_NAMES:
                 yield from walk(entry, depth + 1)

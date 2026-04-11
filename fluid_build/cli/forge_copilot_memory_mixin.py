@@ -213,26 +213,28 @@ class CopilotProjectMemoryMixin:
             store.save(candidate_memory)
         except Exception as exc:  # noqa: BLE001
             LOG.warning("Failed to save copilot memory at %s: %s", store.path, exc)
+            memory_path = self._relative_memory_path()
             if self.console:
                 self.console.print(
-                    f"[yellow]⚠ Could not save copilot memory to runtime/.state/copilot-memory.json: {exc}[/yellow]"
+                    f"[yellow]⚠ Could not save copilot memory to {memory_path}: {exc}[/yellow]"
                 )
             else:
                 warning(f"Could not save copilot memory: {exc}")
             return
 
+        memory_path = self._relative_memory_path()
         if self.console:
             self.console.print(
-                "[green]✓[/green] Saved project-scoped copilot memory to runtime/.state/copilot-memory.json"
+                f"[green]✓[/green] Saved project-scoped copilot memory to {memory_path}"
             )
         else:
-            success("Saved project-scoped copilot memory to runtime/.state/copilot-memory.json")
+            success(f"Saved project-scoped copilot memory to {memory_path}")
 
     def _should_save_project_memory(self, options: SimpleNamespace, memory: Any) -> bool:
         if getattr(options, "non_interactive", False):
             return bool(getattr(options, "save_memory", False))
 
-        prompt = "Save project-scoped copilot memory to runtime/.state/copilot-memory.json?"
+        prompt = f"Save project-scoped copilot memory to {self._relative_memory_path()}?"
         preview_lines = self._build_memory_save_preview_lines(memory)
         try:
             preview = "\n".join(preview_lines)

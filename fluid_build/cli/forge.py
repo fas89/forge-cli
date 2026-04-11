@@ -75,9 +75,10 @@ from fluid_build.cli.forge_copilot_runtime import (
     resolve_llm_config,
 )
 from fluid_build.cli.forge_copilot_taxonomy import normalize_copilot_context
-from fluid_build.cli.forge_dialogs import ask_confirmation
+from fluid_build.cli.forge_dialogs import ask_confirmation, ask_dialog_question
 from fluid_build.cli.forge_ui import print_welcome_panel
 from fluid_build.cli.forge_modes import (
+    _scaffold_ci_pipeline,
     run_ai_copilot_mode as _run_copilot,
 )
 from fluid_build.cli.forge_modes import (
@@ -305,6 +306,7 @@ def register(subparsers: argparse._SubParsersAction):
             "azure_devops",
             "jenkins",
             "bitbucket",
+            "circleci",
             "circle_ci",
             "tekton",
             "none",
@@ -386,6 +388,16 @@ def _run_blank_mode(args: Any, logger: logging.Logger) -> int:
     result_path = create_and_validate_contract(contract, target_dir, logger, console)
     if not result_path:
         return 1
+
+    _scaffold_ci_pipeline(
+        args,
+        target_dir,
+        {},
+        console,
+        ask_dialog_question_fn=ask_dialog_question,
+        get_cli_arg_fn=get_cli_arg,
+        dry_run=False,
+    )
 
     _print_next_steps(console, target_dir, result_path)
     return 0

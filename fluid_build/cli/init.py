@@ -98,7 +98,34 @@ def _print_templates_list() -> int:
             cprint("Templates module is not installed.")
         return 1
 
-    names = list_templates()
+    try:
+        names = list_templates()
+    except RecursionError:
+        # The simplified forge wrapper currently re-exports a recursive
+        # ``list_templates`` helper. Fall back to the registry directly so the
+        # user-facing command still works in real environments.
+        from fluid_build.forge.core.simple_registry import (
+            get_template,
+            initialize_registries,
+            list_templates as registry_list_templates,
+        )
+
+        initialize_registries()
+        names = registry_list_templates()
+
+        def get_template_info(template_name: str):
+            template = get_template(template_name)
+            if not template:
+                return None
+            try:
+                metadata = template.get_metadata()
+            except Exception:
+                return {"name": template_name}
+            return {
+                "name": template_name,
+                "display_name": getattr(metadata, "display_name", template_name),
+                "description": getattr(metadata, "description", "No description"),
+            }
     if not names:
         if RICH_AVAILABLE:
             console.print("[yellow]No templates are installed.[/yellow]")
@@ -246,6 +273,12 @@ def run(args, logger: logging.Logger) -> int:
 
         if mode is None:
             return 1  # Error already displayed or user redirected.
+
+        # A blank init dry-run must stay fully inert: no workspace config,
+        # no receipts, no ~/.fluid marker. Let the handler render its preview
+        # and return directly before any write-side effects occur.
+        if mode == "blank" and getattr(args, "dry_run", False):
+            return blank_mode(args, logger)
 
         # Snapshot state before any handler runs so we can build a receipt
         # of what this run wrote.  See fluid_build.cli.artifact_scan.
@@ -628,11 +661,21 @@ def detect_mode(args, logger: logging.Logger) -> Optional[str]:
         The menu's 'Quickstart' label is rewritten to
         ``--template customer-360 --yes`` so it dispatches through
         ``template_mode`` — same as ``fluid init --quickstart``.
+
+        The menu's 'Start from a template' label triggers a second
+        prompt that asks *which* template the user wants, defaulting to
+        ``customer-360``.  Without that second prompt ``args.template``
+        would stay ``None`` and ``template_mode`` / ``copy_template``
+        would crash trying to concatenate ``Path / None``.
         """
         if mode == "quickstart":
             args.template = "customer-360"
             args.yes = True
             return "template"
+        if mode == "template" and not getattr(args, "template", None):
+            args.template = _ask_template_name()
+            if not args.template:
+                return "template"  # let template_mode handle the empty case
         return mode
 
     # --- Existing contract at root (legacy single-product project) ---
@@ -684,6 +727,64 @@ def _print_welcome_panel() -> None:
         )
     )
     console.print()
+
+
+def _ask_template_name() -> Optional[str]:
+    """Prompt the user to pick a template when 'Start from a template' is chosen.
+
+    Lists the installed templates (via the same registry ``fluid init
+    --list-templates`` uses) and asks the user to type one name.
+    Defaults to ``customer-360``.  Falls back to ``customer-360`` when
+    Rich is unavailable or the template list can't be loaded — that
+    way the caller never receives ``None`` and ``template_mode``
+    never gets an empty ``args.template``.
+    """
+    default_name = "customer-360"
+
+    if not RICH_AVAILABLE:
+        return default_name
+
+    # Load the template list.  Mirror the two-path loader used by
+    # ``_print_templates_list`` so we stay resilient to the
+    # simple_forge recursion workaround.
+    try:
+        from fluid_build.forge.simple_forge import list_templates  # type: ignore
+
+        try:
+            names = list_templates()
+        except RecursionError:
+            from fluid_build.forge.core.simple_registry import (
+                initialize_registries,
+                list_templates as registry_list_templates,
+            )
+
+            initialize_registries()
+            names = registry_list_templates()
+    except ImportError:
+        names = [default_name]
+
+    names = sorted(names or [default_name])
+    if default_name not in names:
+        names.insert(0, default_name)
+
+    console.print()
+    console.print("[dim]Available templates:[/dim]")
+    for i, name in enumerate(names, 1):
+        marker = " [dim](default)[/dim]" if name == default_name else ""
+        console.print(f"  [bold]{i}.[/bold] {name}{marker}")
+    console.print()
+
+    valid_indices = [str(i) for i in range(1, len(names) + 1)]
+    default_index = str(names.index(default_name) + 1) if default_name in names else "1"
+    try:
+        choice = Prompt.ask("Choose template", choices=valid_indices, default=default_index)
+    except Exception:  # noqa: BLE001 — never crash the init flow over a prompt
+        return default_name
+
+    try:
+        return names[int(choice) - 1]
+    except (ValueError, IndexError):
+        return default_name
 
 
 def _ask_industry(workspace_root: Path) -> Optional[str]:
@@ -1231,6 +1332,21 @@ def blank_mode(args, logger: logging.Logger) -> int:
             console.print(f"[red]❌ Directory '{project_name}' already exists[/red]")
         return 1
 
+    if getattr(args, "dry_run", False):
+        preview_lines = [
+            f"  📁 {project_name}/",
+            f"  📄 {project_name}/contract.fluid.yaml",
+        ]
+        if RICH_AVAILABLE:
+            console.print("[yellow]🔍 Dry run - would create:[/yellow]")
+            for line in preview_lines:
+                console.print(line)
+        else:
+            cprint("Dry run - would create:")
+            for line in preview_lines:
+                cprint(line)
+        return 0
+
     try:
         # Try to use existing product-new command
         from .product_new import run as product_new_run
@@ -1294,6 +1410,23 @@ def template_mode(args, logger: logging.Logger) -> int:
     """Create from specific template"""
 
     template_name = args.template
+    if not template_name:
+        # Defensive: template_mode should never be reached with an empty
+        # ``args.template``.  The interactive menu path runs
+        # ``_ask_template_name`` before dispatching, and every CLI flag
+        # path requires a value.  This guard catches direct callers and
+        # prints an actionable error instead of crashing inside
+        # ``copy_template`` with a cryptic Path/None TypeError.
+        if RICH_AVAILABLE:
+            console.print(
+                "[red]❌ No template name provided.[/red]\n"
+                "[dim]Pass [bold]--template NAME[/bold] or pick one from "
+                "[bold]fluid init --list-templates[/bold].[/dim]"
+            )
+        else:
+            console_error("No template name provided. Pass --template NAME.")
+        return 1
+
     project_name = slugify_identifier(args.name or template_name, fallback="my-project")
     project_dir = Path(project_name)
 
@@ -1513,4 +1646,3 @@ def show_success_message(
 
     console.print()
     console.print("[dim]Run [bright_cyan]fluid --help[/bright_cyan] for all commands.[/dim]\n")
-

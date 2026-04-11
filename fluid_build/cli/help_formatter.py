@@ -184,9 +184,12 @@ def print_main_help(parser: argparse.ArgumentParser) -> None:
         "bright_blue",
         [
             ("init", "Create a new project  [dim]--template · --blank[/dim]"),
+            ("demo", "Scaffold and run a working example  [dim]customer-360[/dim]"),
             ("validate", "Check contract syntax and provider rules"),
+            ("compile", "Resolve overlays and print the effective contract"),
             ("plan", "Preview what will change  [dim]--env · --out[/dim]"),
             ("apply", "Execute the contract  [dim]--yes · --dry-run · --provider[/dim]"),
+            ("status", "Summarize the current workspace or product"),
             ("verify", "Confirm deployed state matches the contract"),
         ],
     )

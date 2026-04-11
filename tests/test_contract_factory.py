@@ -37,9 +37,9 @@ class TestBuildMinimalContract:
         )
         assert contract["id"] == "test-product"
         assert contract["name"] == "Test Product"
-        assert contract["metadata"]["domain"] == "finance"
-        assert contract["metadata"]["owner"] == "finance-team"
-        assert contract["metadata"]["tags"] == ["test", "finance"]
+        assert contract["domain"] == "finance"
+        assert contract["metadata"]["owner"] == {"team": "finance-team"}
+        assert contract["tags"] == ["test", "finance"]
         assert contract["builds"][0]["engine"] == "dbt"
 
     def test_default_name_derived_from_id(self):
@@ -74,8 +74,8 @@ class TestWriteContract:
         write_contract(contract, path)
 
         parsed = yaml.safe_load(path.read_text())
-        assert "colons" in parsed["metadata"]["description"]
-        assert "quotes" in parsed["metadata"]["description"]
+        assert "colons" in parsed["description"]
+        assert "quotes" in parsed["description"]
 
 
 class TestValidateContractFile:

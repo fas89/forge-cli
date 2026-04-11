@@ -188,6 +188,7 @@ def run(args, logger: logging.Logger) -> int:
             contract = load_contract_with_overlay(args.contract, getattr(args, "env", None), logger)
         except Exception as e:
             raise CLIError(1, "contract_load_failed", {"error": str(e)})
+        contract = _strip_contract_provenance(contract)
 
         # Determine target schema version
         target_version, auto_selected = _determine_target_version(
@@ -336,6 +337,22 @@ def _determine_target_version(
         f"No fluidVersion detected, defaulting to latest compatible version: {default_version}",
     )
     return default_version, True
+
+
+def _strip_contract_provenance(contract: Mapping[str, Any]) -> dict[str, Any]:
+    """Drop the envelope block under ``metadata.provenance`` before validation.
+
+    The on-disk contract keeps its provenance, but the schema validators should
+    treat it as an additive envelope rather than a user-authored metadata field.
+    """
+    data = dict(contract)
+    metadata = data.get("metadata")
+    if not isinstance(metadata, Mapping) or "provenance" not in metadata:
+        return data
+    clean_metadata = dict(metadata)
+    clean_metadata.pop("provenance", None)
+    data["metadata"] = clean_metadata
+    return data
 
 
 def _available_schema_versions(schema_manager: FluidSchemaManager, args) -> list[SchemaVersion]:

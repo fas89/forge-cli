@@ -445,7 +445,7 @@ _CI_PROVIDER_CHOICES = [
     {"label": "Azure DevOps", "value": "azure_devops"},
     {"label": "Jenkins", "value": "jenkins"},
     {"label": "Bitbucket Pipelines", "value": "bitbucket"},
-    {"label": "CircleCI", "value": "circle_ci"},
+    {"label": "CircleCI", "value": "circleci"},
     {"label": "Tekton", "value": "tekton"},
     {"label": "None (skip)", "value": "none"},
 ]
@@ -461,6 +461,17 @@ _CI_COMPLEXITY_VALUES = {c["value"] for c in _CI_COMPLEXITY_CHOICES}
 _CI_PROVIDER_VALUES = {
     c["value"] for c in _CI_PROVIDER_CHOICES if c["value"] != "none"
 }
+_CI_PROVIDER_ALIASES = {
+    "circle_ci": "circleci",
+    "circleci": "circleci",
+}
+
+
+def _normalize_ci_provider(value: Optional[str]) -> Optional[str]:
+    """Map legacy/provider aliases to the CLI-facing CI provider names."""
+    if value is None:
+        return None
+    return _CI_PROVIDER_ALIASES.get(value, value)
 
 
 def _ci_killswitch_enabled() -> bool:
@@ -578,7 +589,7 @@ def _resolve_ci_choice(
     )
     complexity = raw_complexity if raw_complexity in _CI_COMPLEXITY_VALUES else "standard"
 
-    ci_flag = get_cli_arg_fn(args, "ci", None)
+    ci_flag = _normalize_ci_provider(get_cli_arg_fn(args, "ci", None))
 
     # 2b. Explicit "none" sentinel from --ci
     if ci_flag == "none":
@@ -617,7 +628,7 @@ def _resolve_ci_choice(
     # 8. Non-interactive with a recorded ci-state provider → use it.
     # This is what makes `fluid forge` on another teammate's machine
     # automatically refresh the committed CI files without --ci.
-    recorded_provider = context.get("ci_provider")
+    recorded_provider = _normalize_ci_provider(context.get("ci_provider"))
     if recorded_provider in _CI_PROVIDER_VALUES:
         return (recorded_provider, complexity)
 
@@ -659,7 +670,7 @@ def _scaffold_ci_pipeline(
         # Explicit --ci / --ci-complexity flags still win because
         # _resolve_ci_choice consults them before looking at context.
         context = dict(context)
-        context["ci_provider"] = recorded.provider
+        context["ci_provider"] = _normalize_ci_provider(recorded.provider)
         context["ci_complexity"] = recorded.complexity
 
     provider, complexity = _resolve_ci_choice(

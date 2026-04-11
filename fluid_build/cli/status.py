@@ -149,12 +149,22 @@ def _gather_contract_info(product_root: Path, summary: StatusSummary) -> None:
 
     summary.product_id = doc.get("id") if isinstance(doc.get("id"), str) else None
     summary.product_name = doc.get("name") if isinstance(doc.get("name"), str) else None
-    summary.fluid_version = (
-        doc.get("fluidVersion") if isinstance(doc.get("fluidVersion"), str) else None
-    )
+    # fluidVersion can be loaded as either str (quoted) or float/int (unquoted)
+    raw_version = doc.get("fluidVersion")
+    if raw_version is not None:
+        summary.fluid_version = str(raw_version)
 
     metadata = doc.get("metadata") if isinstance(doc.get("metadata"), dict) else {}
-    summary.domain = metadata.get("domain") if isinstance(metadata.get("domain"), str) else None
+
+    # Domain lives at the top level in fluid 0.7.2+; older scaffolds put it
+    # under metadata.domain.  Read top-level first, fall back to metadata.
+    top_domain = doc.get("domain")
+    meta_domain = metadata.get("domain")
+    if isinstance(top_domain, str) and top_domain:
+        summary.domain = top_domain
+    elif isinstance(meta_domain, str) and meta_domain:
+        summary.domain = meta_domain
+
     owner = metadata.get("owner")
     if isinstance(owner, dict):
         summary.owner = owner.get("team") if isinstance(owner.get("team"), str) else None

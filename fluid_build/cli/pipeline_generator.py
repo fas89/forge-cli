@@ -60,6 +60,10 @@ def build_pipeline_config(
     pick complexity-appropriate defaults. Raises ``ValueError`` with a helpful
     message on unknown provider or complexity.
     """
+    provider_aliases = {
+        "circleci": "circle_ci",
+    }
+    provider = provider_aliases.get(provider, provider)
     try:
         provider_enum = PipelineProvider(provider)
     except ValueError as exc:
