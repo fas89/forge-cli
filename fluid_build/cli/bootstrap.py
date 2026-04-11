@@ -438,6 +438,9 @@ def register_core_commands(sp: argparse._SubParsersAction) -> None:
     # 🚀 FLUID Demo - zero-setup working example (customer-360)
     _try_register(sp, "demo", "demo")
 
+    # 📋 FLUID Status - one-page summary of the current product (slice UX-A)
+    _try_register(sp, "status", "status")
+
     # 📥 FLUID Import - migrate dbt/Terraform/SQL projects to FLUID
     _try_register(sp, "import_cmd", "import")
 
