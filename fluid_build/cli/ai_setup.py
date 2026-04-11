@@ -44,8 +44,10 @@ from fluid_build.cli.forge_copilot_llm_providers import (
     PROVIDER_ENV_VARS,
     LlmConfig,
     check_llm_readiness,
+    detect_ollama_available,
     detect_provider_from_api_key,
 )
+from fluid_build.cli.forge_dialogs import ask_confirmation
 
 try:
     from rich.console import Console
@@ -320,6 +322,8 @@ def _prompt_for_api_key(console: Any) -> Optional[LlmConfig]:
         Panel(
             (
                 "Forge uses AI to generate your data product.\n\n"
+                "[dim]Not sure your environment is ready? Run [bold]fluid doctor[/bold] "
+                "first\nto check Python version, credentials, and local providers.[/dim]\n\n"
                 "Got an API key? Pick your provider below.\n"
                 "Don't have one? No worries -- pick [bold]Google Gemini[/bold] to kick\n"
                 "the tyres for [bold]free[/bold] (no credit card, 30 seconds to sign up)."
@@ -533,18 +537,67 @@ def run_ai_setup_interactive(console: Any) -> Optional[LlmConfig]:
     return config
 
 
+def _make_ollama_config(*, model: Optional[str] = None) -> LlmConfig:
+    """Build a fully-formed ``LlmConfig`` for local Ollama.
+
+    Reads ``os.environ`` once and defaults the model to the provider's
+    built-in default when *model* is ``None`` or empty.  Callers that need
+    ``OLLAMA_HOST`` respected should set it on ``os.environ`` before calling.
+    """
+    provider = BUILTIN_LLM_PROVIDERS["ollama"]
+    env = dict(os.environ)
+    resolved_model = model or provider.default_model
+    return LlmConfig(
+        provider="ollama",
+        model=resolved_model,
+        endpoint=provider.default_endpoint(resolved_model, env),
+        api_key=None,
+    )
+
+
+def _make_cloud_config(
+    pname: str,
+    api_key: str,
+    *,
+    model: Optional[str] = None,
+    endpoint: Optional[str] = None,
+) -> LlmConfig:
+    """Build a fully-formed ``LlmConfig`` for a cloud provider.
+
+    Defaults *model* to the provider's built-in default and *endpoint* to
+    the provider's computed default when the respective arguments are
+    ``None``.  Reads ``os.environ`` once.
+    """
+    provider = BUILTIN_LLM_PROVIDERS[pname]
+    env = dict(os.environ)
+    resolved_model = model or provider.default_model
+    return LlmConfig(
+        provider=pname,
+        model=resolved_model,
+        endpoint=endpoint or provider.default_endpoint(resolved_model, env),
+        api_key=api_key,
+    )
+
+
 def run_ai_setup_inline(console: Any) -> Optional[LlmConfig]:
     """Compact inline setup triggered when forge starts without a configured provider.
 
-    Checks keyring first, then prompts if needed.  Returns ``None`` if the
-    user skips setup or stdin is not a TTY.
+    Resolves an LLM config in this priority order:
+
+        1. saved config file (``~/.fluid/ai_config.json``)
+        2. cloud provider env vars (``OPENAI_API_KEY`` etc.)
+        3. explicit ``OLLAMA_HOST`` env var
+        4. auto-detected local Ollama (with user confirmation on TTY)
+        5. interactive provider picker
+
+    Returns ``None`` if the user skips setup or stdin is not a TTY.
     """
-    # 0. Respect session-level skip
+    # 0. Respect session-level skip.
     if _ai_setup_skipped:
         LOG.debug("AI setup was skipped earlier in this session")
         return None
 
-    # 1. Check saved config file (primary persistence store)
+    # 1. Check saved config file (primary persistence store).
     saved = _load_ai_config()
     if saved and saved.get("provider"):
         pname = saved["provider"]
@@ -556,68 +609,70 @@ def run_ai_setup_inline(console: Any) -> Optional[LlmConfig]:
                     saved.get("ollama_host", "http://localhost:11434")
                 )
                 os.environ["OLLAMA_HOST"] = ollama_host
-                env = dict(os.environ)
+                config = _make_ollama_config(model=model)
                 if console and RICH_AVAILABLE:
-                    console.print(f"[dim]Using Ollama ({model or provider.default_model}).[/dim]")
+                    console.print(f"[dim]Using Ollama ({config.model}).[/dim]")
                 LOG.info("Inline AI setup: loaded ollama from config")
-                return LlmConfig(
-                    provider="ollama",
-                    model=model or provider.default_model,
-                    endpoint=provider.default_endpoint(model or provider.default_model, env),
-                    api_key=None,
+                return config
+            # Cloud provider — key is in config file (primary) or keyring (fallback).
+            api_key = saved.get("api_key") or _load_key_from_keyring(pname)
+            if api_key:
+                set_session_env(pname, api_key)
+                config = _make_cloud_config(
+                    pname, api_key, model=model, endpoint=saved.get("endpoint")
                 )
-            else:
-                # Cloud provider — key is in config file (primary) or keyring (fallback)
-                api_key = saved.get("api_key") or _load_key_from_keyring(pname)
-                if api_key:
-                    set_session_env(pname, api_key)
-                    env = dict(os.environ)
-                    label = PROVIDER_DISPLAY_NAMES.get(pname, pname)
-                    if console and RICH_AVAILABLE:
-                        console.print(f"[dim]Using {label} ({model or provider.default_model}).[/dim]")
-                    LOG.info("Inline AI setup: loaded %s from saved config", pname)
-                    return LlmConfig(
-                        provider=pname,
-                        model=model or provider.default_model,
-                        endpoint=saved.get("endpoint")
-                        or provider.default_endpoint(model or provider.default_model, env),
-                        api_key=api_key,
-                    )
-                # Config exists but no key anywhere — fall through to prompt
+                label = PROVIDER_DISPLAY_NAMES.get(pname, pname)
+                if console and RICH_AVAILABLE:
+                    console.print(f"[dim]Using {label} ({config.model}).[/dim]")
+                LOG.info("Inline AI setup: loaded %s from saved config", pname)
+                return config
+            # Config exists but no key anywhere — fall through to prompt.
 
-    # 2. Check env vars (backward compat / CI)
-    for pname in PROVIDER_ENV_VARS:
-        env_key = os.environ.get(PROVIDER_ENV_VARS[pname])
+    # 2. Check cloud-provider env vars (backward compat / CI).
+    for pname, env_var in PROVIDER_ENV_VARS.items():
+        env_key = os.environ.get(env_var)
         if env_key:
-            provider = BUILTIN_LLM_PROVIDERS[pname]
-            env = dict(os.environ)
             if console and RICH_AVAILABLE:
                 label = PROVIDER_DISPLAY_NAMES.get(pname, pname)
                 console.print(f"[dim]Using {label} from environment.[/dim]")
             LOG.info("Inline AI setup: loaded %s from env var", pname)
-            return LlmConfig(
-                provider=pname,
-                model=provider.default_model,
-                endpoint=provider.default_endpoint(provider.default_model, env),
-                api_key=env_key,
-            )
+            return _make_cloud_config(pname, env_key)
 
-    # 3. Check Ollama env var
-    ollama_host = _sanitize_ollama_host(os.environ.get("OLLAMA_HOST", ""))
+    # 3. Explicit OLLAMA_HOST env var.
     if os.environ.get("OLLAMA_HOST"):
-        provider = BUILTIN_LLM_PROVIDERS["ollama"]
-        env = dict(os.environ)
         if console and RICH_AVAILABLE:
             console.print("[dim]Using local Ollama.[/dim]")
         LOG.info("Inline AI setup: using ollama from OLLAMA_HOST env var")
-        return LlmConfig(
-            provider="ollama",
-            model=provider.default_model,
-            endpoint=provider.default_endpoint(provider.default_model, env),
-            api_key=None,
-        )
+        return _make_ollama_config()
 
-    # 4. Nothing found -- prompt user (only if stdin is interactive)
+    # 4. Auto-detect local Ollama — ask the user before selecting it.
+    if detect_ollama_available(os.environ):
+        if sys.stdin.isatty() and console and RICH_AVAILABLE:
+            use_ollama = ask_confirmation(
+                console,
+                "Local Ollama detected. Use it?",
+                default=True,
+                preview=(
+                    "Ollama runs LLMs on your machine — free, no API key, no internet.\n"
+                    "Good for experimenting and privacy-sensitive work.\n"
+                    "For faster/better results on real projects, use a cloud provider."
+                ),
+                title="Local AI Available",
+                border_style="blue",
+            )
+            if use_ollama:
+                config = _make_ollama_config()
+                _save_ai_config("ollama", config.model)
+                console.print(f"[dim]Using Ollama ({config.model}).[/dim]")
+                LOG.info("Inline AI setup: user confirmed local Ollama")
+                return config
+            # User declined Ollama — fall through to the full provider prompt.
+        else:
+            # Non-interactive (CI) — auto-select Ollama silently.
+            LOG.info("Inline AI setup: auto-selected local Ollama (non-interactive)")
+            return _make_ollama_config()
+
+    # 5. Nothing found — prompt user (only if stdin is interactive).
     if not sys.stdin.isatty():
         LOG.debug("Inline AI setup: stdin is not a TTY, skipping interactive prompt")
         return None
@@ -698,9 +753,15 @@ def _run_ai_command(args, logger: logging.Logger) -> int:
             _clear_ai_config()
             for p in PROVIDER_ENV_VARS:
                 _clear_key_from_keyring(p)
+            # Also reset Ollama detection cache so next run re-probes
+            try:
+                from fluid_build.cli.forge_copilot_llm_providers import reset_llm_caches
+                reset_llm_caches()
+            except ImportError:
+                pass
             if console:
                 console.print("[green]Cleared saved AI config and API keys.[/green]")
-                console.print("[dim]Run 'fluid forge' to set up again.[/dim]")
+                console.print("[dim]Run 'fluid forge' to choose a provider.[/dim]")
             else:
                 from fluid_build.cli.console import cprint
                 cprint("Cleared saved AI config and API keys.")

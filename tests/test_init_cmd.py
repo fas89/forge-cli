@@ -52,8 +52,6 @@ class TestDetectMode:
     def _args(self, **kwargs):
         defaults = dict(
             quickstart=False,
-            scan=False,
-            wizard=False,
             blank=False,
             template=None,
             name=None,
@@ -73,19 +71,6 @@ class TestDetectMode:
         assert result == "template"
         assert args.template == "customer-360"
 
-    def test_explicit_scan(self):
-        from fluid_build.cli.init import detect_mode
-
-        result = detect_mode(self._args(scan=True), MagicMock())
-        assert result == "scan"
-
-    def test_explicit_wizard(self):
-        """--wizard is deprecated and maps to AI mode."""
-        from fluid_build.cli.init import detect_mode
-
-        result = detect_mode(self._args(wizard=True), MagicMock())
-        assert result == "ai"
-
     def test_explicit_blank(self):
         from fluid_build.cli.init import detect_mode
 
@@ -103,7 +88,10 @@ class TestDetectMode:
         from fluid_build.cli.init import detect_mode
 
         (tmp_path / "contract.fluid.yaml").write_text("name: test")
-        with patch("fluid_build.cli.init.Path") as mock_path_cls:
+        with (
+            patch("fluid_build.cli.init.Path") as mock_path_cls,
+            patch("fluid_build.cli.init.find_workspace_root", return_value=None),
+        ):
             mock_cwd = MagicMock()
             mock_path_cls.cwd.return_value = mock_cwd
             (tmp_path / "contract.fluid.yaml").exists()  # pre-check
@@ -119,6 +107,7 @@ class TestDetectMode:
 
         with (
             patch("fluid_build.cli.init.Path") as mock_path_cls,
+            patch("fluid_build.cli.init.find_workspace_root", return_value=None),
             patch("fluid_build.cli.init._ask_creation_mode", return_value="ai") as mock_menu,
         ):
             mock_cwd = MagicMock()
@@ -132,3 +121,85 @@ class TestDetectMode:
             result = detect_mode(self._args(), MagicMock())
             mock_menu.assert_called_once()
             assert result == "ai"
+
+    def test_menu_quickstart_normalizes_to_template_mode(self, tmp_path):
+        """Menu option 'Quickstart' should route to template_mode, same as --quickstart flag.
+
+        This is the load-bearing overlap fix: both the CLI flag and the
+        interactive menu label produce the same artifacts (bare
+        customer-360 scaffold). Without _resolve_menu_choice, the menu
+        path used to dispatch to quickstart_mode (kitchen sink) while
+        the CLI flag dispatched to template_mode (bare scaffold).
+        """
+        from fluid_build.cli.init import detect_mode
+
+        args = self._args()  # no explicit mode
+        with (
+            patch("fluid_build.cli.init.Path") as mock_path_cls,
+            patch("fluid_build.cli.init.find_workspace_root", return_value=None),
+            patch(
+                "fluid_build.cli.init._ask_creation_mode", return_value="quickstart"
+            ),
+        ):
+            mock_cwd = MagicMock()
+            mock_cwd.__truediv__ = lambda self, x: tmp_path / x
+            mock_path_cls.cwd.return_value = mock_cwd
+            mock_path_cls.home.return_value = tmp_path / "fakehome"
+            mock_cwd.glob = MagicMock(return_value=[])
+            result = detect_mode(args, MagicMock())
+
+        assert result == "template"
+        assert args.template == "customer-360"
+        assert args.yes is True
+
+
+# ===========================================================================
+# _print_templates_list — `fluid init --list-templates`
+# ===========================================================================
+
+
+class TestPrintTemplatesList:
+    def test_lists_templates_when_available(self, capsys):
+        from fluid_build.cli.init import _print_templates_list
+
+        with patch(
+            "fluid_build.forge.simple_forge.list_templates",
+            return_value=["customer-360", "hello-world"],
+        ), patch(
+            "fluid_build.forge.simple_forge.get_template_info",
+            return_value={"description": "Example description"},
+        ):
+            rc = _print_templates_list()
+        assert rc == 0
+
+    def test_returns_0_when_no_templates(self):
+        from fluid_build.cli.init import _print_templates_list
+
+        with patch("fluid_build.forge.simple_forge.list_templates", return_value=[]):
+            rc = _print_templates_list()
+        assert rc == 0
+
+    def test_returns_1_when_module_missing(self):
+        from fluid_build.cli.init import _print_templates_list
+
+        # Force the lazy import to fail.
+        with patch.dict("sys.modules", {"fluid_build.forge.simple_forge": None}):
+            rc = _print_templates_list()
+        assert rc == 1
+
+    def test_does_not_shadow_info_logger(self):
+        """Regression: `_print_templates_list` used to rebind `info` to a dict,
+        shadowing the `_logging.info` helper imported at module level.
+        """
+        from fluid_build.cli import init as init_mod
+
+        with patch(
+            "fluid_build.forge.simple_forge.list_templates",
+            return_value=["t1"],
+        ), patch(
+            "fluid_build.forge.simple_forge.get_template_info",
+            return_value={"description": "d"},
+        ):
+            init_mod._print_templates_list()
+        # After the call, `info` at module level should still be the callable helper.
+        assert callable(init_mod.info)

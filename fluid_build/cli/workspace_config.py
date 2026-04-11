@@ -45,7 +45,7 @@ import yaml
 LOG = logging.getLogger("fluid.cli.workspace_config")
 
 WORKSPACE_FILENAME = "fluid.workspace.yaml"
-DEFAULT_PRODUCTS_DIR = "products"
+DEFAULT_PRODUCTS_DIR = "."
 
 # Directories to skip when scanning for contracts.
 _IGNORED_DIRS = {
@@ -191,14 +191,25 @@ def save_workspace_config(
 
 
 def discover_workspace_products(root: Path) -> List[DiscoveredProduct]:
-    """Find all ``contract.fluid.yaml`` files under *root*.
+    """Find ``contract.fluid.yaml`` files within the workspace boundary.
+
+    Reads ``products_dir`` from the workspace config and searches only
+    within that directory (depth-limited to 2 levels).
 
     Returns a list of :class:`DiscoveredProduct` sorted by name.
     """
+    ws_config = load_workspace_config(root)
+    search_base = (root / ws_config.products_dir).resolve()
+    # Guard: ensure search_base is within root.
+    try:
+        search_base.relative_to(root.resolve())
+    except ValueError:
+        search_base = root
+
     products: List[DiscoveredProduct] = []
-    for contract_path in _iter_contracts(root):
+    for contract_path in _iter_contracts(search_base):
         product_dir = contract_path.parent
-        product_name = product_dir.name if product_dir != root else "(root)"
+        product_name = product_dir.name if product_dir != search_base else "(root)"
         expose_count = 0
         provider = ""
         fluid_version = ""
@@ -235,8 +246,13 @@ def discover_workspace_products(root: Path) -> List[DiscoveredProduct]:
 # ---------------------------------------------------------------------------
 
 
-def _iter_contracts(root: Path):
-    """Yield ``contract.fluid.yaml`` paths under *root*, skipping ignored dirs and symlinks."""
+def _iter_contracts(root: Path, max_depth: int = 2, _depth: int = 0):
+    """Yield ``contract.fluid.yaml`` paths under *root*, with depth limiting.
+
+    *max_depth* controls how deep the search goes (default 2 — covers
+    ``workspace/product-name/contract.fluid.yaml``).  Use ``-1`` for
+    unlimited depth.
+    """
     try:
         for entry in sorted(root.iterdir()):
             if entry.is_symlink():
@@ -247,6 +263,7 @@ def _iter_contracts(root: Path):
             ):
                 yield entry
             elif entry.is_dir() and entry.name not in _IGNORED_DIRS:
-                yield from _iter_contracts(entry)
+                if max_depth == -1 or _depth < max_depth:
+                    yield from _iter_contracts(entry, max_depth, _depth + 1)
     except PermissionError:
         pass

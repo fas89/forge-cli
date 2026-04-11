@@ -24,6 +24,7 @@ __all__ = [
     "print_copilot_intro_panel",
     "print_copilot_recovery_panel",
     "print_free_tier_guide",
+    "print_interview_phase",
     "print_welcome_panel",
     "show_copilot_analysis",
     "show_domain_analysis",
@@ -160,12 +161,35 @@ def print_welcome_panel(console: Any) -> None:
     if not console or not RICH_AVAILABLE:
         return
     welcome_text = (
-        "🔨 **Forge** — Create a new data product\n\n"
-        "AI Copilot will interview you and generate a complete\n"
-        "FLUID contract, README, and scaffolding.\n\n"
-        "[dim]Tip: use [bold]--blank[/bold] for an empty contract without AI.[/dim]"
+        "🔨 **Forge** — Add a data product to this workspace\n\n"
+        "AI Copilot will interview you and generate a validated contract.\n"
+        "[dim]Use [bold]--blank[/bold] to skip AI and start from an empty contract.[/dim]\n\n"
+        "[dim]Power-user options: [bold]fluid forge --help[/bold] — LLM config, "
+        "memory, discovery flags.[/dim]"
     )
     console.print(_build_panel(welcome_text, title="FLUID Forge", border_style="blue"))
+
+
+def print_interview_phase(
+    console: Any,
+    *,
+    phase: int,
+    total: int,
+    label: str,
+) -> None:
+    """Render a compact phase breadcrumb during the adaptive copilot interview.
+
+    The interview is adaptive (variable number of rounds) so instead of a
+    strict step counter this just marks which phase we're in, giving the user
+    a sense of progress without overpromising a specific number of questions.
+    """
+    if not console:
+        return
+    breadcrumb = f"─── Phase {phase}/{total}: {label} ───"
+    if RICH_AVAILABLE:
+        console.print(f"\n[dim cyan]{breadcrumb}[/dim cyan]\n")
+    else:
+        console.print(f"\n{breadcrumb}\n")
 
 
 def print_copilot_intro_panel(console: Any) -> None:
@@ -175,8 +199,14 @@ def print_copilot_intro_panel(console: Any) -> None:
     intro_text = """
 🤖 **AI Copilot** is ready
 
-Forge found an available LLM and will guide you through project setup.
-You'll answer a few questions, review assumptions, and generate a validated contract.
+Here's what happens next:
+  1. I'll ask about your goal and data sources
+  2. Suggest a template and output format
+  3. Generate a validated contract.fluid.yaml
+  4. Scaffold the project files
+
+[dim]Answer with a number, short phrase, or natural language.
+Type 'skip' or 'not sure' — I'll pick sensible defaults.[/dim]
     """.strip()
     console.print(_build_panel(intro_text, title="Starting AI Copilot", border_style="blue"))
 

@@ -25,8 +25,6 @@ def _make_init_args(**overrides):
     defaults = dict(
         name=None,
         quickstart=False,
-        scan=False,
-        wizard=False,
         blank=False,
         template=None,
         provider="local",
@@ -68,19 +66,6 @@ class TestDetectMode:
         args = _make_init_args(quickstart=True)
         assert detect_mode(args, logging.getLogger("test")) == "template"
         assert args.template == "customer-360"
-
-    def test_explicit_scan(self):
-        from fluid_build.cli.init import detect_mode
-
-        args = _make_init_args(scan=True)
-        assert detect_mode(args, logging.getLogger("test")) == "scan"
-
-    def test_explicit_wizard(self):
-        """--wizard is deprecated and maps to AI mode."""
-        from fluid_build.cli.init import detect_mode
-
-        args = _make_init_args(wizard=True)
-        assert detect_mode(args, logging.getLogger("test")) == "ai"
 
     def test_explicit_blank(self):
         from fluid_build.cli.init import detect_mode
@@ -273,23 +258,6 @@ class TestRunFunction:
         from fluid_build.cli.init import run
 
         args = _make_init_args(quickstart=True)
-        assert run(args, logging.getLogger("test")) == 0
-
-    @patch("fluid_build.cli.init.scan_mode", return_value=0)
-    @patch("fluid_build.cli.init.detect_mode", return_value="scan")
-    def test_scan_route(self, _mock_detect, _mock_scan):
-        from fluid_build.cli.init import run
-
-        args = _make_init_args(scan=True)
-        assert run(args, logging.getLogger("test")) == 0
-
-    @patch("fluid_build.cli.init._ai_mode", return_value=0)
-    @patch("fluid_build.cli.init.detect_mode", return_value="ai")
-    def test_wizard_route(self, _mock_detect, _mock_ai):
-        """--wizard is deprecated and maps to AI mode."""
-        from fluid_build.cli.init import run
-
-        args = _make_init_args(wizard=True)
         assert run(args, logging.getLogger("test")) == 0
 
     @patch("fluid_build.cli.init.blank_mode", return_value=0)

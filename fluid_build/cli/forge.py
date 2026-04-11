@@ -287,11 +287,6 @@ def register(subparsers: argparse._SubParsersAction):
         action="store_true",
         help="Delete the copilot memory file and exit",
     )
-    parser.add_argument(
-        "--llm-reauth",
-        action="store_true",
-        help="Clear saved LLM/AI credentials from the system keychain and prompt for new ones",
-    )
     parser.set_defaults(func=run)
 
 
@@ -456,26 +451,6 @@ def run(args, logger: logging.Logger) -> int:
                         "[yellow]or run 'fluid ai setup' to configure an LLM provider.[/yellow]"
                     )
                 return 1
-
-        # --- Handle --llm-reauth ---
-        llm_reauth = get_cli_arg(args, "llm_reauth", False)
-        if llm_reauth:
-            from fluid_build.cli.forge_copilot_llm_providers import (
-                clear_api_key_from_keyring,
-                reset_llm_caches,
-            )
-            from fluid_build.cli.forge_dialogs import print_dialog_status
-
-            for provider in ("openai", "anthropic", "gemini"):
-                clear_api_key_from_keyring(provider)
-            reset_llm_caches()
-            if console:
-                print_dialog_status(
-                    console,
-                    status="info",
-                    message="Cleared saved LLM credentials from keychain.",
-                    detail="You'll be prompted for new ones.",
-                )
 
         return run_ai_copilot_mode(args, logger)
 

@@ -171,7 +171,7 @@ def _create_session_llm_config(
                     console,
                     status="info",
                     message="Key saved to your system keychain for future runs.",
-                    detail="Use --llm-reauth to change it later.",
+                    detail="Use 'fluid ai setup --clear' to reset later.",
                 )
             else:
                 print_dialog_status(
@@ -542,11 +542,11 @@ def run_ai_copilot_mode(
                 needs_setup = not readiness.ready and readiness.error is not None
                 readiness_error = readiness.error if needs_setup else None
             if needs_setup:
-                # For --llm-reauth, synthesise a minimal error to enter the wizard.
+                # Synthesise a minimal error to enter the recovery wizard.
                 if readiness_error is None:
                     readiness_error = CopilotGenerationError(
-                        "copilot_llm_reauth",
-                        "Re-authenticating LLM credentials.",
+                        "copilot_llm_setup_needed",
+                        "LLM credentials not configured.",
                         suggestions=["Choose a provider and paste a new API key."],
                     )
                 recovery_result = _handle_copilot_recovery(
@@ -572,7 +572,7 @@ def run_ai_copilot_mode(
                     display = PROVIDER_DISPLAY_NAMES.get(llm_cfg.provider, llm_cfg.provider)
                     console.print(
                         f"[dim]AI: [bold]{display}[/bold] / {llm_cfg.model}  "
-                        f"(change with [bold]fluid forge --llm-reauth[/bold])[/dim]"
+                        f"(reset with [bold]fluid ai setup --clear[/bold])[/dim]"
                     )
                 discovery = runtime_inputs.get("discovery_report")
                 if discovery:

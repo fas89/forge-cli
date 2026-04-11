@@ -22,25 +22,25 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from fluid_build.cli.init import (
-    COMMAND,
+from fluid_build.cli.import_cmd import (
     DbtDetector,
     SqlFileDetector,
     TerraformDetector,
+    detect_project_type,
+)
+from fluid_build.cli.init import (
+    COMMAND,
     _mark_first_run_complete,
     copy_template,
     create_basic_dag,
     create_dags_readme,
     detect_mode,
-    detect_project_type,
-    generate_cloudbuild,
-    generate_contracts_from_scan,
-    generate_github_actions,
-    generate_gitlab_ci,
-    generate_jenkinsfile,
     init_local_db,
     register,
     should_generate_dag,
+)
+from fluid_build.cli.init_scan import (
+    generate_contracts_from_scan,
     show_migration_summary,
 )
 
@@ -92,33 +92,20 @@ class TestDetectMode:
     def test_explicit_quickstart(self, logger):
         """--quickstart is now an alias for --template customer-360."""
         args = SimpleNamespace(
-            quickstart=True, scan=False, wizard=False, blank=False, template=False, name=None
+            quickstart=True, blank=False, template=False, name=None
         )
         assert detect_mode(args, logger) == "template"
         assert args.template == "customer-360"
 
-    def test_explicit_scan(self, logger):
-        args = SimpleNamespace(
-            quickstart=False, scan=True, wizard=False, blank=False, template=False, name=None
-        )
-        assert detect_mode(args, logger) == "scan"
-
-    def test_explicit_wizard(self, logger):
-        """--wizard is deprecated and maps to AI mode."""
-        args = SimpleNamespace(
-            quickstart=False, scan=False, wizard=True, blank=False, template=False, name=None
-        )
-        assert detect_mode(args, logger) == "ai"
-
     def test_explicit_blank(self, logger):
         args = SimpleNamespace(
-            quickstart=False, scan=False, wizard=False, blank=True, template=False, name=None
+            quickstart=False, blank=True, template=False, name=None
         )
         assert detect_mode(args, logger) == "blank"
 
     def test_explicit_template(self, logger):
         args = SimpleNamespace(
-            quickstart=False, scan=False, wizard=False, blank=False, template="x", name=None
+            quickstart=False, blank=False, template="x", name=None
         )
         assert detect_mode(args, logger) == "template"
 
@@ -126,7 +113,7 @@ class TestDetectMode:
         (tmp_path / "contract.fluid.yaml").write_text("test")
         monkeypatch.chdir(tmp_path)
         args = SimpleNamespace(
-            quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None
+            quickstart=False, blank=False, template=False, name=None
         )
         assert detect_mode(args, logger) is None
 
@@ -135,7 +122,7 @@ class TestDetectMode:
         (tmp_path / "dbt_project.yml").write_text("name: test")
         monkeypatch.chdir(tmp_path)
         args = SimpleNamespace(
-            quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None
+            quickstart=False, blank=False, template=False, name=None
         )
         with patch("fluid_build.cli.init._ask_creation_mode", return_value="ai"):
             assert detect_mode(args, logger) == "ai"
@@ -144,7 +131,7 @@ class TestDetectMode:
         (tmp_path / "main.tf").write_text("resource {}")
         monkeypatch.chdir(tmp_path)
         args = SimpleNamespace(
-            quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None
+            quickstart=False, blank=False, template=False, name=None
         )
         with patch("fluid_build.cli.init._ask_creation_mode", return_value="template"):
             assert detect_mode(args, logger) == "template"
@@ -153,7 +140,7 @@ class TestDetectMode:
         (tmp_path / "query.sql").write_text("SELECT 1")
         monkeypatch.chdir(tmp_path)
         args = SimpleNamespace(
-            quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None
+            quickstart=False, blank=False, template=False, name=None
         )
         with patch("fluid_build.cli.init._ask_creation_mode", return_value="blank"):
             assert detect_mode(args, logger) == "blank"
@@ -162,7 +149,7 @@ class TestDetectMode:
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(Path, "home", lambda: tmp_path / "nohome")
         args = SimpleNamespace(
-            quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None
+            quickstart=False, blank=False, template=False, name=None
         )
         with patch("fluid_build.cli.init._ask_creation_mode", return_value="ai") as m:
             assert detect_mode(args, logger) == "ai"
@@ -173,7 +160,7 @@ class TestDetectMode:
         (tmp_path / ".fluid").mkdir()
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         args = SimpleNamespace(
-            quickstart=False, scan=False, wizard=False, blank=False, template=False, name=None
+            quickstart=False, blank=False, template=False, name=None
         )
         with patch("fluid_build.cli.init._ask_creation_mode", return_value="template") as m:
             assert detect_mode(args, logger) == "template"
@@ -405,25 +392,22 @@ class TestTerraformDetector:
     def test_can_detect_no(self, tmp_path):
         assert TerraformDetector().can_detect(tmp_path) is False
 
-    @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
-    def test_scan_gcp(self, tmp_path, monkeypatch):
+    @patch("fluid_build.cli.import_cmd.RICH_AVAILABLE", False)
+    def test_scan_gcp(self, tmp_path):
         (tmp_path / "main.tf").write_text('resource "google_bigquery_dataset" "ds" {}')
-        monkeypatch.chdir(tmp_path)
-        results = TerraformDetector().scan(logging.getLogger("t"))
+        results = TerraformDetector().scan(tmp_path, logging.getLogger("t"))
         assert results["metadata"]["target_platform"] == "gcp"
 
-    @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
-    def test_scan_snowflake(self, tmp_path, monkeypatch):
+    @patch("fluid_build.cli.import_cmd.RICH_AVAILABLE", False)
+    def test_scan_snowflake(self, tmp_path):
         (tmp_path / "main.tf").write_text('resource "snowflake_database" "db" {}')
-        monkeypatch.chdir(tmp_path)
-        results = TerraformDetector().scan(logging.getLogger("t"))
+        results = TerraformDetector().scan(tmp_path, logging.getLogger("t"))
         assert results["metadata"]["target_platform"] == "snowflake"
 
-    @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
-    def test_scan_unknown(self, tmp_path, monkeypatch):
+    @patch("fluid_build.cli.import_cmd.RICH_AVAILABLE", False)
+    def test_scan_unknown(self, tmp_path):
         (tmp_path / "main.tf").write_text("resource {}")
-        monkeypatch.chdir(tmp_path)
-        results = TerraformDetector().scan(logging.getLogger("t"))
+        results = TerraformDetector().scan(tmp_path, logging.getLogger("t"))
         assert "target_platform" not in results["metadata"]
 
 
@@ -438,12 +422,11 @@ class TestSqlFileDetector:
     def test_can_detect_no(self, tmp_path):
         assert SqlFileDetector().can_detect(tmp_path) is False
 
-    @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
-    def test_scan(self, tmp_path, monkeypatch):
+    @patch("fluid_build.cli.import_cmd.RICH_AVAILABLE", False)
+    def test_scan(self, tmp_path):
         (tmp_path / "q1.sql").write_text("SELECT 1")
         (tmp_path / "q2.sql").write_text("SELECT 2")
-        monkeypatch.chdir(tmp_path)
-        results = SqlFileDetector().scan(logging.getLogger("t"))
+        results = SqlFileDetector().scan(tmp_path, logging.getLogger("t"))
         assert results["project_type"] == "sql"
         assert results["metadata"]["files_count"] == 2
 
@@ -463,23 +446,6 @@ class TestRun:
     @patch("fluid_build.cli.init.quickstart_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="quickstart")
     def test_quickstart_dispatch(self, _mock_dm, _mock_qs, _mock_ind, logger):
-        from fluid_build.cli.init import run
-
-        assert run(SimpleNamespace(), logger) == 0
-
-    @patch("fluid_build.cli.init._ask_industry", return_value=None)
-    @patch("fluid_build.cli.init.scan_mode", return_value=0)
-    @patch("fluid_build.cli.init.detect_mode", return_value="scan")
-    def test_scan_dispatch(self, _mock_dm, _mock_sc, _mock_ind, logger):
-        from fluid_build.cli.init import run
-
-        assert run(SimpleNamespace(), logger) == 0
-
-    @patch("fluid_build.cli.init._ask_industry", return_value=None)
-    @patch("fluid_build.cli.init._ai_mode", return_value=0)
-    @patch("fluid_build.cli.init.detect_mode", return_value="ai")
-    def test_wizard_dispatch(self, _mock_dm, _mock_ai, _mock_ind, logger):
-        """--wizard is deprecated and maps to AI mode."""
         from fluid_build.cli.init import run
 
         assert run(SimpleNamespace(), logger) == 0
@@ -677,40 +643,11 @@ class TestGenerateContractsFromScan:
         assert contracts[0]["exposes"][0]["binding"]["platform"] == "aws"
 
 
-# ── CI/CD generators ────────────────────────────────────────────────
-
-
-class TestCICDGenerators:
-    def test_jenkinsfile(self, tmp_path, logger):
-        generate_jenkinsfile(tmp_path, logger)
-        jf = tmp_path / "Jenkinsfile"
-        assert jf.exists()
-        assert "pipeline" in jf.read_text()
-
-    def test_github_actions(self, tmp_path, logger):
-        generate_github_actions(tmp_path, logger)
-        gf = tmp_path / ".github" / "workflows" / "fluid.yml"
-        assert gf.exists()
-        assert "fluid" in gf.read_text().lower()
-
-    def test_gitlab_ci(self, tmp_path, logger):
-        generate_gitlab_ci(tmp_path, logger)
-        gl = tmp_path / ".gitlab-ci.yml"
-        assert gl.exists()
-        assert "fluid" in gl.read_text().lower()
-
-    def test_cloudbuild(self, tmp_path, logger):
-        generate_cloudbuild(tmp_path, logger)
-        cb = tmp_path / "cloudbuild.yaml"
-        assert cb.exists()
-        assert "fluid" in cb.read_text().lower()
-
-
 # ── show_migration_summary ───────────────────────────────────────────
 
 
 class TestShowMigrationSummary:
-    @patch("fluid_build.cli.init.RICH_AVAILABLE", False)
+    @patch("fluid_build.cli.init_scan.RICH_AVAILABLE", False)
     def test_non_rich_output(self, logger):
         contracts = [{"name": "test", "version": "0.7.1", "binding": {"provider": "local"}}]
         results = {}

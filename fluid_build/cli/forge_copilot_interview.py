@@ -408,14 +408,21 @@ def run_adaptive_copilot_interview(
     previous_failure: Optional[List[str]] = None,
 ) -> CopilotInterviewState:
     """Run the multi-round adaptive interview, calling the LLM for dynamic questions."""
+    from .forge_ui import print_interview_phase
+
     state = bootstrap_interview_state(
         initial_context,
         discovery_report=discovery_report,
         project_memory=project_memory,
     )
 
+    if console:
+        print_interview_phase(
+            console, phase=1, total=3, label="Understanding your project"
+        )
     _ask_bootstrap_questions(state, console, discovery_report=discovery_report)
 
+    round_number = 0
     while console and state.remaining_rounds > 0 and not state.ready:
         decision = request_interview_decision(
             state,
@@ -432,10 +439,23 @@ def run_adaptive_copilot_interview(
         if decision.status == "ready" or not decision.questions:
             state.ready = True
             break
+        round_number += 1
+        if console:
+            label = (
+                "Clarifying details"
+                if round_number == 1
+                else f"Clarifying details (round {round_number})"
+            )
+            print_interview_phase(console, phase=2, total=3, label=label)
         _ask_dynamic_questions(state, console, decision.questions)
         state.remaining_rounds -= 1
         if not decision.questions:
             break
+
+    if console:
+        print_interview_phase(
+            console, phase=3, total=3, label="Generating your contract"
+        )
 
     state.normalized_context = state.finalize()
     return state

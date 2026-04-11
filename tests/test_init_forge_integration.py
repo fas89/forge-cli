@@ -32,8 +32,6 @@ def _make_init_args(**overrides):
     defaults = dict(
         name=None,
         quickstart=False,
-        scan=False,
-        wizard=False,
         blank=False,
         template=None,
         provider="local",
@@ -67,7 +65,6 @@ def _make_forge_args(**overrides):
         save_memory=False,
         show_memory=False,
         reset_memory=False,
-        llm_reauth=False,
     )
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -100,12 +97,11 @@ class TestInitQuickstart:
         assert not (tmp_path / "qs-project" / "contract.fluid.yaml").exists()
 
     @patch("fluid_build.cli.init.show_success_message")
-    @patch("fluid_build.cli.init.generate_cicd")
     @patch("fluid_build.cli.init.init_local_db")
     @patch("fluid_build.cli.init.copy_sample_data")
     @patch("fluid_build.cli.init.copy_template", return_value=True)
     def test_quickstart_full_creates_project(
-        self, mock_copy, mock_data, mock_db, mock_cicd, mock_success, tmp_path, logger, monkeypatch
+        self, mock_copy, mock_data, mock_db, mock_success, tmp_path, logger, monkeypatch
     ):
         """Scenario 2: --quickstart --yes creates project with sample data."""
         monkeypatch.chdir(tmp_path)
@@ -190,46 +186,6 @@ class TestInitTemplate:
         mock_copy.assert_called_once()
 
 
-class TestInitScan:
-    """Scenarios 6-7: fluid init --scan"""
-
-    def test_scan_empty_dir_returns_error(self, tmp_path, logger, monkeypatch):
-        """Scenario 6: --scan in empty dir detects no project."""
-        monkeypatch.chdir(tmp_path)
-        from fluid_build.cli.init import scan_mode
-
-        args = _make_init_args(scan=True)
-
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
-            result = scan_mode(args, logger)
-
-        assert result == 1
-
-    @patch("fluid_build.cli.init.show_migration_summary")
-    @patch("fluid_build.cli.init.generate_cicd")
-    @patch("fluid_build.cli.init.apply_governance_policies")
-    @patch("fluid_build.cli.init.generate_contracts_from_scan", return_value=[{"name": "scan-product"}])
-    @patch("fluid_build.cli.init.show_scan_results")
-    def test_scan_with_sql_files_succeeds(
-        self, mock_show, mock_gen, mock_gov, mock_cicd, mock_summary, tmp_path, logger, monkeypatch
-    ):
-        """Scenario 7: --scan with detectable project generates contracts."""
-        monkeypatch.chdir(tmp_path)
-        from fluid_build.cli.init import scan_mode
-
-        mock_detector = MagicMock()
-        mock_detector.scan.return_value = {"models": [{"name": "test_table"}]}
-
-        args = _make_init_args(scan=True, yes=True)
-
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", False), \
-             patch("fluid_build.cli.init.detect_project_type", return_value=mock_detector):
-            result = scan_mode(args, logger)
-
-        assert result == 0
-        mock_gen.assert_called_once()
-
-
 class TestInitProviderUseCase:
     """Scenarios 8-9: Provider and use-case hints with blank mode."""
 
@@ -271,13 +227,13 @@ class TestInitWorkspaceRedirect:
 
         # Create workspace file
         ws_file = tmp_path / "fluid.workspace.yaml"
-        ws_file.write_text("name: test-workspace\nproducts_dir: products\n")
+        ws_file.write_text("name: test-workspace\n")
 
         from fluid_build.cli.init import detect_mode
 
         mock_product = SimpleNamespace(
             name="existing-product",
-            path=tmp_path / "products" / "existing-product",
+            path=tmp_path / "existing-product",
             expose_count=1,
             provider="local",
             fluid_version="0.7.2",
@@ -333,8 +289,8 @@ class TestInitProductListing:
 
         mock_product = SimpleNamespace(
             name="customer-360",
-            path=tmp_path / "products" / "customer-360",
-            contract_path=tmp_path / "products" / "customer-360" / "contract.fluid.yaml",
+            path=tmp_path / "customer-360",
+            contract_path=tmp_path / "customer-360" / "contract.fluid.yaml",
             expose_count=3,
             provider="local",
             fluid_version="0.7.2",
@@ -452,27 +408,6 @@ class TestForgeMemory:
         mock_memory.assert_called_once()
 
 
-class TestForgeLlmReauth:
-    """Scenario 17: fluid forge --llm-reauth"""
-
-    @patch("fluid_build.cli.forge.run_ai_copilot_mode", return_value=0)
-    def test_llm_reauth_clears_keyring(self, mock_copilot, tmp_path, logger):
-        """Scenario 17: --llm-reauth clears saved credentials for all providers."""
-        from fluid_build.cli.forge import run
-
-        args = _make_forge_args(llm_reauth=True, non_interactive=True)
-
-        with patch("fluid_build.cli.forge.Console") as mock_cls, \
-             patch("fluid_build.cli.forge_copilot_llm_providers.clear_api_key_from_keyring") as mock_clear, \
-             patch("fluid_build.cli.forge_copilot_llm_providers.reset_llm_caches") as mock_reset, \
-             patch("fluid_build.cli.forge_dialogs.print_dialog_status"):
-            mock_cls.return_value = MagicMock()
-            result = run(args, logger)
-
-        assert mock_clear.call_count == 3  # openai, anthropic, gemini
-        mock_reset.assert_called_once()
-
-
 # ============================================================================
 # HANDOVER SCENARIOS
 # ============================================================================
@@ -481,13 +416,13 @@ class TestForgeLlmReauth:
 class TestInitForgeHandover:
     """Scenarios 18-20: init → forge handover points."""
 
-    def test_init_wizard_delegates_to_forge_copilot(self, tmp_path, logger, monkeypatch):
-        """Scenario 18: init --wizard delegates to forge's run_ai_copilot_mode."""
+    def test_init_ai_mode_delegates_to_forge_copilot(self, tmp_path, logger, monkeypatch):
+        """Scenario 18: init's _ai_mode delegates to forge's run_ai_copilot_mode."""
         monkeypatch.chdir(tmp_path)
 
         from fluid_build.cli.init import _ai_mode
 
-        args = _make_init_args(wizard=True, name="ai-product")
+        args = _make_init_args(name="ai-product")
 
         mock_copilot = MagicMock(return_value=0)
 
@@ -504,7 +439,7 @@ class TestInitForgeHandover:
             # Mock workspace config
             mock_ws_config.return_value = SimpleNamespace(
                 name="test-ws", domain="analytics", owner_team="team",
-                owner_email="", provider="local", products_dir="products"
+                owner_email="", provider="local", products_dir="."
             )
 
             # Patch the actual forge copilot call
@@ -529,7 +464,7 @@ class TestInitForgeHandover:
         from fluid_build.cli.init import detect_mode
 
         mock_product = SimpleNamespace(
-            name="p1", path=tmp_path / "products/p1",
+            name="p1", path=tmp_path / "p1",
             expose_count=2, provider="local", fluid_version="0.7.2",
         )
 
@@ -545,10 +480,9 @@ class TestInitForgeHandover:
     @patch("fluid_build.cli.init.copy_template", return_value=True)
     @patch("fluid_build.cli.init.copy_sample_data")
     @patch("fluid_build.cli.init.init_local_db")
-    @patch("fluid_build.cli.init.generate_cicd")
     @patch("fluid_build.cli.init.show_success_message")
     def test_sequential_init_then_forge(
-        self, mock_success, mock_cicd, mock_db, mock_data, mock_copy,
+        self, mock_success, mock_db, mock_data, mock_copy,
         tmp_path, logger, monkeypatch
     ):
         """Scenario 20: Sequential workflow — init quickstart then forge blank."""

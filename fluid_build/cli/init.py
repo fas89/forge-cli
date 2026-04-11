@@ -46,11 +46,6 @@ from fluid_build.schema_manager import FluidSchemaManager
 from fluid_build.util.contract import slugify_identifier
 
 from ._logging import error, info
-from .init_scan import (
-    apply_governance_policies,
-    generate_contracts_from_scan,
-    show_migration_summary,
-)
 
 # Try Rich for beautiful output
 try:
@@ -88,6 +83,54 @@ def _mark_first_run_complete():
         pass  # non-fatal — directory might already exist or be unwritable
 
 
+def _print_templates_list() -> int:
+    """Print available templates and exit.  Used by ``fluid init --list-templates``."""
+    try:
+        from fluid_build.forge.simple_forge import get_template_info, list_templates
+    except ImportError:
+        if RICH_AVAILABLE:
+            console.print("[red]Templates module is not installed.[/red]")
+        else:
+            cprint("Templates module is not installed.")
+        return 1
+
+    names = list_templates()
+    if not names:
+        if RICH_AVAILABLE:
+            console.print("[yellow]No templates are installed.[/yellow]")
+        else:
+            cprint("No templates are installed.")
+        return 0
+
+    if RICH_AVAILABLE:
+        from rich.table import Table
+
+        table = Table(
+            title="Available templates",
+            border_style="cyan",
+            show_header=True,
+            header_style="bold cyan",
+        )
+        table.add_column("Name", style="bold")
+        table.add_column("Description", style="dim")
+        for name in sorted(names):
+            tmpl_info = get_template_info(name) or {}
+            desc = tmpl_info.get("description") or "—"
+            table.add_row(name, desc)
+        console.print(table)
+        console.print(
+            "\n[dim]Use one with:[/dim] "
+            "[cyan]fluid init my-project --template <name>[/cyan]\n"
+        )
+    else:
+        cprint("Available templates:")
+        for name in sorted(names):
+            tmpl_info = get_template_info(name) or {}
+            cprint(f"  {name:<24}  {tmpl_info.get('description', '')}")
+        cprint("\nUse one with: fluid init my-project --template <name>")
+    return 0
+
+
 def register(subparsers: argparse._SubParsersAction):
     """Register the init command"""
     p = subparsers.add_parser(
@@ -107,22 +150,17 @@ def register(subparsers: argparse._SubParsersAction):
         help="⭐ Create working example with sample data (recommended, 2 min)",
     )
     mode_group.add_argument(
-        "--scan",
-        action="store_true",
-        help="🎯 Import existing dbt/Terraform project (enterprise migration)",
-    )
-    mode_group.add_argument(
-        "--wizard",
-        action="store_true",
-        help=argparse.SUPPRESS,  # deprecated — silently maps to AI mode
-    )
-    mode_group.add_argument(
         "--blank", action="store_true", help="🔧 Empty project skeleton (power users)"
     )
     mode_group.add_argument(
         "--template",
         metavar="NAME",
         help="📦 Create from specific template (e.g., customer-360, ml-features)",
+    )
+    mode_group.add_argument(
+        "--list-templates",
+        action="store_true",
+        help="List available templates and exit",
     )
 
     # Provider selection
@@ -167,6 +205,10 @@ def run(args, logger: logging.Logger) -> int:
     """Main entry point — routes to appropriate handler."""
 
     try:
+        # Handle --list-templates early — no workspace, no mode detection.
+        if getattr(args, "list_templates", False):
+            return _print_templates_list()
+
         # If --dir is specified, switch to that directory first.
         target_dir = getattr(args, "target_dir", None)
         if target_dir:
@@ -202,7 +244,6 @@ def run(args, logger: logging.Logger) -> int:
         handlers = {
             "ai": _ai_mode,
             "quickstart": quickstart_mode,
-            "scan": scan_mode,
             "blank": blank_mode,
             "template": template_mode,
         }
@@ -238,17 +279,23 @@ def _ensure_workspace(args, logger: logging.Logger) -> None:
     if ws_root is not None:
         return  # Workspace already exists.
 
-    project_name = getattr(args, "name", None) or cwd.name
+    # Determine workspace name: CLI arg → interactive prompt → directory name.
+    ws_name = getattr(args, "name", None)
+    is_yes = getattr(args, "yes", False)
+    if not ws_name and RICH_AVAILABLE and not is_yes:
+        ws_name = Prompt.ask("Workspace name", default=cwd.name)
+    ws_name = ws_name or cwd.name
+
     provider = getattr(args, "provider", None) or "local"
 
     save_workspace_config(
         cwd,
-        name=project_name,
+        name=ws_name,
         provider=provider,
     )
     if RICH_AVAILABLE:
         console.print(
-            f"[dim]Created {WORKSPACE_FILENAME} — shared config for your data products.[/dim]\n"
+            f"[dim]Created {WORKSPACE_FILENAME} — workspace [bold]{ws_name}[/bold][/dim]\n"
         )
 
 
@@ -266,7 +313,29 @@ def _ai_mode(args, logger: logging.Logger) -> int:
         )
 
     try:
+        from .ai_setup import run_ai_setup_inline, set_session_env
         from .forge import run_ai_copilot_mode
+
+        # Run inline LLM setup — same as forge.py:run() does.
+        _console = console if RICH_AVAILABLE else None
+        llm_config = run_ai_setup_inline(_console)
+        if llm_config:
+            args.llm_provider = llm_config.provider
+            args.llm_model = llm_config.model
+            args.llm_endpoint = llm_config.endpoint
+            if llm_config.api_key:
+                set_session_env(llm_config.provider, llm_config.api_key)
+        else:
+            if RICH_AVAILABLE:
+                from .forge_dialogs import print_dialog_status
+                print_dialog_status(
+                    console,
+                    status="info",
+                    message="No AI provider configured — using template mode instead.",
+                    detail="Run 'fluid ai setup' anytime to enable AI-assisted generation.",
+                )
+            args.template = "customer-360"
+            return template_mode(args, logger)
 
         # Determine target directory for the product.
         product_name = args.name
@@ -282,9 +351,9 @@ def _ai_mode(args, logger: logging.Logger) -> int:
             try:
                 products_dir.relative_to(ws_root.resolve())
             except ValueError:
-                products_dir = ws_root / "products"
+                products_dir = ws_root
         else:
-            products_dir = Path.cwd() / "products"
+            products_dir = Path.cwd()
 
         target = products_dir / slugify_identifier(product_name)
         target.mkdir(parents=True, exist_ok=True)
@@ -344,16 +413,6 @@ def detect_mode(args, logger: logging.Logger) -> Optional[str]:
         args.template = args.template or "customer-360"
         args.yes = True
         return "template"
-    if args.scan:
-        return "scan"
-    if getattr(args, "wizard", False):
-        # --wizard is deprecated; map to AI mode (its replacement).
-        if RICH_AVAILABLE:
-            console.print(
-                "[yellow]--wizard is deprecated. "
-                "Use [bold]fluid init[/bold] for the interactive menu.[/yellow]\n"
-            )
-        return "ai"
     if args.blank:
         return "blank"
     if args.template:
@@ -368,6 +427,23 @@ def detect_mode(args, logger: logging.Logger) -> Optional[str]:
         existing = discover_workspace_products(ws_root)
         if existing:
             return _redirect_existing_workspace(existing, ws_root, is_first_time)
+
+    def _resolve_menu_choice(mode: str) -> str:
+        """Normalize menu return values so they match the CLI-flag code paths.
+
+        Menu option 'Quickstart' should produce exactly the same artifacts
+        as ``fluid init --quickstart`` (a bare customer-360 template
+        scaffold). Without this, the menu path used to dispatch to
+        ``quickstart_mode`` — which bundles DAG generation, DuckDB init,
+        pipeline execution, and CI/CD file writes — while the CLI flag
+        dispatched to ``template_mode``, producing surprisingly different
+        output for the same user intent.
+        """
+        if mode == "quickstart":
+            args.template = "customer-360"
+            args.yes = True
+            return "template"
+        return mode
 
     # --- Existing contract at root (legacy single-product project) ---
     if (cwd / "contract.fluid.yaml").exists():
@@ -391,31 +467,28 @@ def detect_mode(args, logger: logging.Logger) -> Optional[str]:
     if is_first_time:
         if RICH_AVAILABLE:
             _print_welcome_panel()
-        return _ask_creation_mode()
+        return _resolve_menu_choice(_ask_creation_mode())
 
     # --- Returning user, empty directory ---
-    return _ask_creation_mode()
+    return _resolve_menu_choice(_ask_creation_mode())
 
 
 def _print_welcome_panel() -> None:
-    """Show the expanded welcome panel for first-time users."""
+    """Show the compact welcome panel for first-time users."""
     if not RICH_AVAILABLE:
         return
     console.print(
         Panel(
-            "[bold]FLUID[/bold] is a declarative framework for data products — "
-            "like Terraform, but for data.\n\n"
-            "You define a [cyan]contract[/cyan] (contract.fluid.yaml) that "
-            "describes your entire data product in one file:\n\n"
-            "  [bold]exposes[/bold]       What data you publish (tables, APIs, files)\n"
-            "  [bold]quality[/bold]       Data quality rules & anomaly detection\n"
-            "  [bold]consumes[/bold]      Upstream dependencies you rely on\n"
-            "  [bold]build[/bold]         How it's built (dbt, SQL, Spark)\n"
-            "  [bold]governance[/bold]    Ownership, access policies, SLAs\n"
-            "  [bold]sovereignty[/bold]   Where data must reside (EU, US)\n\n"
-            "Then FLUID validates, plans, and ships it — "
-            "just like [cyan]terraform plan[/cyan] and [cyan]terraform apply[/cyan].\n\n"
-            "Let's set up your first project.",
+            "[bold]FLUID[/bold] turns a YAML contract into a deployed, governed data "
+            "product —\nlike [cyan]terraform plan/apply[/cyan], but for tables, views, "
+            "and files.\n\n"
+            "[dim]Tip: in a hurry? [bold]fluid init my-project --quickstart[/bold] "
+            "ships a working\ncustomer-360 example in ~30 seconds with zero "
+            "questions.[/dim]\n\n"
+            "Let's set up your first project.\n\n"
+            "[dim]Advanced: [bold]fluid init --help[/bold] for cloud providers "
+            "(gcp/snowflake/aws).\n"
+            "Migrating from dbt/Terraform? See [bold]fluid import[/bold].[/dim]",
             title="Welcome to FLUID",
             border_style="blue",
         )
@@ -491,21 +564,24 @@ def _ask_creation_mode() -> str:
     )
     console.print("[dim]How would you like to create your first data product?[/dim]\n")
     console.print(
-        "  [bold]1.[/bold] Let AI help me design it [dim](recommended — just answer questions)[/dim]"
+        "  [bold]1.[/bold] Quickstart                 [dim](customer-360 example, zero questions, ~30s) ← fastest[/dim]"
     )
     console.print(
-        "  [bold]2.[/bold] Start from a template     [dim](pre-built, customize later)[/dim]"
+        "  [bold]2.[/bold] Let AI design it           [dim](recommended — just answer questions)[/dim]"
     )
     console.print(
-        "  [bold]3.[/bold] Empty contract             [dim](for experienced users)[/dim]\n"
+        "  [bold]3.[/bold] Start from a template     [dim](pre-built, customize later)[/dim]"
+    )
+    console.print(
+        "  [bold]4.[/bold] Empty contract             [dim](for experienced users)[/dim]\n"
     )
 
     choice = Prompt.ask(
         "Choose",
-        choices=["1", "2", "3"],
-        default="1",
+        choices=["1", "2", "3", "4"],
+        default="2",
     )
-    return {"1": "ai", "2": "template", "3": "blank"}.get(choice, "ai")
+    return {"1": "quickstart", "2": "ai", "3": "template", "4": "blank"}.get(choice, "ai")
 
 
 def _print_workspace_products(existing: List, ws_name: str) -> None:
@@ -909,8 +985,11 @@ def quickstart_mode(args, logger: logging.Logger) -> int:
         if not args.no_run and args.provider == "local":
             run_local_pipeline(project_dir, logger)
 
-        # Generate CI/CD pipeline
-        generate_cicd(project_dir, logger)
+        # NOTE: CI/CD scaffolding intentionally removed from this path.
+        # Users who want Jenkinsfile / GitHub Actions / GitLab CI / Cloud
+        # Build configs should run `fluid scaffold-ci` explicitly — init
+        # should produce predictable artifacts, not interactively prompt
+        # for cloud-platform-specific files.
 
         # Show next steps
         show_success_message(project_dir, args.provider, logger, has_dag=has_dag)
@@ -921,98 +1000,6 @@ def quickstart_mode(args, logger: logging.Logger) -> int:
         error(logger, "quickstart_failed", error=str(e))
         if RICH_AVAILABLE:
             console.print(f"[red]❌ Quickstart failed: {e}[/red]")
-        return 1
-
-
-def scan_mode(args, logger: logging.Logger) -> int:
-    """Agent Zero - Import existing projects"""
-
-    if RICH_AVAILABLE:
-        console.print(
-            Panel(
-                "🔍 [bold]Agent Zero - Project Scanner[/bold]\n\n"
-                "I'll analyze your existing code and create FLUID contracts.\n"
-                "Supported: dbt projects, Terraform, SQL files",
-                title="Scan Mode",
-                border_style="yellow",
-            )
-        )
-    else:
-        cprint("🔍 Agent Zero - Project Scanner")
-        cprint("Scanning for existing projects...")
-
-    try:
-        # Detect project type
-        detector = detect_project_type(Path.cwd())
-
-        if not detector:
-            if RICH_AVAILABLE:
-                console.print(
-                    "\n[yellow]❌ No recognized project found in current directory[/yellow]\n"
-                )
-                console.print("Supported project types:")
-                console.print("  • dbt projects (dbt_project.yml)")
-                console.print("  • Terraform (*.tf files)")
-                console.print("  • SQL files (*.sql)")
-                console.print("\n💡 Try instead:")
-                console.print("  [cyan]$ fluid init --quickstart[/cyan]")
-            else:
-                cprint("\n❌ No recognized project found")
-                cprint("Try: fluid init --quickstart")
-            return 1
-
-        # Scan the project
-        scan_results = detector.scan(logger)
-
-        # Show scan results
-        show_scan_results(scan_results)
-
-        # Ask for confirmation
-        if RICH_AVAILABLE:
-            if not Confirm.ask("\n📝 Generate FLUID contracts from this project?", default=True):
-                console.print("Cancelled.")
-                return 0
-
-        # Generate contracts
-        try:
-            contracts = generate_contracts_from_scan(scan_results, args.provider, logger)
-        except ValueError as exc:
-            if RICH_AVAILABLE:
-                console.print(f"[red]❌ {exc}[/red]")
-            else:
-                cprint(f"\n❌ {exc}")
-            return 1
-
-        # Apply governance if PII detected
-        if scan_results.get("sensitive_columns"):
-            contracts = apply_governance_policies(contracts, scan_results, logger)
-
-        # Write contracts to disk
-        output_dir = Path.cwd()
-        for i, contract in enumerate(contracts):
-            contract_name = contract.get("name", f"contract-{i}")
-            contract_path = output_dir / f"{contract_name}.fluid.yaml"
-
-            import yaml
-
-            with open(contract_path, "w") as f:
-                yaml.dump(contract, f, default_flow_style=False, sort_keys=False)
-
-            if RICH_AVAILABLE:
-                console.print(f"✅ Generated: [cyan]{contract_path.name}[/cyan]")
-
-        # Generate CI/CD
-        generate_cicd(output_dir, logger)
-
-        # Show migration summary
-        show_migration_summary(contracts, scan_results, logger)
-
-        return 0
-
-    except Exception as e:
-        error(logger, "scan_failed", error=str(e))
-        if RICH_AVAILABLE:
-            console.print(f"[red]❌ Scan failed: {e}[/red]")
         return 1
 
 
@@ -1328,988 +1315,3 @@ def show_success_message(
     console.print()
     console.print("[dim]Run [bright_cyan]fluid --help[/bright_cyan] for all commands.[/dim]\n")
 
-
-# ============================================================================
-# CI/CD GENERATION
-# ============================================================================
-
-
-def generate_cicd(project_dir: Path, logger: logging.Logger):
-    """Generate CI/CD pipeline configuration"""
-
-    # Check if user wants CI/CD
-    if RICH_AVAILABLE:
-        console.print("\n" + "─" * 70)
-        want_cicd = Confirm.ask("🔧 Generate CI/CD pipeline? (Recommended for teams)", default=True)
-
-        if not want_cicd:
-            return
-
-        # Ask which platform
-        platform = Prompt.ask(
-            "Choose CI/CD platform",
-            choices=["jenkins", "github", "gitlab", "cloudbuild", "skip"],
-            default="jenkins",
-        )
-
-        if platform == "skip":
-            return
-
-        console.print(f"\n⚙️  Generating {platform.title()} pipeline...\n")
-
-        if platform == "jenkins":
-            generate_jenkinsfile(project_dir, logger)
-        elif platform == "github":
-            generate_github_actions(project_dir, logger)
-        elif platform == "gitlab":
-            generate_gitlab_ci(project_dir, logger)
-        elif platform == "cloudbuild":
-            generate_cloudbuild(project_dir, logger)
-    else:
-        # Non-interactive: default to Jenkins
-        generate_jenkinsfile(project_dir, logger)
-
-
-def generate_jenkinsfile(project_dir: Path, logger: logging.Logger):
-    """Generate Jenkinsfile with FLUID 0.7.1 pipeline"""
-
-    jenkinsfile_content = """pipeline {
-    agent any
-    
-    environment {
-        // Auto-detect environment based on branch
-        FLUID_ENV = "${env.BRANCH_NAME == 'main' ? 'prod' : env.BRANCH_NAME == 'staging' ? 'staging' : 'dev'}"
-        
-        // FLUID CLI settings
-        FLUID_VERSION = "0.7.1"
-    }
-    
-    stages {
-        stage('Setup') {
-            steps {
-                echo "🚀 FLUID Pipeline - Environment: ${FLUID_ENV}"
-                
-                // Install FLUID CLI if not available
-                sh '''
-                    if ! command -v fluid &> /dev/null; then
-                        echo "Installing FLUID CLI..."
-                        pip install fluid-forge
-                    else
-                        echo "FLUID CLI already installed: $(fluid --version)"
-                    fi
-                '''
-            }
-        }
-        
-        stage('Validate') {
-            steps {
-                echo "✅ Validating FLUID contracts..."
-                
-                sh '''
-                    # Validate all FLUID contracts
-                    for contract in *.fluid.yaml; do
-                        if [ -f "$contract" ]; then
-                            echo "Validating $contract..."
-                            fluid validate "$contract"
-                        fi
-                    done
-                '''
-            }
-        }
-        
-        stage('Plan') {
-            steps {
-                echo "📋 Planning deployment..."
-                
-                sh '''
-                    # Generate execution plan
-                    for contract in *.fluid.yaml; do
-                        if [ -f "$contract" ]; then
-                            echo "Planning $contract for environment: ${FLUID_ENV}..."
-                            fluid plan "$contract" --env ${FLUID_ENV} || true
-                        fi
-                    done
-                '''
-            }
-        }
-        
-        stage('Test') {
-            steps {
-                echo "🧪 Running contract tests..."
-                
-                sh '''
-                    # Run contract tests if they exist
-                    if [ -d "tests" ]; then
-                        echo "Running FLUID contract tests..."
-                        fluid contract-tests *.fluid.yaml || true
-                    else
-                        echo "No tests directory found - skipping tests"
-                    fi
-                '''
-            }
-        }
-        
-        stage('Deploy to Dev/Staging') {
-            when {
-                not {
-                    branch 'main'
-                }
-            }
-            steps {
-                echo "🚀 Deploying to ${FLUID_ENV}..."
-                
-                sh '''
-                    for contract in *.fluid.yaml; do
-                        if [ -f "$contract" ]; then
-                            echo "Deploying $contract to ${FLUID_ENV}..."
-                            fluid apply "$contract" --env ${FLUID_ENV}
-                        fi
-                    done
-                '''
-            }
-        }
-        
-        stage('Deploy to Production') {
-            when {
-                branch 'main'
-            }
-            steps {
-                echo "🚀 Deploying to PRODUCTION..."
-                
-                // Production deployment with confirmation
-                input message: 'Deploy to Production?', ok: 'Deploy'
-                
-                sh '''
-                    for contract in *.fluid.yaml; do
-                        if [ -f "$contract" ]; then
-                            echo "Deploying $contract to production..."
-                            fluid apply "$contract" --env prod
-                        fi
-                    done
-                '''
-            }
-        }
-        
-        stage('Verify') {
-            when {
-                branch 'main'
-            }
-            steps {
-                echo "🔍 Verifying deployment..."
-                
-                sh '''
-                    # Verify contracts are deployed correctly
-                    for contract in *.fluid.yaml; do
-                        if [ -f "$contract" ]; then
-                            echo "Verifying $contract..."
-                            fluid verify "$contract" --env ${FLUID_ENV} || true
-                        fi
-                    done
-                '''
-            }
-        }
-    }
-    
-    post {
-        success {
-            echo "✅ FLUID pipeline completed successfully!"
-        }
-        failure {
-            echo "❌ FLUID pipeline failed"
-        }
-        always {
-            // Archive plan outputs
-            archiveArtifacts artifacts: '**/*.plan.json', allowEmptyArchive: true
-            
-            // Clean workspace
-            cleanWs()
-        }
-    }
-}
-"""
-
-    jenkinsfile_path = project_dir / "Jenkinsfile"
-    jenkinsfile_path.write_text(jenkinsfile_content.strip(), encoding="utf-8")
-
-    if RICH_AVAILABLE:
-        console.print("✅ Generated [bold]Jenkinsfile[/bold] with FLUID 0.7.1 pipeline")
-        console.print("   - Automatic environment detection (dev/staging/prod)")
-        console.print("   - Contract validation and testing")
-        console.print("   - Production deployment approval")
-    else:
-        success("Generated Jenkinsfile")
-
-    info(logger, "jenkinsfile_generated", path=str(jenkinsfile_path))
-
-
-def generate_github_actions(project_dir: Path, logger: logging.Logger):
-    """Generate GitHub Actions workflow for FLUID 0.7.1"""
-
-    workflow_content = """name: FLUID Pipeline
-
-on:
-  push:
-    branches: [ main, staging, develop ]
-  pull_request:
-    branches: [ main, staging ]
-
-env:
-  FLUID_VERSION: "0.7.1"
-
-jobs:
-  validate:
-    name: Validate Contracts
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-      
-      - name: Install FLUID CLI
-        run: |
-          pip install fluid-forge
-          fluid --version
-      
-      - name: Validate FLUID contracts
-        run: |
-          for contract in *.fluid.yaml; do
-            if [ -f "$contract" ]; then
-              echo "Validating $contract..."
-              fluid validate "$contract"
-            fi
-          done
-  
-  plan:
-    name: Generate Deployment Plan
-    runs-on: ubuntu-latest
-    needs: validate
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-      
-      - name: Install FLUID CLI
-        run: pip install fluid-forge
-      
-      - name: Determine environment
-        id: env
-        run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "environment=prod" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
-            echo "environment=staging" >> $GITHUB_OUTPUT
-          else
-            echo "environment=dev" >> $GITHUB_OUTPUT
-          fi
-      
-      - name: Generate plan
-        run: |
-          for contract in *.fluid.yaml; do
-            if [ -f "$contract" ]; then
-              echo "Planning $contract for ${{ steps.env.outputs.environment }}..."
-              fluid plan "$contract" --env ${{ steps.env.outputs.environment }}
-            fi
-          done
-  
-  test:
-    name: Run Contract Tests
-    runs-on: ubuntu-latest
-    needs: validate
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-      
-      - name: Install FLUID CLI
-        run: pip install fluid-forge
-      
-      - name: Run tests
-        run: |
-          if [ -d "tests" ]; then
-            fluid contract-tests *.fluid.yaml
-          else
-            echo "No tests directory found"
-          fi
-  
-  deploy:
-    name: Deploy to ${{ needs.plan.outputs.environment }}
-    runs-on: ubuntu-latest
-    needs: [validate, plan, test]
-    if: github.event_name == 'push'
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-      
-      - name: Install FLUID CLI
-        run: pip install fluid-forge
-      
-      - name: Determine environment
-        id: env
-        run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "environment=prod" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
-            echo "environment=staging" >> $GITHUB_OUTPUT
-          else
-            echo "environment=dev" >> $GITHUB_OUTPUT
-          fi
-      
-      - name: Deploy contracts
-        env:
-          GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
-        run: |
-          for contract in *.fluid.yaml; do
-            if [ -f "$contract" ]; then
-              echo "Deploying $contract to ${{ steps.env.outputs.environment }}..."
-              fluid apply "$contract" --env ${{ steps.env.outputs.environment }}
-            fi
-          done
-      
-      - name: Verify deployment
-        if: github.ref == 'refs/heads/main'
-        run: |
-          for contract in *.fluid.yaml; do
-            if [ -f "$contract" ]; then
-              echo "Verifying $contract..."
-              fluid verify "$contract" --env prod
-            fi
-          done
-"""
-
-    workflow_dir = project_dir / ".github" / "workflows"
-    workflow_dir.mkdir(parents=True, exist_ok=True)
-
-    workflow_path = workflow_dir / "fluid.yml"
-    workflow_path.write_text(workflow_content.strip())
-
-    if RICH_AVAILABLE:
-        console.print("✅ Generated [bold].github/workflows/fluid.yml[/bold]")
-        console.print("   - Automatic environment detection")
-        console.print("   - Contract validation and testing")
-        console.print("   - Deployment to dev/staging/prod")
-    else:
-        success("Generated GitHub Actions workflow")
-
-    info(logger, "github_actions_generated", path=str(workflow_path))
-
-
-def generate_gitlab_ci(project_dir: Path, logger: logging.Logger):
-    """Generate GitLab CI configuration for FLUID 0.7.1"""
-
-    gitlab_ci_content = """# FLUID Pipeline for GitLab CI
-
-variables:
-  FLUID_VERSION: "0.7.1"
-  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
-
-cache:
-  paths:
-    - .cache/pip
-
-stages:
-  - validate
-  - plan
-  - test
-  - deploy
-  - verify
-
-before_script:
-  - python --version
-  - pip install fluid-forge
-  - fluid --version
-
-# Validate all FLUID contracts
-validate:
-  stage: validate
-  script:
-    - |
-      for contract in *.fluid.yaml; do
-        if [ -f "$contract" ]; then
-          echo "Validating $contract..."
-          fluid validate "$contract"
-        fi
-      done
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH'
-
-# Generate deployment plan
-plan:
-  stage: plan
-  script:
-    - export FLUID_ENV="${CI_COMMIT_BRANCH == 'main' ? 'prod' : CI_COMMIT_BRANCH == 'staging' ? 'staging' : 'dev'}"
-    - |
-      for contract in *.fluid.yaml; do
-        if [ -f "$contract" ]; then
-          echo "Planning $contract for $FLUID_ENV..."
-          fluid plan "$contract" --env $FLUID_ENV
-        fi
-      done
-  artifacts:
-    paths:
-      - "**/*.plan.json"
-    expire_in: 1 week
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH'
-
-# Run contract tests
-test:
-  stage: test
-  script:
-    - |
-      if [ -d "tests" ]; then
-        fluid contract-tests *.fluid.yaml
-      else
-        echo "No tests directory found"
-      fi
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH'
-
-# Deploy to dev/staging
-deploy:dev:
-  stage: deploy
-  script:
-    - export FLUID_ENV="${CI_COMMIT_BRANCH == 'staging' ? 'staging' : 'dev'}"
-    - |
-      for contract in *.fluid.yaml; do
-        if [ -f "$contract" ]; then
-          echo "Deploying $contract to $FLUID_ENV..."
-          fluid apply "$contract" --env $FLUID_ENV
-        fi
-      done
-  environment:
-    name: $FLUID_ENV
-  rules:
-    - if: '$CI_COMMIT_BRANCH != "main"'
-
-# Deploy to production (manual approval)
-deploy:prod:
-  stage: deploy
-  script:
-    - |
-      for contract in *.fluid.yaml; do
-        if [ -f "$contract" ]; then
-          echo "Deploying $contract to production..."
-          fluid apply "$contract" --env prod
-        fi
-      done
-  environment:
-    name: production
-  when: manual
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-
-# Verify production deployment
-verify:
-  stage: verify
-  script:
-    - |
-      for contract in *.fluid.yaml; do
-        if [ -f "$contract" ]; then
-          echo "Verifying $contract..."
-          fluid verify "$contract" --env prod
-        fi
-      done
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-  when: on_success
-"""
-
-    gitlab_ci_path = project_dir / ".gitlab-ci.yml"
-    gitlab_ci_path.write_text(gitlab_ci_content.strip())
-
-    if RICH_AVAILABLE:
-        console.print("✅ Generated [bold].gitlab-ci.yml[/bold]")
-        console.print("   - Multi-stage pipeline (validate/plan/test/deploy/verify)")
-        console.print("   - Environment-based deployment")
-        console.print("   - Production approval gate")
-    else:
-        success("Generated GitLab CI configuration")
-
-    info(logger, "gitlab_ci_generated", path=str(gitlab_ci_path))
-
-
-def generate_cloudbuild(project_dir: Path, logger: logging.Logger):
-    """Generate Google Cloud Build configuration for FLUID 0.7.1"""
-
-    cloudbuild_content = """# FLUID Pipeline for Google Cloud Build
-
-options:
-  machineType: 'N1_HIGHCPU_8'
-  logging: CLOUD_LOGGING_ONLY
-
-substitutions:
-  _FLUID_VERSION: "0.7.1"
-  _ENVIRONMENT: "${BRANCH_NAME == 'master' ? 'prod' : BRANCH_NAME == 'staging' ? 'staging' : 'dev'}"
-
-steps:
-  # Setup - Install FLUID CLI
-  - name: 'python:3.11'
-    id: setup
-    entrypoint: 'bash'
-    args:
-      - '-c'
-      - |
-        pip install fluid-forge==$_FLUID_VERSION
-        fluid --version
-        echo "FLUID $_FLUID_VERSION installed"
-
-  # Validate - Check all contracts
-  - name: 'python:3.11'
-    id: validate
-    entrypoint: 'bash'
-    args:
-      - '-c'
-      - |
-        pip install fluid-forge==$_FLUID_VERSION
-        for contract in *.fluid.yaml; do
-          if [ -f "$contract" ]; then
-            echo "Validating $contract..."
-            fluid validate "$contract"
-          fi
-        done
-    waitFor: ['setup']
-
-  # Plan - Generate deployment plan
-  - name: 'python:3.11'
-    id: plan
-    entrypoint: 'bash'
-    args:
-      - '-c'
-      - |
-        pip install fluid-forge==$_FLUID_VERSION
-        for contract in *.fluid.yaml; do
-          if [ -f "$contract" ]; then
-            echo "Planning $contract for $_ENVIRONMENT..."
-            fluid plan "$contract" --env $_ENVIRONMENT --provider gcp
-          fi
-        done
-    waitFor: ['validate']
-    env:
-      - 'GOOGLE_APPLICATION_CREDENTIALS=/workspace/gcp-key.json'
-
-  # Test - Run contract tests
-  - name: 'python:3.11'
-    id: test
-    entrypoint: 'bash'
-    args:
-      - '-c'
-      - |
-        pip install fluid-forge==$_FLUID_VERSION
-        if [ -d "tests" ]; then
-          fluid contract-tests *.fluid.yaml
-        else
-          echo "No tests directory found, skipping"
-        fi
-    waitFor: ['plan']
-
-  # Deploy - Apply contracts
-  - name: 'python:3.11'
-    id: deploy
-    entrypoint: 'bash'
-    args:
-      - '-c'
-      - |
-        pip install fluid-forge==$_FLUID_VERSION
-        for contract in *.fluid.yaml; do
-          if [ -f "$contract" ]; then
-            echo "Deploying $contract to $_ENVIRONMENT..."
-            fluid apply "$contract" --env $_ENVIRONMENT --provider gcp
-          fi
-        done
-    waitFor: ['test']
-    env:
-      - 'GOOGLE_APPLICATION_CREDENTIALS=/workspace/gcp-key.json'
-
-  # Verify - Post-deployment checks
-  - name: 'python:3.11'
-    id: verify
-    entrypoint: 'bash'
-    args:
-      - '-c'
-      - |
-        pip install fluid-forge==$_FLUID_VERSION
-        if [ "$_ENVIRONMENT" = "prod" ]; then
-          for contract in *.fluid.yaml; do
-            if [ -f "$contract" ]; then
-              echo "Verifying $contract in production..."
-              fluid verify "$contract" --env prod --provider gcp
-            fi
-          done
-        else
-          echo "Skipping verification for non-prod environment"
-        fi
-    waitFor: ['deploy']
-    env:
-      - 'GOOGLE_APPLICATION_CREDENTIALS=/workspace/gcp-key.json'
-
-# Artifacts to store
-artifacts:
-  objects:
-    location: 'gs://${PROJECT_ID}_cloudbuild/artifacts'
-    paths:
-      - '**/*.plan.json'
-      - '**/*.fluid.yaml'
-
-# Timeout for entire build
-timeout: 1800s
-
-# Service account for deployment
-serviceAccount: 'projects/${PROJECT_ID}/serviceAccounts/fluid-deployer@${PROJECT_ID}.iam.gserviceaccount.com'
-"""
-
-    cloudbuild_path = project_dir / "cloudbuild.yaml"
-    cloudbuild_path.write_text(cloudbuild_content.strip())
-
-    if RICH_AVAILABLE:
-        console.print("✅ Generated [bold]cloudbuild.yaml[/bold]")
-        console.print("   - Multi-step pipeline (setup/validate/plan/test/deploy/verify)")
-        console.print("   - GCP-native integration (BigQuery, GCS)")
-        console.print("   - Service account authentication")
-        console.print("   - Artifact storage to GCS")
-    else:
-        success("Generated Google Cloud Build configuration")
-
-    info(logger, "cloudbuild_generated", path=str(cloudbuild_path))
-
-
-# ============================================================================
-# AGENT ZERO - PROJECT SCANNER
-# ============================================================================
-
-
-class ProjectDetector:
-    """Base class for project detectors"""
-
-    def can_detect(self, path: Path) -> bool:
-        """Returns True if this detector can handle the project"""
-        raise NotImplementedError
-
-    def scan(self, logger: logging.Logger) -> Dict[str, Any]:
-        """Scan the project and return results"""
-        raise NotImplementedError
-
-
-class DbtDetector(ProjectDetector):
-    """Detect and parse dbt projects"""
-
-    def can_detect(self, path: Path) -> bool:
-        return (path / "dbt_project.yml").exists()
-
-    def scan(self, logger: logging.Logger) -> Dict[str, Any]:
-        """Scan dbt project"""
-
-        import yaml
-
-        results = {"project_type": "dbt", "models": [], "sensitive_columns": [], "metadata": {}}
-
-        # Parse dbt_project.yml
-        dbt_project_path = Path("dbt_project.yml")
-        with open(dbt_project_path) as f:
-            project = yaml.safe_load(f)
-
-        results["metadata"]["project_name"] = project.get("name", "unknown")
-        results["metadata"]["version"] = project.get("version", "1.0.0")
-
-        if RICH_AVAILABLE:
-            console.print(
-                f"\n📦 Found dbt project: [bold]{results['metadata']['project_name']}[/bold]"
-            )
-
-        # Find models
-        models_dir = Path("models")
-        if models_dir.exists():
-            sql_files = list(models_dir.rglob("*.sql"))
-
-            if RICH_AVAILABLE:
-                console.print(f"🔍 Scanning {len(sql_files)} SQL models...")
-
-            for sql_file in sql_files:
-                model = self._parse_model(sql_file, logger)
-                if model:
-                    results["models"].append(model)
-
-        # Parse profiles.yml for target (if exists)
-        profiles_path = Path.home() / ".dbt" / "profiles.yml"
-        if profiles_path.exists():
-            with open(profiles_path) as f:
-                profiles = yaml.safe_load(f)
-                if results["metadata"]["project_name"] in profiles:
-                    profile = profiles[results["metadata"]["project_name"]]
-                    target_name = profile.get("target", "dev")
-                    outputs = profile.get("outputs", {})
-                    if target_name in outputs:
-                        target = outputs[target_name]
-                        results["metadata"]["target_platform"] = target.get("type")
-                        results["metadata"]["target_database"] = target.get("database")
-                        results["metadata"]["target_schema"] = target.get("schema")
-
-        # Detect PII
-        results["sensitive_columns"] = self._detect_pii(results["models"])
-
-        return results
-
-    def _parse_model(self, sql_file: Path, logger: logging.Logger) -> Optional[Dict[str, Any]]:
-        """Parse a dbt SQL model file"""
-
-        try:
-            content = sql_file.read_text()
-
-            # Extract model name from file
-            model_name = sql_file.stem
-
-            # Try to extract column references from SQL
-            # This is simplified - real implementation would use SQL parser
-            columns = []
-
-            # Look for SELECT statements
-            select_pattern = r"SELECT\s+(.*?)\s+FROM"
-            matches = re.findall(select_pattern, content, re.IGNORECASE | re.DOTALL)
-
-            if matches:
-                col_text = matches[0]
-                # Split by comma and clean
-                col_names = [
-                    c.strip().split()[-1].split(".")[-1]
-                    for c in col_text.split(",")
-                    if c.strip() and c.strip() != "*"
-                ]
-                columns = [{"name": c, "type": "unknown"} for c in col_names if c]
-
-            # Check for config in file
-            config_pattern = r"{{[\s]*config\((.*?)\)[\s]*}}"
-            config_match = re.search(config_pattern, content, re.DOTALL)
-
-            materialization = "view"  # default
-            if config_match:
-                if "materialized='table'" in config_match.group(1):
-                    materialization = "table"
-                elif "materialized='incremental'" in config_match.group(1):
-                    materialization = "incremental"
-
-            return {
-                "name": model_name,
-                "path": str(sql_file),
-                "materialization": materialization,
-                "columns": columns,
-                "raw_sql": content,
-            }
-
-        except Exception as e:
-            if logger:
-                info(logger, "model_parse_failed", file=str(sql_file), error=str(e))
-            return None
-
-    def _detect_pii(self, models: List[Dict]) -> List[Dict[str, Any]]:
-        """Detect PII with confidence scores"""
-
-        pii_keywords = {
-            "ssn": {"patterns": ["ssn", "social_security", "social"], "confidence": 0.90},
-            "email": {"patterns": ["email", "e_mail", "mail"], "confidence": 0.85},
-            "phone": {"patterns": ["phone", "telephone", "mobile", "cell"], "confidence": 0.80},
-            "credit_card": {
-                "patterns": ["credit_card", "cc_number", "card_num"],
-                "confidence": 0.95,
-            },
-            "address": {"patterns": ["address", "street", "zip", "postal"], "confidence": 0.70},
-            "name": {
-                "patterns": ["first_name", "last_name", "full_name", "customer_name"],
-                "confidence": 0.60,
-            },
-            "dob": {"patterns": ["birth_date", "dob", "date_of_birth"], "confidence": 0.85},
-        }
-
-        findings = []
-
-        for model in models:
-            for col in model.get("columns", []):
-                col_lower = col["name"].lower()
-
-                for pii_type, pii_data in pii_keywords.items():
-                    for pattern in pii_data["patterns"]:
-                        if pattern in col_lower:
-                            findings.append(
-                                {
-                                    "model": model["name"],
-                                    "column": col["name"],
-                                    "type": pii_type.upper(),
-                                    "confidence": pii_data["confidence"],
-                                    "method": "column_name_heuristic",
-                                }
-                            )
-                            break  # Only report once per column
-
-        return findings
-
-
-class TerraformDetector(ProjectDetector):
-    """Detect and parse Terraform configurations"""
-
-    def can_detect(self, path: Path) -> bool:
-        tf_files = list(path.glob("*.tf"))
-        return len(tf_files) > 0
-
-    def scan(self, logger: logging.Logger) -> Dict[str, Any]:
-        """Scan Terraform files"""
-
-        results = {
-            "project_type": "terraform",
-            "resources": [],
-            "sensitive_columns": [],
-            "metadata": {},
-        }
-
-        tf_files = list(Path.cwd().glob("*.tf"))
-
-        if RICH_AVAILABLE:
-            console.print(f"\n🔍 Found {len(tf_files)} Terraform files")
-
-        # Parse Terraform files (simplified)
-        for tf_file in tf_files:
-            content = tf_file.read_text()
-
-            # Look for data sources and resources
-            # This is simplified - real implementation would use HCL parser
-            if 'resource "google_bigquery_dataset"' in content:
-                results["metadata"]["target_platform"] = "gcp"
-            elif 'resource "snowflake_database"' in content:
-                results["metadata"]["target_platform"] = "snowflake"
-
-        results["metadata"]["files_count"] = len(tf_files)
-
-        return results
-
-
-class SqlFileDetector(ProjectDetector):
-    """Detect standalone SQL files"""
-
-    def can_detect(self, path: Path) -> bool:
-        sql_files = list(path.glob("*.sql"))
-        return len(sql_files) > 0 and not (path / "dbt_project.yml").exists()
-
-    def scan(self, logger: logging.Logger) -> Dict[str, Any]:
-        """Scan SQL files"""
-
-        results = {"project_type": "sql", "files": [], "sensitive_columns": [], "metadata": {}}
-
-        sql_files = list(Path.cwd().glob("*.sql"))
-
-        if RICH_AVAILABLE:
-            console.print(f"\n📄 Found {len(sql_files)} SQL files")
-
-        for sql_file in sql_files:
-            results["files"].append({"name": sql_file.name, "path": str(sql_file)})
-
-        results["metadata"]["files_count"] = len(sql_files)
-
-        return results
-
-
-def detect_project_type(path: Path) -> Optional[ProjectDetector]:
-    """Auto-detect project type"""
-
-    detectors = [DbtDetector(), TerraformDetector(), SqlFileDetector()]
-
-    for detector in detectors:
-        if detector.can_detect(path):
-            return detector
-
-    return None
-
-
-def show_scan_results(results: Dict[str, Any]):
-    """Display scan results with rich formatting"""
-
-    if not RICH_AVAILABLE:
-        cprint(f"\nProject Type: {results['project_type']}")
-        return
-
-    console.print("\n" + "━" * 70)
-    console.print("📊 [bold]Scan Results[/bold]")
-    console.print("━" * 70 + "\n")
-
-    # Project info
-    project_type = results["project_type"]
-    console.print(f"Project Type: [bold cyan]{project_type.upper()}[/bold cyan]")
-
-    if project_type == "dbt":
-        console.print(
-            f"Project Name: [bold]{results['metadata'].get('project_name', 'N/A')}[/bold]"
-        )
-        console.print(f"Models Found: [bold]{len(results.get('models', []))}[/bold]")
-
-        # Show target platform
-        target_platform = results["metadata"].get("target_platform")
-        if target_platform:
-            console.print(f"Target Platform: [bold]{target_platform.upper()}[/bold]")
-
-            # Infer jurisdiction
-            target_db = results["metadata"].get("target_database", "")
-            if "eu" in target_db.lower():
-                console.print("  [yellow]→ Detected EU region (GDPR considerations)[/yellow]")
-
-    elif project_type == "terraform":
-        console.print(f"Files Found: [bold]{results['metadata'].get('files_count', 0)}[/bold]")
-        target = results["metadata"].get("target_platform")
-        if target:
-            console.print(f"Target Platform: [bold]{target.upper()}[/bold]")
-
-    elif project_type == "sql":
-        console.print(f"SQL Files: [bold]{results['metadata'].get('files_count', 0)}[/bold]")
-
-    # Show PII detection results
-    sensitive = results.get("sensitive_columns", [])
-    if sensitive:
-        console.print(
-            f"\n🔒 [yellow bold]Sensitive Data Detected:[/yellow bold] {len(sensitive)} columns\n"
-        )
-
-        if RICH_AVAILABLE:
-            table = Table(show_header=True, header_style="bold")
-            table.add_column("Model", style="cyan")
-            table.add_column("Column", style="yellow")
-            table.add_column("Type", style="red")
-            table.add_column("Confidence", justify="right")
-
-            for finding in sensitive[:10]:  # Show top 10
-                confidence = finding["confidence"]
-                color = "red" if confidence > 0.9 else "yellow" if confidence > 0.7 else "white"
-
-                table.add_row(
-                    finding["model"],
-                    finding["column"],
-                    finding["type"],
-                    f"[{color}]{confidence:.0%}[/{color}]",
-                )
-
-            console.print(table)
-
-            if len(sensitive) > 10:
-                console.print(f"\n  ... and {len(sensitive) - 10} more")
-    else:
-        console.print("\n✅ [green]No obvious PII detected[/green]")
-
-    console.print()

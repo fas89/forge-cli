@@ -33,8 +33,6 @@ def _make_args(**overrides):
     defaults = dict(
         name=None,
         quickstart=False,
-        scan=False,
-        wizard=False,
         blank=False,
         template=None,
         provider="local",
@@ -61,7 +59,6 @@ def logger():
 
 class TestQuickstartMode:
     @patch("fluid_build.cli.init.show_success_message")
-    @patch("fluid_build.cli.init.generate_cicd")
     @patch("fluid_build.cli.init.run_local_pipeline")
     @patch("fluid_build.cli.init.init_local_db")
     @patch("fluid_build.cli.init.copy_sample_data")
@@ -72,45 +69,53 @@ class TestQuickstartMode:
         _mock_data,
         _mock_db,
         _mock_run,
-        _mock_cicd,
         _mock_success,
         tmp_path,
         logger,
+        monkeypatch,
     ):
         from fluid_build.cli.init import quickstart_mode
 
-        args = _make_args(name=str(tmp_path / "qs-project"), no_run=True, no_dag=True)
+        monkeypatch.chdir(tmp_path)
+        args = _make_args(name="qs-project", no_run=True, no_dag=True)
         result = quickstart_mode(args, logger)
         assert result == 0
         mock_copy.assert_called_once()
 
     @patch("fluid_build.cli.init.copy_template", return_value=False)
-    def test_copy_template_fails_returns_1(self, _mock_copy, tmp_path, logger):
+    def test_copy_template_fails_returns_1(
+        self, _mock_copy, tmp_path, logger, monkeypatch
+    ):
         from fluid_build.cli.init import quickstart_mode
 
-        args = _make_args(name=str(tmp_path / "qs-fail"), no_run=True, no_dag=True)
+        monkeypatch.chdir(tmp_path)
+        args = _make_args(name="qs-fail", no_run=True, no_dag=True)
         result = quickstart_mode(args, logger)
         assert result == 1
 
-    def test_dry_run_returns_0(self, tmp_path, logger):
+    def test_dry_run_returns_0(self, tmp_path, logger, monkeypatch):
         from fluid_build.cli.init import quickstart_mode
 
-        args = _make_args(name=str(tmp_path / "qs-dry"), dry_run=True)
+        monkeypatch.chdir(tmp_path)
+        args = _make_args(name="qs-dry", dry_run=True)
         result = quickstart_mode(args, logger)
         assert result == 0
 
-    def test_existing_nonempty_dir_returns_1(self, tmp_path, logger):
+    def test_existing_nonempty_dir_returns_1(self, tmp_path, logger, monkeypatch):
         from fluid_build.cli.init import quickstart_mode
 
+        # quickstart_mode resolves the project dir relative to the current
+        # working directory after slugifying args.name, so the existing dir
+        # needs to live there with the matching slug name.
+        monkeypatch.chdir(tmp_path)
         existing = tmp_path / "existing-project"
         existing.mkdir()
         (existing / "some_file.txt").write_text("content")
-        args = _make_args(name=str(existing))
+        args = _make_args(name="existing-project")
         result = quickstart_mode(args, logger)
         assert result == 1
 
     @patch("fluid_build.cli.init.show_success_message")
-    @patch("fluid_build.cli.init.generate_cicd")
     @patch("fluid_build.cli.init.run_local_pipeline")
     @patch("fluid_build.cli.init.init_local_db")
     @patch("fluid_build.cli.init.copy_sample_data")
@@ -121,7 +126,6 @@ class TestQuickstartMode:
         _mock_data,
         _mock_db,
         _mock_run,
-        _mock_cicd,
         _mock_success,
         tmp_path,
         logger,
@@ -135,7 +139,6 @@ class TestQuickstartMode:
         assert result == 0
 
     @patch("fluid_build.cli.init.show_success_message")
-    @patch("fluid_build.cli.init.generate_cicd")
     @patch("fluid_build.cli.init.run_local_pipeline")
     @patch("fluid_build.cli.init.init_local_db")
     @patch("fluid_build.cli.init.copy_sample_data")
@@ -146,19 +149,19 @@ class TestQuickstartMode:
         _mock_data,
         _mock_db,
         mock_run_pipeline,
-        _mock_cicd,
         _mock_success,
         tmp_path,
         logger,
+        monkeypatch,
     ):
         from fluid_build.cli.init import quickstart_mode
 
-        args = _make_args(name=str(tmp_path / "run-test"), no_run=False, no_dag=True)
+        monkeypatch.chdir(tmp_path)
+        args = _make_args(name="run-test", no_run=False, no_dag=True)
         quickstart_mode(args, logger)
         mock_run_pipeline.assert_called_once()
 
     @patch("fluid_build.cli.init.show_success_message")
-    @patch("fluid_build.cli.init.generate_cicd")
     @patch("fluid_build.cli.init.run_local_pipeline")
     @patch("fluid_build.cli.init.init_local_db")
     @patch("fluid_build.cli.init.copy_sample_data")
@@ -169,27 +172,28 @@ class TestQuickstartMode:
         _mock_data,
         _mock_db,
         mock_run_pipeline,
-        _mock_cicd,
         _mock_success,
         tmp_path,
         logger,
+        monkeypatch,
     ):
         from fluid_build.cli.init import quickstart_mode
 
-        args = _make_args(name=str(tmp_path / "no-run-test"), no_run=True, no_dag=True)
+        monkeypatch.chdir(tmp_path)
+        args = _make_args(name="no-run-test", no_run=True, no_dag=True)
         quickstart_mode(args, logger)
         mock_run_pipeline.assert_not_called()
 
     @patch("fluid_build.cli.init.copy_template", side_effect=RuntimeError("boom"))
-    def test_exception_returns_1(self, _mock_copy, tmp_path, logger):
+    def test_exception_returns_1(self, _mock_copy, tmp_path, logger, monkeypatch):
         from fluid_build.cli.init import quickstart_mode
 
-        args = _make_args(name=str(tmp_path / "qs-exc"), no_run=True, no_dag=True)
+        monkeypatch.chdir(tmp_path)
+        args = _make_args(name="qs-exc", no_run=True, no_dag=True)
         result = quickstart_mode(args, logger)
         assert result == 1
 
     @patch("fluid_build.cli.init.show_success_message")
-    @patch("fluid_build.cli.init.generate_cicd")
     @patch("fluid_build.cli.init.run_local_pipeline")
     @patch("fluid_build.cli.init.init_local_db")
     @patch("fluid_build.cli.init.copy_sample_data")
@@ -202,15 +206,15 @@ class TestQuickstartMode:
         _mock_data,
         _mock_db,
         _mock_run,
-        _mock_cicd,
         _mock_success,
         tmp_path,
         logger,
+        monkeypatch,
     ):
         from fluid_build.cli.init import quickstart_mode
 
-        project_name = str(tmp_path / "dag-project")
-        args = _make_args(name=project_name, no_run=True, no_dag=False)
+        monkeypatch.chdir(tmp_path)
+        args = _make_args(name="dag-project", no_run=True, no_dag=False)
 
         def _create_contract(project_dir, template, lgr):
             project_dir.mkdir(parents=True, exist_ok=True)
@@ -221,115 +225,6 @@ class TestQuickstartMode:
             with patch("yaml.safe_load", return_value={"name": "test", "orchestration": {}}):
                 result = quickstart_mode(args, logger)
         assert result == 0
-
-
-# ===========================================================================
-# scan_mode
-# ===========================================================================
-
-
-class TestScanMode:
-    def test_no_project_detected_returns_1(self, logger):
-        from fluid_build.cli.init import scan_mode
-
-        args = _make_args(provider="local")
-        with patch("fluid_build.cli.init.detect_project_type", return_value=None):
-            result = scan_mode(args, logger)
-        assert result == 1
-
-    @patch("fluid_build.cli.init.show_migration_summary")
-    @patch("fluid_build.cli.init.generate_cicd")
-    @patch("fluid_build.cli.init.generate_contracts_from_scan")
-    @patch("fluid_build.cli.init.show_scan_results")
-    def test_scan_success_no_sensitive(
-        self, _mock_results, mock_gen, _mock_cicd, _mock_summary, tmp_path, logger
-    ):
-        from fluid_build.cli.init import scan_mode
-
-        args = _make_args(provider="local")
-        mock_detector = MagicMock()
-        mock_detector.scan.return_value = {
-            "project_type": "dbt",
-            "metadata": {},
-            "models": [],
-            "sensitive_columns": [],
-        }
-        mock_gen.return_value = [
-            {"name": "c1", "version": FluidSchemaManager.latest_bundled_version()}
-        ]
-
-        with patch("fluid_build.cli.init.detect_project_type", return_value=mock_detector):
-            with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
-                with patch("fluid_build.cli.init.Path") as mock_path_cls:
-                    mock_path_cls.cwd.return_value = tmp_path
-                    result = scan_mode(args, logger)
-        assert result == 0
-
-    @patch("fluid_build.cli.init.detect_project_type", side_effect=RuntimeError("scan boom"))
-    def test_exception_returns_1(self, _mock_detect, logger):
-        from fluid_build.cli.init import scan_mode
-
-        args = _make_args()
-        result = scan_mode(args, logger)
-        assert result == 1
-
-    def test_scan_zero_model_dbt_fails_without_writing_contract(
-        self, tmp_path, logger, monkeypatch
-    ):
-        from fluid_build.cli.init import scan_mode
-
-        monkeypatch.chdir(tmp_path)
-        args = _make_args(provider="local")
-        mock_detector = MagicMock()
-        mock_detector.scan.return_value = {
-            "project_type": "dbt",
-            "metadata": {"project_name": "empty-dbt", "target_platform": "duckdb"},
-            "models": [],
-            "sensitive_columns": [],
-        }
-
-        with patch("fluid_build.cli.init.detect_project_type", return_value=mock_detector):
-            with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
-                result = scan_mode(args, logger)
-
-        assert result == 1
-        assert list(tmp_path.glob("*.fluid.yaml")) == []
-
-    @patch("fluid_build.cli.init.show_migration_summary")
-    @patch("fluid_build.cli.init.generate_cicd")
-    @patch("fluid_build.cli.init.apply_governance_policies")
-    @patch("fluid_build.cli.init.generate_contracts_from_scan")
-    @patch("fluid_build.cli.init.show_scan_results")
-    def test_scan_with_sensitive_columns_calls_governance(
-        self,
-        _mock_show,
-        mock_gen,
-        mock_governance,
-        _mock_cicd,
-        _mock_summary,
-        tmp_path,
-        logger,
-    ):
-        from fluid_build.cli.init import scan_mode
-
-        args = _make_args(provider="local")
-        mock_detector = MagicMock()
-        mock_detector.scan.return_value = {
-            "project_type": "sql",
-            "metadata": {},
-            "files": [],
-            "sensitive_columns": [{"col": "email", "type": "EMAIL"}],
-        }
-        mock_gen.return_value = [{"name": "sql-import"}]
-        mock_governance.return_value = [{"name": "sql-import"}]
-
-        with patch("fluid_build.cli.init.detect_project_type", return_value=mock_detector):
-            with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
-                with patch("fluid_build.cli.init.Path") as mock_path_cls:
-                    mock_path_cls.cwd.return_value = tmp_path
-                    result = scan_mode(args, logger)
-        assert result == 0
-        mock_governance.assert_called_once()
 
 
 # ===========================================================================
@@ -644,236 +539,6 @@ class TestShowSuccessMessage:
 
 
 # ===========================================================================
-# generate_cicd
-# ===========================================================================
-
-
-class TestGenerateCicd:
-    def test_no_rich_generates_jenkinsfile(self, tmp_path, logger):
-        from fluid_build.cli.init import generate_cicd
-
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
-            generate_cicd(tmp_path, logger)
-        assert (tmp_path / "Jenkinsfile").exists()
-
-    def test_rich_user_confirms_jenkins(self, tmp_path, logger):
-        from fluid_build.cli.init import generate_cicd
-
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
-            with patch("fluid_build.cli.init.console"):
-                with patch("fluid_build.cli.init.Confirm") as mock_confirm:
-                    with patch("fluid_build.cli.init.Prompt") as mock_prompt:
-                        mock_confirm.ask.return_value = True
-                        mock_prompt.ask.return_value = "jenkins"
-                        generate_cicd(tmp_path, logger)
-        assert (tmp_path / "Jenkinsfile").exists()
-
-    def test_rich_user_confirms_github(self, tmp_path, logger):
-        from fluid_build.cli.init import generate_cicd
-
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
-            with patch("fluid_build.cli.init.console"):
-                with patch("fluid_build.cli.init.Confirm") as mock_confirm:
-                    with patch("fluid_build.cli.init.Prompt") as mock_prompt:
-                        mock_confirm.ask.return_value = True
-                        mock_prompt.ask.return_value = "github"
-                        generate_cicd(tmp_path, logger)
-        assert (tmp_path / ".github" / "workflows" / "fluid.yml").exists()
-
-    def test_rich_user_confirms_gitlab(self, tmp_path, logger):
-        from fluid_build.cli.init import generate_cicd
-
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
-            with patch("fluid_build.cli.init.console"):
-                with patch("fluid_build.cli.init.Confirm") as mock_confirm:
-                    with patch("fluid_build.cli.init.Prompt") as mock_prompt:
-                        mock_confirm.ask.return_value = True
-                        mock_prompt.ask.return_value = "gitlab"
-                        generate_cicd(tmp_path, logger)
-        assert (tmp_path / ".gitlab-ci.yml").exists()
-
-    def test_rich_user_confirms_cloudbuild(self, tmp_path, logger):
-        from fluid_build.cli.init import generate_cicd
-
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
-            with patch("fluid_build.cli.init.console"):
-                with patch("fluid_build.cli.init.Confirm") as mock_confirm:
-                    with patch("fluid_build.cli.init.Prompt") as mock_prompt:
-                        mock_confirm.ask.return_value = True
-                        mock_prompt.ask.return_value = "cloudbuild"
-                        generate_cicd(tmp_path, logger)
-        assert (tmp_path / "cloudbuild.yaml").exists()
-
-    def test_rich_user_declines_cicd(self, tmp_path, logger):
-        from fluid_build.cli.init import generate_cicd
-
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
-            with patch("fluid_build.cli.init.console"):
-                with patch("fluid_build.cli.init.Confirm") as mock_confirm:
-                    mock_confirm.ask.return_value = False
-                    generate_cicd(tmp_path, logger)
-        assert not (tmp_path / "Jenkinsfile").exists()
-
-    def test_rich_user_picks_skip(self, tmp_path, logger):
-        from fluid_build.cli.init import generate_cicd
-
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
-            with patch("fluid_build.cli.init.console"):
-                with patch("fluid_build.cli.init.Confirm") as mock_confirm:
-                    with patch("fluid_build.cli.init.Prompt") as mock_prompt:
-                        mock_confirm.ask.return_value = True
-                        mock_prompt.ask.return_value = "skip"
-                        generate_cicd(tmp_path, logger)
-        assert not (tmp_path / "Jenkinsfile").exists()
-
-
-# ===========================================================================
-# show_scan_results
-# ===========================================================================
-
-
-class TestShowScanResults:
-    def test_no_rich_prints_project_type(self):
-        from fluid_build.cli.init import show_scan_results
-
-        results = {"project_type": "dbt", "metadata": {}, "sensitive_columns": []}
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
-            with patch("fluid_build.cli.init.cprint") as mock_cprint:
-                show_scan_results(results)
-        calls = " ".join(str(c) for c in mock_cprint.call_args_list)
-        assert "dbt" in calls
-
-    def test_rich_dbt_type_with_metadata(self):
-        from fluid_build.cli.init import show_scan_results
-
-        results = {
-            "project_type": "dbt",
-            "metadata": {
-                "project_name": "myproj",
-                "target_platform": "gcp",
-                "target_database": "",
-            },
-            "models": [{"name": "m1"}, {"name": "m2"}],
-            "sensitive_columns": [],
-        }
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
-            with patch("fluid_build.cli.init.console") as mock_con:
-                mock_con.print = MagicMock()
-                show_scan_results(results)
-        mock_con.print.assert_called()
-
-    def test_rich_terraform_type(self):
-        from fluid_build.cli.init import show_scan_results
-
-        results = {
-            "project_type": "terraform",
-            "metadata": {"files_count": 3, "target_platform": "aws"},
-            "sensitive_columns": [],
-        }
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
-            with patch("fluid_build.cli.init.console") as mock_con:
-                mock_con.print = MagicMock()
-                show_scan_results(results)
-        mock_con.print.assert_called()
-
-    def test_rich_sql_type(self):
-        from fluid_build.cli.init import show_scan_results
-
-        results = {
-            "project_type": "sql",
-            "metadata": {"files_count": 5},
-            "sensitive_columns": [],
-        }
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
-            with patch("fluid_build.cli.init.console") as mock_con:
-                mock_con.print = MagicMock()
-                show_scan_results(results)
-        mock_con.print.assert_called()
-
-    def test_sensitive_columns_rendered_in_table(self):
-        from fluid_build.cli.init import show_scan_results
-
-        results = {
-            "project_type": "dbt",
-            "metadata": {},
-            "models": [],
-            "sensitive_columns": [
-                {
-                    "model": "users",
-                    "column": "email",
-                    "type": "EMAIL",
-                    "confidence": 0.85,
-                    "method": "heuristic",
-                },
-                {
-                    "model": "orders",
-                    "column": "ssn",
-                    "type": "SSN",
-                    "confidence": 0.95,
-                    "method": "heuristic",
-                },
-            ],
-        }
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
-            with patch("fluid_build.cli.init.console") as mock_con:
-                with patch("fluid_build.cli.init.Table") as mock_table_cls:
-                    mock_table = MagicMock()
-                    mock_table_cls.return_value = mock_table
-                    mock_con.print = MagicMock()
-                    show_scan_results(results)
-        mock_table.add_row.assert_called()
-
-    def test_eu_database_shows_gdpr_hint(self):
-        from fluid_build.cli.init import show_scan_results
-
-        results = {
-            "project_type": "dbt",
-            "metadata": {
-                "project_name": "eu_proj",
-                "target_platform": "gcp",
-                "target_database": "eu-west-db",
-            },
-            "models": [],
-            "sensitive_columns": [],
-        }
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
-            with patch("fluid_build.cli.init.console") as mock_con:
-                mock_con.print = MagicMock()
-                show_scan_results(results)
-        calls = " ".join(str(c) for c in mock_con.print.call_args_list)
-        assert "EU" in calls or "GDPR" in calls
-
-    def test_many_sensitive_columns_truncated(self):
-        from fluid_build.cli.init import show_scan_results
-
-        sensitive = [
-            {
-                "model": "m",
-                "column": f"col_{i}",
-                "type": "EMAIL",
-                "confidence": 0.8,
-                "method": "h",
-            }
-            for i in range(15)
-        ]
-        results = {
-            "project_type": "dbt",
-            "metadata": {},
-            "models": [],
-            "sensitive_columns": sensitive,
-        }
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", True):
-            with patch("fluid_build.cli.init.console") as mock_con:
-                with patch("fluid_build.cli.init.Table") as mock_table_cls:
-                    mock_table = MagicMock()
-                    mock_table_cls.return_value = mock_table
-                    mock_con.print = MagicMock()
-                    show_scan_results(results)
-        # Only 10 rows shown
-        assert mock_table.add_row.call_count == 10
-
-
-# ===========================================================================
 # copy_sample_data
 # ===========================================================================
 
@@ -930,233 +595,6 @@ class TestInitLocalDb:
                 init_local_db(tmp_path, "local", logger)
         mock_duckdb.connect.assert_called_once()
         mock_conn.close.assert_called_once()
-
-
-# ===========================================================================
-# detect_project_type
-# ===========================================================================
-
-
-class TestDetectProjectType:
-    def test_detects_dbt(self, tmp_path):
-        from fluid_build.cli.init import DbtDetector, detect_project_type
-
-        (tmp_path / "dbt_project.yml").write_text("name: myproject\n")
-        detector = detect_project_type(tmp_path)
-        assert isinstance(detector, DbtDetector)
-
-    def test_detects_terraform(self, tmp_path):
-        from fluid_build.cli.init import TerraformDetector, detect_project_type
-
-        (tmp_path / "main.tf").write_text("resource {}")
-        detector = detect_project_type(tmp_path)
-        assert isinstance(detector, TerraformDetector)
-
-    def test_detects_sql(self, tmp_path):
-        from fluid_build.cli.init import SqlFileDetector, detect_project_type
-
-        (tmp_path / "query.sql").write_text("SELECT 1")
-        detector = detect_project_type(tmp_path)
-        assert isinstance(detector, SqlFileDetector)
-
-    def test_returns_none_when_nothing_found(self, tmp_path):
-        from fluid_build.cli.init import detect_project_type
-
-        detector = detect_project_type(tmp_path)
-        assert detector is None
-
-    def test_dbt_takes_priority_over_sql(self, tmp_path):
-        from fluid_build.cli.init import DbtDetector, detect_project_type
-
-        (tmp_path / "dbt_project.yml").write_text("name: x\n")
-        (tmp_path / "model.sql").write_text("SELECT 1")
-        detector = detect_project_type(tmp_path)
-        assert isinstance(detector, DbtDetector)
-
-
-# ===========================================================================
-# DbtDetector
-# ===========================================================================
-
-
-class TestDbtDetector:
-    def test_can_detect_true(self, tmp_path):
-        from fluid_build.cli.init import DbtDetector
-
-        (tmp_path / "dbt_project.yml").write_text("name: x\n")
-        assert DbtDetector().can_detect(tmp_path) is True
-
-    def test_can_detect_false(self, tmp_path):
-        from fluid_build.cli.init import DbtDetector
-
-        assert DbtDetector().can_detect(tmp_path) is False
-
-    def test_parse_model_extracts_columns(self, tmp_path, logger):
-        from fluid_build.cli.init import DbtDetector
-
-        sql_file = tmp_path / "orders.sql"
-        sql_file.write_text("SELECT id, name, amount FROM raw.orders")
-        model = DbtDetector()._parse_model(sql_file, logger)
-        assert model is not None
-        assert model["name"] == "orders"
-        assert any(c["name"] == "amount" for c in model["columns"])
-
-    def test_parse_model_with_table_materialization(self, tmp_path, logger):
-        from fluid_build.cli.init import DbtDetector
-
-        sql_file = tmp_path / "facts.sql"
-        sql_file.write_text("{{ config(materialized='table') }}\nSELECT id FROM raw.facts")
-        model = DbtDetector()._parse_model(sql_file, logger)
-        assert model["materialization"] == "table"
-
-    def test_parse_model_with_incremental_materialization(self, tmp_path, logger):
-        from fluid_build.cli.init import DbtDetector
-
-        sql_file = tmp_path / "inc.sql"
-        sql_file.write_text("{{ config(materialized='incremental') }}\nSELECT id FROM t")
-        model = DbtDetector()._parse_model(sql_file, logger)
-        assert model["materialization"] == "incremental"
-
-    def test_parse_model_returns_none_on_missing_file(self, tmp_path, logger):
-        from fluid_build.cli.init import DbtDetector
-
-        non_existent = tmp_path / "nope.sql"
-        model = DbtDetector()._parse_model(non_existent, logger)
-        assert model is None
-
-    def test_detect_pii_finds_email(self):
-        from fluid_build.cli.init import DbtDetector
-
-        models = [{"name": "users", "columns": [{"name": "email_address"}, {"name": "user_id"}]}]
-        findings = DbtDetector()._detect_pii(models)
-        assert any(f["type"] == "EMAIL" for f in findings)
-
-    def test_detect_pii_finds_phone(self):
-        from fluid_build.cli.init import DbtDetector
-
-        models = [{"name": "contacts", "columns": [{"name": "phone_number"}]}]
-        findings = DbtDetector()._detect_pii(models)
-        assert any(f["type"] == "PHONE" for f in findings)
-
-    def test_detect_pii_finds_credit_card(self):
-        from fluid_build.cli.init import DbtDetector
-
-        models = [{"name": "payments", "columns": [{"name": "credit_card_num"}]}]
-        findings = DbtDetector()._detect_pii(models)
-        assert any(f["type"] == "CREDIT_CARD" for f in findings)
-
-    def test_detect_pii_finds_ssn(self):
-        from fluid_build.cli.init import DbtDetector
-
-        models = [{"name": "hr", "columns": [{"name": "social_security_number"}]}]
-        findings = DbtDetector()._detect_pii(models)
-        assert any(f["type"] == "SSN" for f in findings)
-
-    def test_detect_pii_finds_name(self):
-        from fluid_build.cli.init import DbtDetector
-
-        models = [{"name": "people", "columns": [{"name": "first_name"}]}]
-        findings = DbtDetector()._detect_pii(models)
-        assert any(f["type"] == "NAME" for f in findings)
-
-    def test_detect_pii_no_pii(self):
-        from fluid_build.cli.init import DbtDetector
-
-        models = [{"name": "metrics", "columns": [{"name": "revenue"}, {"name": "count"}]}]
-        findings = DbtDetector()._detect_pii(models)
-        assert findings == []
-
-    def test_scan_parses_project_name(self, tmp_path, logger, monkeypatch):
-        from fluid_build.cli.init import DbtDetector
-
-        monkeypatch.chdir(tmp_path)
-        (tmp_path / "dbt_project.yml").write_text("name: analytics\nversion: 1.0.0\n")
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
-            results = DbtDetector().scan(logger)
-        assert results["project_type"] == "dbt"
-        assert results["metadata"]["project_name"] == "analytics"
-
-
-# ===========================================================================
-# TerraformDetector
-# ===========================================================================
-
-
-class TestTerraformDetector:
-    def test_can_detect_true(self, tmp_path):
-        from fluid_build.cli.init import TerraformDetector
-
-        (tmp_path / "main.tf").write_text("resource {}")
-        assert TerraformDetector().can_detect(tmp_path) is True
-
-    def test_can_detect_false(self, tmp_path):
-        from fluid_build.cli.init import TerraformDetector
-
-        assert TerraformDetector().can_detect(tmp_path) is False
-
-    def test_scan_detects_gcp(self, tmp_path, logger, monkeypatch):
-        from fluid_build.cli.init import TerraformDetector
-
-        monkeypatch.chdir(tmp_path)
-        (tmp_path / "main.tf").write_text('resource "google_bigquery_dataset" "ds" {}')
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
-            results = TerraformDetector().scan(logger)
-        assert results["metadata"].get("target_platform") == "gcp"
-
-    def test_scan_detects_snowflake(self, tmp_path, logger, monkeypatch):
-        from fluid_build.cli.init import TerraformDetector
-
-        monkeypatch.chdir(tmp_path)
-        (tmp_path / "main.tf").write_text('resource "snowflake_database" "db" {}')
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
-            results = TerraformDetector().scan(logger)
-        assert results["metadata"].get("target_platform") == "snowflake"
-
-    def test_scan_returns_files_count(self, tmp_path, logger, monkeypatch):
-        from fluid_build.cli.init import TerraformDetector
-
-        monkeypatch.chdir(tmp_path)
-        (tmp_path / "main.tf").write_text("resource {}")
-        (tmp_path / "variables.tf").write_text("variable x {}")
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
-            results = TerraformDetector().scan(logger)
-        assert results["metadata"]["files_count"] == 2
-
-
-# ===========================================================================
-# SqlFileDetector
-# ===========================================================================
-
-
-class TestSqlFileDetector:
-    def test_can_detect_true(self, tmp_path):
-        from fluid_build.cli.init import SqlFileDetector
-
-        (tmp_path / "query.sql").write_text("SELECT 1")
-        assert SqlFileDetector().can_detect(tmp_path) is True
-
-    def test_can_detect_false_no_sql(self, tmp_path):
-        from fluid_build.cli.init import SqlFileDetector
-
-        assert SqlFileDetector().can_detect(tmp_path) is False
-
-    def test_can_detect_false_when_dbt_exists(self, tmp_path):
-        from fluid_build.cli.init import SqlFileDetector
-
-        (tmp_path / "query.sql").write_text("SELECT 1")
-        (tmp_path / "dbt_project.yml").write_text("name: x\n")
-        assert SqlFileDetector().can_detect(tmp_path) is False
-
-    def test_scan_lists_files(self, tmp_path, logger, monkeypatch):
-        from fluid_build.cli.init import SqlFileDetector
-
-        monkeypatch.chdir(tmp_path)
-        (tmp_path / "a.sql").write_text("SELECT 1")
-        (tmp_path / "b.sql").write_text("SELECT 2")
-        with patch("fluid_build.cli.init.RICH_AVAILABLE", False):
-            results = SqlFileDetector().scan(logger)
-        assert results["project_type"] == "sql"
-        assert results["metadata"]["files_count"] == 2
 
 
 # ===========================================================================
@@ -1347,19 +785,12 @@ class TestRunRouting:
 
         assert run(_make_args(quickstart=True), logger) == 0
 
-    @patch("fluid_build.cli.init.scan_mode", return_value=0)
-    @patch("fluid_build.cli.init.detect_mode", return_value="scan")
-    def test_routes_scan(self, _mock_detect, _mock_scan, logger):
-        from fluid_build.cli.init import run
-
-        assert run(_make_args(scan=True), logger) == 0
-
     @patch("fluid_build.cli.init._ai_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="ai")
     def test_routes_ai(self, _mock_detect, _mock_ai, logger):
         from fluid_build.cli.init import run
 
-        assert run(_make_args(wizard=True), logger) == 0
+        assert run(_make_args(), logger) == 0
 
     @patch("fluid_build.cli.init.blank_mode", return_value=0)
     @patch("fluid_build.cli.init.detect_mode", return_value="blank")

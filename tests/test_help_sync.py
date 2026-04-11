@@ -125,11 +125,18 @@ class TestMainHelpNoStaleFlags:
 
 
 class TestFirstRunHelp:
-    """First-run help must show current recommended quick-start command."""
+    """First-run help must surface the current recommended fast paths."""
 
-    def test_uses_template_not_quickstart(self):
+    def test_shows_demo_and_quickstart(self):
+        """First-run help should recommend `fluid demo` and `--quickstart` as the fast paths."""
         text = _capture_first_run_help()
-        assert (
-            "--template customer-360" in text or "--template" in text
-        ), "First-run help should use --template, not --quickstart"
-        assert "--quickstart" not in text, "Stale --quickstart in first-run help"
+        assert "fluid demo" in text, "First-run help should surface `fluid demo`"
+        assert "--quickstart" in text, "First-run help should surface `--quickstart`"
+
+    def test_mentions_fluid_forge(self):
+        """First-run help should tell workspace users about `fluid forge`."""
+        text = _capture_first_run_help()
+        assert "fluid forge" in text, (
+            "First-run help should mention `fluid forge` so workspace users know "
+            "how to add more products"
+        )

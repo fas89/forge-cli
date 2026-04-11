@@ -1431,3 +1431,40 @@ class TestCreateSessionLlmConfig:
             ask_secret_text_fn=lambda *a, **kw: "",
         )
         assert config is None
+
+
+# ── print_interview_phase ──────────────────────────────────────────────
+
+
+class TestPrintInterviewPhase:
+    """Regression tests for the interview phase breadcrumb helper."""
+
+    def test_prints_breadcrumb_with_rich(self):
+        from fluid_build.cli.forge_ui import print_interview_phase
+
+        console = MagicMock()
+        with patch("fluid_build.cli.forge_ui.RICH_AVAILABLE", True):
+            print_interview_phase(
+                console, phase=1, total=3, label="Understanding your project"
+            )
+        console.print.assert_called()
+        printed = " ".join(str(c) for c in console.print.call_args_list)
+        assert "Phase 1/3" in printed
+        assert "Understanding your project" in printed
+
+    def test_prints_plain_breadcrumb_without_rich(self):
+        from fluid_build.cli.forge_ui import print_interview_phase
+
+        console = MagicMock()
+        with patch("fluid_build.cli.forge_ui.RICH_AVAILABLE", False):
+            print_interview_phase(console, phase=2, total=3, label="Clarifying details")
+        console.print.assert_called()
+        printed = " ".join(str(c) for c in console.print.call_args_list)
+        assert "Phase 2/3" in printed
+        assert "Clarifying details" in printed
+
+    def test_no_console_is_noop(self):
+        from fluid_build.cli.forge_ui import print_interview_phase
+
+        # Should not raise even if console is None.
+        print_interview_phase(None, phase=1, total=3, label="x")

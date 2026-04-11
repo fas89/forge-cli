@@ -12,97 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for init.py CI/CD generators and generate_contracts_from_scan."""
+"""Tests for generate_contracts_from_scan (init_scan.py).
+
+The CI/CD generator tests that used to live here were deleted alongside
+``init.py``'s ``generate_cicd`` and its four platform-specific helpers
+(``generate_jenkinsfile``, ``generate_github_actions``, ``generate_gitlab_ci``,
+``generate_cloudbuild``) when that dead code was removed.  ``fluid
+scaffold-ci`` has its own implementation and is tested separately.
+"""
 
 import logging
 
 import pytest
 
-from fluid_build.cli.init import (
-    generate_cloudbuild,
-    generate_contracts_from_scan,
-    generate_github_actions,
-    generate_gitlab_ci,
-    generate_jenkinsfile,
-)
+from fluid_build.cli.init_scan import generate_contracts_from_scan
 from fluid_build.schema_manager import FluidSchemaManager
 
 
 @pytest.fixture
 def logger():
     return logging.getLogger("test_init_gen")
-
-
-class TestGenerateJenkinsfile:
-    def test_creates_file(self, tmp_path, logger):
-        generate_jenkinsfile(tmp_path, logger)
-        jf = tmp_path / "Jenkinsfile"
-        assert jf.exists()
-        content = jf.read_text()
-        assert "pipeline" in content
-        assert "FLUID" in content
-
-    def test_has_stages(self, tmp_path, logger):
-        generate_jenkinsfile(tmp_path, logger)
-        content = (tmp_path / "Jenkinsfile").read_text()
-        for stage in ["Setup", "Validate", "Plan", "Test"]:
-            assert stage in content
-
-    def test_has_post_section(self, tmp_path, logger):
-        generate_jenkinsfile(tmp_path, logger)
-        content = (tmp_path / "Jenkinsfile").read_text()
-        assert "post" in content
-        assert "success" in content
-
-
-class TestGenerateGithubActions:
-    def test_creates_workflow(self, tmp_path, logger):
-        generate_github_actions(tmp_path, logger)
-        wf = tmp_path / ".github" / "workflows" / "fluid.yml"
-        assert wf.exists()
-        content = wf.read_text()
-        assert "FLUID Pipeline" in content
-
-    def test_has_jobs(self, tmp_path, logger):
-        generate_github_actions(tmp_path, logger)
-        content = (tmp_path / ".github" / "workflows" / "fluid.yml").read_text()
-        assert "validate:" in content
-        assert "plan:" in content
-        assert "deploy:" in content
-
-    def test_has_environment_detection(self, tmp_path, logger):
-        generate_github_actions(tmp_path, logger)
-        content = (tmp_path / ".github" / "workflows" / "fluid.yml").read_text()
-        assert "environment" in content
-
-
-class TestGenerateGitlabCi:
-    def test_creates_file(self, tmp_path, logger):
-        generate_gitlab_ci(tmp_path, logger)
-        ci = tmp_path / ".gitlab-ci.yml"
-        assert ci.exists()
-        content = ci.read_text()
-        assert "FLUID" in content
-
-    def test_has_stages(self, tmp_path, logger):
-        generate_gitlab_ci(tmp_path, logger)
-        content = (tmp_path / ".gitlab-ci.yml").read_text()
-        assert "stages:" in content
-        assert "validate" in content
-
-
-class TestGenerateCloudbuild:
-    def test_creates_file(self, tmp_path, logger):
-        generate_cloudbuild(tmp_path, logger)
-        cb = tmp_path / "cloudbuild.yaml"
-        assert cb.exists()
-        content = cb.read_text()
-        assert "steps:" in content or "steps" in content
-
-    def test_has_fluid_commands(self, tmp_path, logger):
-        generate_cloudbuild(tmp_path, logger)
-        content = (tmp_path / "cloudbuild.yaml").read_text()
-        assert "fluid" in content
 
 
 class TestGenerateContractsFromScan:

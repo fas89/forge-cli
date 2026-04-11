@@ -435,6 +435,12 @@ def register_core_commands(sp: argparse._SubParsersAction) -> None:
     # 🚀 FLUID Init - Universal Onboarding
     _try_register(sp, "init", "init")
 
+    # 🚀 FLUID Demo - zero-setup working example (customer-360)
+    _try_register(sp, "demo", "demo")
+
+    # 📥 FLUID Import - migrate dbt/Terraform/SQL projects to FLUID
+    _try_register(sp, "import_cmd", "import")
+
     # 🎯 Industry Skills
     _try_register(sp, "skills", "skills_cmd")
 

@@ -66,33 +66,55 @@ def print_first_run_help(parser: argparse.ArgumentParser) -> None:
     )
     console.print()
 
-    # Three-step quick start
-    console.print("[bold bright_green]Get started in 60 seconds:[/bold bright_green]\n")
+    # Three paths — instant demo / quickstart / AI-designed
+    console.print("[bold bright_green]Pick your path:[/bold bright_green]\n")
 
-    steps = Table(show_header=False, box=box.SIMPLE, padding=(0, 2))
-    steps.add_column(style="bold bright_yellow", width=4)
-    steps.add_column(style="bright_cyan", width=46)
-    steps.add_column(style="dim bright_white")
+    console.print("[bold bright_yellow]  Instant[/bold bright_yellow] [dim](one command, ~30s — zero config)[/dim]")
+    instant = Table(show_header=False, box=box.SIMPLE, padding=(0, 2))
+    instant.add_column(style="bright_cyan", width=46)
+    instant.add_column(style="dim bright_white")
+    instant.add_row("fluid demo", "Scaffold + run a working customer-360 example")
+    console.print(instant)
 
-    steps.add_row(
-        "1.",
-        "fluid init my-project --template customer-360",
-        "Create a working project with sample data",
+    console.print("[bold bright_yellow]  Your project[/bold bright_yellow] [dim](template-based, no AI)[/dim]")
+    fast = Table(show_header=False, box=box.SIMPLE, padding=(0, 2))
+    fast.add_column(style="bright_cyan", width=46)
+    fast.add_column(style="dim bright_white")
+    fast.add_row("fluid init --list-templates", "See what templates are available")
+    fast.add_row("fluid init my-project --quickstart", "Ships a working customer-360 example")
+    fast.add_row("cd my-project && fluid apply --yes", "Run the pipeline end-to-end")
+    console.print(fast)
+
+    console.print("[bold bright_yellow]  AI-designed[/bold bright_yellow] [dim](recommended for custom work)[/dim]")
+    ai = Table(show_header=False, box=box.SIMPLE, padding=(0, 2))
+    ai.add_column(style="bright_cyan", width=46)
+    ai.add_column(style="dim bright_white")
+    ai.add_row("fluid init my-project", "Answer a few questions")
+    ai.add_row("cd my-project && fluid apply --yes", "Run the pipeline end-to-end")
+    console.print(ai)
+    console.print(
+        "  [dim]A free Gemini key works: [bright_cyan]https://aistudio.google.com/apikey[/bright_cyan][/dim]\n"
     )
-    steps.add_row(
-        "2.", "cd my-project && fluid validate contract.fluid.yaml", "Check the generated contract"
-    )
-    steps.add_row("3.", "fluid apply contract.fluid.yaml --yes", "Run the pipeline end-to-end")
 
-    console.print(steps)
-    console.print()
+    # Already-in-a-workspace hint
+    console.print(
+        "  [dim]Already inside a workspace? Use [bright_cyan]fluid forge[/bright_cyan] "
+        "to add another data product to it.[/dim]"
+    )
+    # Migration-from-legacy hint
+    console.print(
+        "  [dim]Migrating from dbt or Terraform? Use [bright_cyan]fluid import[/bright_cyan] "
+        "to generate FLUID contracts from your existing project.[/dim]\n"
+    )
 
     # Helpful pointers
     console.print(
         Panel(
-            "[bright_yellow]fluid doctor[/bright_yellow]       Check your system is ready\n"
-            "[bright_yellow]fluid --help[/bright_yellow]       See all commands & options\n"
-            "[bright_yellow]fluid <cmd> -h[/bright_yellow]     Help for a specific command\n\n"
+            "[bright_yellow]fluid doctor[/bright_yellow]                  Check your system is ready\n"
+            "[bright_yellow]fluid init --list-templates[/bright_yellow]   See available templates\n"
+            "[bright_yellow]fluid import[/bright_yellow]                  Migrate from dbt/Terraform\n"
+            "[bright_yellow]fluid --help[/bright_yellow]                  See all commands & options\n"
+            "[bright_yellow]fluid <cmd> -h[/bright_yellow]                Help for a specific command\n\n"
             "[dim]📚 Docs:[/dim]  [bright_cyan]https://github.com/open-data-protocol/fluid[/bright_cyan]",
             title="[bold bright_white]What's next?[/bold bright_white]",
             title_align="left",
@@ -338,8 +360,47 @@ def print_forge_help() -> None:
 # Only needed for commands whose register() doesn't set these on the parser.
 _COMMAND_ENRICHMENT: dict[str, tuple[str, str]] = {
     "init": (
-        "Create a new data product project — quickstart, wizard, scan, or blank skeleton.",
-        "",  # init already has a good argparse help; just add the description
+        "Create a new FLUID project — quickstart, AI-designed, template, or empty.",
+        (
+            "  fluid init my-project                             Interactive (AI-assisted)\n"
+            "  fluid init my-project --quickstart                Zero-question customer-360 example\n"
+            "  fluid init my-project --template ml-features      Start from a template\n"
+            "  fluid init --list-templates                       Browse available templates\n"
+            "  fluid init my-project --provider snowflake        Target a cloud provider\n"
+            "  [dim](Migrating from dbt/Terraform? See 'fluid import'.)[/dim]"
+        ),
+    ),
+    "import": (
+        "Import an existing dbt / Terraform / SQL project and generate FLUID "
+        "contracts from it. This is the migration path to FLUID.",
+        (
+            "  fluid import                                Scan current dir\n"
+            "  fluid import --dir ./legacy-dbt             Scan a specific dir\n"
+            "  fluid import --provider snowflake           Target Snowflake bindings\n"
+            "  fluid import --yes                          Skip confirmation prompt"
+        ),
+    ),
+    "forge": (
+        "Create a new data product with AI Copilot — interactive interview and "
+        "contract generation. Use --blank to skip AI entirely.",
+        (
+            "  fluid forge                                       Interactive AI interview\n"
+            "  fluid forge --blank                               Empty contract, no AI\n"
+            "  fluid forge --provider snowflake                  Target a specific cloud\n"
+            "  fluid forge --llm-provider gemini                 Use a specific LLM\n"
+            "  fluid forge --reset-memory                        Clear project memory\n"
+            "  fluid forge --non-interactive --context ctx.json  CI usage"
+        ),
+    ),
+    "demo": (
+        "Run a zero-setup demo — scaffold and execute a working customer-360 "
+        "example locally with DuckDB. No API key required.",
+        (
+            "  fluid demo                   Create ./fluid-demo/ and run it\n"
+            "  fluid demo my-sample         Use a custom directory name\n"
+            "  fluid demo --dry-run         Preview without creating files\n"
+            "  fluid demo --no-run          Scaffold only, skip the pipeline"
+        ),
     ),
     "apply": (
         "Execute a FLUID contract end-to-end: provision, transform, govern, deploy.",
