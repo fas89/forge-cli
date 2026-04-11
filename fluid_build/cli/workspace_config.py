@@ -168,11 +168,30 @@ def save_workspace_config(
     owner_email: str = "",
     provider: str = "",
     products_dir: str = DEFAULT_PRODUCTS_DIR,
+    command: str = "fluid init",
 ) -> Path:
     """Write a ``fluid.workspace.yaml`` file to *root*.
 
+    The written file carries an envelope (``schema_version``/``kind``/
+    ``generated_at``/``generated_by``) at the top level in addition to
+    the ``workspace:`` block.  :func:`load_workspace_config` tolerates
+    both shapes — old files without the envelope continue to load
+    unchanged, and new files parse via the same ``raw.get('workspace')``
+    path because envelope keys sit alongside ``workspace:``, not inside
+    it.
+
     Returns the path of the written file.
     """
+    # Import inside the function so this module stays free of circular
+    # dependency risk with artifact_envelope (which itself imports from
+    # artifact_paths — a sibling of this module).
+    from fluid_build.cli.artifact_envelope import dump_yaml_with_envelope
+
+    try:
+        from fluid_build import __version__ as tool_version
+    except Exception:  # pragma: no cover — defensive
+        tool_version = ""
+
     ws: Dict[str, Any] = {"name": name}
     if domain:
         ws["domain"] = domain
@@ -188,13 +207,17 @@ def save_workspace_config(
     if products_dir != DEFAULT_PRODUCTS_DIR:
         ws["products_dir"] = products_dir
 
-    data = {"workspace": ws}
+    payload = {"workspace": ws}
+    body = dump_yaml_with_envelope(
+        payload,
+        kind="WorkspaceConfig",
+        command=command,
+        tool_version=str(tool_version),
+    )
+
     ws_path = root / WORKSPACE_FILENAME
     root.mkdir(parents=True, exist_ok=True)
-    ws_path.write_text(
-        yaml.dump(data, default_flow_style=False, sort_keys=False),
-        encoding="utf-8",
-    )
+    ws_path.write_text(body, encoding="utf-8")
     return ws_path
 
 

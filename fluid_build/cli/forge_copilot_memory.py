@@ -173,11 +173,31 @@ class CopilotMemoryStore:
             return None
 
     def save(self, memory: CopilotProjectMemory) -> None:
-        """Persist a validated memory document to disk."""
+        """Persist a validated memory document to disk.
+
+        The written JSON carries a minimal envelope (``kind`` +
+        ``generated_by``) alongside the existing domain-specific
+        ``schema_version`` and ``saved_at`` fields.  Readers ignore
+        unknown keys (see :func:`_coerce_memory_document`), so the
+        addition is non-breaking for files written by older versions.
+        """
         self.path.parent.mkdir(parents=True, exist_ok=True)
         normalized = _coerce_memory_document(memory.to_dict(), project_root=self.project_root)
+
+        payload = normalized.to_dict()
+        payload["kind"] = "ProjectMemory"
+        try:
+            from fluid_build import __version__ as tool_version
+        except Exception:  # pragma: no cover — defensive
+            tool_version = ""
+        payload["generated_by"] = {
+            "tool": "fluid-cli",
+            "version": str(tool_version),
+            "command": "fluid forge",
+        }
+
         self.path.write_text(
-            json.dumps(normalized.to_dict(), indent=2, sort_keys=True) + "\n",
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
 
