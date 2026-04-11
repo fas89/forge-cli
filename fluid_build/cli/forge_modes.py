@@ -695,7 +695,19 @@ def _scaffold_ci_pipeline(
             pass
 
     try:
-        write_pipeline_files(files, target_dir, dry_run=dry_run, console=console)
+        command_str = f"fluid forge --ci {provider} --ci-complexity {complexity}"
+        try:
+            from fluid_build import __version__ as tool_version
+        except Exception:  # pragma: no cover — defensive
+            tool_version = ""
+        written_paths = write_pipeline_files(
+            files,
+            target_dir,
+            dry_run=dry_run,
+            console=console,
+            command=command_str,
+            tool_version=str(tool_version),
+        )
     except OSError as exc:
         if console:
             try:
@@ -703,6 +715,43 @@ def _scaffold_ci_pipeline(
             except Exception:  # noqa: BLE001
                 pass
         return (None, None)
+
+    # Emit the committed ci-state.json so teammates and `fluid forge`
+    # runs on other machines can detect drift against this provider
+    # choice.  Best-effort: failure never aborts the forge command.
+    if not dry_run:
+        try:
+            from fluid_build.cli.artifact_ci_state import (
+                build_ci_state_payload,
+                write_ci_state,
+            )
+
+            doc = build_ci_state_payload(
+                provider=provider,
+                complexity=complexity,
+                environments=list(getattr(config, "environments", []) or []),
+                options={
+                    "enable_approvals": bool(getattr(config, "enable_approvals", False)),
+                    "enable_security_scan": bool(getattr(config, "enable_security_scan", True)),
+                    "enable_marketplace_publishing": bool(
+                        getattr(config, "enable_marketplace_publishing", False)
+                    ),
+                },
+                written_files=written_paths,
+                product_root=target_dir,
+            )
+            write_ci_state(
+                doc,
+                target_dir,
+                command=command_str,
+                tool_version=str(tool_version),
+            )
+        except Exception as exc:  # noqa: BLE001 — ci-state write is best-effort
+            if console:
+                try:
+                    console.print(f"[dim]ci-state not written: {exc}[/dim]")
+                except Exception:  # noqa: BLE001
+                    pass
 
     if console and not dry_run:
         try:

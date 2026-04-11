@@ -343,7 +343,9 @@ class TestWritePipelineFiles(unittest.TestCase):
                 ".github/workflows/a.yml": "a\n",
                 "Jenkinsfile": "pipeline {}\n",
             }
-            written = write_pipeline_files(files, out)
+            # Slice 7 injects a DO-NOT-EDIT header by default.  This
+            # legacy test asserts raw body contents, so opt out.
+            written = write_pipeline_files(files, out, inject_header=False)
             self.assertEqual(len(written), 2)
             self.assertTrue((out / ".github/workflows/a.yml").is_file())
             self.assertTrue((out / "Jenkinsfile").is_file())
