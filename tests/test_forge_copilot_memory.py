@@ -129,7 +129,8 @@ class TestCopilotMemoryStore:
         loaded = store.load()
 
         assert loaded is not None
-        assert store.path == tmp_path / "runtime/.state/copilot-memory.json"
+        # Slice 6: copilot-memory.json lives under .fluid/, not runtime/.state/
+        assert store.path == tmp_path / ".fluid" / "copilot-memory.json"
         assert loaded.project_profile["provider"] == "local"
         assert loaded.conventions["schema_summaries"][0]["path"] == "samples/customers.parquet"
 

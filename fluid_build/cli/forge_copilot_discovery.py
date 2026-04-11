@@ -64,6 +64,12 @@ IGNORED_DIRECTORIES = {
     "dist",
     "build",
     "target",
+    # The CLI's own hidden state dir must be ignored during discovery so
+    # files like copilot-memory.json / init-receipt.json / ci-state.json
+    # (which slice 6 introduced) never leak into sample_files or
+    # provider_hints and muddle the copilot prompt.
+    ".fluid",
+    ".fluid-workspace",
 }
 
 

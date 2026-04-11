@@ -35,8 +35,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
 
 from fluid_build.cli._common import redact_secrets, resolve_provider_from_contract
-from fluid_build.cli.artifact_paths import PRODUCT_MEMORY_FILENAME
-from fluid_build.config import RUN_STATE_DIR
+from fluid_build.cli.artifact_paths import (
+    PRODUCT_MEMORY_FILENAME,
+    PRODUCT_STATE_DIRNAME,
+    product_memory_path,
+)
 from fluid_build.util.contract import get_builds
 
 LOG = logging.getLogger("fluid.cli.forge_copilot_memory")
@@ -143,7 +146,15 @@ class CopilotProjectMemory:
 
 
 class CopilotMemoryStore:
-    """Load and save project-scoped copilot memory."""
+    """Load and save project-scoped copilot memory.
+
+    The memory file lives at ``<product>/.fluid/copilot-memory.json``
+    (gitignored per-engineer state — see the git-policy matrix in the
+    artifact redesign plan).  Slice 6 cuts the path over from the old
+    ``runtime/.state/`` location to the new ``.fluid/`` convention.
+    No legacy fallback is read: any file still sitting at the old path
+    is ignored and left untouched.
+    """
 
     def __init__(
         self,
@@ -154,7 +165,13 @@ class CopilotMemoryStore:
     ):
         self.project_root = project_root.resolve()
         self.logger = logger or LOG
-        self.path = self.project_root / RUN_STATE_DIR / filename
+        # The path is resolved via the artifact_paths helper so every
+        # other module that needs to locate the file uses the same rule.
+        if filename == MEMORY_FILENAME:
+            self.path = product_memory_path(self.project_root)
+        else:
+            # Non-default filename (rare, used by some tests)
+            self.path = self.project_root / PRODUCT_STATE_DIRNAME / filename
 
     def load(self) -> Optional[CopilotProjectMemory]:
         """Load memory from disk if it exists and is valid."""
@@ -231,13 +248,22 @@ class CopilotMemoryStore:
 
 
 def resolve_copilot_memory_root(workspace_root: Path, target_dir: Optional[Path] = None) -> Path:
-    """Choose the most relevant project root for loading or saving memory."""
+    """Choose the most relevant project root for loading or saving memory.
+
+    Probes ``<dir>/.fluid/copilot-memory.json`` (the new slice-6 path)
+    first at *target_dir*, then at *workspace_root*.  Falls back to
+    *target_dir* (or *workspace_root* when target is ``None``) when
+    neither has a memory file yet.
+
+    No legacy ``runtime/.state/`` path is probed — slice 6 is a clean
+    cut and old files at the pre-cut location are ignored.
+    """
     workspace_root = workspace_root.resolve()
     if target_dir is not None:
         target_dir = target_dir.resolve()
-        if (target_dir / RUN_STATE_DIR / MEMORY_FILENAME).exists():
+        if product_memory_path(target_dir).exists():
             return target_dir
-    if (workspace_root / RUN_STATE_DIR / MEMORY_FILENAME).exists():
+    if product_memory_path(workspace_root).exists():
         return workspace_root
     return target_dir or workspace_root
 
