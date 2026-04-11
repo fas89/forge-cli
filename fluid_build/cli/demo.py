@@ -40,6 +40,10 @@ import logging
 from pathlib import Path
 from typing import Any, List, Tuple
 
+from fluid_build.cli.artifact_envelope import dump_json_with_envelope
+from fluid_build.cli.artifact_paths import workspace_init_receipt_path
+from fluid_build.cli.artifact_receipts import ReceiptBuilder
+from fluid_build.cli.artifact_scan import diff_snapshots, snapshot_workspace
 from fluid_build.cli.console import cprint, error as console_error
 
 try:
@@ -280,6 +284,11 @@ def run(args: Any, logger: logging.Logger) -> int:
 
     _print_intro_panel(name)
 
+    # Snapshot the parent directory so the receipt can report everything
+    # demo_mode wrote under target/.
+    scan_root = target.parent.resolve() if target.parent else Path.cwd()
+    before_snapshot = snapshot_workspace(scan_root)
+
     # Build a minimal args namespace for demo_mode.  It reads:
     #   name, dry_run, no_dag, no_run, provider
     from fluid_build.cli.init import demo_mode
@@ -300,8 +309,75 @@ def run(args: Any, logger: logging.Logger) -> int:
         return 1
 
     if rc == 0 and not getattr(args, "dry_run", False):
+        _write_demo_receipt(
+            name=name,
+            target=target,
+            before_snapshot=before_snapshot,
+            scan_root=scan_root,
+            logger=logger,
+        )
         _print_success_panel(name, target.resolve())
     elif rc != 0:
         _print_failure_panel(name, RuntimeError(f"exit code {rc}"))
 
     return rc
+
+
+def _write_demo_receipt(
+    *,
+    name: str,
+    target: Path,
+    before_snapshot,
+    scan_root: Path,
+    logger: logging.Logger,
+) -> None:
+    """Write ``<demo>/.fluid/init-receipt.json`` recording the demo run.
+
+    Same receipt format as ``fluid init`` runs so every artifact-producing
+    command in the CLI has identical provenance shape.  ``flow="demo"``
+    marks the run so future tooling can differentiate.
+
+    Best-effort: a failure never propagates — the user's demo still
+    succeeded even if we can't record it.
+    """
+    try:
+        after_snapshot = snapshot_workspace(scan_root)
+        entries = diff_snapshots(before_snapshot, after_snapshot)
+        changed = [e for e in entries if e.action != "unchanged"]
+        if not changed:
+            return
+
+        builder = ReceiptBuilder(flow="demo", dry_run=False)
+        for entry in changed:
+            builder.record_entry(
+                path=Path(entry.path),
+                action=entry.action,
+                sha256=entry.sha256,
+                size=entry.size,
+                reason=entry.reason,
+            )
+        builder.set_inputs(name=name, demo=True, provider="local")
+
+        doc = builder.build_document()
+
+        try:
+            from fluid_build import __version__ as tool_version
+        except Exception:  # pragma: no cover — defensive
+            tool_version = ""
+
+        payload_bytes = dump_json_with_envelope(
+            doc.to_payload(),
+            kind="InitReceipt",
+            command=f"fluid demo {name}",
+            tool_version=str(tool_version),
+        )
+
+        # Demo receipts live under the demo product's .fluid/ dir (not
+        # the parent scan_root) so everything the demo created is
+        # self-contained inside target/.
+        receipt_path = workspace_init_receipt_path(target.resolve())
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        receipt_path.write_text(payload_bytes, encoding="utf-8")
+        logger.debug("demo_receipt_written", extra={"path": str(receipt_path)})
+    except Exception as exc:  # noqa: BLE001 — never abort demo on receipt write failure
+        logger.debug("demo_receipt_write_failed", extra={"error": str(exc)})

@@ -398,10 +398,72 @@ def _ensure_workspace(args, logger: logging.Logger) -> None:
         name=ws_name,
         provider=provider,
     )
+
+    # Slice 9: drop a .gitignore template alongside the workspace config
+    # so the engineer-personal state files (init-receipt.json,
+    # forge-receipt.json, copilot-memory.json, logs/) stay out of git
+    # while the team-shared state (.fluid/skills.yaml,
+    # .fluid/ci-state.json) remains committed.  See the git-policy
+    # matrix in the redesign plan.
+    _ensure_gitignore_template(cwd)
+
     if RICH_AVAILABLE:
         console.print(
             f"[dim]Created {WORKSPACE_FILENAME} — workspace [bold]{ws_name}[/bold][/dim]\n"
         )
+
+
+# The header + rule block appended to .gitignore when missing.  Stored as
+# a module-level constant so tests can import and assert exact contents.
+FLUID_GITIGNORE_BLOCK = """\
+# --- fluid-cli: engineer-personal state (never commit) -------------------
+# Receipts, logs, and per-engineer learning history live under .fluid/
+# but must not travel to other clones.  See
+# https://fluid-build.dev/docs/git-policy for the full matrix.
+.fluid/init-receipt.json
+.fluid/forge-receipt.json
+.fluid/copilot-memory.json
+.fluid/logs/
+
+# Build outputs (never commit)
+runtime/
+
+# Everything else under .fluid/ STAYS committed:
+#   .fluid/skills.yaml      — industry reference pack (team-shared)
+#   .fluid/ci-state.json    — records inputs that produced committed CI files
+# --- end fluid-cli -------------------------------------------------------
+"""
+
+#: Sentinel string looked for to decide whether the block already exists.
+_GITIGNORE_SENTINEL = "# --- fluid-cli: engineer-personal state"
+
+
+def _ensure_gitignore_template(workspace_root: Path) -> None:
+    """Write or extend ``.gitignore`` to gitignore fluid-cli state files.
+
+    Behavior:
+
+    * No ``.gitignore`` → create one with the fluid block.
+    * ``.gitignore`` exists but does not contain the sentinel → append
+      the block (one blank line separator).
+    * ``.gitignore`` already has the sentinel → do nothing (idempotent).
+
+    Never raises — the call is a side effect of workspace creation and
+    a filesystem error never aborts init.
+    """
+    try:
+        gitignore = workspace_root / ".gitignore"
+        if gitignore.exists():
+            existing = gitignore.read_text(encoding="utf-8")
+            if _GITIGNORE_SENTINEL in existing:
+                return
+            needs_newline = not existing.endswith("\n")
+            appended = existing + ("\n" if needs_newline else "") + "\n" + FLUID_GITIGNORE_BLOCK
+            gitignore.write_text(appended, encoding="utf-8")
+        else:
+            gitignore.write_text(FLUID_GITIGNORE_BLOCK, encoding="utf-8")
+    except OSError:
+        pass  # Best-effort — gitignore is a nice-to-have, not load-bearing.
 
 
 def _ai_mode(args, logger: logging.Logger) -> int:
