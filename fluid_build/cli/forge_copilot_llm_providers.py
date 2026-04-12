@@ -831,13 +831,17 @@ class GeminiProvider(LlmProvider):
         headers: Dict[str, str] = {"Content-Type": "application/json"}
         if config.api_key:
             headers["x-goog-api-key"] = config.api_key
+        from fluid_build.cli.forge_copilot_response_schema import _strip_for_gemini
+
         gemini_tools = [
             {
                 "functionDeclarations": [
                     {
                         "name": t["name"],
                         "description": t.get("description", ""),
-                        "parameters": t.get("input_schema", {"type": "object", "properties": {}}),
+                        "parameters": _strip_for_gemini(
+                            t.get("input_schema", {"type": "object", "properties": {}})
+                        ),
                     }
                     for t in tools
                 ]
