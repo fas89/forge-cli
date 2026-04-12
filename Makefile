@@ -211,6 +211,10 @@ else vp=$(PYTHON); fi; \
 echo "Using: $$vp"; \
 FLUID_LOG_LEVEL=INFO $$vp -m fluid_build.cli doctor --extended || true;'
 
+check-action-pins: ## 🔒 Check if pinned GitHub Action SHAs are up to date
+	@echo "🔒 Checking pinned action SHAs..."
+	@$(PYTHON) scripts/check_pinned_actions.py
+
 # ---- pipx flows ----
 
 pipx-install: ## Install 'fluid' CLI globally via pipx
