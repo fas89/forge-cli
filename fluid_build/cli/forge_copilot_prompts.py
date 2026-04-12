@@ -202,8 +202,16 @@ def build_user_prompt(
     interview_summary = _normalize_interview_summary(context)
 
     # Inject industry skills into the prompt when available.
+    # Slice UX-J: prefer the pre-compiled payload (already contains
+    # only prompt-relevant fields).  Fall back to the legacy
+    # on-the-fly extraction from the raw skills dict for backward
+    # compatibility.
+    compiled_skills = context.get("compiled_skills")
     skills = context.get("industry_skills")
-    if skills:
+    if compiled_skills:
+        # Pre-compiled payload — already in the right shape for the prompt.
+        interview_summary["industry_skills"] = compiled_skills
+    elif skills:
         skills_hint: dict[str, Any] = {}
         ind = skills.get("industry", {})
         if ind.get("label"):

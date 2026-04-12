@@ -152,6 +152,57 @@ def generate_skills_file(
     return out_path
 
 
+def compile_skill(merged: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract only the prompt-relevant fields from a merged skills dict.
+
+    Slice UX-J: the full ``.fluid/skills.yaml`` carries many fields
+    that are only used locally (``common_data_sources``, ``tools``,
+    ``key_entities`` on each domain, etc.).  Only four sub-fields
+    actually reach the LLM prompt via ``build_user_prompt`` in
+    ``forge_copilot_prompts.py:204-221``:
+
+    1. ``industry.label``
+    2. ``canonical_model.label`` (+ optional ``supporting[].label``)
+    3. ``domains[].label``
+    4. ``compliance[]``
+
+    ``compile_skill`` extracts exactly those, producing a dict that
+    is typically 10-20x smaller than the raw YAML.  The compiled form
+    is written to ``.fluid/skills.compiled.json`` by the
+    ``fluid skills compile`` subcommand and memoized in-process by
+    ``forge_copilot_skills_cache.load_compiled_skills``.
+    """
+    compiled: Dict[str, Any] = {}
+
+    industry = merged.get("industry", {})
+    if industry.get("label"):
+        compiled["industry"] = industry["label"]
+
+    canonical = merged.get("canonical_model", {})
+    if canonical.get("label"):
+        compiled["canonical_model"] = canonical["label"]
+    supporting = canonical.get("supporting") or []
+    if supporting:
+        labels = [s.get("label") or s.get("name") for s in supporting if isinstance(s, dict)]
+        labels = [l for l in labels if l]
+        if labels:
+            compiled["supporting_standards"] = labels
+
+    domains = merged.get("domains") or []
+    if domains:
+        compiled["domains"] = [
+            d.get("label") or d.get("name")
+            for d in domains
+            if isinstance(d, dict) and (d.get("label") or d.get("name"))
+        ]
+
+    compliance = merged.get("compliance") or []
+    if compliance:
+        compiled["compliance"] = list(compliance)
+
+    return compiled
+
+
 def refresh_tools_section(skills_path: Path, *, cli_version: Optional[str] = None) -> None:
     """Update only the ``tools`` and ``_version`` keys in an existing skills file.
 

@@ -66,6 +66,8 @@ EnvelopeKind = Literal[
     "CIState",
     "ContractLockfile",
     "ContractBundle",
+    "SkillsCompiled",      # slice UX-J
+    "DiscoveryCache",      # slice UX-J
 ]
 
 

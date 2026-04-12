@@ -164,6 +164,40 @@ def discover_local_context(
         report.build_constraints.append("Discovery was disabled by the user.")
         return report
 
+    # Slice UX-J: check the on-disk discovery cache before doing the
+    # expensive classification + schema-inference pass.  The BFS walk
+    # still runs (to compute the cache key) but stat() is ~100x
+    # cheaper than opening + parsing files for schema inference.
+    try:
+        from fluid_build.cli.artifact_discovery_cache import (
+            compute_file_tree_hash,
+            discovery_cache_enabled,
+            load_discovery_cache,
+            write_discovery_cache,
+        )
+
+        _cache_available = True
+    except ImportError:
+        _cache_available = False
+
+    if _cache_available and discovery_cache_enabled():
+        all_candidates: List[Path] = []
+        for scan_root in roots:
+            for p in _iter_candidate_files(scan_root):
+                if not _is_excluded_discovery_artifact(p):
+                    all_candidates.append(p)
+        tree_hash = compute_file_tree_hash(all_candidates)
+
+        cached_report = load_discovery_cache(root, tree_hash)
+        if cached_report is not None:
+            try:
+                return DiscoveryReport(**cached_report)
+            except Exception:  # noqa: BLE001 — fallback to full scan
+                pass
+    else:
+        tree_hash = None
+        all_candidates = None
+
     seen_files: set[Path] = set()
     provider_counts: Counter[str] = Counter()
     detected_sources: List[Dict[str, Any]] = []
@@ -256,6 +290,16 @@ def discover_local_context(
                 "provider_hints": report.provider_hints,
             },
         )
+
+    # Slice UX-J: persist the discovery report to disk so the next run
+    # can skip classification + schema inference if the file tree
+    # hasn't changed.  Best-effort — write failures are logged, never
+    # raised.
+    if _cache_available and discovery_cache_enabled() and tree_hash:
+        try:
+            write_discovery_cache(root, report, tree_hash)
+        except Exception:  # noqa: BLE001
+            pass
 
     return report
 

@@ -333,7 +333,17 @@ def _print_mode_awareness(console: Any) -> None:
 
 
 def _load_industry_skills(ws_root: Any, context: Dict[str, Any], console: Any) -> None:
-    """Read ``.fluid/skills.yaml`` and inject industry knowledge into *context*."""
+    """Read ``.fluid/skills.yaml`` and inject industry knowledge into *context*.
+
+    Slice UX-J: prefer the pre-compiled ``skills.compiled.json`` via
+    :func:`forge_copilot_skills_cache.load_compiled_skills`.  The
+    compiled form is ~10-20x smaller and memoized per-process, so
+    subsequent forge runs in the same process skip YAML parsing
+    entirely.  The raw ``skills.yaml`` is still loaded for fields
+    that the compiled form drops (``canonical_model.primary``,
+    ``industry.name``) — those are used locally for context seeding
+    but not sent to the LLM.
+    """
     try:
         from pathlib import Path
 
@@ -349,6 +359,19 @@ def _load_industry_skills(ws_root: Any, context: Dict[str, Any], console: Any) -
             return
 
         context["industry_skills"] = skills
+
+        # Slice UX-J: inject the compiled payload for prompt builders.
+        # If the compiled file exists and is cached, this is a <1ms
+        # dict lookup; otherwise it compiles on-the-fly from the raw
+        # YAML we already loaded.
+        try:
+            from fluid_build.cli.forge_copilot_skills_cache import load_compiled_skills
+
+            compiled = load_compiled_skills(Path(ws_root))
+            if compiled:
+                context["compiled_skills"] = compiled
+        except Exception:  # noqa: BLE001
+            pass  # Compiled cache is best-effort.
 
         # Pre-fill domain and canonical model from skills (don't overwrite).
         cm = skills.get("canonical_model", {})

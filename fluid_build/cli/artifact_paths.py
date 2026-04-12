@@ -149,6 +149,15 @@ def workspace_skills_path(workspace_root: Path) -> Path:
     return workspace_state_dir(workspace_root) / WORKSPACE_SKILLS_FILENAME
 
 
+#: Slice UX-J: compact pre-compiled prompt payload derived from skills.yaml.
+WORKSPACE_SKILLS_COMPILED_FILENAME: str = "skills.compiled.json"
+
+
+def workspace_skills_compiled_path(workspace_root: Path) -> Path:
+    """Return ``<workspace_root>/.fluid/skills.compiled.json``."""
+    return workspace_state_dir(workspace_root) / WORKSPACE_SKILLS_COMPILED_FILENAME
+
+
 def workspace_init_receipt_path(workspace_root: Path) -> Path:
     """Return ``<workspace_root>/.fluid/init-receipt.json`` without creating it."""
     return workspace_state_dir(workspace_root) / WORKSPACE_INIT_RECEIPT_FILENAME
@@ -196,6 +205,11 @@ PRODUCT_CI_STATE_FILENAME: str = "ci-state.json"
 #: Gitignored per-run forge manifest.
 PRODUCT_FORGE_RECEIPT_FILENAME: str = "forge-receipt.json"
 
+#: Slice UX-J: gitignored discovery-report cache keyed on workspace
+#: file-tree hash so subsequent forge runs skip the expensive BFS +
+#: schema-inference pass when nothing changed on disk.
+WORKSPACE_DISCOVERY_CACHE_FILENAME: str = "discovery-cache.json"
+
 
 def product_state_dir(product_root: Path) -> Path:
     """Return ``<product_root>/.fluid`` without creating it."""
@@ -240,6 +254,11 @@ def product_ci_state_path(product_root: Path) -> Path:
 def product_forge_receipt_path(product_root: Path) -> Path:
     """Return ``<product_root>/.fluid/forge-receipt.json``."""
     return product_state_dir(product_root) / PRODUCT_FORGE_RECEIPT_FILENAME
+
+
+def workspace_discovery_cache_path(workspace_root: Path) -> Path:
+    """Return ``<workspace_root>/.fluid/discovery-cache.json``."""
+    return workspace_state_dir(workspace_root) / WORKSPACE_DISCOVERY_CACHE_FILENAME
 
 
 # ---------------------------------------------------------------------------
