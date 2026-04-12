@@ -326,6 +326,25 @@ def register(subparsers: argparse._SubParsersAction):
         action="store_true",
         help="Skip CI/CD pipeline auto-scaffolding (equivalent to --ci none)",
     )
+
+    # --- Scaffolding opt-in (slice UX-H) ---
+    # Default: minimal-layout forge run. Only contract.fluid.yaml + the
+    # .fluid/ forge receipt land on disk (plus optional CI files). Pass
+    # --scaffold <template> to opt back into the legacy full-project tree
+    # (extracts/, loads/, transforms/, config/, docs/, tests/, scripts/,
+    # requirements.txt, .env.example, README.md, …) produced by the
+    # ForgeEngine + opinionated templates.
+    parser.add_argument(
+        "--scaffold",
+        metavar="TEMPLATE",
+        default=None,
+        help=(
+            "Opt into the full ForgeEngine scaffold using one of the built-in "
+            "templates (e.g. 'etl_pipeline', 'analytics', 'ml_pipeline', "
+            "'streaming', 'starter'). Default: minimal — only contract.fluid.yaml "
+            "and .fluid/forge-receipt.json are written."
+        ),
+    )
     parser.set_defaults(func=run)
 
 

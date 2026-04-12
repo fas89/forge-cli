@@ -747,6 +747,14 @@ class TestRunAICopilotMode:
         args.context = None
         args.non_interactive = True
         args.target_dir = "/tmp/test"
+        # Slice UX-H: pin `scaffold` explicitly so the test routes
+        # through the legacy CopilotAgent.create_project path its
+        # assertion depends on.  get_cli_arg uses vars(args), which
+        # ignores MagicMock auto-attrs, so unset = minimal path.
+        # `no_ci` prevents the auto-CI hook from touching stdin.
+        args.scaffold = "etl_pipeline"
+        args.no_ci = True
+        args.dry_run = False
         logger = logging.getLogger("test")
         result = run_ai_copilot_mode(args, logger)
         assert result == 1
@@ -799,6 +807,14 @@ class TestRunAICopilotMode:
         args.context = None
         args.non_interactive = False
         args.target_dir = "/tmp/test"
+        # Slice UX-H: pin `scaffold` so this test stays on the legacy
+        # create_project path (the minimal path doesn't exercise the
+        # warning propagation this test asserts).  `no_ci` keeps the
+        # post-generation auto-CI hook from calling console.input()
+        # which explodes under pytest's stdin capture.
+        args.scaffold = "etl_pipeline"
+        args.no_ci = True
+        args.dry_run = False
         logger = logging.getLogger("test")
 
         result = run_ai_copilot_mode(args, logger)

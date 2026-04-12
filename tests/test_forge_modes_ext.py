@@ -522,6 +522,14 @@ class TestRunAiCopilotMode:
         args.llm_provider = None
         args.llm_model = None
         args.llm_endpoint = None
+        # Slice UX-H: `--scaffold` forces the legacy
+        # CopilotAgent.create_project path so this test's assertion
+        # (success=False → rc == 1) still exercises the engine code.
+        # `--no-ci` suppresses the interactive auto-CI hook which
+        # would otherwise prompt for a provider and break under
+        # pytest's stdin capture.
+        args.scaffold = "etl_pipeline"
+        args.no_ci = True
 
         copilot_class = self._make_copilot_class(success=False)
 

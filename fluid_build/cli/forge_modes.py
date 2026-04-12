@@ -1102,17 +1102,41 @@ def run_ai_copilot_mode(
         target_dir = get_target_directory_fn(args, project_name)
         copilot_options["target_dir"] = str(target_dir)
 
-        success_result = copilot.create_project(
-            target_dir,
-            context,
-            copilot_options,
-            dry_run=bool(get_cli_arg_fn(args, "dry_run", False)),
-        )
-        if not success_result:
-            return 1
+        # Slice UX-H: default fluid forge is now minimal — only
+        # contract.fluid.yaml + .fluid/forge-receipt.json land on disk.
+        # The legacy ForgeEngine path (extracts/, loads/, transforms/,
+        # config/, docs/, tests/, scripts/, requirements.txt,
+        # .env.example, README.md, …) runs only when the user explicitly
+        # opts in via --scaffold <template>.
+        scaffold_template = get_cli_arg_fn(args, "scaffold", None)
 
-        # Post-generation: create data + dbt scaffolding
-        _scaffold_data_folder(target_dir, context, console)
+        if scaffold_template:
+            success_result = copilot.create_project(
+                target_dir,
+                context,
+                copilot_options,
+                dry_run=bool(get_cli_arg_fn(args, "dry_run", False)),
+            )
+            if not success_result:
+                return 1
+        else:
+            success_result = _create_project_minimal(
+                copilot=copilot,
+                target_dir=target_dir,
+                context=context,
+                copilot_options=copilot_options,
+                dry_run=bool(get_cli_arg_fn(args, "dry_run", False)),
+                logger=logger,
+                console=console,
+            )
+            if not success_result:
+                return 1
+
+        # Post-generation: create data + dbt scaffolding (slice UX-H:
+        # gated on --scaffold so the minimal path leaves an empty
+        # product dir except for the contract + receipt).
+        if scaffold_template:
+            _scaffold_data_folder(target_dir, context, console)
 
         # Post-generation: auto-scaffold a CI/CD pipeline (optional).
         ci_provider, ci_complexity = _scaffold_ci_pipeline(
@@ -1467,6 +1491,142 @@ def run_blueprint_mode(
         else:
             console_error(f"Blueprint mode failed: {exc}")
         return 1
+
+
+def _create_project_minimal(
+    *,
+    copilot: Any,
+    target_dir: Path,
+    context: Dict[str, Any],
+    copilot_options: Dict[str, Any],
+    dry_run: bool,
+    logger: logging.Logger,
+    console: Any,
+) -> bool:
+    """Slice UX-H minimal path — run the copilot LLM without ForgeEngine.
+
+    The AI copilot flow still runs the full interview, hits the LLM,
+    validates the result, and produces a :class:`CopilotGenerationResult`
+    — exactly the same behavior as ``CopilotAgent.create_project``.
+    The only difference is where the generated contract lands:
+
+    * Legacy path: ``ForgeEngine`` materialises a full opinionated
+      project tree (``extracts/``, ``loads/``, ``transforms/``,
+      ``config/``, ``docs/``, ``tests/``, ``scripts/``,
+      ``requirements.txt``, ``.env.example``, ``README.md``, …).
+
+    * Minimal path (this function): the generated contract is written
+      verbatim to ``<target_dir>/contract.fluid.yaml`` via
+      :func:`fluid_build.cli.forge_contract_factory.write_contract`,
+      which injects the slice-4 ``metadata.provenance`` envelope.  No
+      other files land on disk from here — the outer
+      ``_scaffold_ci_pipeline`` call still writes optional CI files,
+      and the ``forge.py::run`` caller still writes
+      ``.fluid/forge-receipt.json``.
+
+    Returns ``True`` on success, ``False`` on failure.  Never raises —
+    errors are logged and a red panel is shown to the user.
+    """
+    from fluid_build.cli.forge_contract_factory import write_contract
+    from fluid_build.cli.forge_copilot_llm_providers import CopilotGenerationError
+    from fluid_build.cli.forge_copilot_taxonomy import normalize_copilot_context
+
+    try:
+        context = normalize_copilot_context(context)
+        options = dict(copilot_options or {})
+        options.setdefault("target_dir", str(target_dir))
+
+        try:
+            generation_result = copilot.generate_project_artifacts(context, options)
+        except CopilotGenerationError as generation_error:
+            recovered_result = copilot._attempt_generation_recovery(
+                context=context,
+                options=options,
+                error=generation_error,
+            )
+            if recovered_result is None:
+                raise
+            context = normalize_copilot_context(
+                options.get("interview_state").normalized_context
+                if options.get("interview_state")
+                else context
+            )
+            generation_result = recovered_result
+
+        suggestions = generation_result.suggestions
+        contract = generation_result.contract
+
+        # Optional UI: reuse the copilot's own analysis panel so the
+        # minimal path has feature parity with the engine path aside
+        # from filesystem output.
+        try:
+            copilot._show_ai_analysis(context, suggestions, generation_result)
+        except Exception as exc:  # noqa: BLE001 — UI must never fail the run
+            logger.debug("copilot_show_ai_analysis_failed", extra={"error": str(exc)})
+
+        if dry_run:
+            if console:
+                try:
+                    console.print(
+                        f"[dim]DRY RUN: would write {target_dir}/contract.fluid.yaml[/dim]"
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+            return True
+
+        # Write the LLM-generated contract using the slice-4 envelope
+        # writer.  write_contract injects metadata.provenance with the
+        # correct 'fluid forge' command string.
+        target_dir.mkdir(parents=True, exist_ok=True)
+        contract_path = target_dir / "contract.fluid.yaml"
+        write_contract(contract, contract_path, command="fluid forge")
+
+        # Persist project memory the same way the legacy path does, so
+        # subsequent forge runs in this product have the full history.
+        try:
+            copilot._maybe_save_project_memory(
+                target_dir=target_dir,
+                context=context,
+                suggestions=suggestions,
+                generation_result=generation_result,
+                copilot_options=options,
+                dry_run=dry_run,
+            )
+        except Exception as exc:  # noqa: BLE001 — memory save is best-effort
+            logger.debug("copilot_memory_save_failed", extra={"error": str(exc)})
+
+        if console:
+            try:
+                console.print(
+                    f"\n[green]✅ Wrote[/green] [cyan]{contract_path}[/cyan]"
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
+        return True
+
+    except CopilotGenerationError as exc:
+        logger.exception("AI Copilot minimal flow failed")
+        if console:
+            try:
+                console.print(f"[red]❌ {exc.message}[/red]")
+                for suggestion in getattr(exc, "suggestions", []) or []:
+                    console.print(f"[dim]• {suggestion}[/dim]")
+            except Exception:  # noqa: BLE001
+                pass
+        else:
+            console_error(exc.message)
+        return False
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError) as exc:
+        logger.exception("AI Copilot minimal flow crashed")
+        if console:
+            try:
+                console.print(f"[red]❌ Failed to create project: {exc}[/red]")
+            except Exception:  # noqa: BLE001
+                pass
+        else:
+            console_error(f"Failed to create project: {exc}")
+        return False
 
 
 def _scaffold_data_folder(target_dir: Path, context: dict, console: Any) -> None:

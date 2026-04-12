@@ -1872,8 +1872,11 @@ class TestGeneratePipelineFiles:
             ),
             patch("fluid_build.forge.core.engine.rprint") as mock_rprint,
         ):
-            # This will raise an ImportError/TypeError when trying to use None module
-            engine._generate_pipeline_files(tmp_path)
+            # Slice UX-H: the public `_generate_pipeline_files` hook
+            # is now a no-op shim.  Exercise the preserved
+            # `_generate_pipeline_files_legacy` symbol, which still
+            # contains the original try/except/rprint behaviour.
+            engine._generate_pipeline_files_legacy(tmp_path)
         # Should have printed a warning
         printed = [str(c) for c in mock_rprint.call_args_list]
         assert any("warning" in c.lower() or "Pipeline" in c for c in printed)
@@ -1905,7 +1908,10 @@ class TestGeneratePipelineFiles:
         mock_module.PipelineConfig = mock_pipeline_config
         mock_module.PipelineTemplateGenerator = mock_pipeline_gen
         with patch.dict("sys.modules", {"fluid_build.forge.core.pipeline_templates": mock_module}):
-            engine._generate_pipeline_files(tmp_path)
+            # Slice UX-H: call the legacy symbol — the shim is a
+            # no-op on the live path now, so the generator can only
+            # be exercised via `_generate_pipeline_files_legacy`.
+            engine._generate_pipeline_files_legacy(tmp_path)
         # Generator was called
         mock_pipeline_gen.return_value.generate_pipeline.assert_called_once()
 
