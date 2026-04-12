@@ -742,13 +742,22 @@ class GeminiProvider(LlmProvider):
         if config.api_key:
             headers["x-goog-api-key"] = config.api_key
         generation_config: Dict[str, Any] = {"temperature": 0.2}
-        # Slice UX-I: Gemini's structured output mode.  Attach a
-        # stripped-down JSON Schema to ``generationConfig`` so the
-        # model returns a response that matches the envelope shape
-        # directly, eliminating the "LLM returned prose instead of
-        # JSON" repair retries.
-        if _structured_outputs_enabled():
-            generation_config.update(gemini_response_schema_config())
+        # Slice UX-I note: Gemini's responseSchema doesn't handle
+        # deeply nested free-form objects (like the ``contract``
+        # field which is itself a full FLUID contract with 10+
+        # nested levels).  Gemini strips ``additionalProperties``
+        # during schema processing, which means nested free-form
+        # objects become ``{"type": "object", "properties": {}}``
+        # — interpreted as "empty object, no fields allowed".
+        # The natural-language JSON nudge in the system prompt is
+        # sufficient for Gemini; structured outputs are left to
+        # OpenAI (json_schema) and Anthropic (tool_use) where the
+        # nested free-form handling works correctly.
+        #
+        # If Gemini improves nested schema support in the future,
+        # uncomment the block below:
+        # if _structured_outputs_enabled():
+        #     generation_config.update(gemini_response_schema_config())
         payload = {
             "systemInstruction": {"parts": [{"text": system_prompt}]},
             "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
