@@ -19,7 +19,7 @@ teach") have a mirror twin in the happy path: after a successful run,
 the user should never have to read docs to find their second command.
 
 Every artifact-producing command (``fluid init``, ``fluid forge``,
-``fluid demo``, and future ``fluid compile --write-lock``) calls
+``fluid demo``, and future ``fluid bundle --write-lock``) calls
 :func:`print_next_steps` at the end of a successful run.  The helper
 prints a single Rich panel with a short bulleted list of
 copy-pasteable commands tailored to what the user just did.
@@ -34,11 +34,11 @@ The printer accepts a ``context`` enum that picks the step list:
 * ``"forge"``     — just created or refreshed a product; point at
   ``fluid status``, ``fluid validate``, ``fluid plan --env dev``.
 * ``"forge-fragments"`` — same as ``forge`` but adds a
-  ``fluid compile --check`` step because the fragment-first layout
+  ``fluid bundle --check`` step because the fragment-first layout
   has a lockfile to verify.
 * ``"demo"``      — just ran the demo; point at inspecting the
   contract + receipt, then the bridge to ``fluid init my-project``.
-* ``"compile"``   — just ran ``fluid compile``; point at the bundled
+* ``"bundle"``    — just ran ``fluid bundle``; point at the bundled
   file location and the ``--check`` mode.
 
 Suppression
@@ -90,7 +90,7 @@ NEXT_STEPS: Dict[str, Sequence[NextStep]] = {
     ),
     "forge-fragments": (
         NextStep("fluid status", "see what you have"),
-        NextStep("fluid compile --check", "verify fragment lockfile sync"),
+        NextStep("fluid bundle --check", "verify fragment lockfile sync"),
         NextStep("fluid validate", "check the bundled contract"),
         NextStep("fluid plan --env dev", "preview a run"),
     ),
@@ -100,9 +100,9 @@ NEXT_STEPS: Dict[str, Sequence[NextStep]] = {
         NextStep("fluid validate", "check the contract is still valid"),
         NextStep("fluid init my-project", "start your own project"),
     ),
-    "compile": (
-        NextStep("cat contract.bundled.yaml", "inspect the compiled output"),
-        NextStep("fluid compile --check", "verify nothing has drifted"),
+    "bundle": (
+        NextStep("cat contract.bundled.yaml", "inspect the bundled output"),
+        NextStep("fluid bundle --check", "verify nothing has drifted"),
         NextStep("fluid validate", "validate the bundled contract"),
     ),
 }
@@ -121,7 +121,7 @@ def print_next_steps(
     ----------
     context:
         Key into :data:`NEXT_STEPS` (``"init"``, ``"forge"``,
-        ``"forge-fragments"``, ``"demo"``, ``"compile"``).  Unknown
+        ``"forge-fragments"``, ``"demo"``, ``"bundle"``).  Unknown
         contexts are treated as a no-op — the caller stays working
         even if the printer doesn't have a step list for their flow.
     console:

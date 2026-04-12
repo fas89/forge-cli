@@ -358,6 +358,24 @@ def register(subparsers: argparse._SubParsersAction):
             "Requires a tool-use-capable model (gpt-4o, claude-3-5-sonnet, gemini-1.5-pro)."
         ),
     )
+
+    # --- Fragment layout control ---
+    fragment_group = parser.add_mutually_exclusive_group()
+    fragment_group.add_argument(
+        "--fragments",
+        action="store_true",
+        default=False,
+        help=(
+            "Force fragment-first layout — split the generated contract into "
+            "composable files under fragments/ with $ref pointers."
+        ),
+    )
+    fragment_group.add_argument(
+        "--no-fragments",
+        action="store_true",
+        default=False,
+        help="Force flat single-file layout (skip automatic fragment splitting).",
+    )
     parser.set_defaults(func=run)
 
 
@@ -442,6 +460,18 @@ def _run_blank_mode(args: Any, logger: logging.Logger) -> int:
 _DOCS_URL = "https://fluid-build.dev/docs/contracts"
 
 
+def _print_forge_next_steps(console: Any, args: Any, scan_root: Path) -> None:
+    """Print next steps, auto-detecting fragment-first layout."""
+    try:
+        fragments_dir = scan_root / "fragments"
+        if fragments_dir.is_dir() and any(fragments_dir.rglob("*.yaml")):
+            print_next_steps("forge-fragments", console=console, args=args)
+            return
+    except Exception:  # noqa: BLE001 — detection is best-effort
+        pass
+    print_next_steps("forge", console=console, args=args)
+
+
 def _print_next_steps(console: Any, target_dir: Path, contract_path: Path) -> None:
     """Show post-creation next steps with doc link."""
     steps = (
@@ -507,7 +537,7 @@ def run(args, logger: logging.Logger) -> int:
                     scan_root=scan_root,
                     logger=logger,
                 )
-                print_next_steps("forge", console=console, args=args)
+                _print_forge_next_steps(console, args, scan_root)
             return result
 
         # --- Default: AI Copilot with inline LLM setup ---
@@ -553,7 +583,7 @@ def run(args, logger: logging.Logger) -> int:
                             scan_root=scan_root,
                             logger=logger,
                         )
-                        print_next_steps("forge", console=console, args=args)
+                        _print_forge_next_steps(console, args, scan_root)
                     return result
                 if console:
                     console.print(
@@ -571,7 +601,7 @@ def run(args, logger: logging.Logger) -> int:
                 scan_root=scan_root,
                 logger=logger,
             )
-            print_next_steps("forge", console=console, args=args)
+            _print_forge_next_steps(console, args, scan_root)
         return result
 
     except KeyboardInterrupt:

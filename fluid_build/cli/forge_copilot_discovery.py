@@ -101,6 +101,8 @@ class DiscoveryReport:
     provider_hints: List[str] = field(default_factory=list)
     build_constraints: List[str] = field(default_factory=list)
     discovery_warnings: List[str] = field(default_factory=list)
+    # Authoring layout: "flat" or "fragment-first" (auto-detected).
+    authoring_mode: str = "flat"
     # Slice UX-L: surfaced in the performance summary panel.
     cache_hit: bool = False
     scan_time_ms: int = 0
@@ -125,6 +127,7 @@ class DiscoveryReport:
             "provider_hints": self.provider_hints,
             "build_constraints": self.build_constraints,
             "discovery_warnings": self.discovery_warnings,
+            "authoring_mode": self.authoring_mode,
         }
 
 
@@ -290,6 +293,16 @@ def discover_local_context(
         report.build_constraints.append(
             "Existing FLUID contracts were found; stay consistent with discovered contract naming and provider conventions."
         )
+
+    # Detect fragment-first authoring layout.
+    for scan_root in roots:
+        fragments_dir = scan_root / "fragments"
+        try:
+            if fragments_dir.is_dir() and any(fragments_dir.rglob("*.yaml")):
+                report.authoring_mode = "fragment-first"
+                break
+        except Exception:  # noqa: BLE001 — detection is best-effort
+            pass
 
     if logger:
         logger.debug(

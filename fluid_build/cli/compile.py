@@ -12,13 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""fluid compile — resolve $ref pointers and emit a single bundled contract.
+"""fluid bundle — resolve $ref pointers and emit a single bundled contract.
+
+This is the inverse of ``fluid split``.
 
 Usage:
-    fluid compile contract.fluid.yaml
-    fluid compile contract.fluid.yaml --out contract.bundled.fluid.yaml
-    fluid compile contract.fluid.yaml --env prod --out bundled.yaml
-    fluid compile contract.fluid.yaml --format json --out bundled.json
+    fluid bundle contract.fluid.yaml
+    fluid bundle contract.fluid.yaml --out contract.bundled.fluid.yaml
+    fluid bundle contract.fluid.yaml --env prod --out bundled.yaml
+    fluid bundle contract.fluid.yaml --format json --out bundled.json
 """
 
 from __future__ import annotations
@@ -37,7 +39,7 @@ except Exception:  # pragma: no cover
 
 from ..loader import RefResolutionError, compile_contract, load_with_overlay
 
-COMMAND = "compile"
+COMMAND = "bundle"
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
@@ -45,8 +47,8 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         COMMAND,
         help="Resolve $ref pointers and emit a single bundled contract",
         description=(
-            "Compile a multi-file FLUID contract into a single document by resolving\n"
-            "all $ref pointers. Equivalent to 'swagger-cli bundle' for OpenAPI.\n\n"
+            "Bundle a multi-file FLUID contract into a single document by resolving\n"
+            "all $ref pointers.  This is the inverse of 'fluid split'.\n\n"
             "This is useful for:\n"
             "  - Inspecting the fully-resolved contract before apply/validate\n"
             "  - Archiving a snapshot of all fragments as one document\n"
@@ -55,10 +57,10 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         ),
         epilog=(
             "Examples:\n"
-            "  fluid compile contract.fluid.yaml                    # print to stdout\n"
-            "  fluid compile contract.fluid.yaml --out bundled.yaml # write to file\n"
-            "  fluid compile contract.fluid.yaml --env prod         # with overlay\n"
-            "  fluid compile contract.fluid.yaml --format json      # JSON output\n"
+            "  fluid bundle contract.fluid.yaml                    # print to stdout\n"
+            "  fluid bundle contract.fluid.yaml --out bundled.yaml # write to file\n"
+            "  fluid bundle contract.fluid.yaml --env prod         # with overlay\n"
+            "  fluid bundle contract.fluid.yaml --format json      # JSON output\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -83,6 +85,19 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         help="Output format (default: infer from --out extension, else YAML)",
     )
     p.set_defaults(cmd=COMMAND, func=run)
+
+
+def register_alias(subparsers: argparse._SubParsersAction) -> None:
+    """Register ``compile`` as a hidden backwards-compatibility alias."""
+    p = subparsers.add_parser(
+        "compile",
+        help=argparse.SUPPRESS,
+    )
+    p.add_argument("contract", help="Path to the root FLUID contract file")
+    p.add_argument("--out", "-o", default="-")
+    p.add_argument("--env", "-e", default=None)
+    p.add_argument("--format", "-f", choices=["yaml", "json"], default=None)
+    p.set_defaults(cmd="compile", func=run)
 
 
 def _infer_format(out: str, explicit: str | None) -> str:
@@ -155,7 +170,7 @@ def run(args: argparse.Namespace, logger: logging.Logger) -> int:
         p = Path(out)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(output, encoding="utf-8")
-        logger.info("compile_written", extra={"out": str(p), "format": fmt})
-        sys.stderr.write(f"✅ Compiled contract written to {p}\n")
+        logger.info("bundle_written", extra={"out": str(p), "format": fmt})
+        sys.stderr.write(f"✅ Bundled contract written to {p}\n")
 
     return 0

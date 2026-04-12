@@ -15,7 +15,7 @@ from fluid_build.cli.next_steps import NEXT_STEPS, NextStep, print_next_steps
 
 class TestNextStepsCatalog:
     def test_all_contexts_defined(self):
-        for ctx in ("init", "forge", "forge-fragments", "demo", "compile"):
+        for ctx in ("init", "forge", "forge-fragments", "demo", "bundle"):
             assert ctx in NEXT_STEPS, f"missing next-steps catalog: {ctx}"
             assert len(NEXT_STEPS[ctx]) >= 1
 
@@ -34,9 +34,9 @@ class TestNextStepsCatalog:
     def test_forge_catalog_points_at_status_first(self):
         assert NEXT_STEPS["forge"][0].command == "fluid status"
 
-    def test_fragment_catalog_includes_compile_check(self):
+    def test_fragment_catalog_includes_bundle_check(self):
         commands = [step.command for step in NEXT_STEPS["forge-fragments"]]
-        assert any("compile --check" in cmd for cmd in commands)
+        assert any("bundle --check" in cmd for cmd in commands)
 
 
 class TestPrintNextStepsRendering:

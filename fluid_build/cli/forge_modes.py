@@ -960,6 +960,8 @@ def run_ai_copilot_mode(
             "memory": get_cli_arg_fn(args, "memory", True),
             "save_memory": get_cli_arg_fn(args, "save_memory", False),
             "non_interactive": is_non_interactive,
+            "fragment_first": bool(get_cli_arg_fn(args, "fragments", False)),
+            "no_fragments": bool(get_cli_arg_fn(args, "no_fragments", False)),
         }
 
         context_arg = get_cli_arg_fn(args, "context")
@@ -1780,7 +1782,46 @@ def _create_project_minimal(
         # correct 'fluid forge' command string.
         target_dir.mkdir(parents=True, exist_ok=True)
         contract_path = target_dir / "contract.fluid.yaml"
-        write_contract(contract, contract_path, command="fluid forge")
+
+        # ── Fragment layout decision ─────────────────────────────
+        from fluid_build.cli.forge_contract_fragments import (
+            is_complex_enough_for_fragments,
+            split_contract_to_fragments,
+        )
+
+        force_fragments = options.get("fragment_first", False)
+        force_flat = options.get("no_fragments", False)
+        existing_fragments = (target_dir / "fragments").is_dir()
+
+        use_fragments = False
+        if force_fragments:
+            use_fragments = True
+        elif force_flat:
+            use_fragments = False
+        elif existing_fragments:
+            use_fragments = True
+        else:
+            use_fragments = is_complex_enough_for_fragments(contract)
+
+        if use_fragments:
+            root_contract, fragment_files = split_contract_to_fragments(contract)
+            write_contract(root_contract, contract_path, command="fluid forge")
+            for rel_path, content in fragment_files.items():
+                fpath = target_dir / rel_path
+                fpath.parent.mkdir(parents=True, exist_ok=True)
+                fpath.write_text(content, encoding="utf-8")
+        else:
+            fragment_files = {}
+            write_contract(contract, contract_path, command="fluid forge")
+
+        # Write additional files (dbt models, SQL, etc.) — these were
+        # previously ignored in the minimal path.
+        additional_files = generation_result.additional_files
+        if additional_files:
+            for rel_path, content in additional_files.items():
+                fpath = target_dir / rel_path
+                fpath.parent.mkdir(parents=True, exist_ok=True)
+                fpath.write_text(content, encoding="utf-8")
 
         # Persist project memory the same way the legacy path does, so
         # subsequent forge runs in this product have the full history.
@@ -1796,13 +1837,38 @@ def _create_project_minimal(
         except Exception as exc:  # noqa: BLE001 — memory save is best-effort
             logger.debug("copilot_memory_save_failed", extra={"error": str(exc)})
 
+        # ── Tell the user what happened ──────────────────────────
         if console:
             try:
                 console.print(
                     f"\n[green]✅ Wrote[/green] [cyan]{contract_path}[/cyan]"
                 )
+                if fragment_files:
+                    console.print(
+                        f"[green]   + {len(fragment_files)} fragments under fragments/[/green]"
+                    )
+                    for rel_path in sorted(fragment_files):
+                        console.print(f"[dim]     {rel_path}[/dim]")
+                    console.print(
+                        "[dim]   Tip: use --no-fragments for a single-file layout.[/dim]"
+                    )
+                    console.print(
+                        "[dim]   Run fluid bundle to see the resolved contract.[/dim]"
+                    )
+                elif not force_flat and is_complex_enough_for_fragments(contract):
+                    console.print(
+                        "[dim]   Tip: run fluid split to break this into composable fragments.[/dim]"
+                    )
+                if additional_files:
+                    n = len(additional_files)
+                    console.print(
+                        f"[green]   + {n} additional file{'s' if n != 1 else ''}[/green]"
+                    )
             except Exception:  # noqa: BLE001
                 pass
+
+        if fragment_files:
+            context["_authoring_mode"] = "fragment-first"
 
         return True
 
