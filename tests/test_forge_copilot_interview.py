@@ -136,7 +136,10 @@ class TestAdaptiveCopilotInterview:
         ],
     )
     def test_interview_caps_round_questions_at_two(self, _mock_decision):
-        console = FakeConsole(["dashboards", "table"])
+        # Bootstrap asks up to 3 optional questions (byot, engine, schedule)
+        # before the LLM-driven dynamic round.  Provide empty strings to
+        # skip those, then the real answers for the dynamic questions.
+        console = FakeConsole(["", "", "", "dashboards", "table"])
         state = run_adaptive_copilot_interview(
             initial_context={
                 "project_goal": "Orders analytics",
@@ -151,7 +154,11 @@ class TestAdaptiveCopilotInterview:
         assert state.normalized_context["use_case"] == "analytics"
         assert state.normalized_context["output_kind"] == "table"
         assert "primary_entity" not in state.normalized_context
-        user_turns = [turn for turn in state.transcript if turn["role"] == "user"]
+        # Filter for dynamic-question user turns (skip bootstrap turns)
+        user_turns = [
+            turn for turn in state.transcript
+            if turn["role"] == "user" and turn.get("question_id", "").startswith(("use_case", "output_kind", "primary_entity"))
+        ]
         assert user_turns[0]["raw_input"] == "dashboards"
         assert user_turns[0]["resolved_value"] == "analytics"
 
@@ -267,7 +274,10 @@ class TestAdaptiveCopilotInterview:
         ],
     )
     def test_unresolved_structured_input_is_preserved_in_transcript(self, _mock_decision):
-        console = FakeConsole(["spark jobs"])
+        # Bootstrap asks up to 3 optional questions (byot, engine, schedule)
+        # before the LLM-driven dynamic round.  Provide empty strings to
+        # skip those, then the real answer for the dynamic question.
+        console = FakeConsole(["", "", "", "spark jobs"])
         state = run_adaptive_copilot_interview(
             initial_context={
                 "project_goal": "Orders analytics",
@@ -279,11 +289,18 @@ class TestAdaptiveCopilotInterview:
             capability_matrix={"providers": ["local"], "templates": {"analytics": {}}},
         )
 
-        assert "build_engine" not in state.normalized_context
-        user_turns = [turn for turn in state.transcript if turn["role"] == "user"]
-        assert user_turns[-1]["raw_input"] == "spark jobs"
-        assert user_turns[-1]["resolution_status"] == "unresolved"
-        assert user_turns[-1]["resolved_value"] is None
+        # The dynamic build_engine question offers SQL/Python but user typed
+        # "spark jobs" which doesn't match — it should be unresolved.
+        # Note: bootstrap may set a default engine; we check the dynamic
+        # transcript turn specifically.
+        dynamic_turns = [
+            turn for turn in state.transcript
+            if turn["role"] == "user" and turn.get("question_id") == "build_engine"
+        ]
+        assert len(dynamic_turns) == 1
+        assert dynamic_turns[0]["raw_input"] == "spark jobs"
+        assert dynamic_turns[0]["resolution_status"] == "unresolved"
+        assert dynamic_turns[0]["resolved_value"] is None
 
 
 class TestFriendlyChoiceResolution:

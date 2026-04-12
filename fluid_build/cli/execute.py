@@ -48,10 +48,10 @@ COMMAND = "execute"
 
 
 def register(sp: argparse._SubParsersAction) -> None:
-    """Register the execute command with the CLI"""
+    """Register the execute command with the CLI (deprecated — use apply --build)"""
     p = sp.add_parser(
         "execute",
-        help="Execute build jobs from FLUID contract",
+        help=argparse.SUPPRESS,  # hidden — deprecated, use 'apply --build'
         description="""
 Execute build jobs defined in a FLUID contract.
 
@@ -244,10 +244,15 @@ def execute_build(
         return 1
 
 
-def run(args: argparse.Namespace, logger: logging.Logger) -> int:
-    """Execute builds from FLUID contract"""
+def run(args: argparse.Namespace, logger: logging.Logger, *, _from_apply: bool = False) -> int:
+    """Execute builds from FLUID contract.
+
+    Note: This command is deprecated. Use 'fluid apply --build <id>' instead.
+    """
     global LOG
     LOG = logger
+    if not _from_apply:
+        cprint("Note: 'fluid execute' is deprecated. Use 'fluid apply --build <id>' instead.\n")
 
     contract_path = Path(args.contract)
 

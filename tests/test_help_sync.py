@@ -78,7 +78,7 @@ class TestMainHelpCoreCommands:
         text = _capture_main_help()
         assert cmd in text, f"Core command '{cmd}' missing from fluid -h output"
 
-    @pytest.mark.parametrize("cmd", ["forge", "export"])
+    @pytest.mark.parametrize("cmd", ["forge", "generate"])
     def test_generation_command_present(self, cmd: str):
         text = _capture_main_help()
         assert cmd in text, f"Generation command '{cmd}' missing from fluid -h output"

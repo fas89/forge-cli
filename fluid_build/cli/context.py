@@ -24,7 +24,7 @@ from fluid_build.cli.console import cprint
 from ._common import CLIError
 from ._logging import info
 
-COMMAND = "context"
+COMMAND = "config"
 CTX_PATH = ".fluid/context.json"
 
 
@@ -37,6 +37,20 @@ def register(subparsers: argparse._SubParsersAction):
     g.add_argument("value", help="Value")
     sp.add_parser("get", help="Get a key").add_argument("key")
     p.set_defaults(cmd=COMMAND, func=run)
+
+
+def register_context_alias(subparsers: argparse._SubParsersAction):
+    """Register hidden 'context' alias for backward compatibility."""
+    import argparse as _argparse
+
+    p = subparsers.add_parser("context", help=_argparse.SUPPRESS)
+    sp = p.add_subparsers(dest="verb", required=True)
+    sp.add_parser("list", help="Show current context")
+    g = sp.add_parser("set", help="Set a key")
+    g.add_argument("key", choices=["provider", "project", "region"], help="Key")
+    g.add_argument("value", help="Value")
+    sp.add_parser("get", help="Get a key").add_argument("key")
+    p.set_defaults(cmd="context", func=run)
 
 
 def _read():

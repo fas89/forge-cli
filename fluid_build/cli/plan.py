@@ -173,6 +173,14 @@ access grants, and orchestration tasks.
     p.add_argument("--provider", help="override provider name (default: from contract)")
     p.add_argument("--project", help="override project/account (default: from contract)")
     p.add_argument("--region", help="override region/location (default: from contract)")
+    p.add_argument(
+        "--html",
+        dest="html_output",
+        nargs="?",
+        const="runtime/plan.html",
+        default=None,
+        help="generate HTML visualization (default path: runtime/plan.html)",
+    )
     p.set_defaults(cmd=COMMAND, func=run)
 
 
@@ -258,6 +266,17 @@ def run(args, logger: logging.Logger) -> int:
                         cprint(f"  - {v}")
                 else:
                     cprint("\nSovereignty check: PASS")
+
+        # --- HTML visualization (--html flag, absorbs preview/viz-plan) ---
+        html_path = getattr(args, "html_output", None)
+        if html_path:
+            try:
+                from .viz_plan import render_plan_html
+
+                render_plan_html(args.out, html_path, logger)
+                cprint(f"HTML report: {html_path}")
+            except Exception:
+                warn(logger, "html_render_skipped", message="plan visualizer not available")
 
         info(
             logger,

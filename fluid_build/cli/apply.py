@@ -249,6 +249,31 @@ your data product is production-ready with full observability.
     )
     debug_group.add_argument("--profile", action="store_true", help="Enable performance profiling")
 
+    # Build execution (absorbed from 'fluid execute')
+    build_group = p.add_argument_group("Build Execution")
+    build_group.add_argument(
+        "--build",
+        "--build-id",
+        dest="build_id",
+        help="Execute a specific build job by ID (from contract builds section)",
+    )
+    build_group.add_argument(
+        "--delay",
+        type=int,
+        default=2,
+        help="Seconds between build iterations (default: 2)",
+    )
+    build_group.add_argument(
+        "--fail-fast",
+        action="store_true",
+        help="Stop build execution on first failure",
+    )
+    build_group.add_argument(
+        "--no-output",
+        action="store_true",
+        help="Suppress build script output (show summary only)",
+    )
+
     # Advanced options
     advanced_group = p.add_argument_group("Advanced Options")
     advanced_group.add_argument(
@@ -346,6 +371,13 @@ def run(args, logger: logging.Logger) -> int:
     )
 
     try:
+        # --- Build execution mode (absorbed from 'fluid execute') ---
+        build_id = getattr(args, "build_id", None)
+        if build_id and isinstance(build_id, str):
+            from .execute import run as execute_run
+
+            return execute_run(args, logger, _from_apply=True)
+
         # Load contract or execution plan
         if args.contract.endswith(".json"):
             # Load pre-generated execution plan

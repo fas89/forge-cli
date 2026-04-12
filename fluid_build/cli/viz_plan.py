@@ -26,7 +26,10 @@ COMMAND = "viz-plan"
 
 
 def register(subparsers: argparse._SubParsersAction):
-    p = subparsers.add_parser(COMMAND, help="Render a static HTML for a plan.json")
+    p = subparsers.add_parser(
+        COMMAND,
+        help=argparse.SUPPRESS,  # hidden from help — deprecated
+    )
     p.add_argument("plan", help="runtime/plan.json")
     p.add_argument("--out", default="runtime/plan.html", help="HTML path")
     p.set_defaults(cmd=COMMAND, func=run)
@@ -53,6 +56,9 @@ def render_plan_html(plan_path: str, out_html: str, logger: logging.Logger) -> N
 
 
 def run(args, logger: logging.Logger) -> int:
+    from fluid_build.cli.console import cprint
+
+    cprint("Note: 'fluid viz-plan' is deprecated. Use 'fluid plan --html' instead.\n")
     try:
         render_plan_html(args.plan, args.out, logger)
         return 0

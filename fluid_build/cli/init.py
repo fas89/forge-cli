@@ -329,6 +329,11 @@ def run(args, logger: logging.Logger) -> int:
                 console=console if RICH_AVAILABLE else None,
                 args=args,
             )
+
+            # Offer to forge the first data product
+            if not getattr(args, "non_interactive", False):
+                _offer_first_forge(args, logger)
+
         return result
 
     except KeyboardInterrupt:
@@ -344,6 +349,57 @@ def run(args, logger: logging.Logger) -> int:
         else:
             console_error(f"Init failed: {e}")
         return 1
+
+
+def _offer_first_forge(args, logger: logging.Logger) -> None:
+    """After successful init, offer to forge the first data product."""
+    try:
+        if RICH_AVAILABLE:
+            from rich.prompt import Confirm
+
+            forge_now = Confirm.ask(
+                "\n[bold bright_cyan]Ready to forge your first data product?[/bold bright_cyan]",
+                default=True,
+            )
+        else:
+            answer = input("\nReady to forge your first data product? [Y/n] ").strip().lower()
+            forge_now = answer in ("", "y", "yes")
+
+        if forge_now:
+            cprint("")
+            from .forge import run as forge_run
+
+            # Build minimal args for forge
+            import argparse as _argparse
+
+            forge_args = _argparse.Namespace(
+                target_dir=getattr(args, "target_dir", None) or getattr(args, "name", "."),
+                provider=getattr(args, "provider", None),
+                domain=None,
+                blank=False,
+                dry_run=False,
+                non_interactive=False,
+                context=None,
+                llm_provider=None,
+                llm_model=None,
+                llm_endpoint=None,
+                discover=True,
+                no_discover=False,
+                discovery_path=None,
+                memory=True,
+                no_memory=False,
+                save_memory=True,
+                show_memory=False,
+                reset_memory=False,
+                quiet=False,
+                verbose=False,
+            )
+            forge_run(forge_args, logger)
+    except (KeyboardInterrupt, EOFError):
+        cprint("\nSkipping forge — you can run 'fluid forge' anytime.")
+    except Exception as e:
+        logger.debug(f"First-forge offer failed: {e}")
+        cprint("\nSkipping forge — you can run 'fluid forge' anytime.")
 
 
 def _write_init_receipt(
@@ -998,9 +1054,14 @@ def generate_dag_for_project(
         contract_name = contract.get("name", "my_product")
         orchestration = contract.get("orchestration", {})
 
-        # Prepare DAG parameters
+        # Prepare DAG parameters — sanitize to prevent injection
         schedule = orchestration.get("schedule", "@daily")
         dag_id = contract_name.replace("-", "_").replace(" ", "_")
+        # Strict identifier validation: only alphanumeric + underscore
+        dag_id = re.sub(r"[^a-zA-Z0-9_]", "", dag_id) or "fluid_dag"
+        # Validate schedule is a plausible cron/preset string
+        if not re.match(r'^[@a-zA-Z0-9_ */,-]+$', schedule):
+            schedule = "@daily"
 
         # Call generate-airflow command
         dag_dir = project_dir / "dags"

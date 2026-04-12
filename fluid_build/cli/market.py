@@ -2460,6 +2460,23 @@ they need for their data products.
         help="Generate configuration template for catalog connections",
     )
 
+    # Blueprint marketplace (absorbed from 'fluid marketplace')
+    blueprint_group = p.add_argument_group("Blueprints")
+    blueprint_group.add_argument(
+        "--blueprints",
+        action="store_true",
+        help="Search blueprint marketplace templates instead of catalogs",
+    )
+    blueprint_group.add_argument(
+        "--blueprint-id",
+        help="Get info or instantiate a specific blueprint",
+    )
+    blueprint_group.add_argument(
+        "--instantiate",
+        action="store_true",
+        help="Instantiate a blueprint (requires --blueprint-id)",
+    )
+
     p.set_defaults(cmd=COMMAND, func=run)
 
 
@@ -3221,6 +3238,40 @@ async def handle_product_details(
 
 def run(args, logger: logging.Logger) -> int:
     """Main entry point for market command"""
+    # --- Blueprint mode (absorbed from 'fluid marketplace') ---
+    _blueprints = getattr(args, "blueprints", False)
+    _blueprint_id = getattr(args, "blueprint_id", None)
+    _instantiate = getattr(args, "instantiate", False)
+
+    # Validate: --instantiate requires --blueprint-id
+    if _instantiate is True and not (isinstance(_blueprint_id, str) and _blueprint_id):
+        cprint("Error: --instantiate requires --blueprint-id <id>")
+        return 1
+
+    if (_blueprints is True) or (isinstance(_blueprint_id, str) and _blueprint_id):
+        try:
+            from .marketplace import run as marketplace_run
+
+            # Translate args for marketplace module
+            if getattr(args, "blueprint_id", None):
+                if getattr(args, "instantiate", False):
+                    args.marketplace_action = "instantiate"
+                else:
+                    args.marketplace_action = "info"
+            else:
+                args.marketplace_action = "search"
+                args.query = getattr(args, "search", None)
+                args.category = None
+                args.tags = None
+                args.maturity = None
+                args.state = "published"
+                args.sort = "downloads"
+                args.limit = getattr(args, "limit", 20)
+            return marketplace_run(args, logger)
+        except ImportError:
+            cprint("Blueprint marketplace not available. Install required dependencies.")
+            return 1
+
     try:
         # Run the async discovery function
         if asyncio.get_event_loop().is_running():

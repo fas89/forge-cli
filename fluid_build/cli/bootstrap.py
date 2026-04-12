@@ -534,7 +534,7 @@ def register_core_commands(sp: argparse._SubParsersAction) -> None:
     _try_register(sp, "policy_apply", "policy-apply")
     _try_register(sp, "product_new", "product-new")
     _try_register(sp, "auth", "auth")
-    _try_register(sp, "marketplace", "marketplace")
+    _try_register(sp, "marketplace", "marketplace")  # deprecated — use market --blueprints
     _try_register(sp, "publish", "publish")
     _try_register(sp, "compile", "bundle")
     # Hidden backwards-compat alias: ``fluid compile`` → ``fluid bundle``
@@ -546,11 +546,13 @@ def register_core_commands(sp: argparse._SubParsersAction) -> None:
     except ImportError:
         pass
     _try_register(sp, "split", "split")
-    _try_register(sp, "preview", "preview")
+    _try_register(sp, "preview", "preview")  # deprecated — use plan --html
     _try_register(sp, "diff", "diff")
-    _try_register(sp, "context", "context")
+    _try_register(sp, "context", "config")  # renamed: context → config
+    # Hidden backward-compat alias: ``fluid context`` still works
+    _try_register(sp, "context", "context", method="register_context_alias")
     _try_register(sp, "product_add", "product-add")
     _try_register(sp, "pipeline_generator", "generate-pipeline")
-    _try_register(sp, "copilot", "copilot")
+    # copilot removed — AI is built into forge
     _try_register(sp, "ide", "ide")
     _try_register(sp, "workspace", "workspace")

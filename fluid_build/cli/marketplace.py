@@ -19,9 +19,9 @@ Commands for interacting with the FLUID Blueprint Marketplace API.
 Marketplace blueprints are Jinja2 templates that generate FLUID 0.5.7 contracts.
 
 Usage:
-    forge marketplace search analytics
-    forge marketplace info customer-360-etl
-    forge marketplace instantiate customer-360-etl
+    fluid market --blueprints --search analytics
+    fluid market --blueprint-id customer-360-etl
+    fluid market --blueprint-id customer-360-etl
 """
 
 import argparse
@@ -67,11 +67,11 @@ console = Console() if RICH_AVAILABLE else None
 
 
 def register(subparsers: argparse._SubParsersAction):
-    """Register the marketplace command with the CLI parser."""
+    """Register the marketplace command (deprecated — use 'fluid market --blueprints')."""
     p = subparsers.add_parser(
         COMMAND,
-        help="🏪 Interact with FLUID Blueprint Marketplace",
-        description="Search, browse, and instantiate blueprints from the marketplace",
+        help=argparse.SUPPRESS,  # hidden — deprecated, use 'fluid market --blueprints'
+        description="Deprecated: use 'fluid market --blueprints' instead.",
     )
 
     marketplace_subparsers = p.add_subparsers(dest="marketplace_action", help="Marketplace actions")
@@ -132,6 +132,14 @@ def register(subparsers: argparse._SubParsersAction):
 def run(args, logger: logging.Logger) -> int:
     """Run the marketplace command."""
     try:
+        if console:
+            console.print(
+                "[yellow]Note: 'fluid marketplace' is deprecated. "
+                "Use 'fluid market --blueprints' instead.[/yellow]\n"
+            )
+        else:
+            cprint("Note: 'fluid marketplace' is deprecated. Use 'fluid market --blueprints' instead.\n")
+
         if not args.marketplace_action:
             logger.error("Marketplace action required. Use --help for available actions.")
             return 1
@@ -297,7 +305,7 @@ def search_blueprints(args, logger: logging.Logger, api_url: str) -> int:
             )
 
         console.print(table)
-        console.print("\n[dim]💡 Use 'forge marketplace info <id>' to see details[/dim]")
+        console.print("\n[dim]💡 Use 'fluid market --blueprint-id <id>' to see details[/dim]")
 
         return 0
 
@@ -396,7 +404,7 @@ def show_blueprint_info(args, logger: logging.Logger, api_url: str) -> int:
             console.print(syntax)
 
         console.print(
-            f"\n[dim]💡 Use 'forge marketplace instantiate {args.blueprint_id}' to generate a contract[/dim]"
+            f"\n[dim]💡 Use 'fluid market --blueprint-id {args.blueprint_id}' to generate a contract[/dim]"
         )
 
         return 0
@@ -576,6 +584,6 @@ def list_categories(args, logger: logging.Logger, api_url: str) -> int:
     for cat, desc in categories.items():
         console.print(f"  [green]•[/green] [cyan]{cat}[/cyan] - {desc}")
 
-    console.print("\n[dim]💡 Use 'forge marketplace search --category <name>' to filter[/dim]")
+    console.print("\n[dim]💡 Use 'fluid market --blueprints --search --category <name>' to filter[/dim]")
 
     return 0

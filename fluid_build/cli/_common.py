@@ -63,10 +63,56 @@ def load_contract_with_overlay(
     except Exception as e:
         raise CLIError(1, "loader_import_failed", {"error": str(e)})
     if hasattr(loader, "load_with_overlay"):
-        return loader.load_with_overlay(path, env)
-    if hasattr(loader, "load_contract"):
-        return loader.load_contract(path)
-    raise CLIError(2, "loader_missing_functions", {})
+        contract = loader.load_with_overlay(path, env)
+    elif hasattr(loader, "load_contract"):
+        contract = loader.load_contract(path)
+    else:
+        raise CLIError(2, "loader_missing_functions", {})
+
+    # Auto-bundle: if the contract contains $ref pointers, silently resolve them
+    contract = _auto_bundle_if_needed(contract, path, logger)
+    return contract
+
+
+def _auto_bundle_if_needed(
+    contract: Dict[str, Any], path: str, logger: logging.Logger
+) -> Dict[str, Any]:
+    """Transparently bundle fragment contracts containing $ref pointers.
+
+    Scans the loaded contract for unresolved ``$ref`` strings.  If found,
+    delegates to the bundle/compile module to resolve them.  This makes
+    ``fluid split`` / ``fluid bundle`` invisible in the happy path —
+    ``validate``, ``plan``, and ``apply`` just work with fragments.
+    """
+    if not _has_ref_pointers(contract):
+        return contract
+
+    try:
+        from ..loader import compile_contract
+
+        logger.debug("auto_bundle: detected $ref pointers, bundling fragments")
+        bundled = compile_contract(path, logger=logger)
+        if bundled and isinstance(bundled, dict):
+            return bundled
+    except ImportError:
+        logger.debug("auto_bundle: compile_contract not available, skipping")
+    except Exception as e:
+        logger.debug("auto_bundle: failed (%s), using raw contract", e)
+
+    return contract
+
+
+def _has_ref_pointers(obj: Any, _depth: int = 0) -> bool:
+    """Recursively check if a contract dict contains ``$ref`` strings."""
+    if _depth > 20:  # aligned with loader._MAX_REF_DEPTH
+        return False
+    if isinstance(obj, dict):
+        if "$ref" in obj:
+            return True
+        return any(_has_ref_pointers(v, _depth + 1) for v in obj.values())
+    if isinstance(obj, list):
+        return any(_has_ref_pointers(item, _depth + 1) for item in obj)
+    return False
 
 
 def write_json(path: str, obj: Any) -> None:

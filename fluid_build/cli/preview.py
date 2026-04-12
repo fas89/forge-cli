@@ -12,20 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Deprecated — use ``fluid plan --html`` instead.
+
+This module is kept for backward compatibility only.  ``fluid preview``
+now delegates to ``fluid plan --html``.
+"""
+
 from __future__ import annotations
 
 import argparse
 import logging
 
-from ._logging import info
-from .plan import run as run_plan
-from .viz_plan import render_plan_html
+from fluid_build.cli.console import cprint
 
 COMMAND = "preview"
 
 
 def register(subparsers: argparse._SubParsersAction):
-    p = subparsers.add_parser(COMMAND, help="Validate → Plan → Visualize (no apply)")
+    p = subparsers.add_parser(
+        COMMAND,
+        help=argparse.SUPPRESS,  # hidden from help — deprecated
+    )
     p.add_argument("contract", help="contract.fluid.yaml")
     p.add_argument("--env", help="overlay env")
     p.add_argument("--out", default="runtime/plan.json", help="plan path")
@@ -34,10 +41,20 @@ def register(subparsers: argparse._SubParsersAction):
 
 
 def run(args, logger: logging.Logger) -> int:
-    run_plan(args, logger)  # writes plan
-    try:
-        render_plan_html(args.out, args.html, logger)
-        info(logger, "preview_ok", html=args.html)
-    except Exception:
-        info(logger, "preview_partial", note="plan visualizer not available")
-    return 0
+    cprint(
+        "Note: 'fluid preview' is deprecated. Use 'fluid plan --html' instead.\n"
+    )
+
+    # Translate preview args to plan args
+    args.html_output = args.html
+    args.verbose = False
+    args.validate_actions = False
+    args.estimate_cost = False
+    args.check_sovereignty = False
+    args.provider = None
+    args.project = None
+    args.region = None
+
+    from .plan import run as plan_run
+
+    return plan_run(args, logger)

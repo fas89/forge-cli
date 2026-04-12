@@ -474,10 +474,27 @@ def _print_forge_next_steps(console: Any, args: Any, scan_root: Path) -> None:
         fragments_dir = scan_root / "fragments"
         if fragments_dir.is_dir() and any(fragments_dir.rglob("*.yaml")):
             print_next_steps("forge-fragments", console=console, args=args)
+            _print_split_bundle_hint(console)
             return
     except Exception:  # noqa: BLE001 — detection is best-effort
         pass
     print_next_steps("forge", console=console, args=args)
+    _print_split_bundle_hint(console)
+
+
+def _print_split_bundle_hint(console: Any) -> None:
+    """Show hint about split/bundle after successful forge."""
+    hint_text = (
+        "Tip: Use 'fluid split' to break this into modular fragments.\n"
+        "     FLUID auto-bundles fragments when you run validate, plan, or apply."
+    )
+    try:
+        if console is not None and RICH_AVAILABLE:
+            console.print(f"\n[dim]{hint_text}[/dim]")
+        else:
+            cprint(f"\n{hint_text}")
+    except Exception:
+        pass
 
 
 def _print_next_steps(console: Any, target_dir: Path, contract_path: Path) -> None:

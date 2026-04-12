@@ -184,41 +184,39 @@ def print_main_help(parser: argparse.ArgumentParser) -> None:
         "bright_blue",
         [
             ("init", "Create a new project  [dim]--template · --blank[/dim]"),
-            ("demo", "Scaffold and run a working example  [dim]customer-360[/dim]"),
+            ("forge", "Create a data product  [dim]AI copilot · template · --blank[/dim]"),
             ("validate", "Check contract syntax and provider rules"),
-            ("bundle", "Resolve $ref pointers and emit a single bundled contract"),
-            ("split", "Split a flat contract into composable fragments"),
-            ("plan", "Preview what will change  [dim]--env · --out[/dim]"),
-            ("apply", "Execute the contract  [dim]--yes · --dry-run · --provider[/dim]"),
-            ("status", "Summarize the current workspace or product"),
-            ("verify", "Confirm deployed state matches the contract"),
+            ("plan", "Plan execution  [dim]--html · --env · --out[/dim]"),
+            ("apply", "Deploy end-to-end  [dim]--yes · --dry-run · --build[/dim]"),
         ],
     )
 
-    # ── Generation & Scaffolding ────────────────────────────────────
-    _section(
-        "▸",
-        "Generation & Scaffolding",
-        "green",
-        [
-            ("generate-airflow", "Produce Airflow DAG  [dim](GCP · AWS · Snowflake)[/dim]"),
-            ("export", "Export to Airflow · Dagster · Prefect  [dim]--engine[/dim]"),
-            ("forge", "Add a data product  [dim]AI copilot · template · agent[/dim]"),
-            ("scaffold-ci", "Generate CI/CD pipeline config"),
-        ],
+    # ── Generation ──────────────────────────────────────────────────
+    console.print("  ▸ [bold green]Generate[/bold green]")
+    gen_tbl = Table(
+        show_header=False,
+        box=None,
+        padding=(0, 1),
+        pad_edge=False,
     )
+    gen_tbl.add_column(style="green bold", min_width=28, max_width=28)
+    gen_tbl.add_column(style="bright_white")
+    gen_tbl.add_row("  generate transformation", "dbt, SQL, Spark artifacts")
+    gen_tbl.add_row("  generate schedule", "Airflow, Dagster, Prefect DAGs")
+    gen_tbl.add_row("  generate ci", "GitHub Actions, GitLab CI pipelines")
+    gen_tbl.add_row("  generate standard", "OPDS, ODCS, ODPS, ODPS-Bitol")
+    console.print(gen_tbl)
+    console.print()
 
-    # ── Enterprise Integration & Publishing ─────────────────────────
+    # ── Integrations ────────────────────────────────────────────────
     _section(
         "▸",
-        "Enterprise Integration & Publishing",
+        "Integrations",
         "bright_magenta",
         [
-            ("export-opds", "Export to ODPS [dim](Open Data Product Spec)[/dim]"),
-            ("odcs", "ODCS v3.1 [dim](Open Data Contract Standard — Bitol.io)[/dim]"),
-            ("odps", "ODPS v4.1 [dim](Linux Foundation data product spec)[/dim]"),
-            ("market", "Browse & install marketplace data products"),
-            ("publish", "Publish a data product to the marketplace"),
+            ("publish", "Publish to enterprise data catalogs"),
+            ("market", "Browse & discover data products  [dim]--blueprints[/dim]"),
+            ("import", "Import existing dbt/Terraform/SQL projects"),
         ],
     )
 
@@ -228,50 +226,38 @@ def print_main_help(parser: argparse.ArgumentParser) -> None:
         "Quality & Governance",
         "yellow",
         [
-            ("test", "Test contract against live data  [dim]--output json · --strict[/dim]"),
-            ("contract-tests", "Run contract test suites"),
-            ("contract-validation", "Deep semantic validation"),
             ("policy-check", "Governance & compliance checks  [dim]--strict[/dim]"),
             ("diff", "Detect drift from deployed state"),
+            ("test", "Test contract against live data  [dim]--output json · --strict[/dim]"),
+            ("verify", "Confirm deployed state matches the contract"),
         ],
     )
 
     # ── Utilities & System ──────────────────────────────────────────
     _section(
         "▸",
-        "Utilities & System",
+        "Utilities",
         "bright_white",
         [
-            ("doctor", "Check system health & dependencies"),
+            ("config", "Get/set default provider, project, region"),
+            ("split", "Split contract into composable fragments"),
+            ("bundle", "Bundle fragments into single contract"),
             ("auth", "Manage cloud provider credentials  [dim]login · status · logout[/dim]"),
-            ("admin", "System admin  [dim]diagnostics · test · status · registry[/dim]"),
+            ("doctor", "Check system health & dependencies"),
+            ("providers", "List available infrastructure providers"),
             ("version", "Show version info"),
-            ("viz-graph", "Generate lineage graph  [dim](DOT · PNG)[/dim]"),
         ],
     )
-
-    # ── More commands ───────────────────────────────────────────────
-    extras = Table(show_header=False, box=None, padding=(0, 1), pad_edge=False)
-    extras.add_column(style="dim bright_cyan", min_width=24, max_width=24)
-    extras.add_column(style="dim")
-    extras.add_row("  context", "Switch project / environment")
-    extras.add_row("  copilot", "Interactive AI assistant")
-    extras.add_row("  execute", "Run build jobs manually")
-    extras.add_row("  marketplace", "Extended marketplace browser")
-    extras.add_row("  odps-bitol", "ODPS-Bitol v1.0 (Entropy Data)")
-    extras.add_row("  preview", "Dry-run alias for apply")
-    extras.add_row("  viz-plan", "Interactive plan visualization")
-    console.print("  [dim]▸ More Commands[/dim]")
-    console.print(extras)
-    console.print()
 
     # ── Quick-start ─────────────────────────────────────────────────
     console.print(f"  {bar}")
     console.print(
         "  [bold bright_green]⚡ Quick Start[/bold bright_green]     "
-        "[bright_cyan]fluid init my-project --template customer-360[/bright_cyan]  →  "
-        "[bright_cyan]fluid validate contract.fluid.yaml[/bright_cyan]  →  "
-        "[bright_cyan]fluid apply contract.fluid.yaml --yes[/bright_cyan]"
+        "[bright_cyan]fluid init[/bright_cyan]  →  "
+        "[bright_cyan]fluid forge[/bright_cyan]  →  "
+        "[bright_cyan]fluid validate[/bright_cyan]  →  "
+        "[bright_cyan]fluid plan[/bright_cyan]  →  "
+        "[bright_cyan]fluid apply[/bright_cyan]"
     )
     console.print(f"  {bar}")
 
@@ -410,7 +396,11 @@ _COMMAND_ENRICHMENT: dict[str, tuple[str, str]] = {
     ),
     "plan": (
         "Generate an execution plan showing every action before you commit.",
-        "",  # keep existing epilog
+        (
+            "  fluid plan contract.fluid.yaml\n"
+            "  fluid plan contract.fluid.yaml --html report.html\n"
+            "  fluid plan contract.fluid.yaml --env staging --verbose"
+        ),
     ),
     "verify": (
         "Confirm that deployed resources match the contract specification.",
@@ -542,14 +532,21 @@ _COMMAND_ENRICHMENT: dict[str, tuple[str, str]] = {
         "List all discoverable infrastructure providers and their capabilities.",
         ("  fluid providers"),
     ),
-    "context": (
+    "config": (
         "Get or set default provider, project, and region for the current workspace.",
         (
-            "  fluid context list\n"
-            "  fluid context set provider gcp\n"
-            "  fluid context set project my-gcp-project\n"
-            "  fluid context set region us-central1\n"
-            "  fluid context get provider"
+            "  fluid config list\n"
+            "  fluid config set provider gcp\n"
+            "  fluid config set project my-gcp-project\n"
+            "  fluid config set region us-central1\n"
+            "  fluid config get provider"
+        ),
+    ),
+    "context": (
+        "Deprecated: use 'fluid config' instead. Get or set defaults.",
+        (
+            "  fluid config list\n"
+            "  fluid config set provider gcp"
         ),
     ),
     "auth": (
@@ -559,14 +556,6 @@ _COMMAND_ENRICHMENT: dict[str, tuple[str, str]] = {
             "  fluid auth status\n"
             "  fluid auth logout --provider aws\n"
             "  fluid auth list"
-        ),
-    ),
-"copilot": (
-        "AI-powered assistant that analyzes your project context and suggests improvements.",
-        (
-            "  fluid copilot interactive         # start chat session\n"
-            "  fluid copilot analyze              # analyze current project\n"
-            "  fluid copilot suggest              # suggest next steps"
         ),
     ),
     "marketplace": (

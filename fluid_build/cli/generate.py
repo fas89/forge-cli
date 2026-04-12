@@ -17,6 +17,8 @@
 Subcommands:
     fluid generate transformation   Generate transformation artifacts (dbt, SQL, ...)
     fluid generate schedule         Generate schedule artifacts (Airflow, Dagster, Prefect)
+    fluid generate ci               Generate CI/CD pipelines (GitHub Actions, GitLab CI)
+    fluid generate standard         Export to data product standards (OPDS, ODCS, ODPS, ODPS-Bitol)
 
 Legacy (still works):
     fluid generate                  Without a subcommand, defaults to transformation
@@ -26,7 +28,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sys
 from typing import Any
 
 from fluid_build.cli.console import cprint
@@ -38,31 +39,36 @@ def register(subparsers: argparse._SubParsersAction):
     """Register the generate command with its subcommands."""
     p = subparsers.add_parser(
         COMMAND,
-        help="Generate artifacts from FLUID contract (transformation, schedule)",
+        help="Generate artifacts from FLUID contract",
         description="""
         Unified artifact generation from FLUID contracts.
 
         Subcommands:
           transformation   Generate transformation engine artifacts (dbt, SQL, etc.)
           schedule         Generate schedule/orchestration artifacts (Airflow, Dagster, Prefect)
+          ci               Generate CI/CD pipelines (GitHub Actions, GitLab CI)
+          standard         Export to data product standards (OPDS, ODCS, ODPS, ODPS-Bitol)
 
-        When called without a subcommand, defaults to 'transformation' for
-        backward compatibility.
+        When called without a subcommand, shows available subcommands.
         """,
         epilog="""
 Examples:
-  # Generate transformation artifacts (default)
+  # Generate transformation artifacts
   fluid generate transformation
 
   # Generate schedule artifacts
   fluid generate schedule
 
-  # List available engines/schedulers
+  # Generate CI/CD pipeline
+  fluid generate ci --system github
+
+  # Export to industry standard
+  fluid generate standard contract.fluid.yaml --format opds
+
+  # List available engines/schedulers/formats
   fluid generate transformation --list
   fluid generate schedule --list
-
-  # Legacy: runs transformation by default
-  fluid generate contract.fluid.yaml
+  fluid generate standard --list
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -70,10 +76,12 @@ Examples:
     # Register subcommands
     sub = p.add_subparsers(dest="generate_sub", help="Generation target")
 
-    from . import generate_transformation, generate_schedule
+    from . import generate_ci, generate_schedule, generate_standard, generate_transformation
 
     generate_transformation.register_subcommand(sub)
     generate_schedule.register_subcommand(sub)
+    generate_ci.register_subcommand(sub)
+    generate_standard.register_subcommand(sub)
 
     # Default handler (backward compat: no subcommand → transformation)
     p.set_defaults(cmd=COMMAND, func=run)
@@ -99,6 +107,14 @@ def run(args: Any, logger: logging.Logger) -> int:
         from . import generate_schedule
         return generate_schedule.run(args, logger)
 
+    if sub == "ci":
+        from . import generate_ci
+        return generate_ci.run(args, logger)
+
+    if sub == "standard":
+        from . import generate_standard
+        return generate_standard.run(args, logger)
+
     # No subcommand specified — default to transformation for backward compat
     if sub is None:
         # Check if user passed --list
@@ -111,15 +127,14 @@ def run(args: Any, logger: logging.Logger) -> int:
         cprint("Subcommands:")
         cprint("  transformation   Generate transformation artifacts (dbt, SQL, etc.)")
         cprint("  schedule         Generate schedule artifacts (Airflow, Dagster, Prefect)")
+        cprint("  ci               Generate CI/CD pipelines (GitHub Actions, GitLab CI)")
+        cprint("  standard         Export to standards (OPDS, ODCS, ODPS, ODPS-Bitol)")
         cprint("")
         cprint("Examples:")
         cprint("  fluid generate transformation")
         cprint("  fluid generate schedule")
-        cprint("  fluid generate transformation --list")
-        cprint("  fluid generate schedule --list")
-        cprint("")
-        cprint("For backward compatibility, 'fluid generate contract.fluid.yaml' still works")
-        cprint("and defaults to transformation generation.")
+        cprint("  fluid generate ci --system github")
+        cprint("  fluid generate standard contract.fluid.yaml --format opds")
         return 0
 
     cprint(f"Unknown subcommand: {sub}")
