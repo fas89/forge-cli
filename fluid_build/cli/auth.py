@@ -313,6 +313,18 @@ class AWSAuthProvider(AuthProvider):
     async def login(self, **kwargs) -> AuthResult:
         """Initiate AWS authentication flow"""
         try:
+            import shutil
+
+            if not shutil.which("aws"):
+                return AuthResult(
+                    provider=self.name,
+                    status=AuthStatus.ERROR,
+                    error_message=(
+                        "AWS CLI not found. Install it first:\n"
+                        "  https://aws.amazon.com/cli/"
+                    ),
+                )
+
             if self.console and RICH_AVAILABLE:
                 self.console.print(
                     Panel.fit(
@@ -454,6 +466,18 @@ class AzureAuthProvider(AuthProvider):
     async def login(self, **kwargs) -> AuthResult:
         """Initiate Azure authentication flow"""
         try:
+            import shutil
+
+            if not shutil.which("az"):
+                return AuthResult(
+                    provider=self.name,
+                    status=AuthStatus.ERROR,
+                    error_message=(
+                        "Azure CLI not found. Install it first:\n"
+                        "  https://learn.microsoft.com/en-us/cli/azure/install-azure-cli"
+                    ),
+                )
+
             if self.console and RICH_AVAILABLE:
                 self.console.print(
                     Panel.fit(
@@ -783,6 +807,29 @@ class SnowflakeAuthProvider(AuthProvider):
     async def login(self, **kwargs) -> AuthResult:
         """Validate Snowflake authentication using the same connector path as the provider."""
         try:
+            # Check if at least one auth method is available
+            import shutil
+
+            try:
+                import snowflake.connector  # noqa: F401
+
+                _has_connector = True
+            except ImportError:
+                _has_connector = False
+
+            _has_snowsql = bool(shutil.which("snowsql"))
+
+            if not _has_connector and not _has_snowsql:
+                return AuthResult(
+                    provider=self.name,
+                    status=AuthStatus.ERROR,
+                    error_message=(
+                        "No Snowflake auth method available. Install one of:\n"
+                        "  pip install snowflake-connector-python   (recommended)\n"
+                        "  https://docs.snowflake.com/en/user-guide/snowsql-install-config  (SnowSQL CLI)"
+                    ),
+                )
+
             settings = self._resolve_settings()
             self.account = settings.get("account")
             self.user = settings.get("user")
@@ -857,14 +904,16 @@ class DatabricksAuthProvider(AuthProvider):
     async def login(self, **kwargs) -> AuthResult:
         """Initiate Databricks authentication using Databricks CLI"""
         try:
-            # Check if Databricks CLI is installed
-            try:
-                self._run_command(["databricks", "--version"], capture_output=True)
-            except CLIError:
+            import shutil
+
+            if not shutil.which("databricks"):
                 return AuthResult(
                     provider=self.name,
                     status=AuthStatus.ERROR,
-                    error_message="Databricks CLI not installed. Please install: pip install databricks-cli",
+                    error_message=(
+                        "Databricks CLI not found. Install it first:\n"
+                        "  pip install databricks-cli"
+                    ),
                 )
 
             if self.console:
