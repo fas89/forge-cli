@@ -481,6 +481,10 @@ def run_adaptive_copilot_interview(
         and is_context_sufficient(state.normalized_context)
     ):
         state.ready = True
+        # Slice UX-L: mark the skip so the performance summary can
+        # surface it.  The marker is carried on normalized_context
+        # (which becomes the forge_modes context dict).
+        state.normalized_context["_interview_skipped"] = True
 
     round_number = 0
     while console and state.remaining_rounds > 0 and not state.ready:

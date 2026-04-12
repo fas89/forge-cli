@@ -920,6 +920,27 @@ def run_ai_copilot_mode(
         is_non_interactive = bool(get_cli_arg_fn(args, "non_interactive", False))
         enable_recovery = bool(get_cli_arg_fn(args, "_enable_copilot_recovery", False))
 
+        # Slice UX-L: performance stats accumulator — populated at
+        # each stage and rendered at the end by
+        # ``print_forge_performance_summary``.
+        import time as _time
+
+        _run_start = _time.monotonic()
+        perf_stats: Dict[str, Any] = {
+            "streaming": False,
+            "discovery_cache_hit": False,
+            "discovery_files": 0,
+            "discovery_scan_ms": 0,
+            "skills_loaded": False,
+            "skills_precompiled": False,
+            "skills_label": "",
+            "interview_skipped": False,
+            "generation_attempts": 0,
+            "generation_time_s": 0.0,
+            "agent_loop_rounds": 0,
+            "agent_loop_tool_calls": 0,
+        }
+
         context: Dict[str, Any] = {}
 
         # Inherit workspace defaults (domain, provider, owner) if available.
@@ -1121,6 +1142,28 @@ def run_ai_copilot_mode(
                         message=f"Detected {domain} domain — loading expertise pack.",
                     )
 
+        # Slice UX-L: populate perf_stats from what we know so far.
+        from fluid_build.cli.forge_copilot_llm_providers import streaming_is_enabled
+
+        _llm_cfg = copilot_options.get("llm_config")
+        if _llm_cfg:
+            perf_stats["provider"] = getattr(_llm_cfg, "provider", "")
+            perf_stats["model"] = getattr(_llm_cfg, "model", "")
+            perf_stats["routing_model"] = getattr(_llm_cfg, "routing_model", None)
+        perf_stats["streaming"] = streaming_is_enabled()
+        # Skills info was already set by _load_industry_skills via context.
+        if context.get("compiled_skills"):
+            perf_stats["skills_loaded"] = True
+            perf_stats["skills_precompiled"] = True
+            perf_stats["skills_label"] = context["compiled_skills"].get("industry", "loaded")
+        elif context.get("industry_skills"):
+            perf_stats["skills_loaded"] = True
+            perf_stats["skills_precompiled"] = False
+            ind = context["industry_skills"].get("industry", {})
+            perf_stats["skills_label"] = ind.get("label", "loaded")
+        # Interview skip info was set in context by the interview.
+        perf_stats["interview_skipped"] = bool(context.get("_interview_skipped"))
+
         project_name = context.get("project_goal", "my-data-product").lower().replace(" ", "-")
         target_dir = get_target_directory_fn(args, project_name)
         copilot_options["target_dir"] = str(target_dir)
@@ -1155,6 +1198,7 @@ def run_ai_copilot_mode(
                 dry_run=bool(get_cli_arg_fn(args, "dry_run", False)),
                 logger=logger,
                 console=console,
+                perf_stats=perf_stats,
             )
             if not success_result:
                 return 1
@@ -1198,6 +1242,15 @@ def run_ai_copilot_mode(
 
             save_personal_memory(context, console)
         except ImportError:
+            pass
+
+        # Slice UX-L: render the performance summary panel.
+        perf_stats["generation_time_s"] = round(_time.monotonic() - _run_start, 1)
+        try:
+            from fluid_build.cli.forge_ui import print_forge_performance_summary
+
+            print_forge_performance_summary(console, perf_stats)
+        except Exception:  # noqa: BLE001 — summary is best-effort
             pass
 
         return 0
@@ -1541,6 +1594,7 @@ def _create_project_agent_loop(
     dry_run: bool,
     logger: logging.Logger,
     console: Any,
+    perf_stats: Optional[Dict[str, Any]] = None,
 ) -> bool:
     """Slice UX-K: run the multi-turn agent loop with tool use.
 
@@ -1583,6 +1637,8 @@ def _create_project_agent_loop(
             llm_config=llm_config,
             project_memory=copilot_options.get("project_memory"),
             capability_matrix=copilot_options.get("capability_matrix"),
+            console=console,
+            perf_stats=perf_stats,
         )
 
         contract = result.get("contract")

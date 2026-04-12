@@ -82,6 +82,8 @@ def run_copilot_agent_loop(
     project_memory: Any = None,
     capability_matrix: Optional[Mapping[str, Any]] = None,
     max_iterations: int = MAX_AGENT_ITERATIONS,
+    console: Any = None,
+    perf_stats: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Run the multi-turn agent loop and return the final result dict.
 
@@ -101,6 +103,7 @@ def run_copilot_agent_loop(
         {"role": "user", "content": user_content},
     ]
 
+    total_tool_calls = 0
     for iteration in range(max_iterations):
         LOG.debug("Agent loop iteration %d/%d", iteration + 1, max_iterations)
 
@@ -113,12 +116,24 @@ def run_copilot_agent_loop(
         tool_calls = provider_adapter.extract_tool_calls(response_json)
 
         if not tool_calls:
+            # Slice UX-L: show the final-response indicator.
+            if console:
+                try:
+                    console.print(
+                        f"[dim]  Round {iteration + 1}/{max_iterations} — final response[/dim]"
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
             # No tool calls — the model is emitting its final response.
             text = provider_adapter.extract_text_from_tool_response(response_json)
             if text:
                 try:
                     from fluid_build.cli.forge_copilot_runtime import extract_json_object
                     payload = extract_json_object(text)
+                    # Slice UX-L: record final stats.
+                    if perf_stats is not None:
+                        perf_stats["agent_loop_rounds"] = iteration + 1
+                        perf_stats["agent_loop_tool_calls"] = total_tool_calls
                     return payload
                 except ValueError:
                     # The model returned text that isn't valid JSON.
@@ -140,6 +155,17 @@ def run_copilot_agent_loop(
             })
             continue
 
+        # Slice UX-L: show which tools are being called.
+        total_tool_calls += len(tool_calls)
+        tool_names = ", ".join(tc["name"] for tc in tool_calls)
+        if console:
+            try:
+                console.print(
+                    f"[dim]  Round {iteration + 1}/{max_iterations} — calling {tool_names}[/dim]"
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
         # Dispatch tool calls (parallel for read-only tools).
         results = _dispatch_tools(tool_calls)
 
@@ -148,6 +174,11 @@ def run_copilot_agent_loop(
             tool_calls, results
         )
         messages.extend(result_msgs)
+
+    # Slice UX-L: update perf stats even on failure.
+    if perf_stats is not None:
+        perf_stats["agent_loop_rounds"] = max_iterations
+        perf_stats["agent_loop_tool_calls"] = total_tool_calls
 
     raise CopilotGenerationError(
         "copilot_agent_loop_exhausted",

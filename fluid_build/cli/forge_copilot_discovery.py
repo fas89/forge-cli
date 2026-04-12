@@ -101,6 +101,9 @@ class DiscoveryReport:
     provider_hints: List[str] = field(default_factory=list)
     build_constraints: List[str] = field(default_factory=list)
     discovery_warnings: List[str] = field(default_factory=list)
+    # Slice UX-L: surfaced in the performance summary panel.
+    cache_hit: bool = False
+    scan_time_ms: int = 0
 
     def to_prompt_payload(self) -> Dict[str, Any]:
         """Return a metadata-only payload safe to share with the LLM."""
@@ -191,12 +194,18 @@ def discover_local_context(
         cached_report = load_discovery_cache(root, tree_hash)
         if cached_report is not None:
             try:
-                return DiscoveryReport(**cached_report)
+                rpt = DiscoveryReport(**cached_report)
+                rpt.cache_hit = True
+                return rpt
             except Exception:  # noqa: BLE001 — fallback to full scan
                 pass
     else:
         tree_hash = None
         all_candidates = None
+
+    import time as _time
+
+    _scan_start = _time.monotonic()
 
     seen_files: set[Path] = set()
     provider_counts: Counter[str] = Counter()
@@ -290,6 +299,8 @@ def discover_local_context(
                 "provider_hints": report.provider_hints,
             },
         )
+
+    report.scan_time_ms = int((_time.monotonic() - _scan_start) * 1000)
 
     # Slice UX-J: persist the discovery report to disk so the next run
     # can skip classification + schema inference if the file tree

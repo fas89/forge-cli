@@ -23,6 +23,7 @@ __all__ = [
     "print_assumptions_panel",
     "print_copilot_intro_panel",
     "print_copilot_recovery_panel",
+    "print_forge_performance_summary",
     "print_free_tier_guide",
     "print_interview_phase",
     "print_welcome_panel",
@@ -451,5 +452,115 @@ def show_blueprint_next_steps(console: Any, target_dir: Optional[Path] = None) -
             build_blueprint_next_steps(target_dir=target_dir).strip(),
             title="Forge Complete",
             border_style="green",
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
+# Slice UX-L: post-generation performance summary
+# ---------------------------------------------------------------------------
+
+# Provider display names for the summary panel.
+_PROVIDER_LABELS = {
+    "openai": "OpenAI",
+    "anthropic": "Anthropic (Claude)",
+    "gemini": "Google Gemini",
+    "ollama": "Ollama (local)",
+}
+
+
+def print_forge_performance_summary(
+    console: Any,
+    stats: Mapping[str, Any],
+) -> None:
+    """Render a compact performance summary after contract generation.
+
+    *stats* is a plain dict populated during ``run_ai_copilot_mode``
+    with keys matching the ``perf_stats`` accumulator from the plan.
+    Missing keys are tolerated — every line degrades gracefully.
+    """
+    if not console or not RICH_AVAILABLE:
+        return
+
+    lines: list[str] = []
+
+    # Provider + model
+    provider = stats.get("provider", "")
+    model = stats.get("model", "")
+    label = _PROVIDER_LABELS.get(provider, provider)
+    if label and model:
+        lines.append(f"  [bold]Provider[/bold]    {label} / {model}")
+
+    # Mode (agent-loop vs single-shot)
+    if stats.get("agent_loop_rounds"):
+        rounds = stats["agent_loop_rounds"]
+        tool_calls = stats.get("agent_loop_tool_calls", 0)
+        lines.append(f"  [bold]Mode[/bold]        agent-loop ({rounds} rounds, {tool_calls} tool calls)")
+    else:
+        # Streaming
+        streaming = stats.get("streaming")
+        if streaming is not None:
+            lines.append(f"  [bold]Streaming[/bold]   {'on' if streaming else 'off'}")
+
+    # Discovery
+    discovery_files = stats.get("discovery_files", 0)
+    cache_hit = stats.get("discovery_cache_hit", False)
+    if discovery_files:
+        cache_label = "cache hit" if cache_hit else "fresh scan"
+        scan_ms = stats.get("discovery_scan_ms", 0)
+        time_part = f", {scan_ms}ms" if scan_ms and not cache_hit else ""
+        lines.append(f"  [bold]Discovery[/bold]   {cache_label} ({discovery_files} files{time_part})")
+
+    # Skills
+    skills_loaded = stats.get("skills_loaded", False)
+    if skills_loaded:
+        skills_label = stats.get("skills_label", "loaded")
+        precompiled = stats.get("skills_precompiled", False)
+        compile_hint = "precompiled" if precompiled else "on-the-fly"
+        lines.append(f"  [bold]Skills[/bold]      {skills_label} ({compile_hint})")
+    else:
+        lines.append("  [bold]Skills[/bold]      not installed")
+
+    # Interview
+    interview_skipped = stats.get("interview_skipped", False)
+    if interview_skipped:
+        lines.append("  [bold]Interview[/bold]  skipped (sufficient context)")
+
+    # Routing
+    routing_model = stats.get("routing_model")
+    if routing_model and routing_model != model:
+        lines.append(f"  [bold]Routing[/bold]    interview -> {routing_model}")
+
+    # Generation
+    gen_time = stats.get("generation_time_s", 0)
+    gen_attempts = stats.get("generation_attempts", 0)
+    if gen_time > 0:
+        if stats.get("agent_loop_rounds"):
+            lines.append(f"  [bold]Time[/bold]        {gen_time:.1f}s")
+        elif gen_attempts > 1:
+            lines.append(f"  [bold]Generation[/bold]  {gen_attempts} attempts, {gen_time:.1f}s")
+        else:
+            lines.append(f"  [bold]Generation[/bold]  {gen_time:.1f}s")
+
+    # Tips (contextual suggestions)
+    tips = []
+    if not stats.get("skills_loaded"):
+        tips.append("Run [bold]fluid skills install <industry>[/bold] for domain-aware contracts")
+    if not stats.get("streaming") and not stats.get("agent_loop_rounds"):
+        tips.append("Set [bold]FLUID_LLM_STREAMING=1[/bold] to see tokens as they arrive")
+
+    if tips:
+        lines.append("")
+        for tip in tips[:2]:
+            lines.append(f"  [dim]Tip: {tip}[/dim]")
+
+    if not lines:
+        return
+
+    console.print(
+        _build_panel(
+            "\n".join(lines),
+            title="Performance",
+            border_style="dim",
         )
     )

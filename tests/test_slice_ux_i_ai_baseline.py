@@ -482,7 +482,10 @@ class TestStructuredOutputs:
         response = {"content": [{"type": "text", "text": "legacy"}]}
         assert AnthropicProvider().extract_text(response) == "legacy"
 
-    def test_gemini_build_request_sets_response_schema(self, monkeypatch):
+    def test_gemini_build_request_skips_response_schema_for_nested_freeform(self, monkeypatch):
+        """Gemini's responseSchema was disabled for nested free-form
+        objects (the contract field).  The generationConfig should
+        only contain temperature, not responseMimeType."""
         monkeypatch.delenv("FLUID_LLM_STRUCTURED_OUTPUTS", raising=False)
         cfg = _base_config(
             "gemini",
@@ -490,8 +493,11 @@ class TestStructuredOutputs:
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
         )
         _, payload = GeminiProvider().build_request(cfg, "sys", "usr")
-        assert payload["generationConfig"]["responseMimeType"] == "application/json"
-        assert "responseSchema" in payload["generationConfig"]
+        # responseSchema is intentionally disabled for Gemini because
+        # it can't handle nested additionalProperties (see bugfix
+        # commit c6aabb9).
+        assert "responseMimeType" not in payload["generationConfig"]
+        assert "responseSchema" not in payload["generationConfig"]
 
     def test_ollama_supports_structured_output_allowlist(self):
         assert ollama_supports_structured_output("llama3.1") is True
