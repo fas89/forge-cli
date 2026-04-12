@@ -159,33 +159,16 @@ FORGE_RESPONSE_SCHEMA: Dict[str, Any] = {
 # ---------------------------------------------------------------------------
 
 
-# OpenAI 'gpt-4o-2024-08-06' and later support ``response_format:
-# json_schema`` with strict mode.  Older fine-grained models only
-# support ``{"type": "json_object"}`` which is weaker but still helps.
-OPENAI_JSON_SCHEMA_MODELS: Tuple[str, ...] = (
-    "gpt-4o",
-    "gpt-4o-mini",
-    "gpt-4o-2024-08-06",
-    "gpt-4o-2024-11-20",
-    "gpt-4.1",
-    "gpt-4.1-mini",
-    "gpt-4.1-nano",
-    "o1",
-    "o1-mini",
-    "o3",
-    "o3-mini",
-    "o4-mini",
-)
-
-
 def openai_response_format(model: str) -> Dict[str, Any]:
     """Build the OpenAI ``response_format`` directive for *model*.
 
-    Uses strict ``json_schema`` mode for models that support it and
-    falls back to the weaker ``json_object`` mode for older models.
+    Uses strict ``json_schema`` mode for models the catalog marks as
+    ``structured_output``-capable and falls back to the weaker
+    ``json_object`` mode for older or unknown models.
     """
-    lower = (model or "").lower()
-    if any(lower.startswith(prefix) for prefix in OPENAI_JSON_SCHEMA_MODELS):
+    from fluid_build.cli.forge_copilot_llm_providers import model_supports_structured_output
+
+    if model_supports_structured_output("openai", model):
         return {
             "type": "json_schema",
             "json_schema": {
@@ -270,23 +253,12 @@ def gemini_response_schema_config() -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-# Ollama's ``format`` parameter accepts either the string ``"json"``
-# (weaker) or a JSON Schema object (only supported by newer models).
-# Keep the list conservative — unlisted models fall back to plain
-# ``format: json`` mode, and if the model doesn't support even that,
-# the prompt-level JSON nudge still works.
-OLLAMA_STRUCTURED_OUTPUT_MODELS: Tuple[str, ...] = (
-    "llama3.1",
-    "llama3.2",
-    "llama3.3",
-    "mistral-nemo",
-    "mistral-small",
-    "qwen2.5",
-    "qwen2.5-coder",
-)
-
-
 def ollama_supports_structured_output(model: str) -> bool:
-    """Return True if *model* is known to accept a JSON Schema ``format`` value."""
-    lower = (model or "").lower()
-    return any(lower.startswith(prefix) for prefix in OLLAMA_STRUCTURED_OUTPUT_MODELS)
+    """Return True if *model* is in the catalog with ``structured_output`` capability.
+
+    Falls back to False for unknown models — the prompt-level JSON
+    nudge still works as a safety net.
+    """
+    from fluid_build.cli.forge_copilot_llm_providers import model_supports_structured_output
+
+    return model_supports_structured_output("ollama", model)

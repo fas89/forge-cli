@@ -337,10 +337,10 @@ def _prompt_for_api_key(console: Any) -> Optional[LlmConfig]:
         console,
         "How do you want to connect?",
         [
+            ("gemini_free", "Google Gemini (free!) -- get a key in 30 seconds"),
+            ("gemini", "Google Gemini -- I have an API key"),
             ("openai", "OpenAI (ChatGPT) -- I have an API key"),
             ("anthropic", "Anthropic (Claude) -- I have an API key"),
-            ("gemini", "Google Gemini -- I have an API key"),
-            ("gemini_free", "Google Gemini (free!) -- show me how to get a key in 30 seconds"),
             ("ollama", "Ollama -- run AI locally on my machine (free, no internet)"),
             ("skip", "Skip for now -- I'll set this up later"),
         ],
@@ -435,14 +435,31 @@ def _prompt_for_api_key(console: Any) -> Optional[LlmConfig]:
             console.print(f"[green]Saved to {_CONFIG_FILE} (you won't be asked again).[/green]")
 
         set_session_env(provider_choice, raw)
-        _save_ai_config(provider_choice, provider.default_model, api_key=raw)
+
+        # Model tier choice: flagship (most capable) vs balanced.
+        # The catalog drives the actual model names so this code
+        # never hardcodes a model string.
+        from fluid_build.cli.forge_copilot_llm_providers import get_catalog_tier_model
+
+        tier = ask_numbered_choice(
+            console,
+            "Which model tier?",
+            [
+                ("flagship", "Most capable (recommended)"),
+                ("balanced", "Most balanced (faster, lower cost)"),
+            ],
+            default=1,
+        )
+        model = get_catalog_tier_model(provider_choice, tier) or provider.default_model
+
+        _save_ai_config(provider_choice, model, api_key=raw)
 
         env = dict(os.environ)
-        LOG.info("AI setup: configured provider=%s model=%s", provider_choice, provider.default_model)
+        LOG.info("AI setup: configured provider=%s model=%s tier=%s", provider_choice, model, tier)
         return LlmConfig(
             provider=provider_choice,
-            model=provider.default_model,
-            endpoint=provider.default_endpoint(provider.default_model, env),
+            model=model,
+            endpoint=provider.default_endpoint(model, env),
             api_key=raw,
         )
 

@@ -79,7 +79,7 @@ except ImportError:  # pragma: no cover - exercised via non-Rich fallbacks
 def _create_session_llm_config(
     console: Any,
     *,
-    default_provider: str = "openai",
+    default_provider: str = "gemini",
     ask_dialog_question_fn: Callable[[Any, Any], Any] = ask_dialog_question,
     ask_secret_text_fn: Callable[..., Optional[str]] = ask_secret_text,
 ) -> Optional[LlmConfig]:
@@ -139,16 +139,16 @@ def _create_session_llm_config(
             prompt="Which provider is this key for?",
             type="choice",
             choices=[
+                {"label": "Google Gemini", "value": "gemini"},
                 {"label": "OpenAI", "value": "openai"},
                 {"label": "Anthropic (Claude)", "value": "anthropic"},
-                {"label": "Google Gemini", "value": "gemini"},
             ],
             required=True,
             allow_skip=False,
             default=default_provider,
         )
         selection = ask_dialog_question_fn(console, provider_question)
-        provider_name = str(selection.value or default_provider or "openai").strip().lower()
+        provider_name = str(selection.value or default_provider or "gemini").strip().lower()
 
     provider = get_llm_provider(provider_name)
     model = get_catalog_default(provider_name) or provider.default_model
@@ -244,7 +244,7 @@ def _handle_copilot_recovery(
         border_style="yellow",
     )
     if wants_setup:
-        default_provider = getattr(llm_readiness_fn(), "provider", "openai") or "openai"
+        default_provider = getattr(llm_readiness_fn(), "provider", "gemini") or "gemini"
         llm_config = _create_session_llm_config(
             console,
             default_provider=default_provider,

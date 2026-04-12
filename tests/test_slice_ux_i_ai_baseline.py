@@ -499,10 +499,11 @@ class TestStructuredOutputs:
         assert "responseMimeType" not in payload["generationConfig"]
         assert "responseSchema" not in payload["generationConfig"]
 
-    def test_ollama_supports_structured_output_allowlist(self):
-        assert ollama_supports_structured_output("llama3.1") is True
-        assert ollama_supports_structured_output("llama3.2:latest") is True
-        assert ollama_supports_structured_output("mistral-nemo") is True
+    def test_ollama_supports_structured_output_reads_catalog(self):
+        """Ollama structured output support is now catalog-driven, not
+        a hardcoded allowlist.  Unknown models return False."""
+        # Ollama models list in the catalog is empty (dynamic),
+        # so no model is marked as structured_output capable.
         assert ollama_supports_structured_output("some-random-model") is False
 
     def test_ollama_build_request_drops_response_format_for_unknown_models(
@@ -511,13 +512,20 @@ class TestStructuredOutputs:
         monkeypatch.delenv("FLUID_LLM_STRUCTURED_OUTPUTS", raising=False)
         cfg = _base_config("ollama", "some-random-model", "http://localhost:11434/v1/chat/completions")
         _, payload = OllamaProvider().build_request(cfg, "sys", "usr")
+        # Ollama catalog has an empty models list, so no model is
+        # recognized as structured-output-capable → format dropped.
         assert "response_format" not in payload
 
-    def test_ollama_build_request_keeps_json_object_for_known_models(self, monkeypatch):
+    def test_ollama_build_request_also_drops_for_known_names_without_catalog_entry(self, monkeypatch):
+        """Even well-known model names like llama3.1 don't get
+        structured output unless the catalog explicitly lists them
+        with the structured_output capability flag."""
         monkeypatch.delenv("FLUID_LLM_STRUCTURED_OUTPUTS", raising=False)
         cfg = _base_config("ollama", "llama3.1", "http://localhost:11434/v1/chat/completions")
         _, payload = OllamaProvider().build_request(cfg, "sys", "usr")
-        assert payload.get("response_format") == {"type": "json_object"}
+        # Ollama's models list is empty in the catalog (dynamic),
+        # so the capability check returns False → no response_format.
+        assert "response_format" not in payload
 
     def test_kill_switch_disables_structured_outputs(self, monkeypatch):
         """``FLUID_LLM_STRUCTURED_OUTPUTS=0`` reverts every provider

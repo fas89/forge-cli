@@ -1391,6 +1391,8 @@ class TestCreateSessionLlmConfig:
         assert config.model == "claude-sonnet-4-5-20250514"
 
     def test_openai_key_auto_detected(self):
+        from fluid_build.cli.forge_copilot_llm_providers import get_catalog_default
+
         console = MagicMock()
         config = _create_session_llm_config(
             console,
@@ -1398,9 +1400,13 @@ class TestCreateSessionLlmConfig:
         )
         assert config is not None
         assert config.provider == "openai"
-        assert config.model == "gpt-4o-mini"
+        # Model comes from the catalog flagship, not a hardcoded string.
+        expected = get_catalog_default("openai")
+        assert config.model == expected
 
     def test_gemini_key_auto_detected(self):
+        from fluid_build.cli.forge_copilot_llm_providers import get_catalog_default
+
         console = MagicMock()
         key = "AIzaSyD" + "x" * 30
         config = _create_session_llm_config(
@@ -1409,7 +1415,8 @@ class TestCreateSessionLlmConfig:
         )
         assert config is not None
         assert config.provider == "gemini"
-        assert config.model == "gemini-2.5-flash"
+        expected = get_catalog_default("gemini")
+        assert config.model == expected
 
     def test_ollama_shortcut(self):
         console = MagicMock()

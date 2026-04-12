@@ -937,6 +937,30 @@ BUILTIN_LLM_PROVIDERS: Dict[str, LlmProvider] = {
 }
 
 
+def _sync_provider_defaults_from_catalog() -> None:
+    """Override provider class ``default_model`` attrs with the catalog flagship.
+
+    Called once at module import time.  This makes the catalog the
+    single source of truth for model defaults — the hardcoded strings
+    on the provider classes are safety fallbacks only, used when the
+    catalog file is missing or corrupt.
+    """
+    try:
+        catalog = _load_model_catalog()
+        providers_data = catalog.get("providers", {})
+        for name, provider in BUILTIN_LLM_PROVIDERS.items():
+            if name == "claude":
+                continue  # alias for anthropic, shares the same instance
+            entry = providers_data.get(name, {})
+            flagship = entry.get("flagship") or entry.get("default")
+            if flagship:
+                provider.default_model = flagship
+    except Exception:  # noqa: BLE001 — never break import
+        pass
+
+
+
+
 def normalize_llm_provider_name(value: Any) -> str:
     """Normalize LLM provider aliases (openai, anthropic, gemini, ollama).
 
@@ -945,7 +969,7 @@ def normalize_llm_provider_name(value: Any) -> str:
     understands LLM-specific aliases such as ``"claude"`` → ``"anthropic"``.
     """
     if value is None:
-        return "openai"
+        return "gemini"
     normalized = str(value).strip().lower().replace("-", "_")
     if normalized == "claude":
         return "anthropic"
@@ -980,7 +1004,7 @@ def resolve_llm_config(args: Any, environ: Optional[Mapping[str, str]] = None) -
         getattr(args, "llm_provider", None)
         or env.get("FLUID_LLM_PROVIDER")
         or _infer_provider_from_env(env)
-        or "openai"
+        or "gemini"
     )
     provider = get_llm_provider(provider_name)
 
@@ -1044,37 +1068,20 @@ def resolve_llm_config(args: Any, environ: Optional[Mapping[str, str]] = None) -
     )
 
 
-# Slice UX-J: provider-specific routing model defaults.
-# These are cheap/fast models that handle the interview clarification
-# round well but are ~3-10x cheaper per input token than the strong
-# model used for contract generation.  If the strong and routing
-# models would be the same, we return None so ``LlmConfig.for_routing``
-# short-circuits to self (no extra resolution).
-_ROUTING_MODEL_DEFAULTS: Dict[str, Dict[str, Optional[str]]] = {
-    "anthropic": {
-        "claude-3-5-sonnet-latest": "claude-3-5-haiku-latest",
-        "claude-sonnet-4-20250514": "claude-3-5-haiku-latest",
-        "claude-3-5-sonnet-20241022": "claude-3-5-haiku-latest",
-    },
-    "openai": {
-        # gpt-4o-mini is already cheap; no routing benefit.
-        "gpt-4o": "gpt-4o-mini",
-        "gpt-4.1": "gpt-4.1-mini",
-    },
-    "gemini": {
-        "gemini-2.5-pro": "gemini-2.5-flash",
-        "gemini-1.5-pro": "gemini-2.0-flash",
-    },
-    # Ollama: local models, no cost consideration → no default routing.
-}
-
-
 def _default_routing_model(provider_name: str, strong_model: str) -> Optional[str]:
-    """Return the default routing model for *provider_name* when the
-    strong model is *strong_model*, or ``None`` when no cheaper
-    alternative is known."""
-    provider_defaults = _ROUTING_MODEL_DEFAULTS.get(provider_name, {})
-    return provider_defaults.get(strong_model)
+    """Return the catalog's routing model for *provider_name*.
+
+    Reads the ``routing`` field from the catalog (v2 schema) instead
+    of a hardcoded mapping.  Returns ``None`` when no cheaper
+    alternative is available or when the routing model would be the
+    same as the strong model (no point routing to self).
+    """
+    catalog = _load_model_catalog()
+    entry = catalog.get("providers", {}).get(provider_name, {})
+    routing = entry.get("routing")
+    if routing and routing != strong_model:
+        return routing
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -1480,26 +1487,81 @@ _model_catalog_cache: Optional[Dict[str, Any]] = None
 
 
 def _load_model_catalog() -> Dict[str, Any]:
-    """Load the bundled ``llm_models.json`` catalog (cached after first call)."""
+    """Load the model catalog with a two-tier resolution.
+
+    1. ``~/.fluid/llm_models.json`` (user override — checked first)
+    2. ``fluid_build/cli/llm_models.json`` (bundled baseline)
+
+    The user override lets users add models or change defaults
+    between CLI releases without touching installed packages.
+    Cached per-process after the first successful load.
+    """
     global _model_catalog_cache  # noqa: PLW0603
     if _model_catalog_cache is not None:
         return _model_catalog_cache
-    catalog_path = Path(__file__).with_name("llm_models.json")
+
+    # Tier 1: user override
+    user_catalog = Path.home() / ".fluid" / "llm_models.json"
+    if user_catalog.is_file():
+        try:
+            data = json.loads(user_catalog.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and data.get("providers"):
+                _model_catalog_cache = data
+                LOG.debug("Loaded user model catalog from %s", user_catalog)
+                return _model_catalog_cache
+        except Exception as exc:  # noqa: BLE001
+            LOG.debug("User catalog at %s unreadable: %s", user_catalog, exc)
+
+    # Tier 2: bundled baseline
+    bundled_path = Path(__file__).with_name("llm_models.json")
     try:
-        _model_catalog_cache = json.loads(catalog_path.read_text(encoding="utf-8"))
+        _model_catalog_cache = json.loads(bundled_path.read_text(encoding="utf-8"))
     except Exception as exc:  # noqa: BLE001
-        LOG.warning("Could not load model catalog %s: %s", catalog_path, exc)
+        LOG.warning("Could not load model catalog %s: %s", bundled_path, exc)
         _model_catalog_cache = {}
     return _model_catalog_cache
 
 
 def get_catalog_default(provider: str) -> Optional[str]:
-    """Return the catalog's default model for *provider*, or ``None``."""
+    """Return the catalog's default (flagship) model for *provider*."""
     catalog = _load_model_catalog()
     entry = catalog.get("providers", {}).get(provider)
     if entry:
-        return entry.get("default")
+        # v2 schema uses "flagship" as the primary default; fall back to "default"
+        return entry.get("flagship") or entry.get("default")
     return None
+
+
+def get_catalog_tier_model(provider_name: str, tier: str = "flagship") -> Optional[str]:
+    """Return the model for a given tier (``flagship`` or ``balanced``)."""
+    catalog = _load_model_catalog()
+    entry = catalog.get("providers", {}).get(provider_name, {})
+    return entry.get(tier) or entry.get("flagship") or entry.get("default")
+
+
+def model_supports_structured_output(provider_name: str, model: str) -> bool:
+    """Check the catalog for structured_output capability on *model*.
+
+    Returns ``False`` for unknown models — the caller should fall
+    back to the prompt-level JSON nudge.
+    """
+    return _model_has_capability(provider_name, model, "structured_output")
+
+
+def model_supports_tool_use(provider_name: str, model: str) -> bool:
+    """Check the catalog for tool_use capability on *model*."""
+    return _model_has_capability(provider_name, model, "tool_use")
+
+
+def _model_has_capability(provider_name: str, model: str, capability: str) -> bool:
+    """Generic capability check against the catalog."""
+    catalog = _load_model_catalog()
+    models = catalog.get("providers", {}).get(provider_name, {}).get("models") or []
+    lower = (model or "").lower()
+    for m in models:
+        if lower == m["id"].lower() or lower in [a.lower() for a in (m.get("aliases") or [])]:
+            return bool(m.get("capabilities", {}).get(capability, False))
+    return False
 
 
 def resolve_model_name(provider: str, user_input: str) -> str:
@@ -1599,3 +1661,10 @@ def resolve_ollama_model(env: Mapping[str, str]) -> str:
     if models:
         return models[0]["name"]
     return get_catalog_default("ollama") or OllamaProvider.default_model
+
+
+# ---------------------------------------------------------------------------
+# Module init: sync provider defaults from catalog (must run AFTER all
+# functions and the model catalog section are defined above).
+# ---------------------------------------------------------------------------
+_sync_provider_defaults_from_catalog()
