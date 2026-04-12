@@ -552,9 +552,10 @@ _COMMAND_ENRICHMENT: dict[str, tuple[str, str]] = {
     "auth": (
         "Manage authentication credentials for cloud providers (GCP, AWS, Azure, Snowflake, Databricks).",
         (
-            "  fluid auth login --provider gcp\n"
+            "  fluid auth login gcp\n"
             "  fluid auth status\n"
-            "  fluid auth logout --provider aws\n"
+            "  fluid auth logout aws\n"
+            "  fluid auth doctor\n"
             "  fluid auth list"
         ),
     ),

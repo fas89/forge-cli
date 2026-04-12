@@ -135,6 +135,20 @@ class GoogleCloudAuthProvider(AuthProvider):
     async def login(self, **kwargs) -> AuthResult:
         """Initiate Google Cloud authentication flow"""
         try:
+            # Pre-check: is gcloud installed?
+            import shutil
+
+            if not shutil.which("gcloud"):
+                install_url = "https://cloud.google.com/sdk/docs/install"
+                return AuthResult(
+                    provider=self.name,
+                    status=AuthStatus.ERROR,
+                    error_message=(
+                        f"gcloud CLI not found. Install the Google Cloud SDK first:\n"
+                        f"  {install_url}"
+                    ),
+                )
+
             if self.console and RICH_AVAILABLE:
                 self.console.print(
                     Panel.fit(
@@ -1105,47 +1119,66 @@ class AuthManager:
 # Enhanced CLI Registration
 def register(subparsers: argparse._SubParsersAction):
     """Register the auth command with enhanced functionality"""
-    p = subparsers.add_parser(COMMAND, help="Provider authentication management")
-
-    # Add provider argument
-    p.add_argument(
-        "--provider",
-        "-p",
-        help="Cloud provider (google_cloud, aws, azure, snowflake, databricks, gcp, amazon, microsoft)",
-        choices=[
-            "google_cloud",
-            "gcp",
-            "google",
-            "aws",
-            "amazon",
-            "azure",
-            "microsoft",
-            "snowflake",
-            "databricks",
-        ],
+    p = subparsers.add_parser(
+        COMMAND,
+        help="Provider authentication management",
+        description=(
+            "Manage authentication for cloud and data platform providers.\n\n"
+            "Usage:\n"
+            "  fluid auth login gcp        Authenticate with Google Cloud\n"
+            "  fluid auth login aws         Authenticate with AWS\n"
+            "  fluid auth status            Show status for all providers\n"
+            "  fluid auth doctor            Audit credential hygiene\n"
+            "  fluid auth list              List available providers"
+        ),
     )
+
+    # NOTE: --provider is intentionally NOT defined here because the top-level
+    # CLI already has --provider (for data infrastructure selection). Adding it
+    # again would cause argparse conflicts. Auth providers are passed as
+    # positional arguments to each verb instead (e.g., `fluid auth login gcp`).
 
     # Create subcommands
     sp = p.add_subparsers(dest="verb", required=True, help="Authentication action")
 
+    _provider_names = "gcp, aws, azure, snowflake, databricks"
+
     # Login command
-    login_parser = sp.add_parser("login", help="Authenticate with a cloud provider")
+    login_parser = sp.add_parser(
+        "login",
+        help="Authenticate with a cloud provider",
+        description=f"Log in to a cloud or data platform provider.\n\nAvailable providers: {_provider_names}",
+    )
     login_parser.add_argument(
-        "provider", nargs="?", help="Provider to authenticate with (overrides --provider)"
+        "provider",
+        nargs="?",
+        help=f"Provider name ({_provider_names})",
     )
     login_parser.set_defaults(func=run)
 
     # Status command
-    status_parser = sp.add_parser("status", help="Show authentication status")
+    status_parser = sp.add_parser(
+        "status",
+        help="Show authentication status",
+        description="Show current auth status. Omit provider to check all.",
+    )
     status_parser.add_argument(
-        "provider", nargs="?", help="Provider to check (if not specified, checks all)"
+        "provider",
+        nargs="?",
+        help="Provider to check (omit to check all)",
     )
     status_parser.set_defaults(func=run)
 
     # Logout command
-    logout_parser = sp.add_parser("logout", help="Logout from a provider")
+    logout_parser = sp.add_parser(
+        "logout",
+        help="Logout from a provider",
+        description=f"Revoke credentials for a provider.\n\nAvailable providers: {_provider_names}",
+    )
     logout_parser.add_argument(
-        "provider", nargs="?", help="Provider to logout from (overrides --provider)"
+        "provider",
+        nargs="?",
+        help=f"Provider to logout from ({_provider_names})",
     )
     logout_parser.set_defaults(func=run)
 
@@ -1155,13 +1188,22 @@ def register(subparsers: argparse._SubParsersAction):
 
     # Doctor command — audit credential hygiene and security posture
     doctor_parser = sp.add_parser(
-        "doctor", help="Audit credential hygiene and security posture"
+        "doctor",
+        help="Audit credential hygiene and security posture",
+        description=(
+            "Run security checks on your credential setup.\n\n"
+            "Checks: file permissions, keyring availability, OIDC in CI,\n"
+            "long-lived credentials, and per-provider auth status.\n\n"
+            "Use --fix to auto-remediate permission issues."
+        ),
     )
     doctor_parser.add_argument(
-        "provider", nargs="?", help="Provider to audit (if not specified, audits all)"
+        "provider",
+        nargs="?",
+        help="Provider to audit (omit to audit all)",
     )
     doctor_parser.add_argument(
-        "--fix", action="store_true", help="Auto-fix issues where possible"
+        "--fix", action="store_true", help="Auto-fix issues where possible",
     )
     doctor_parser.set_defaults(func=run)
 
@@ -1203,33 +1245,24 @@ def run(args, logger: logging.Logger) -> int:
                         table.add_row(provider, aliases, description)
 
                 console.print(table)
-                console.print("\n[dim]Usage: fluid --provider <provider> login[/dim]")
+                console.print("\n[dim]Usage: fluid auth login <provider>[/dim]")
             else:
                 cprint("Available authentication providers:")
                 for provider in providers:
                     cprint(f"  - {provider}")
-                cprint("\nUsage: fluid --provider <provider> login")
+                cprint("\nUsage: fluid auth login <provider>")
 
             return 0
 
-        # Determine provider
+        # Provider comes from the positional argument on each verb subparser
         provider = getattr(args, "provider", None)
-
-        # Handle commands that can take provider as positional argument
-        if hasattr(args, "provider") and args.provider:
-            # Provider specified as positional argument
-            provider = args.provider
-        elif hasattr(args, "provider") and not args.provider:
-            # Check if provider was specified as --provider flag
-            provider = getattr(args, "provider", None)
 
         # Run async commands
         if args.verb == "login":
             if not provider:
-                logger.error(
-                    "❌ Provider required for login. Use: fluid --provider <provider> login"
-                )
+                logger.error("❌ Provider required. Usage: fluid auth login <provider>")
                 logger.info(f"Available providers: {', '.join(auth_manager.list_providers())}")
+                logger.info("Example: fluid auth login gcp")
                 return 1
 
             return asyncio.run(handle_login(provider, auth_manager, logger))
@@ -1239,9 +1272,8 @@ def run(args, logger: logging.Logger) -> int:
 
         elif args.verb == "logout":
             if not provider:
-                logger.error(
-                    "❌ Provider required for logout. Use: fluid --provider <provider> logout"
-                )
+                logger.error("❌ Provider required. Usage: fluid auth logout <provider>")
+                logger.info("Example: fluid auth logout gcp")
                 return 1
 
             return asyncio.run(handle_logout(provider, auth_manager, logger))
@@ -1387,7 +1419,7 @@ async def handle_status(
                     console.print(f"\n[red]Error: {result.error_message}[/red]")
 
                 if result.status == AuthStatus.NOT_AUTHENTICATED:
-                    console.print(f"\n[dim]💡 Run: fluid --provider {provider} login[/dim]")
+                    console.print(f"\n[dim]💡 Run: fluid auth login {provider}[/dim]")
             else:
                 cprint(f"{provider}: {result.status.value}")
                 if result.user_info:
@@ -1448,7 +1480,7 @@ async def handle_status(
 
                 console.print(table)
                 console.print(
-                    "\n[dim]💡 Use: fluid --provider <provider> login to authenticate[/dim]"
+                    "\n[dim]💡 Use: fluid auth login <provider> to authenticate[/dim]"
                 )
             else:
                 cprint("Authentication Status:")
