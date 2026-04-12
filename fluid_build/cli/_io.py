@@ -20,7 +20,7 @@ import tempfile
 
 
 def atomic_write(path: str, data: str, encoding: str = "utf-8") -> None:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     d = os.path.dirname(path) or "."
     fd, tmp = tempfile.mkstemp(prefix=".tmp.", dir=d)
     try:

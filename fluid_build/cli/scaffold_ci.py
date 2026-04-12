@@ -28,7 +28,7 @@ COMMAND = "scaffold-ci"
 def register(subparsers: argparse._SubParsersAction):
     p = subparsers.add_parser(COMMAND, help="Generate CI pipeline (GitLab/GitHub)")
     p.add_argument("contract", help="contract.fluid.yaml")
-    p.add_argument("--system", choices=["gitlab", "github"], default="gitlab", help="CI system")
+    p.add_argument("--system", choices=["gitlab", "github", "jenkins"], default="gitlab", help="CI system")
     p.add_argument("--out", default=".gitlab-ci.yml", help="Output path")
     p.set_defaults(cmd=COMMAND, func=run)
 
@@ -81,13 +81,72 @@ jobs:
       - run: python -m fluid_build.cli --provider ${{ env.PROVIDER }} apply runtime/plan.json --yes
 """
 
+JENKINS = """\
+// FLUID CI/CD Pipeline — Jenkinsfile
+pipeline {
+    agent any
+
+    environment {
+        CONTRACT = 'contract.fluid.yaml'
+        PROVIDER = 'default'
+    }
+
+    stages {
+        stage('Validate') {
+            steps {
+                sh 'python -m fluid_build.cli validate $CONTRACT'
+            }
+        }
+        stage('Plan') {
+            steps {
+                sh 'python -m fluid_build.cli --provider $PROVIDER plan $CONTRACT --out runtime/plan.json'
+            }
+            post {
+                success {
+                    archiveArtifacts artifacts: 'runtime/plan.json', fingerprint: true
+                }
+            }
+        }
+        stage('Test') {
+            steps {
+                sh 'python -m fluid_build.cli contract-tests $CONTRACT'
+            }
+        }
+        stage('Apply') {
+            when { branch 'main' }
+            input {
+                message 'Deploy?'
+                ok 'Apply'
+            }
+            steps {
+                sh 'python -m fluid_build.cli --provider $PROVIDER apply runtime/plan.json --yes'
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}
+"""
+
+_TEMPLATES = {"gitlab": GITLAB, "github": GITHUB, "jenkins": JENKINS}
+_DEFAULT_PATHS = {
+    "gitlab": ".gitlab-ci.yml",
+    "github": ".github/workflows/fluid.yml",
+    "jenkins": "Jenkinsfile",
+}
+
 
 def run(args, logger: logging.Logger) -> int:
     try:
-        content = GITLAB if args.system == "gitlab" else GITHUB
-        os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-        atomic_write(args.out, content)
-        info(logger, "scaffold_ci_written", out=args.out, system=args.system)
+        content = _TEMPLATES[args.system]
+        out = args.out
+        os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+        atomic_write(out, content)
+        info(logger, "scaffold_ci_written", out=out, system=args.system)
         return 0
     except Exception as e:
         raise CLIError(1, "scaffold_ci_failed", {"error": str(e)})
