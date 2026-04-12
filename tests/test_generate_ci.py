@@ -1,9 +1,11 @@
 # Copyright 2024-2026 Agentics Transformation Ltd
 # Licensed under the Apache License, Version 2.0
 
-"""Tests for Jenkins CI generation — static template, CLI, advanced template,
-and a simulated Jenkins pipeline run that parses the generated Jenkinsfile and
-replays its ``sh`` steps against mocked infrastructure.
+"""Tests for static CI generation and Jenkins pipeline behavior.
+
+The ``fluid generate ci`` command supports GitHub, GitLab, and Jenkins.
+This module keeps the deeper Jenkins simulation coverage while also asserting
+the static cross-system generation path used by BizLab acceptance tests.
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ import pytest
 
 from fluid_build.cli.generate_ci import run as generate_ci_run
 from fluid_build.cli.pipeline_generator import _comment_prefix_for
-from fluid_build.cli.scaffold_ci import JENKINS, _DEFAULT_PATHS, _TEMPLATES
+from fluid_build.cli.scaffold_ci import GITHUB, GITLAB, JENKINS, _DEFAULT_PATHS, _TEMPLATES
 from fluid_build.forge.core.pipeline_templates import (
     PipelineComplexity,
     PipelineConfig,
@@ -37,6 +39,13 @@ _logger = logging.getLogger("test_generate_ci_jenkins")
 
 def _make_args(system: str = "jenkins", out: Optional[str] = None) -> argparse.Namespace:
     return argparse.Namespace(system=system, out=out, contract="contract.fluid.yaml")
+
+
+_STATIC_SYSTEM_CASES = (
+    ("github", ".github/workflows/fluid.yml", GITHUB, ("name: FLUID", "runs-on: ubuntu-latest")),
+    ("gitlab", ".gitlab-ci.yml", GITLAB, ("stages:", "validate:")),
+    ("jenkins", "Jenkinsfile", JENKINS, ("pipeline {", "stage('Validate')")),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +136,48 @@ class TestGenerateCIJenkins:
     def test_returns_zero_on_success(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         assert generate_ci_run(_make_args(), _logger) == 0
+
+
+class TestGenerateCIStaticSystems:
+    """Cross-system coverage for ``fluid generate ci`` default paths and output."""
+
+    @pytest.mark.parametrize(
+        ("system", "default_path", "template", "tokens"),
+        _STATIC_SYSTEM_CASES,
+    )
+    def test_registered_in_templates_dict(self, system, default_path, template, tokens):
+        assert _TEMPLATES[system] is template
+        assert _DEFAULT_PATHS[system] == default_path
+        for token in tokens:
+            assert token in template
+
+    @pytest.mark.parametrize(
+        ("system", "default_path", "template", "_tokens"),
+        _STATIC_SYSTEM_CASES,
+    )
+    def test_generate_ci_writes_default_output(self, tmp_path, monkeypatch, system, default_path, template, _tokens):
+        monkeypatch.chdir(tmp_path)
+        rc = generate_ci_run(_make_args(system=system), _logger)
+        assert rc == 0
+        written = tmp_path / default_path
+        assert written.exists()
+        assert written.read_text() == template
+
+    @pytest.mark.parametrize(
+        ("system", "_default_path", "template", "tokens"),
+        _STATIC_SYSTEM_CASES,
+    )
+    def test_generate_ci_supports_custom_output(self, tmp_path, monkeypatch, system, _default_path, template, tokens):
+        monkeypatch.chdir(tmp_path)
+        suffix = "Jenkinsfile" if system == "jenkins" else f"{system}.yml"
+        custom = tmp_path / "generated" / suffix
+        rc = generate_ci_run(_make_args(system=system, out=str(custom)), _logger)
+        assert rc == 0
+        assert custom.exists()
+        content = custom.read_text()
+        assert content == template
+        for token in tokens:
+            assert token in content
 
 
 # ---------------------------------------------------------------------------

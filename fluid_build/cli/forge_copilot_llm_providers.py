@@ -1289,8 +1289,11 @@ def _resolve_api_key(provider: str, env: Mapping[str, str]) -> Optional[str]:
         key = env.get(env_var)
         if key:
             return key
-    # Gemini also accepts GOOGLE_API_KEY as a fallback
+    # Gemini accepts either the Forge-centric alias or Google's native env var.
     if provider == "gemini":
+        key = env.get("GEMINI_API_KEY")
+        if key:
+            return key
         key = env.get("GOOGLE_API_KEY")
         if key:
             return key

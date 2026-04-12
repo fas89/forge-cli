@@ -172,6 +172,17 @@ class TestCheckLlmReadiness:
         result = check_llm_readiness({"FLUID_LLM_PROVIDER": "nonexistent"})
         assert not result.ready
 
+    def test_ready_with_gemini_api_key_alias(self):
+        from fluid_build.cli.forge_copilot_llm_providers import check_llm_readiness
+
+        with patch("fluid_build.cli.ai_setup._load_ai_config", return_value=None):
+            result = check_llm_readiness(
+                {"GEMINI_API_KEY": "AIzaTestAlias", "FLUID_LLM_PROVIDER": "gemini"}
+            )
+        assert result.ready
+        assert result.provider == "gemini"
+        assert result.auth_available
+
 
 class TestShowAiStatus:
     def test_status_no_console(self):

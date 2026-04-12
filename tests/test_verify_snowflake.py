@@ -81,6 +81,31 @@ def test_verify_snowflake_table_returns_match():
     assert result["dimensions"]["location"]["actual"] == "ANALYTICS.CURATED"
 
 
+def test_verify_snowflake_table_matches_case_insensitively():
+    with patch(
+        "fluid_build.providers.snowflake.util.config.get_connection_params", return_value={}
+    ):
+        with patch(
+            "fluid_build.providers.snowflake.connection.SnowflakeConnection", _MockConnection
+        ):
+            result = verify_snowflake_table(
+                account="acme-account",
+                warehouse="TRANSFORM_WH",
+                database="ANALYTICS",
+                schema="CURATED",
+                table="CUSTOMERS",
+                expected_schema=[
+                    {"name": "id", "type": "INTEGER", "required": True},
+                    {"name": "email", "type": "STRING"},
+                ],
+                user="svc_forge",
+                password="secret",
+            )
+
+    assert result["status"] == "match"
+    assert result["dimensions"]["structure"]["matching_fields"] == ["id", "email"]
+
+
 def test_run_routes_snowflake_table_to_verify_function(tmp_path: Path):
     contract_file = tmp_path / "contract.fluid.yaml"
     contract_file.write_text("id: snowflake.test\n")

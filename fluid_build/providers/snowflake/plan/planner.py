@@ -584,6 +584,22 @@ def _map_fluid_type_to_snowflake(fluid_type: str) -> str:
     - array → ARRAY
     - object → OBJECT
     """
+    raw_type = (fluid_type or "string").strip()
+    lower_type = raw_type.lower()
+    parameterized_prefixes = {
+        "decimal",
+        "numeric",
+        "number",
+        "varchar",
+        "char",
+        "character",
+        "binary",
+        "varbinary",
+    }
+    base_type = lower_type.split("(", 1)[0].strip()
+    if "(" in lower_type and base_type in parameterized_prefixes:
+        return raw_type.upper()
+
     type_map = {
         "string": "VARCHAR",
         "integer": "NUMBER(38,0)",
@@ -611,4 +627,4 @@ def _map_fluid_type_to_snowflake(fluid_type: str) -> str:
         "geometry": "GEOMETRY",
     }
 
-    return type_map.get(fluid_type.lower(), "VARCHAR")
+    return type_map.get(lower_type, "VARCHAR")

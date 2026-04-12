@@ -164,6 +164,12 @@ class SnowflakeConnection:
         ):
             if not value:
                 continue
+            if label == "SCHEMA" and not opts.database:
+                # Snowflake cannot resolve a schema without a current database.
+                # Skip eager schema initialization so auth checks and
+                # database-creation actions can connect before the target
+                # database exists.
+                continue
             try:
                 safe = label_validators[label](str(value))
             except ValueError as exc:

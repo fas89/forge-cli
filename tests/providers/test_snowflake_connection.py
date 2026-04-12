@@ -152,6 +152,26 @@ def test_connect_accepts_dotted_database_and_schema(monkeypatch):
     ]
 
 
+def test_connect_skips_schema_initialization_without_database(monkeypatch):
+    """Schema initialization requires a current database in Snowflake."""
+    conn = _ConnectionStub()
+
+    monkeypatch.setattr(connection_mod, "SNOWFLAKE_AVAILABLE", True)
+    monkeypatch.setattr(
+        connection_mod,
+        "snowflake",
+        SimpleNamespace(connector=SimpleNamespace(connect=lambda **kwargs: conn)),
+    )
+
+    result = SnowflakeConnection(_opts(database=None, schema="PUBLIC"))._connect()
+
+    assert result is conn
+    assert conn.statements == [
+        "USE ROLE TRANSFORMER",
+        "USE WAREHOUSE TRANSFORM_WH",
+    ]
+
+
 def test_connect_rejects_dotted_identifier_with_invalid_segment(monkeypatch):
     """Each segment of a dotted identifier must still pass validate_ident —
     an empty segment (``ANALYTICS..RAW``) or an injection-like segment is

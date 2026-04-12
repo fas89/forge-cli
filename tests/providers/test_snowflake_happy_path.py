@@ -220,6 +220,23 @@ def test_plan_actions_supports_dbt_style_contract_without_build_sql():
     assert table_action["table"] == "BILLING_HISTORY_V1"
 
 
+def test_plan_actions_preserves_parameterized_decimal_types():
+    contract = _dbt_contract()
+    contract["exposes"][0]["contract"]["schema"][1]["type"] = "DECIMAL(12,2)"
+
+    actions = plan_actions(
+        contract,
+        account="acme-account",
+        warehouse="BOOTSTRAP_WH",
+        database=None,
+        schema="PUBLIC",
+    )
+
+    table_action = next(action for action in actions if action["op"] == "sf.table.ensure")
+    total_amount = next(col for col in table_action["columns"] if col["name"] == "total_amount")
+    assert total_amount["type"] == "DECIMAL(12,2)"
+
+
 # ---------------------------------------------------------------------------
 # Hardening regression tests (PR follow-up to #44)
 # ---------------------------------------------------------------------------

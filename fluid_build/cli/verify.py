@@ -407,6 +407,11 @@ def _normalize_snowflake_type(value: str) -> str:
     return base
 
 
+def _normalize_snowflake_field_name(value: str) -> str:
+    """Snowflake folds unquoted identifiers to uppercase."""
+    return (value or "").upper()
+
+
 def _quote_qualified_snowflake_name(database: str, schema: str, table: str) -> str:
     """
     Build a fully-qualified, quoted Snowflake object name from validated parts.
@@ -435,7 +440,8 @@ def _fetch_snowflake_columns(
     if not rows:
         return {}
     return {
-        row[0]: {
+        _normalize_snowflake_field_name(str(row[0])): {
+            "name": str(row[0]),
             "type": _normalize_snowflake_type(row[1]),
             "mode": "required" if str(row[2]).upper() == "NO" else "nullable",
         }
@@ -449,7 +455,8 @@ def _expected_snowflake_fields(expected_schema: List[Dict[str, Any]]) -> Dict[st
         field_name = field.get("name")
         if not field_name:
             continue
-        expected_fields[field_name] = {
+        expected_fields[_normalize_snowflake_field_name(str(field_name))] = {
+            "name": str(field_name),
             "type": _normalize_snowflake_type(field.get("type", "STRING")),
             "mode": (
                 "required"
@@ -467,18 +474,39 @@ def _compare_snowflake_shapes(
     matching, missing, extra, type_mismatches, mode_mismatches = [], [], [], [], []
     for name, props in expected.items():
         if name in actual:
-            matching.append(name)
+            matching.append(props["name"])
         else:
-            missing.append({"field": name, "expected": props})
+            missing.append(
+                {
+                    "field": props["name"],
+                    "expected": {
+                        "type": props["type"],
+                        "mode": props["mode"],
+                    },
+                }
+            )
     for name, props in actual.items():
         if name not in expected:
-            extra.append({"field": name, "actual": props})
+            extra.append(
+                {
+                    "field": props["name"],
+                    "actual": {
+                        "type": props["type"],
+                        "mode": props["mode"],
+                    },
+                }
+            )
     for name in matching:
-        exp, act = expected[name], actual[name]
+        normalized = _normalize_snowflake_field_name(name)
+        exp, act = expected[normalized], actual[normalized]
         if act["type"] != exp["type"]:
-            type_mismatches.append({"field": name, "expected": exp["type"], "actual": act["type"]})
+            type_mismatches.append(
+                {"field": exp["name"], "expected": exp["type"], "actual": act["type"]}
+            )
         if act["mode"] != exp["mode"]:
-            mode_mismatches.append({"field": name, "expected": exp["mode"], "actual": act["mode"]})
+            mode_mismatches.append(
+                {"field": exp["name"], "expected": exp["mode"], "actual": act["mode"]}
+            )
     return {
         "matching": matching,
         "missing": missing,
