@@ -53,7 +53,7 @@ PINNED_ACTIONS = {
     "actions/setup-python@v5": "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",  # v5.6.0
     "actions/upload-artifact@v4": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",  # v4.6.2
     "actions/download-artifact@v4": "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",  # v4.3.0
-    "aquasecurity/trivy-action@master": "aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1",  # v0.35.0
+    "aquasecurity/trivy-action@v0": "aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1",  # v0.35.0
     "github/codeql-action/upload-sarif@v3": "github/codeql-action/upload-sarif@7fc1baf373eb073c686865bd453d412d506a05a2",  # v3.35.1
     "google-github-actions/auth@v2": "google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed",  # v2.1.13
     "aws-actions/configure-aws-credentials@v4": "aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a",  # v4.3.1
@@ -564,7 +564,7 @@ class GitHubActionsTemplate(BasePipelineTemplate):
                         {"name": "Checkout", "uses": _pin_action("actions/checkout@v4")},
                         {
                             "name": "Run Trivy vulnerability scanner",
-                            "uses": _pin_action("aquasecurity/trivy-action@master"),
+                            "uses": _pin_action("aquasecurity/trivy-action@v0"),
                             "with": {
                                 "scan-type": "fs",
                                 "format": "sarif",
@@ -785,7 +785,7 @@ class GitLabCITemplate(BasePipelineTemplate):
             if config.oidc_provider:
                 deploy_job["id_tokens"] = {
                     "FLUID_OIDC_TOKEN": {
-                        "aud": f"https://fluid-ci.{config.oidc_provider}.example.com"
+                        "aud": "https://YOUR_IDENTITY_POOL_AUDIENCE"
                     }
                 }
 
