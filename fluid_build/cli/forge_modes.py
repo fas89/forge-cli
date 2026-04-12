@@ -962,6 +962,7 @@ def run_ai_copilot_mode(
             "non_interactive": is_non_interactive,
             "fragment_first": bool(get_cli_arg_fn(args, "fragments", False)),
             "no_fragments": bool(get_cli_arg_fn(args, "no_fragments", False)),
+            "no_generate": bool(get_cli_arg_fn(args, "no_generate", False)),
         }
 
         context_arg = get_cli_arg_fn(args, "context")
@@ -1100,6 +1101,16 @@ def run_ai_copilot_mode(
                     for c in existing_contracts
                 ]
 
+            # Resolve preliminary target_dir for early scaffold (samples/ + models/).
+            # If --target-dir was provided, use it. Otherwise we'll use a
+            # temporary name; the final target_dir is resolved after the
+            # interview when we know the project_goal.
+            explicit_target = get_cli_arg_fn(args, "target_dir")
+            _prelim_target = (
+                Path(explicit_target).expanduser() if explicit_target
+                else None
+            )
+
             interview_state = run_adaptive_copilot_interview(
                 initial_context=context,
                 console=console,
@@ -1107,6 +1118,7 @@ def run_ai_copilot_mode(
                 discovery_report=discovery_report,
                 capability_matrix=runtime_inputs["capability_matrix"],
                 project_memory=runtime_inputs["project_memory"],
+                target_dir=_prelim_target,
             )
             copilot_options["interview_state"] = interview_state
             context = interview_state.finalize()
@@ -1814,9 +1826,25 @@ def _create_project_minimal(
             fragment_files = {}
             write_contract(contract, contract_path, command="fluid forge")
 
+        # ── Transformation engine artifact generation ────────────
+        # If the contract has a builds[].engine and we have a registered
+        # generator, produce engine artifacts (dbt project, SQL scripts,
+        # etc.) and write them alongside the contract.
+        engine_files = _generate_engine_artifacts(
+            contract,
+            target_dir=target_dir,
+            context=context,
+            discovery_report=generation_result.discovery_report,
+            logger=logger,
+            console=console,
+            no_generate=options.get("no_generate", False),
+        )
+
         # Write additional files (dbt models, SQL, etc.) — these were
         # previously ignored in the minimal path.
-        additional_files = generation_result.additional_files
+        additional_files = dict(generation_result.additional_files or {})
+        # Merge engine-generated files (engine files take precedence)
+        additional_files.update(engine_files)
         if additional_files:
             for rel_path, content in additional_files.items():
                 fpath = target_dir / rel_path
@@ -1894,6 +1922,144 @@ def _create_project_minimal(
         else:
             console_error(f"Failed to create project: {exc}")
         return False
+
+
+def _generate_engine_artifacts(
+    contract: Dict[str, Any],
+    *,
+    target_dir: Path,
+    context: Dict[str, Any],
+    discovery_report: Any,
+    logger: logging.Logger,
+    console: Any,
+    no_generate: bool = False,
+) -> Dict[str, str]:
+    """Generate transformation engine artifacts from the contract.
+
+    Returns a dict of {relative_path: content} for files to write under
+    target_dir.  Returns empty dict if generation is skipped or no engine
+    is available.
+    """
+    if no_generate:
+        return {}
+
+    try:
+        from fluid_build.util.contract import get_build_engine, get_builds
+        from fluid_build.engines import get_engine, has_engine
+
+        builds = get_builds(contract)
+        if not builds:
+            return {}
+
+        build = builds[0]
+        engine_name = get_build_engine(build) or context.get("build_engine", "")
+        if not engine_name:
+            return {}
+
+        # Map provider-specific engine names to base engine names
+        engine_map = {"dbt-bigquery": "dbt", "dbt-duckdb": "dbt"}
+        resolved_name = engine_map.get(engine_name, engine_name)
+
+        if not has_engine(resolved_name):
+            if console:
+                try:
+                    console.print(
+                        f"\n[dim]Engine '{engine_name}' is set in your contract. "
+                        f"Transformation artifact generation is not yet available for this engine.\n"
+                        f"You can write your transformation code manually, or use 'fluid generate' later.[/dim]"
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+            return {}
+
+        engine = get_engine(resolved_name)
+        if engine is None:
+            return {}
+
+        # Validate
+        issues = engine.validate(contract, build)
+        errors = [i for i in issues if i.severity.value == "error"]
+        if errors:
+            if logger:
+                for issue in errors:
+                    logger.warning("engine_validation: %s", issue)
+            return {}
+
+        # Build schema_context from discovery report
+        schema_context = None
+        if discovery_report and hasattr(discovery_report, "sample_files"):
+            schemas = {}
+            for sample in discovery_report.sample_files:
+                if sample.get("columns"):
+                    # Use the filename without extension as key
+                    path_str = sample.get("path", "")
+                    name = Path(path_str).stem if path_str else "unknown"
+                    schemas[name] = {"columns": sample["columns"]}
+            if schemas:
+                schema_context = {"schemas": schemas}
+
+        # Build transformation intent from domain expertise if available
+        transformation_intent = None
+        domain_expertise = context.get("domain_expertise", {})
+        modeling_standards = domain_expertise.get("data_modeling_standards")
+        if modeling_standards:
+            from fluid_build.engines.base import TransformationIntent
+
+            transformation_intent = TransformationIntent(
+                canonical_model=domain_expertise.get("domain"),
+                user_data_model=modeling_standards,
+            )
+
+        # Include user-supplied data models from discovery
+        if (
+            transformation_intent is None
+            and discovery_report
+            and hasattr(discovery_report, "user_data_models")
+            and discovery_report.user_data_models
+        ):
+            from fluid_build.engines.base import TransformationIntent
+
+            # Merge all user model schemas into one dict
+            merged_cols = {}
+            for model in discovery_report.user_data_models:
+                merged_cols.update(model.get("columns", {}))
+            transformation_intent = TransformationIntent(
+                user_data_model=merged_cols,
+            )
+
+        # Generate artifacts under the repository path (or default)
+        repository = build.get("repository", f"./{resolved_name}_project")
+        # Strip leading ./ for relative paths
+        if repository.startswith("./"):
+            repository = repository[2:]
+
+        files = engine.generate(
+            contract, build,
+            schema_context=schema_context,
+            transformation_intent=transformation_intent,
+        )
+
+        # Prefix all paths with the repository directory
+        prefixed = {f"{repository}/{rel_path}": content for rel_path, content in files.items()}
+
+        if console and prefixed:
+            try:
+                console.print(
+                    f"\n[green]Generated {len(prefixed)} transformation files[/green] "
+                    f"[dim]({resolved_name} engine → {repository}/)[/dim]"
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
+        return prefixed
+
+    except ImportError:
+        # engines module not available — skip silently
+        return {}
+    except Exception as exc:  # noqa: BLE001
+        if logger:
+            logger.debug("engine_artifact_generation_failed: %s", exc)
+        return {}
 
 
 def _scaffold_data_folder(target_dir: Path, context: dict, console: Any) -> None:

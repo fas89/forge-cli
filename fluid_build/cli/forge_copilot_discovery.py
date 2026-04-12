@@ -103,6 +103,10 @@ class DiscoveryReport:
     discovery_warnings: List[str] = field(default_factory=list)
     # Authoring layout: "flat" or "fragment-first" (auto-detected).
     authoring_mode: str = "flat"
+    # True when no sample data files (CSV, Parquet, etc.) were found.
+    sample_data_missing: bool = False
+    # User-supplied data model files discovered in models/ folder.
+    user_data_models: List[Dict[str, Any]] = field(default_factory=list)
     # Slice UX-L: surfaced in the performance summary panel.
     cache_hit: bool = False
     scan_time_ms: int = 0
@@ -276,6 +280,7 @@ def discover_local_context(
 
     report.detected_sources = detected_sources[:MAX_SAMPLE_FILES]
     report.provider_hints = [name for name, _ in provider_counts.most_common()]
+    report.sample_data_missing = len(report.sample_files) == 0
 
     if report.sql_files:
         report.build_constraints.append(
@@ -326,6 +331,64 @@ def discover_local_context(
             pass
 
     return report
+
+
+# ---------------------------------------------------------------------------
+# Rescan helpers (for forge interview early-scaffold flow)
+# ---------------------------------------------------------------------------
+
+
+def rescan_sample_data(
+    target_dir: Path,
+    report: DiscoveryReport,
+    *,
+    logger: Optional[logging.Logger] = None,
+) -> None:
+    """Re-scan *target_dir*/samples/ and *target_dir*/models/ after the user
+    drops files during the forge interview.  Mutates *report* in place.
+    """
+    from .forge_copilot_schema_inference import summarize_sample_file
+
+    # Scan samples/ folder for data files
+    samples_dir = target_dir / "samples"
+    if samples_dir.is_dir():
+        for path in sorted(samples_dir.iterdir()):
+            if not path.is_file():
+                continue
+            if path.suffix.lower() not in DISCOVERABLE_SAMPLE_SUFFIXES:
+                continue
+            if len(report.sample_files) >= MAX_SAMPLE_FILES:
+                break
+            # Skip already-discovered files
+            known_paths = {s.get("path") for s in report.sample_files}
+            if str(path) in known_paths:
+                continue
+            try:
+                sample = summarize_sample_file(path)
+                report.sample_files.append(sample)
+                report.detected_sources.append(sample)
+            except Exception as exc:  # noqa: BLE001
+                if logger:
+                    logger.debug("rescan_sample_failed: %s", exc)
+
+    report.sample_data_missing = len(report.sample_files) == 0
+
+    # Scan models/ folder for user-supplied data models
+    models_dir = target_dir / "models"
+    if models_dir.is_dir():
+        for path in sorted(models_dir.iterdir()):
+            if not path.is_file():
+                continue
+            if path.suffix.lower() in (".sql", ".yaml", ".yml", ".json"):
+                try:
+                    from .forge_copilot_schema_inference import summarize_user_data_model
+
+                    model_summary = summarize_user_data_model(path)
+                    if model_summary:
+                        report.user_data_models.append(model_summary)
+                except Exception as exc:  # noqa: BLE001
+                    if logger:
+                        logger.debug("rescan_data_model_failed: %s", exc)
 
 
 # ---------------------------------------------------------------------------

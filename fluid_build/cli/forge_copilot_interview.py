@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from dataclasses import field as dc_field
+from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
 
 from .forge_copilot_runtime import (
@@ -122,6 +123,9 @@ SUMMARY_FIELDS = {
     "consumes",
     "ci_provider",
     "ci_complexity",
+    "byot_path",
+    "transformation_engine",
+    "user_data_model",
 }
 
 LIST_LIKE_FIELDS = {"primary_measures", "primary_dimensions", "supporting_standards"}
@@ -142,6 +146,9 @@ SCALAR_FIELDS = {
     "use_case_other",
     "ci_provider",
     "ci_complexity",
+    "byot_path",
+    "transformation_engine",
+    "user_data_model",
 }
 
 
@@ -449,6 +456,7 @@ def run_adaptive_copilot_interview(
     capability_matrix: Mapping[str, Any],
     project_memory: Optional[Any] = None,
     previous_failure: Optional[List[str]] = None,
+    target_dir: Optional[Path] = None,
 ) -> CopilotInterviewState:
     """Run the multi-round adaptive interview, calling the LLM for dynamic questions."""
     from .forge_ui import print_interview_phase
@@ -463,7 +471,9 @@ def run_adaptive_copilot_interview(
         print_interview_phase(
             console, phase=1, total=3, label="Understanding your project"
         )
-    _ask_bootstrap_questions(state, console, discovery_report=discovery_report)
+    _ask_bootstrap_questions(
+        state, console, discovery_report=discovery_report, target_dir=target_dir,
+    )
 
     # Slice UX-I: short-circuit the clarification LLM round if the
     # bootstrap questions + discovery + project memory already filled
@@ -599,6 +609,7 @@ def _ask_bootstrap_questions(
     console: Any,
     *,
     discovery_report: DiscoveryReport,
+    target_dir: Optional[Path] = None,
 ) -> None:
     if not console:
         return
@@ -619,6 +630,13 @@ def _ask_bootstrap_questions(
                 resolved_value=answer,
                 resolution_status="matched",
             )
+
+    # ── Early scaffold: create samples/ and models/ dirs ────────────
+    if target_dir is not None:
+        _scaffold_data_dirs_and_prompt(
+            state, console, target_dir=target_dir, discovery_report=discovery_report,
+        )
+
     if not state.normalized_context.get("data_sources") and _discovery_is_thin(discovery_report):
         answer = ask_friendly_text(
             console,
@@ -636,6 +654,17 @@ def _ask_bootstrap_questions(
                 resolved_value=answer,
                 resolution_status="matched",
             )
+
+    # ── BYOT: Bring Your Own Transformation ─────────────────────────
+    if not state.normalized_context.get("byot_path"):
+        _ask_byot_question(state, console)
+
+    # ── Engine selection (ask once, remember via copilot memory) ─────
+    if (
+        not state.normalized_context.get("build_engine")
+        and not state.normalized_context.get("byot_path")
+    ):
+        _ask_engine_selection(state, console, discovery_report=discovery_report)
 
     # Ask about data modeling if domain expertise has modeling standards
     domain_expertise = state.normalized_context.get("domain_expertise") or {}
@@ -656,6 +685,170 @@ def _ask_bootstrap_questions(
                 resolved_value="true",
                 resolution_status="matched",
             )
+
+
+def _scaffold_data_dirs_and_prompt(
+    state: CopilotInterviewState,
+    console: Any,
+    *,
+    target_dir: Path,
+    discovery_report: DiscoveryReport,
+) -> None:
+    """Create samples/ + models/ dirs and prompt user to drop files."""
+    samples_dir = target_dir / "samples"
+    models_dir = target_dir / "models"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    samples_dir.mkdir(exist_ok=True)
+    models_dir.mkdir(exist_ok=True)
+
+    try:
+        console.print(
+            f"\n[green]Created project directory:[/green] {target_dir.name}/\n"
+            f"  [cyan]samples/[/cyan]  ← your data files (CSV, Parquet, Avro, JSON)\n"
+            f"  [cyan]models/[/cyan]   ← your data model [dim](optional — guides AI transformation design)[/dim]\n"
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+    # If sample data already exists (user pre-populated), skip the prompt
+    existing_samples = list(samples_dir.glob("*"))
+    data_files = [f for f in existing_samples if f.is_file() and f.suffix.lower() in {".csv", ".json", ".jsonl", ".parquet", ".pq", ".avro"}]
+    if data_files:
+        # Already have data — just rescan
+        from .forge_copilot_discovery import rescan_sample_data
+
+        rescan_sample_data(target_dir, discovery_report)
+        _print_discovered_data(console, discovery_report)
+        return
+
+    # No data yet — prompt user to drop files
+    try:
+        console.print(
+            "[dim]Place your files now, then press Enter to continue (or Enter to skip)...[/dim]"
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+    try:
+        input()
+    except (EOFError, KeyboardInterrupt):
+        return
+
+    # Re-scan after user drops files
+    from .forge_copilot_discovery import rescan_sample_data
+
+    rescan_sample_data(target_dir, discovery_report)
+    _print_discovered_data(console, discovery_report)
+
+
+def _print_discovered_data(console: Any, discovery_report: DiscoveryReport) -> None:
+    """Print a summary of discovered sample files and data models."""
+    if not console:
+        return
+    try:
+        if discovery_report.sample_files:
+            console.print("\n[green]Discovered:[/green]")
+            for sample in discovery_report.sample_files:
+                cols = sample.get("columns", {})
+                col_names = list(cols.keys())[:4]
+                col_preview = ", ".join(col_names)
+                if len(cols) > 4:
+                    col_preview += ", ..."
+                path_name = Path(sample["path"]).name
+                console.print(
+                    f"  [cyan]{path_name}[/cyan] — {len(cols)} columns ({col_preview})"
+                )
+        if discovery_report.user_data_models:
+            for model in discovery_report.user_data_models:
+                path_name = Path(model["path"]).name
+                console.print(
+                    f"  [cyan]{path_name}[/cyan] — {model.get('tables', 0)} tables, "
+                    f"{model.get('total_columns', 0)} columns "
+                    f"[dim](used as transformation guardrails)[/dim]"
+                )
+        if not discovery_report.sample_files and not discovery_report.user_data_models:
+            console.print("[dim]No data files found — continuing with AI generation only.[/dim]")
+        console.print()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _ask_byot_question(
+    state: CopilotInterviewState,
+    console: Any,
+) -> None:
+    """Ask if user has existing transformation code (BYOT)."""
+    answer = ask_friendly_text(
+        console,
+        "Do you have existing transformation code? (local path / git URL / Enter to generate)",
+        required=False,
+    )
+    if answer and answer.strip():
+        trimmed = answer.strip()
+        state.apply_patch({"byot_path": trimmed}, source="interactive")
+        state.record_turn(
+            role="user",
+            content=trimmed,
+            field="byot_path",
+            question_id="bootstrap_byot",
+            raw_input=answer,
+            resolved_value=trimmed,
+            resolution_status="matched",
+        )
+        try:
+            console.print(f"[green]Using existing transformation:[/green] {trimmed}")
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _ask_engine_selection(
+    state: CopilotInterviewState,
+    console: Any,
+    *,
+    discovery_report: DiscoveryReport,
+) -> None:
+    """Ask which transformation engine to use, filtered by platform."""
+    try:
+        from fluid_build.engines import list_engines_for_platform, list_engines
+
+        # Filter by platform if known
+        provider = state.normalized_context.get("provider", "")
+        if provider:
+            available = list_engines_for_platform(provider)
+        else:
+            available = list_engines()
+
+        if not available:
+            return
+
+        choices_str = " / ".join(available)
+        answer = ask_friendly_text(
+            console,
+            f"What transformation engine? [{choices_str}]",
+            required=False,
+            default=available[0] if available else None,
+        )
+        if answer:
+            engine_name = answer.strip().lower()
+            if engine_name in available:
+                state.apply_patch({"build_engine": engine_name}, source="interactive")
+                state.record_turn(
+                    role="user",
+                    content=engine_name,
+                    field="build_engine",
+                    question_id="bootstrap_engine",
+                    raw_input=answer,
+                    resolved_value=engine_name,
+                    resolution_status="matched",
+                )
+            elif engine_name:
+                # Accept unknown engine names too — the contract schema supports custom
+                state.apply_patch({"build_engine": engine_name}, source="interactive")
+        elif available:
+            # Default to first available engine
+            state.apply_patch({"build_engine": available[0]}, source="interactive")
+    except ImportError:
+        pass  # engines module not available
 
 
 def _ask_dynamic_questions(

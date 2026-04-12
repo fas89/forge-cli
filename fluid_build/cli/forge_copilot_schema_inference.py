@@ -18,6 +18,7 @@ from __future__ import annotations
 
 __all__ = [
     "summarize_sample_file",
+    "summarize_user_data_model",
     "clear_sample_file_cache",
     "read_parquet_metadata",
     "read_avro_metadata",
@@ -505,4 +506,185 @@ def infer_duckdb_type(type_name: str) -> str:
         return "array"
     if "struct" in lowered or "map" in lowered:
         return "object"
+    return "string"
+
+
+# ---------------------------------------------------------------------------
+# User-supplied data model parsing
+# ---------------------------------------------------------------------------
+
+_CREATE_TABLE_RE = re.compile(
+    r"CREATE\s+(?:OR\s+REPLACE\s+)?(?:EXTERNAL\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"
+    r"[`\"\[]?(\w+(?:\.\w+)*)[`\"\]]?\s*\(",
+    re.IGNORECASE,
+)
+_COLUMN_DEF_RE = re.compile(
+    r"^\s+[`\"\[]?(\w+)[`\"\]]?\s+([\w()]+)",
+    re.IGNORECASE,
+)
+
+
+def summarize_user_data_model(path: Path) -> Optional[Dict[str, Any]]:
+    """Parse a user-supplied data model file (SQL DDL, YAML, or JSON).
+
+    Returns a dict with ``path``, ``format``, ``tables`` (count), and
+    ``columns`` (table_name -> {col: type}) — or ``None`` if the file
+    is unreadable or contains no schema information.
+    """
+    suffix = path.suffix.lower()
+
+    if suffix == ".sql":
+        return _parse_ddl_model(path)
+    elif suffix in (".yaml", ".yml"):
+        return _parse_yaml_model(path)
+    elif suffix == ".json":
+        return _parse_json_model(path)
+    return None
+
+
+def _parse_ddl_model(path: Path) -> Optional[Dict[str, Any]]:
+    """Extract table/column definitions from SQL DDL (CREATE TABLE)."""
+    try:
+        content = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return None
+
+    tables: Dict[str, Dict[str, str]] = {}
+    current_table: Optional[str] = None
+
+    for line in content.splitlines():
+        table_match = _CREATE_TABLE_RE.match(line)
+        if table_match:
+            current_table = table_match.group(1).split(".")[-1]  # strip schema prefix
+            tables[current_table] = {}
+            continue
+
+        if current_table and line.strip().startswith(")"):
+            current_table = None
+            continue
+
+        if current_table:
+            stripped = line.strip().lower()
+            # Skip constraint lines (PRIMARY KEY, FOREIGN KEY, UNIQUE, CHECK, CONSTRAINT)
+            if any(stripped.startswith(kw) for kw in ("primary", "foreign", "unique", "check", "constraint", "index")):
+                continue
+            col_match = _COLUMN_DEF_RE.match(line)
+            if col_match:
+                col_name = col_match.group(1).lower()
+                col_type = _map_ddl_type(col_match.group(2))
+                tables[current_table][col_name] = col_type
+
+    if not tables:
+        return None
+
+    total_cols = sum(len(cols) for cols in tables.values())
+    return {
+        "path": str(path),
+        "format": "sql_ddl",
+        "tables": len(tables),
+        "total_columns": total_cols,
+        "columns": tables,
+    }
+
+
+def _parse_yaml_model(path: Path) -> Optional[Dict[str, Any]]:
+    """Parse a YAML schema file (dbt schema.yml format or simple key:type)."""
+    try:
+        import yaml
+
+        content = path.read_text(encoding="utf-8", errors="ignore")
+        data = yaml.safe_load(content)
+    except Exception:  # noqa: BLE001
+        return None
+
+    if not isinstance(data, dict):
+        return None
+
+    tables: Dict[str, Dict[str, str]] = {}
+
+    # dbt schema.yml format: {models: [{name, columns: [{name, type}]}]}
+    models = data.get("models") or data.get("sources") or []
+    if isinstance(models, list):
+        for model in models:
+            if not isinstance(model, dict):
+                continue
+            model_name = model.get("name", "unknown")
+            cols = model.get("columns", [])
+            if isinstance(cols, list):
+                tables[model_name] = {}
+                for col in cols:
+                    if isinstance(col, dict) and col.get("name"):
+                        tables[model_name][col["name"]] = col.get("data_type") or col.get("type", "string")
+
+    # Simple format: {table_name: {col: type}}
+    if not tables:
+        for key, value in data.items():
+            if isinstance(value, dict):
+                tables[key] = {str(k): str(v) for k, v in value.items()}
+
+    if not tables:
+        return None
+
+    total_cols = sum(len(cols) for cols in tables.values())
+    return {
+        "path": str(path),
+        "format": "yaml",
+        "tables": len(tables),
+        "total_columns": total_cols,
+        "columns": tables,
+    }
+
+
+def _parse_json_model(path: Path) -> Optional[Dict[str, Any]]:
+    """Parse a JSON schema file."""
+    try:
+        content = path.read_text(encoding="utf-8", errors="ignore")
+        data = json.loads(content)
+    except Exception:  # noqa: BLE001
+        return None
+
+    if not isinstance(data, dict):
+        return None
+
+    tables: Dict[str, Dict[str, str]] = {}
+    # Try JSON Schema format: {properties: {col: {type}}}
+    if "properties" in data:
+        table_name = data.get("title", path.stem)
+        tables[table_name] = {
+            col: prop.get("type", "string")
+            for col, prop in data["properties"].items()
+            if isinstance(prop, dict)
+        }
+    # Try simple {table: {col: type}} format
+    elif all(isinstance(v, dict) for v in data.values()):
+        tables = {k: {str(ck): str(cv) for ck, cv in v.items()} for k, v in data.items()}
+
+    if not tables:
+        return None
+
+    total_cols = sum(len(cols) for cols in tables.values())
+    return {
+        "path": str(path),
+        "format": "json",
+        "tables": len(tables),
+        "total_columns": total_cols,
+        "columns": tables,
+    }
+
+
+def _map_ddl_type(raw_type: str) -> str:
+    """Map a SQL DDL type to a simplified FLUID type."""
+    lowered = raw_type.lower().split("(")[0]  # strip precision
+    if lowered in ("varchar", "text", "char", "nvarchar", "string", "clob"):
+        return "string"
+    if lowered in ("int", "integer", "bigint", "smallint", "tinyint", "serial"):
+        return "integer"
+    if lowered in ("float", "double", "decimal", "numeric", "real", "number"):
+        return "number"
+    if lowered in ("boolean", "bool"):
+        return "boolean"
+    if lowered in ("date",):
+        return "date"
+    if lowered in ("timestamp", "datetime", "timestamptz"):
+        return "datetime"
     return "string"

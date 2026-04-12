@@ -359,6 +359,14 @@ def register(subparsers: argparse._SubParsersAction):
         ),
     )
 
+    # --- Transformation engine generation ---
+    parser.add_argument(
+        "--no-generate",
+        action="store_true",
+        default=False,
+        help="Skip transformation engine artifact generation (dbt project, SQL scripts, etc.)",
+    )
+
     # --- Fragment layout control ---
     fragment_group = parser.add_mutually_exclusive_group()
     fragment_group.add_argument(
@@ -482,6 +490,9 @@ def _print_next_steps(console: Any, target_dir: Path, contract_path: Path) -> No
         "  3. fluid validate contract.fluid.yaml\n"
         "  4. fluid plan contract.fluid.yaml --out runtime/plan.json\n"
         "  5. fluid apply runtime/plan.json\n\n"
+        "[dim]Tip: Run 'fluid forge' (AI mode) to auto-generate transformation\n"
+        "logic from your sample data, or 'fluid generate' after editing\n"
+        "the contract manually.[/dim]\n\n"
         f"[dim]Docs: {_DOCS_URL}[/dim]"
     )
     if console and RICH_AVAILABLE:
