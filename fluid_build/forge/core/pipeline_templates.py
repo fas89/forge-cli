@@ -38,11 +38,34 @@ The templates support:
 """
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fluid_build.cli.console import cprint
+
+# SHA-pinned GitHub Actions for supply chain security.
+# Each entry maps action@tag to action@sha with a version comment.
+# SHAs verified via GitHub API (git/ref/tags/<version>).
+# Update these when upgrading action versions.
+PINNED_ACTIONS = {
+    "actions/checkout@v4": "actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5",  # v4.3.1
+    "actions/setup-python@v5": "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",  # v5.6.0
+    "actions/upload-artifact@v4": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",  # v4.6.2
+    "actions/download-artifact@v4": "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",  # v4.3.0
+    "aquasecurity/trivy-action@master": "aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1",  # v0.35.0
+    "github/codeql-action/upload-sarif@v3": "github/codeql-action/upload-sarif@7fc1baf373eb073c686865bd453d412d506a05a2",  # v3.35.1
+    "google-github-actions/auth@v2": "google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed",  # v2.1.13
+    "aws-actions/configure-aws-credentials@v4": "aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a",  # v4.3.1
+    "azure/login@v2": "azure/login@eec3c95657c1536435858eda1f3ff5437fee8474",  # v2.3.0
+    "anchore/sbom-action@v0": "anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610",  # v0.24.0
+    "actions/attest-build-provenance@v2": "actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be",  # v2.4.0
+}
+
+
+def _pin_action(action_ref: str) -> str:
+    """Pin a GitHub Action reference to its SHA for supply chain security."""
+    return PINNED_ACTIONS.get(action_ref, action_ref)
 
 try:
     import yaml
@@ -95,6 +118,7 @@ class PipelineConfig:
     enable_marketplace_publishing: bool = False
     notification_channels: List[str] = None
     custom_steps: List[Dict[str, Any]] = None
+    oidc_provider: Optional[str] = None  # "gcp", "aws", "azure", or None
 
     def __post_init__(self):
         if self.environments is None:
@@ -198,6 +222,104 @@ class BasePipelineTemplate:
             "PIP_CACHE_DIR": ".pip-cache",
         }
 
+    def _get_oidc_steps(self, oidc_provider: Optional[str]) -> List[Dict[str, Any]]:
+        """Get OIDC authentication steps for GitHub Actions deploy jobs."""
+        if oidc_provider == "gcp":
+            return [
+                {
+                    "name": "Authenticate to Google Cloud (OIDC)",
+                    "id": "auth",
+                    "uses": _pin_action("google-github-actions/auth@v2"),
+                    "with": {
+                        "workload_identity_provider": "projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/${{ vars.WIF_POOL }}/providers/${{ vars.WIF_PROVIDER }}",
+                        "service_account": "${{ vars.GCP_SA_EMAIL }}",
+                    },
+                }
+            ]
+        elif oidc_provider == "aws":
+            return [
+                {
+                    "name": "Configure AWS Credentials (OIDC)",
+                    "uses": _pin_action("aws-actions/configure-aws-credentials@v4"),
+                    "with": {
+                        "role-to-assume": "${{ vars.AWS_ROLE_ARN }}",
+                        "aws-region": "${{ vars.AWS_REGION }}",
+                    },
+                }
+            ]
+        elif oidc_provider == "azure":
+            return [
+                {
+                    "name": "Azure Login (OIDC)",
+                    "uses": _pin_action("azure/login@v2"),
+                    "with": {
+                        "client-id": "${{ vars.AZURE_CLIENT_ID }}",
+                        "tenant-id": "${{ vars.AZURE_TENANT_ID }}",
+                        "subscription-id": "${{ vars.AZURE_SUBSCRIPTION_ID }}",
+                    },
+                }
+            ]
+        return []
+
+    def _get_deploy_job_permissions(self, oidc_provider: Optional[str]) -> Dict[str, str]:
+        """Get permissions for a deployment job."""
+        perms = {"contents": "read"}
+        if oidc_provider:
+            perms["id-token"] = "write"
+        return perms
+
+    def _generate_env_ci_example(self, oidc_provider: Optional[str] = None) -> str:
+        """Generate .env.ci.example content with required secrets per provider."""
+        lines = [
+            "# Required CI/CD Secrets for FLUID Pipeline",
+            "# Copy these to your CI provider's secret store",
+            "#",
+            "# FLUID Configuration",
+            "FLUID_LOG_LEVEL=INFO",
+            "# CONTRACT=contract.fluid.yaml",
+            "",
+        ]
+        if oidc_provider == "gcp":
+            lines += [
+                "# GCP Workload Identity Federation (OIDC — no stored secrets needed!)",
+                "# Configure these as GitHub Actions variables (vars), not secrets:",
+                "# GCP_PROJECT_NUMBER=123456789",
+                "# WIF_POOL=fluid-pool",
+                "# WIF_PROVIDER=github-provider",
+                "# GCP_SA_EMAIL=fluid@project.iam.gserviceaccount.com",
+            ]
+        elif oidc_provider == "aws":
+            lines += [
+                "# AWS OIDC (no stored secrets needed!)",
+                "# Configure these as GitHub Actions variables (vars), not secrets:",
+                "# AWS_ROLE_ARN=arn:aws:iam::123456789:role/fluid-deploy",
+                "# AWS_REGION=us-east-1",
+            ]
+        elif oidc_provider == "azure":
+            lines += [
+                "# Azure Federated Identity (OIDC — no stored secrets needed!)",
+                "# Configure these as GitHub Actions variables (vars), not secrets:",
+                "# AZURE_CLIENT_ID=00000000-0000-0000-0000-000000000000",
+                "# AZURE_TENANT_ID=00000000-0000-0000-0000-000000000000",
+                "# AZURE_SUBSCRIPTION_ID=00000000-0000-0000-0000-000000000000",
+            ]
+        else:
+            lines += [
+                "# Provider Authentication",
+                "# Prefer OIDC/Workload Identity Federation over stored secrets.",
+                "# See: fluid forge --ci github_actions --oidc-provider gcp",
+                "#",
+                "# If OIDC is not available, configure these as CI secrets:",
+                "# SNOWFLAKE_ACCOUNT=your_account",
+                "# SNOWFLAKE_USER=your_user",
+                "# SNOWFLAKE_PASSWORD=your_password  # Use key-pair auth instead!",
+                "# GOOGLE_APPLICATION_CREDENTIALS=/path/to/sa-key.json",
+                "# AWS_ACCESS_KEY_ID=AKIA...  # Use OIDC instead!",
+                "# AWS_SECRET_ACCESS_KEY=...",
+            ]
+        lines.append("")
+        return "\n".join(lines)
+
 
 class GitHubActionsTemplate(BasePipelineTemplate):
     """GitHub Actions pipeline template"""
@@ -231,18 +353,21 @@ class GitHubActionsTemplate(BasePipelineTemplate):
                 "push": {"branches": ["main", "develop"]},
                 "pull_request": {"branches": ["main"]},
             },
+            "permissions": {},  # Least privilege — grant per-job only
             "env": env_vars,
             "jobs": {
                 "fluid-pipeline": {
                     "runs-on": "ubuntu-latest",
+                    "permissions": self._get_deploy_job_permissions(config.oidc_provider),
                     "steps": [
-                        {"name": "Checkout code", "uses": "actions/checkout@v4"},
+                        {"name": "Checkout code", "uses": _pin_action("actions/checkout@v4")},
                         {
                             "name": "Set up Python",
-                            "uses": "actions/setup-python@v4",
+                            "uses": _pin_action("actions/setup-python@v5"),
                             "with": {"python-version": "3.9"},
                         },
                         {"name": "Install FLUID", "run": "pip install -r requirements.txt"},
+                        *self._get_oidc_steps(config.oidc_provider),
                         {"name": "FLUID Doctor Check", "run": commands["doctor"]},
                         {"name": "Validate Configuration", "run": commands["validate"]},
                         {"name": "Generate Plan", "run": commands["plan"]},
@@ -258,7 +383,7 @@ class GitHubActionsTemplate(BasePipelineTemplate):
                         },
                         {
                             "name": "Upload Artifacts",
-                            "uses": "actions/upload-artifact@v3",
+                            "uses": _pin_action("actions/upload-artifact@v4"),
                             "with": {
                                 "name": "fluid-artifacts",
                                 "path": "plan.json\npipeline-viz.html\ndependency-graph.png\nopds-catalog.json\ntest-results/",
@@ -269,7 +394,9 @@ class GitHubActionsTemplate(BasePipelineTemplate):
             },
         }
 
-        return {".github/workflows/fluid-pipeline.yml": yaml.dump(workflow, indent=2)}
+        files = {".github/workflows/fluid-pipeline.yml": yaml.dump(workflow, indent=2)}
+        files[".env.ci.example"] = self._generate_env_ci_example(config.oidc_provider)
+        return files
 
     def _generate_standard_workflow(self, config: PipelineConfig) -> Dict[str, str]:
         """Generate standard GitHub Actions workflow with multiple environments"""
@@ -283,16 +410,18 @@ class GitHubActionsTemplate(BasePipelineTemplate):
                 "push": {"branches": ["main", "develop", "feature/*"]},
                 "pull_request": {"branches": ["main", "develop"]},
             },
+            "permissions": {},  # Least privilege — grant per-job only
             "env": env_vars,
             "jobs": {
                 "validate": {
                     "runs-on": "ubuntu-latest",
+                    "permissions": {"contents": "read"},
                     "outputs": {"changes-detected": "${{ steps.changes.outputs.changes }}"},
                     "steps": [
-                        {"name": "Checkout", "uses": "actions/checkout@v4"},
+                        {"name": "Checkout", "uses": _pin_action("actions/checkout@v4")},
                         {
                             "name": "Setup Python",
-                            "uses": "actions/setup-python@v4",
+                            "uses": _pin_action("actions/setup-python@v5"),
                             "with": {"python-version": "3.9"},
                         },
                         {"name": "Install Dependencies", "run": "pip install -r requirements.txt"},
@@ -308,19 +437,20 @@ class GitHubActionsTemplate(BasePipelineTemplate):
                 "plan": {
                     "needs": "validate",
                     "runs-on": "ubuntu-latest",
+                    "permissions": {"contents": "read"},
                     "if": "needs.validate.outputs.changes-detected == 'true'",
                     "steps": [
-                        {"name": "Checkout", "uses": "actions/checkout@v4"},
+                        {"name": "Checkout", "uses": _pin_action("actions/checkout@v4")},
                         {
                             "name": "Setup Python",
-                            "uses": "actions/setup-python@v4",
+                            "uses": _pin_action("actions/setup-python@v5"),
                             "with": {"python-version": "3.9"},
                         },
                         {"name": "Install Dependencies", "run": "pip install -r requirements.txt"},
                         {"name": "Generate Plan", "run": commands["plan"]},
                         {
                             "name": "Upload Plan",
-                            "uses": "actions/upload-artifact@v3",
+                            "uses": _pin_action("actions/upload-artifact@v4"),
                             "with": {"name": "plan", "path": "plan.json"},
                         },
                     ],
@@ -328,12 +458,13 @@ class GitHubActionsTemplate(BasePipelineTemplate):
                 "test": {
                     "needs": "validate",
                     "runs-on": "ubuntu-latest",
+                    "permissions": {"contents": "read"},
                     "strategy": {"matrix": {"test-type": ["unit", "integration", "contract"]}},
                     "steps": [
-                        {"name": "Checkout", "uses": "actions/checkout@v4"},
+                        {"name": "Checkout", "uses": _pin_action("actions/checkout@v4")},
                         {
                             "name": "Setup Python",
-                            "uses": "actions/setup-python@v4",
+                            "uses": _pin_action("actions/setup-python@v5"),
                             "with": {"python-version": "3.9"},
                         },
                         {"name": "Install Dependencies", "run": "pip install -r requirements.txt"},
@@ -343,7 +474,7 @@ class GitHubActionsTemplate(BasePipelineTemplate):
                         },
                         {
                             "name": "Upload Test Results",
-                            "uses": "actions/upload-artifact@v3",
+                            "uses": _pin_action("actions/upload-artifact@v4"),
                             "with": {
                                 "name": "test-results-${{ matrix.test-type }}",
                                 "path": "test-results-${{ matrix.test-type }}.xml",
@@ -362,55 +493,55 @@ class GitHubActionsTemplate(BasePipelineTemplate):
             if env == "prod":
                 depends_on.append("deploy-staging")
 
+            deploy_steps = [
+                {"name": "Checkout", "uses": _pin_action("actions/checkout@v4")},
+                {
+                    "name": "Setup Python",
+                    "uses": _pin_action("actions/setup-python@v5"),
+                    "with": {"python-version": "3.9"},
+                },
+                {"name": "Install Dependencies", "run": "pip install -r requirements.txt"},
+                *self._get_oidc_steps(config.oidc_provider),
+                {
+                    "name": "Download Plan",
+                    "uses": _pin_action("actions/download-artifact@v4"),
+                    "with": {"name": "plan"},
+                },
+                {
+                    "name": f"Deploy to {env.upper()}",
+                    "run": f"FLUID_ENV={env} {commands['apply']}",
+                },
+                {
+                    "name": "Run Contract Tests",
+                    "run": f"FLUID_ENV={env} {commands['contract_test']}",
+                },
+                {
+                    "name": "Generate Visualization",
+                    "run": commands["visualize"],
+                    "if": f"'{env}' == 'prod'",
+                },
+                {
+                    "name": "Publish to Marketplace",
+                    "run": f"{commands['publish_opds']} && {commands['marketplace_publish']}",
+                    "if": f"'{env}' == 'prod' && {str(config.enable_marketplace_publishing).lower()}",
+                },
+            ]
+
             workflow["jobs"][job_name] = {
                 "needs": depends_on,
                 "runs-on": "ubuntu-latest",
+                "permissions": self._get_deploy_job_permissions(config.oidc_provider),
                 "environment": env,
                 "if": f"github.ref == 'refs/heads/main' || (github.ref == 'refs/heads/develop' && '{env}' != 'prod')",
-                "steps": [
-                    {"name": "Checkout", "uses": "actions/checkout@v4"},
-                    {
-                        "name": "Setup Python",
-                        "uses": "actions/setup-python@v4",
-                        "with": {"python-version": "3.9"},
-                    },
-                    {"name": "Install Dependencies", "run": "pip install -r requirements.txt"},
-                    {
-                        "name": "Download Plan",
-                        "uses": "actions/download-artifact@v3",
-                        "with": {"name": "plan"},
-                    },
-                    {
-                        "name": f"Deploy to {env.upper()}",
-                        "run": f"FLUID_ENV={env} {commands['apply']}",
-                    },
-                    {
-                        "name": "Run Contract Tests",
-                        "run": f"FLUID_ENV={env} {commands['contract_test']}",
-                    },
-                    {
-                        "name": "Generate Visualization",
-                        "run": commands["visualize"],
-                        "if": f"'{env}' == 'prod'",
-                    },
-                    {
-                        "name": "Publish to Marketplace",
-                        "run": f"{commands['publish_opds']} && {commands['marketplace_publish']}",
-                        "if": f"'{env}' == 'prod' && {str(config.enable_marketplace_publishing).lower()}",
-                    },
-                ],
+                "steps": deploy_steps,
             }
 
-        return {".github/workflows/fluid-standard.yml": yaml.dump(workflow, indent=2)}
+        files = {".github/workflows/fluid-standard.yml": yaml.dump(workflow, indent=2)}
+        files[".env.ci.example"] = self._generate_env_ci_example(config.oidc_provider)
+        return files
 
     def _generate_advanced_workflow(self, config: PipelineConfig) -> Dict[str, str]:
         """Generate advanced workflow with approvals and security"""
-
-        # This would include the standard workflow plus:
-        # - Security scanning
-        # - Approval gates
-        # - Advanced monitoring
-        # - Rollback capabilities
 
         files = self._generate_standard_workflow(config)
 
@@ -421,17 +552,32 @@ class GitHubActionsTemplate(BasePipelineTemplate):
                 "push": {"branches": ["main", "develop"]},
                 "schedule": [{"cron": "0 2 * * *"}],  # Daily at 2 AM
             },
+            "permissions": {},  # Least privilege — grant per-job only
             "jobs": {
                 "security-scan": {
                     "runs-on": "ubuntu-latest",
+                    "permissions": {
+                        "contents": "read",
+                        "security-events": "write",  # Required for SARIF upload
+                    },
                     "steps": [
-                        {"name": "Checkout", "uses": "actions/checkout@v4"},
+                        {"name": "Checkout", "uses": _pin_action("actions/checkout@v4")},
                         {
                             "name": "Run Trivy vulnerability scanner",
-                            "uses": "aquasecurity/trivy-action@master",
+                            "uses": _pin_action("aquasecurity/trivy-action@master"),
+                            "with": {
+                                "scan-type": "fs",
+                                "format": "sarif",
+                                "output": "trivy-results.sarif",
+                            },
                         },
                         {"name": "FLUID Security Check", "run": "fluid validate --security-only"},
-                        {"name": "Upload SARIF", "uses": "github/codeql-action/upload-sarif@v2"},
+                        {
+                            "name": "Upload SARIF",
+                            "uses": _pin_action("github/codeql-action/upload-sarif@v3"),
+                            "with": {"sarif_file": "trivy-results.sarif"},
+                            "if": "always()",
+                        },
                     ],
                 }
             },
@@ -450,11 +596,13 @@ class GitHubActionsTemplate(BasePipelineTemplate):
         compliance_workflow = {
             "name": "Compliance and Audit",
             "on": {"schedule": [{"cron": "0 0 * * 0"}], "workflow_dispatch": None},  # Weekly
+            "permissions": {},  # Least privilege — grant per-job only
             "jobs": {
                 "compliance-audit": {
                     "runs-on": "ubuntu-latest",
+                    "permissions": {"contents": "read"},
                     "steps": [
-                        {"name": "Checkout", "uses": "actions/checkout@v4"},
+                        {"name": "Checkout", "uses": _pin_action("actions/checkout@v4")},
                         {
                             "name": "Generate Compliance Report",
                             "run": "fluid audit --compliance --output compliance-report.json",
@@ -463,10 +611,40 @@ class GitHubActionsTemplate(BasePipelineTemplate):
                         {"name": "Performance Benchmarks", "run": "fluid benchmark --baseline"},
                         {
                             "name": "Upload Compliance Artifacts",
-                            "uses": "actions/upload-artifact@v3",
+                            "uses": _pin_action("actions/upload-artifact@v4"),
+                            "with": {
+                                "name": "compliance-artifacts",
+                                "path": "compliance-report.json",
+                            },
                         },
                     ],
-                }
+                },
+                "supply-chain": {
+                    "runs-on": "ubuntu-latest",
+                    "permissions": {
+                        "contents": "read",
+                        "id-token": "write",
+                        "attestations": "write",
+                    },
+                    "steps": [
+                        {"name": "Checkout", "uses": _pin_action("actions/checkout@v4")},
+                        {
+                            "name": "Generate SBOM",
+                            "uses": _pin_action("anchore/sbom-action@v0"),
+                            "with": {"output-file": "sbom.spdx.json"},
+                        },
+                        {
+                            "name": "Attest Build Provenance",
+                            "uses": _pin_action("actions/attest-build-provenance@v2"),
+                            "with": {"subject-path": "sbom.spdx.json"},
+                        },
+                        {
+                            "name": "Upload SBOM",
+                            "uses": _pin_action("actions/upload-artifact@v4"),
+                            "with": {"name": "sbom", "path": "sbom.spdx.json"},
+                        },
+                    ],
+                },
             },
         }
 
@@ -579,12 +757,37 @@ class GitLabCITemplate(BasePipelineTemplate):
 
         # Add deployment jobs for each environment
         for env in config.environments:
+            deploy_script = []
+            # Add OIDC authentication for GitLab CI if configured
+            if config.oidc_provider == "gcp":
+                deploy_script.append(
+                    'echo "${FLUID_OIDC_TOKEN}" > /tmp/oidc_token.json '
+                    "&& gcloud auth login --cred-file=/tmp/oidc_token.json --quiet"
+                )
+            elif config.oidc_provider == "aws":
+                deploy_script.append(
+                    "aws sts assume-role-with-web-identity"
+                    " --role-arn ${AWS_ROLE_ARN}"
+                    " --web-identity-token ${FLUID_OIDC_TOKEN}"
+                    ' --role-session-name "fluid-ci-${CI_PIPELINE_ID}"'
+                    " > /tmp/aws_creds.json"
+                )
+            deploy_script.append(f"FLUID_ENV={env} {commands['apply']}")
+
             deploy_job = {
                 "stage": "deploy",
-                "script": [f"FLUID_ENV={env} {commands['apply']}"],
+                "script": deploy_script,
                 "environment": {"name": env},
                 "dependencies": ["plan"],
             }
+
+            # GitLab native OIDC token injection
+            if config.oidc_provider:
+                deploy_job["id_tokens"] = {
+                    "FLUID_OIDC_TOKEN": {
+                        "aud": f"https://fluid-ci.{config.oidc_provider}.example.com"
+                    }
+                }
 
             if env == "prod":
                 deploy_job["when"] = "manual"
@@ -631,7 +834,6 @@ class GitLabCITemplate(BasePipelineTemplate):
                     "stage": "security",
                     "script": ["fluid validate --security-only", "trivy fs ."],
                     "artifacts": {"reports": {"sast": "security-report.json"}},
-                    "allow_failure": True,
                 },
                 "compliance-check": {
                     "stage": "security",
@@ -824,12 +1026,15 @@ class JenkinsTemplate(BasePipelineTemplate):
 
         jenkins_pipeline = f"""
 pipeline {{
-    agent any
-    
+    agent {{ label 'fluid' }}
+
     environment {{
         FLUID_LOG_LEVEL = 'INFO'
         FLUID_CONFIG_PATH = './fluid_config'
         PYTHONPATH = '.'
+        // Bind credentials from Jenkins credential store.
+        // Configure 'fluid-provider-credentials' in Jenkins > Manage Credentials.
+        PROVIDER_CREDS = credentials('fluid-provider-credentials')
     }}
     
     triggers {{
@@ -1235,6 +1440,7 @@ def generate_pipeline_template(
     complexity: str = "standard",
     environments: List[str] = None,
     enable_marketplace: bool = False,
+    oidc_provider: Optional[str] = None,
 ) -> Dict[str, str]:
     """
     Generate pipeline template for specified provider
@@ -1244,6 +1450,7 @@ def generate_pipeline_template(
         complexity: Pipeline complexity (basic, standard, advanced, enterprise)
         environments: List of deployment environments
         enable_marketplace: Enable marketplace publishing
+        oidc_provider: OIDC auth provider for deploy jobs ("gcp", "aws", "azure", or None)
 
     Returns:
         Dictionary of filename -> content for pipeline files
@@ -1260,6 +1467,7 @@ def generate_pipeline_template(
         complexity=complexity_enum,
         environments=environments,
         enable_marketplace_publishing=enable_marketplace,
+        oidc_provider=oidc_provider,
     )
 
     generator = PipelineTemplateGenerator()

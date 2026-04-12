@@ -21,8 +21,9 @@ Useful for CI/CD environments where OS keyring is not available.
 
 import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -71,22 +72,27 @@ class EncryptedCredentialStore:
         self.cipher = Fernet(self.key)
         logger.debug(f"Loaded encryption key from: {self.key_path}")
 
-    def set_credential(self, key: str, value: str) -> None:
+    def set_credential(self, key: str, value: str, expires_at: Optional[str] = None) -> None:
         """
-        Store encrypted credential.
+        Store encrypted credential with metadata.
 
         Args:
             key: Credential key (e.g., "snowflake.password")
             value: Credential value to encrypt and store
+            expires_at: Optional ISO8601 expiration timestamp
         """
         data = self._load_store()
-        data[key] = value
+        data[key] = {
+            "value": value,
+            "stored_at": datetime.now(timezone.utc).isoformat(),
+            "expires_at": expires_at,
+        }
         self._save_store(data)
         logger.debug(f"Stored encrypted credential: {key}")
 
     def get_credential(self, key: str) -> Optional[str]:
         """
-        Retrieve encrypted credential.
+        Retrieve encrypted credential value.
 
         Args:
             key: Credential key to retrieve
@@ -95,10 +101,53 @@ class EncryptedCredentialStore:
             Decrypted credential value or None if not found
         """
         data = self._load_store()
-        value = data.get(key)
+        entry = data.get(key)
+        if entry is None:
+            return None
+        # Support both old format (bare string) and new format (dict with metadata)
+        value = entry["value"] if isinstance(entry, dict) else entry
         if value:
             logger.debug(f"Retrieved encrypted credential: {key}")
         return value
+
+    def get_credential_metadata(self, key: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve credential metadata (stored_at, expires_at).
+
+        Returns:
+            Dict with 'stored_at', 'expires_at' keys, or None if not found.
+        """
+        data = self._load_store()
+        entry = data.get(key)
+        if entry is None:
+            return None
+        if isinstance(entry, dict):
+            return {
+                "stored_at": entry.get("stored_at"),
+                "expires_at": entry.get("expires_at"),
+            }
+        # Old format — no metadata available
+        return {"stored_at": None, "expires_at": None}
+
+    def get_credential_with_metadata(self, key: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve credential value and metadata in a single load.
+
+        Returns:
+            Dict with 'value', 'stored_at', 'expires_at' keys, or None if not found.
+        """
+        data = self._load_store()
+        entry = data.get(key)
+        if entry is None:
+            return None
+        if isinstance(entry, dict):
+            return {
+                "value": entry.get("value"),
+                "stored_at": entry.get("stored_at"),
+                "expires_at": entry.get("expires_at"),
+            }
+        # Old format — bare string, no metadata
+        return {"value": entry, "stored_at": None, "expires_at": None}
 
     def delete_credential(self, key: str) -> None:
         """

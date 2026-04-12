@@ -1153,6 +1153,18 @@ def register(subparsers: argparse._SubParsersAction):
     list_parser = sp.add_parser("list", help="List available authentication providers")
     list_parser.set_defaults(func=run)
 
+    # Doctor command — audit credential hygiene and security posture
+    doctor_parser = sp.add_parser(
+        "doctor", help="Audit credential hygiene and security posture"
+    )
+    doctor_parser.add_argument(
+        "provider", nargs="?", help="Provider to audit (if not specified, audits all)"
+    )
+    doctor_parser.add_argument(
+        "--fix", action="store_true", help="Auto-fix issues where possible"
+    )
+    doctor_parser.set_defaults(func=run)
+
     p.set_defaults(cmd=COMMAND, func=run)
 
 
@@ -1233,6 +1245,10 @@ def run(args, logger: logging.Logger) -> int:
                 return 1
 
             return asyncio.run(handle_logout(provider, auth_manager, logger))
+
+        elif args.verb == "doctor":
+            fix = getattr(args, "fix", False)
+            return asyncio.run(handle_doctor(provider, auth_manager, logger, fix=fix))
 
         else:
             # Simplified authentication for compatibility
@@ -1449,3 +1465,338 @@ async def handle_status(
     except Exception as e:
         logger.error(f"❌ Status check failed: {e}")
         return 1
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# CI Environment Detection
+# ──────────────────────────────────────────────────────────────────────────────
+
+class CIEnvironment(Enum):
+    """Detected CI/CD environment."""
+    GITHUB_ACTIONS = "github_actions"
+    GITLAB_CI = "gitlab_ci"
+    JENKINS = "jenkins"
+    CIRCLECI = "circleci"
+    BITBUCKET = "bitbucket"
+    AZURE_DEVOPS = "azure_devops"
+    NONE = "none"
+
+
+def detect_ci_environment() -> CIEnvironment:
+    """Detect the current CI/CD environment from env vars."""
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        return CIEnvironment.GITHUB_ACTIONS
+    if os.environ.get("GITLAB_CI") == "true":
+        return CIEnvironment.GITLAB_CI
+    if os.environ.get("JENKINS_URL"):
+        return CIEnvironment.JENKINS
+    if os.environ.get("CIRCLECI") == "true":
+        return CIEnvironment.CIRCLECI
+    if os.environ.get("BITBUCKET_PIPELINE_UUID"):
+        return CIEnvironment.BITBUCKET
+    if os.environ.get("TF_BUILD") == "True":
+        return CIEnvironment.AZURE_DEVOPS
+    return CIEnvironment.NONE
+
+
+def _is_ci() -> bool:
+    """Return True if running in any CI environment."""
+    return detect_ci_environment() != CIEnvironment.NONE or os.environ.get("CI") == "true"
+
+
+def _has_oidc_available() -> Dict[str, bool]:
+    """Check which OIDC providers are available in the current CI environment."""
+    return {
+        "gcp": bool(os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL")),
+        "aws": bool(
+            os.environ.get("AWS_WEB_IDENTITY_TOKEN_FILE")
+            or os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL")
+        ),
+        "azure": bool(os.environ.get("AZURE_FEDERATED_TOKEN_FILE")),
+        "gitlab_oidc": bool(os.environ.get("CI_JOB_JWT_V2")),
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Auth Doctor — Credential Hygiene Audit
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Minimum permissions FLUID needs per provider (informational)
+PROVIDER_MINIMAL_SCOPES = {
+    "google_cloud": {
+        "recommended_roles": [
+            "roles/bigquery.dataEditor",
+            "roles/bigquery.jobUser",
+            "roles/datacatalog.viewer",
+        ],
+        "overly_broad": ["roles/owner", "roles/editor", "roles/bigquery.admin"],
+        "note": "Use Workload Identity Federation instead of service account keys",
+    },
+    "aws": {
+        "recommended_policies": [
+            "AmazonS3ReadOnlyAccess",
+            "AWSGlueConsoleFullAccess",
+        ],
+        "overly_broad": ["AdministratorAccess", "PowerUserAccess"],
+        "note": "Use OIDC role assumption instead of long-lived access keys",
+    },
+    "snowflake": {
+        "recommended": "Create a dedicated FLUID role with minimal warehouse/database grants",
+        "overly_broad": ["ACCOUNTADMIN", "SYSADMIN", "SECURITYADMIN"],
+        "note": "Use key-pair authentication instead of passwords",
+    },
+}
+
+
+class DoctorStatus(Enum):
+    """Severity level for a doctor check."""
+    PASS = "pass"
+    WARN = "warn"
+    FAIL = "fail"
+    INFO = "info"
+
+
+@dataclass
+class DoctorCheck:
+    """Result of a single doctor check."""
+    name: str
+    status: DoctorStatus
+    message: str
+    fix_hint: Optional[str] = None
+
+
+async def handle_doctor(
+    provider: Optional[str],
+    auth_manager: AuthManager,
+    logger: logging.Logger,
+    fix: bool = False,
+) -> int:
+    """Audit credential hygiene and security posture."""
+    console = Console() if RICH_AVAILABLE else None
+    checks: List[DoctorCheck] = []
+
+    # ── Check 1: CI environment detection ──
+    ci_env = detect_ci_environment()
+    is_ci = _is_ci()
+    if is_ci:
+        checks.append(DoctorCheck(
+            name="CI Environment",
+            status=DoctorStatus.INFO,
+            message=f"Running in CI: {ci_env.value}",
+        ))
+
+        # Check for OIDC availability
+        oidc = _has_oidc_available()
+        oidc_available = [k for k, v in oidc.items() if v]
+        if oidc_available:
+            checks.append(DoctorCheck(
+                name="OIDC Availability",
+                status=DoctorStatus.PASS,
+                message=f"OIDC tokens available for: {', '.join(oidc_available)}",
+            ))
+        else:
+            checks.append(DoctorCheck(
+                name="OIDC Availability",
+                status=DoctorStatus.WARN,
+                message="No OIDC tokens detected in CI — using stored secrets",
+                fix_hint="Configure Workload Identity Federation for your CI provider",
+            ))
+    else:
+        checks.append(DoctorCheck(
+            name="CI Environment",
+            status=DoctorStatus.INFO,
+            message="Running locally (not CI)",
+        ))
+
+    # ── Check 2: Keyring availability ──
+    try:
+        import keyring as _kr  # noqa: F401
+        checks.append(DoctorCheck(
+            name="OS Keyring",
+            status=DoctorStatus.PASS,
+            message="OS keyring available for secure credential storage",
+        ))
+    except ImportError:
+        checks.append(DoctorCheck(
+            name="OS Keyring",
+            status=DoctorStatus.WARN,
+            message="keyring library not installed — credentials may use less secure storage",
+            fix_hint="pip install keyring",
+        ))
+
+    # ── Check 3: .env file permissions ──
+    env_files = [".env", ".env.local"]
+    project_root = os.getcwd()
+    for env_file in env_files:
+        env_path = os.path.join(project_root, env_file)
+        if os.path.exists(env_path):
+            try:
+                stat = os.stat(env_path)
+                mode = stat.st_mode & 0o777
+                if mode & 0o044:  # world or group readable
+                    checks.append(DoctorCheck(
+                        name=f"{env_file} Permissions",
+                        status=DoctorStatus.FAIL,
+                        message=f"{env_file} is readable by group/others (mode {oct(mode)})",
+                        fix_hint=f"chmod 600 {env_file}",
+                    ))
+                    if fix:
+                        os.chmod(env_path, 0o600)
+                        checks[-1].status = DoctorStatus.PASS
+                        checks[-1].message += " [FIXED]"
+                else:
+                    checks.append(DoctorCheck(
+                        name=f"{env_file} Permissions",
+                        status=DoctorStatus.PASS,
+                        message=f"{env_file} has secure permissions ({oct(mode)})",
+                    ))
+            except OSError:
+                pass
+
+    # ── Check 4: Encrypted store key file permissions ──
+    fluid_dir = os.path.expanduser("~/.fluid")
+    key_path = os.path.join(fluid_dir, ".key")
+    if os.path.exists(key_path):
+        try:
+            mode = os.stat(key_path).st_mode & 0o777
+            if mode != 0o600:
+                checks.append(DoctorCheck(
+                    name="Encryption Key Perms",
+                    status=DoctorStatus.FAIL,
+                    message=f"~/.fluid/.key has insecure permissions ({oct(mode)})",
+                    fix_hint="chmod 600 ~/.fluid/.key",
+                ))
+                if fix:
+                    os.chmod(key_path, 0o600)
+                    checks[-1].status = DoctorStatus.PASS
+                    checks[-1].message += " [FIXED]"
+            else:
+                checks.append(DoctorCheck(
+                    name="Encryption Key Perms",
+                    status=DoctorStatus.PASS,
+                    message="~/.fluid/.key has secure permissions (0o600)",
+                ))
+        except OSError:
+            pass
+
+    # ── Check 5: Long-lived credentials in CI ──
+    if is_ci:
+        long_lived_env_vars = [
+            ("AWS_ACCESS_KEY_ID", "aws", "Use OIDC role assumption instead"),
+            ("AWS_SECRET_ACCESS_KEY", "aws", "Use OIDC role assumption instead"),
+            ("GOOGLE_APPLICATION_CREDENTIALS", "gcp", "Use Workload Identity Federation instead"),
+            ("SNOWFLAKE_PASSWORD", "snowflake", "Use key-pair or OAuth authentication"),
+        ]
+        for env_var, prov, hint in long_lived_env_vars:
+            if provider and prov != _normalize_provider(provider):
+                continue
+            if os.environ.get(env_var):
+                checks.append(DoctorCheck(
+                    name=f"Long-Lived Credential ({env_var})",
+                    status=DoctorStatus.WARN,
+                    message=f"{env_var} is set in CI — this is a long-lived credential",
+                    fix_hint=hint,
+                ))
+
+    # ── Check 6: Auth status per provider ──
+    providers_to_check = (
+        [_normalize_provider(provider)] if provider else auth_manager.list_providers()
+    )
+    for prov in providers_to_check:
+        try:
+            result = await auth_manager.check_auth(prov)
+            if result.status == AuthStatus.AUTHENTICATED:
+                cred_type = result.user_info.get("credential_type", "unknown")
+                checks.append(DoctorCheck(
+                    name=f"{prov} Auth",
+                    status=DoctorStatus.PASS,
+                    message=f"Authenticated (type: {cred_type})",
+                ))
+            elif result.status == AuthStatus.EXPIRED:
+                checks.append(DoctorCheck(
+                    name=f"{prov} Auth",
+                    status=DoctorStatus.WARN,
+                    message="Credentials expired — re-authenticate",
+                    fix_hint=f"fluid auth login {prov}",
+                ))
+            else:
+                checks.append(DoctorCheck(
+                    name=f"{prov} Auth",
+                    status=DoctorStatus.INFO,
+                    message=f"Not authenticated ({result.error_message or 'not configured'})",
+                ))
+        except Exception:
+            checks.append(DoctorCheck(
+                name=f"{prov} Auth",
+                status=DoctorStatus.INFO,
+                message="Could not check (provider CLI not available)",
+            ))
+
+    # ── Check 7: Least-privilege scope recommendations ──
+    for prov in providers_to_check:
+        if prov in PROVIDER_MINIMAL_SCOPES:
+            scope_info = PROVIDER_MINIMAL_SCOPES[prov]
+            checks.append(DoctorCheck(
+                name=f"{prov} Scope Guidance",
+                status=DoctorStatus.INFO,
+                message=scope_info.get("note", "Review IAM permissions for least privilege"),
+            ))
+
+    # ── Render results ──
+    warn_count = sum(1 for c in checks if c.status == DoctorStatus.WARN)
+    fail_count = sum(1 for c in checks if c.status == DoctorStatus.FAIL)
+
+    if console and RICH_AVAILABLE:
+        console.print("\n[bold blue]Auth Doctor — Credential Hygiene Audit[/bold blue]")
+        console.print("=" * 55)
+
+        table = Table()
+        table.add_column("Check", style="cyan", min_width=25)
+        table.add_column("Status", min_width=6)
+        table.add_column("Details")
+        table.add_column("Fix", style="dim")
+
+        status_style = {
+            DoctorStatus.PASS: "[green]PASS[/green]",
+            DoctorStatus.WARN: "[yellow]WARN[/yellow]",
+            DoctorStatus.FAIL: "[red]FAIL[/red]",
+            DoctorStatus.INFO: "[blue]INFO[/blue]",
+        }
+
+        for check in checks:
+            table.add_row(
+                check.name,
+                status_style.get(check.status, check.status.value),
+                check.message,
+                check.fix_hint or "",
+            )
+
+        console.print(table)
+
+        if fail_count:
+            console.print(f"\n[red]{fail_count} critical issue(s) found.[/red]")
+        if warn_count:
+            console.print(f"[yellow]{warn_count} warning(s) — review recommended.[/yellow]")
+        if not fail_count and not warn_count:
+            console.print("\n[green]All checks passed.[/green]")
+    else:
+        cprint("Auth Doctor — Credential Hygiene Audit")
+        cprint("=" * 55)
+        for check in checks:
+            icon = {DoctorStatus.PASS: "+", DoctorStatus.WARN: "!", DoctorStatus.FAIL: "X", DoctorStatus.INFO: "i"}.get(check.status, "?")
+            cprint(f"  [{icon}] {check.name}: {check.message}")
+            if check.fix_hint:
+                cprint(f"      Fix: {check.fix_hint}")
+
+    return 1 if fail_count else 0
+
+
+def _normalize_provider(provider: str) -> str:
+    """Normalize provider name aliases to canonical form."""
+    aliases = {
+        "gcp": "google_cloud",
+        "google": "google_cloud",
+        "amazon": "aws",
+        "microsoft": "azure",
+    }
+    return aliases.get(provider, provider)

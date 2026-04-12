@@ -61,34 +61,44 @@ apply:
 
 GITHUB = """name: FLUID
 on: [push]
+permissions: {}  # Least privilege — grant per-job only
 jobs:
   validate:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
       - run: python -m fluid_build.cli validate ${{ env.CONTRACT }}
   plan:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
       - run: python -m fluid_build.cli --provider ${{ env.PROVIDER }} plan ${{ env.CONTRACT }} --out runtime/plan.json
   apply:
     needs: [plan]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     if: github.event_name == 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
       - run: python -m fluid_build.cli --provider ${{ env.PROVIDER }} apply runtime/plan.json --yes
 """
 
 JENKINS = """\
 // FLUID CI/CD Pipeline — Jenkinsfile
 pipeline {
-    agent any
+    agent { label 'fluid' }
 
     environment {
         CONTRACT = 'contract.fluid.yaml'
         PROVIDER = 'default'
+        // Bind credentials from Jenkins credential store.
+        // Configure 'fluid-provider-credentials' in Jenkins > Manage Credentials.
+        PROVIDER_CREDS = credentials('fluid-provider-credentials')
     }
 
     stages {

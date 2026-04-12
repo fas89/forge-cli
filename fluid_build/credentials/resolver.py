@@ -268,8 +268,32 @@ class BaseCredentialResolver(ABC):
             return None
 
     def _get_from_config(self, key: str) -> Optional[str]:
-        """Get credential from config file."""
-        # TODO: Implement config file support
+        """Get credential from config file (~/.fluidrc.yaml or ~/.fluid/config.yaml)."""
+        try:
+            import yaml as _yaml
+        except ImportError:
+            return None
+
+        config_paths = [
+            os.path.expanduser("~/.fluidrc.yaml"),
+            os.path.expanduser("~/.fluid/config.yaml"),
+        ]
+
+        for config_path in config_paths:
+            if not os.path.exists(config_path):
+                continue
+            try:
+                with open(config_path) as f:
+                    config = _yaml.safe_load(f) or {}
+                # Try provider-scoped key first, then global
+                provider_section = config.get(self.provider, {})
+                if isinstance(provider_section, dict) and key in provider_section:
+                    return str(provider_section[key])
+                if key in config:
+                    return str(config[key])
+            except Exception as e:
+                logger.warning(f"Failed to parse config file {config_path}: {e}")
+
         return None
 
     def _get_from_vault(self, key: str) -> Optional[str]:
@@ -285,9 +309,18 @@ class BaseCredentialResolver(ABC):
             return None
 
     def _get_from_secret_manager(self, key: str) -> Optional[str]:
-        """Get credential from cloud secret manager."""
-        # Handled by secrets.py which supports GCP/AWS/Azure
-        return None
+        """Get credential from cloud secret manager (GCP/AWS/Azure)."""
+        try:
+            from ..secrets import get_secret_manager
+
+            manager = get_secret_manager()
+            if manager is None:
+                return None
+            secret_name = f"{self.provider}/{key}"
+            return manager.get_secret(secret_name, required=False)
+        except Exception as e:
+            logger.debug(f"Failed to read from secret manager: {e}")
+            return None
 
     def _get_from_prompt(self, key: str) -> Optional[str]:
         """Get credential from interactive prompt."""

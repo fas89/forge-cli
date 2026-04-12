@@ -225,8 +225,8 @@ class TestBuildCIStatePayload:
 
         for entry in doc.files:
             assert not Path(entry["path"]).is_absolute()
-            # GitHub Actions always lives under .github/workflows/
-            assert entry["path"].startswith(".github/workflows/")
+            # GitHub Actions lives under .github/workflows/ (plus ancillary files like .env.ci.example)
+            assert entry["path"].startswith(".github/workflows/") or entry["path"] == ".env.ci.example"
 
 
 class TestWriteCIState:
