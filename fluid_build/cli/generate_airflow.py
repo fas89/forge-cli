@@ -92,6 +92,11 @@ Examples:
 
 def run(args, logger: logging.Logger) -> int:
     """Execute Airflow DAG generation."""
+    warn(
+        logger,
+        "Note: 'generate-airflow' is deprecated. "
+        "Use 'fluid generate schedule --scheduler airflow' instead.",
+    )
     try:
         # Load contract
         contract_path = Path(args.contract)

@@ -126,6 +126,8 @@ SUMMARY_FIELDS = {
     "byot_path",
     "transformation_engine",
     "user_data_model",
+    "schedule_engine",
+    "byos_path",
 }
 
 LIST_LIKE_FIELDS = {"primary_measures", "primary_dimensions", "supporting_standards"}
@@ -149,6 +151,8 @@ SCALAR_FIELDS = {
     "byot_path",
     "transformation_engine",
     "user_data_model",
+    "schedule_engine",
+    "byos_path",
 }
 
 
@@ -666,6 +670,10 @@ def _ask_bootstrap_questions(
     ):
         _ask_engine_selection(state, console, discovery_report=discovery_report)
 
+    # ── Schedule selection ────────────────────────────────────────────
+    if not state.normalized_context.get("schedule_engine") and not state.normalized_context.get("byos_path"):
+        _ask_schedule_question(state, console, discovery_report=discovery_report)
+
     # Ask about data modeling if domain expertise has modeling standards
     domain_expertise = state.normalized_context.get("domain_expertise") or {}
     if domain_expertise.get("data_modeling_standards") and not state.normalized_context.get("data_modeling"):
@@ -849,6 +857,117 @@ def _ask_engine_selection(
             state.apply_patch({"build_engine": available[0]}, source="interactive")
     except ImportError:
         pass  # engines module not available
+
+
+def _ask_schedule_question(
+    state: CopilotInterviewState,
+    console: Any,
+    *,
+    discovery_report: DiscoveryReport,
+) -> None:
+    """Ask if user wants schedule generation, then which scheduler and BYOS."""
+    answer = ask_friendly_text(
+        console,
+        "Do you want to generate a schedule/orchestration? (yes/no)",
+        required=False,
+    )
+    if not answer or answer.strip().lower() not in ("yes", "y", "yeah", "yep", "sure"):
+        return
+
+    state.record_turn(
+        role="user",
+        content="yes",
+        field="wants_schedule",
+        question_id="bootstrap_wants_schedule",
+        raw_input=answer,
+        resolved_value="true",
+        resolution_status="matched",
+    )
+
+    # Ask which scheduler
+    _ask_scheduler_selection(state, console, discovery_report=discovery_report)
+
+    # Ask BYOS (Bring Your Own Schedule)
+    if not state.normalized_context.get("byos_path"):
+        _ask_byos_question(state, console)
+
+
+def _ask_scheduler_selection(
+    state: CopilotInterviewState,
+    console: Any,
+    *,
+    discovery_report: DiscoveryReport,
+) -> None:
+    """Ask which schedule engine to use, filtered by platform."""
+    try:
+        from fluid_build.schedulers import list_schedulers_for_platform, list_schedulers
+
+        # Filter by platform if known
+        provider = state.normalized_context.get("provider", "")
+        if provider:
+            available = list_schedulers_for_platform(provider)
+        else:
+            available = list_schedulers()
+
+        if not available:
+            return
+
+        choices_str = " / ".join(available)
+        answer = ask_friendly_text(
+            console,
+            f"What scheduler? [{choices_str}]",
+            required=False,
+            default=available[0] if available else None,
+        )
+        if answer:
+            scheduler_name = answer.strip().lower()
+            if scheduler_name in available:
+                state.apply_patch({"schedule_engine": scheduler_name}, source="interactive")
+                state.record_turn(
+                    role="user",
+                    content=scheduler_name,
+                    field="schedule_engine",
+                    question_id="bootstrap_scheduler",
+                    raw_input=answer,
+                    resolved_value=scheduler_name,
+                    resolution_status="matched",
+                )
+            elif scheduler_name:
+                # Accept unknown names — the contract schema supports custom
+                state.apply_patch({"schedule_engine": scheduler_name}, source="interactive")
+        elif available:
+            # Default to first available scheduler
+            state.apply_patch({"schedule_engine": available[0]}, source="interactive")
+    except ImportError:
+        pass  # schedulers module not available
+
+
+def _ask_byos_question(
+    state: CopilotInterviewState,
+    console: Any,
+) -> None:
+    """Ask if user has an existing schedule/DAG (BYOS — Bring Your Own Schedule)."""
+    answer = ask_friendly_text(
+        console,
+        "Do you have an existing DAG/schedule? (local path / git URL / Enter to generate)",
+        required=False,
+    )
+    if answer and answer.strip():
+        trimmed = answer.strip()
+        state.apply_patch({"byos_path": trimmed}, source="interactive")
+        state.record_turn(
+            role="user",
+            content=trimmed,
+            field="byos_path",
+            question_id="bootstrap_byos",
+            raw_input=answer,
+            resolved_value=trimmed,
+            resolution_status="matched",
+        )
+        try:
+            console.print(f"[green]Using existing schedule:[/green] {trimmed}")
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _ask_dynamic_questions(

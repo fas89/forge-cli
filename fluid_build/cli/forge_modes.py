@@ -1757,11 +1757,24 @@ def _create_project_minimal(
             no_generate=options.get("no_generate", False),
         )
 
+        # Schedule generation — produce Airflow DAGs, Dagster pipelines,
+        # Prefect flows alongside the contract.
+        schedule_files = _generate_schedule_artifacts(
+            contract,
+            target_dir=target_dir,
+            context=context,
+            logger=logger,
+            console=console,
+            no_generate=options.get("no_generate", False),
+        )
+
         # Write additional files (dbt models, SQL, etc.) — these were
         # previously ignored in the minimal path.
         additional_files = dict(generation_result.additional_files or {})
         # Merge engine-generated files (engine files take precedence)
         additional_files.update(engine_files)
+        # Merge schedule-generated files
+        additional_files.update(schedule_files)
         if additional_files:
             for rel_path, content in additional_files.items():
                 fpath = target_dir / rel_path
@@ -1808,6 +1821,14 @@ def _create_project_minimal(
                     n = len(additional_files)
                     console.print(
                         f"[green]   + {n} additional file{'s' if n != 1 else ''}[/green]"
+                    )
+                if engine_files:
+                    console.print(
+                        "[dim]   Tip: use 'fluid generate transformation' to re-generate transformations.[/dim]"
+                    )
+                if schedule_files:
+                    console.print(
+                        "[dim]   Tip: use 'fluid generate schedule' to re-generate your schedule.[/dim]"
                     )
             except Exception:  # noqa: BLE001
                 pass
@@ -1976,6 +1997,122 @@ def _generate_engine_artifacts(
     except Exception as exc:  # noqa: BLE001
         if logger:
             logger.debug("engine_artifact_generation_failed: %s", exc)
+        return {}
+
+
+def _generate_schedule_artifacts(
+    contract: Dict[str, Any],
+    *,
+    target_dir: Path,
+    context: Dict[str, Any],
+    logger: logging.Logger,
+    console: Any,
+    no_generate: bool = False,
+) -> Dict[str, str]:
+    """Generate schedule engine artifacts from the contract.
+
+    Returns a dict of {relative_path: content} for files to write under
+    target_dir.  Returns empty dict if generation is skipped or no scheduler
+    is available.
+    """
+    if no_generate:
+        return {}
+
+    try:
+        from fluid_build.schedulers import get_scheduler, has_scheduler
+
+        # Resolve scheduler name from contract or interview context
+        orchestration = contract.get("orchestration", {})
+        scheduler_name = orchestration.get("engine") or context.get("schedule_engine", "")
+        if not scheduler_name:
+            return {}
+
+        # Skip if BYOS path is set (user has their own schedule)
+        if context.get("byos_path"):
+            if console:
+                try:
+                    byos = context["byos_path"]
+                    console.print(
+                        f"\n[green]Using existing schedule:[/green] [dim]{byos}[/dim]"
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+            return {}
+
+        if not has_scheduler(scheduler_name):
+            if console:
+                try:
+                    console.print(
+                        f"\n[dim]Scheduler '{scheduler_name}' is set in your contract. "
+                        f"Schedule artifact generation is not yet available for this scheduler.\n"
+                        f"You can write your schedule code manually, or use "
+                        f"'fluid generate schedule' later.[/dim]"
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+            return {}
+
+        scheduler = get_scheduler(scheduler_name)
+        if scheduler is None:
+            return {}
+
+        # Validate
+        issues = scheduler.validate(contract)
+        errors = [i for i in issues if i.severity.value == "error"]
+        if errors:
+            if logger:
+                for issue in errors:
+                    logger.warning("scheduler_validation: %s", issue)
+            return {}
+
+        # Resolve provider and config
+        provider = contract.get("provider", context.get("provider", ""))
+        provider_config: Dict[str, Any] = {}
+        metadata = contract.get("metadata", {})
+        if provider == "gcp":
+            provider_config = {
+                "project": metadata.get("gcp_project", "my-project"),
+                "region": metadata.get("gcp_region", "us-central1"),
+            }
+        elif provider == "aws":
+            provider_config = {
+                "region": metadata.get("aws_region", "us-east-1"),
+            }
+        elif provider == "snowflake":
+            provider_config = {
+                "connection_id": metadata.get("snowflake_connection_id", "snowflake_default"),
+            }
+
+        # Generate
+        files = scheduler.generate(
+            contract,
+            provider=provider,
+            provider_config=provider_config,
+        )
+
+        # Prefix all paths with a dags/ directory
+        output_dir = {"airflow": "dags", "dagster": "pipelines", "prefect": "flows"}.get(
+            scheduler_name, "schedules"
+        )
+        prefixed = {f"{output_dir}/{rel_path}": content for rel_path, content in files.items()}
+
+        if console and prefixed:
+            try:
+                console.print(
+                    f"\n[green]Generated {len(prefixed)} schedule files[/green] "
+                    f"[dim]({scheduler_name} scheduler → {output_dir}/)[/dim]"
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
+        return prefixed
+
+    except ImportError:
+        # schedulers module not available — skip silently
+        return {}
+    except Exception as exc:  # noqa: BLE001
+        if logger:
+            logger.debug("schedule_artifact_generation_failed: %s", exc)
         return {}
 
 
