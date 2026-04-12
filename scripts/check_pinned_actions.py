@@ -65,7 +65,7 @@ def get_latest_release_sha(owner: str, repo: str, tag_prefix: str) -> dict | Non
         return None
 
     # Find the latest release matching the major version prefix (e.g., "v4" matches "v4.3.1")
-    major = tag_prefix.rstrip(".0123456789")  # "v4.3.1" -> "v4" (approximate)
+    major = tag_prefix.split(".")[0]  # "v4.3.1" -> "v4", "v0.35.0" -> "v0"
     if not major:
         major = tag_prefix
 
