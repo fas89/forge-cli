@@ -41,6 +41,8 @@ __all__ = [
     "resolve_ollama_model",
     "save_api_key_to_keyring",
     "call_llm",
+    "call_llm_streaming",
+    "streaming_is_enabled",
     "detect_provider_from_api_key",
     "check_llm_readiness",
 ]
@@ -53,13 +55,45 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, Iterator, List, Mapping, Optional
 
 import httpx
 
 from fluid_build.cli._common import CLIError
+from fluid_build.cli.forge_copilot_response_schema import (
+    FORGE_RESPONSE_SCHEMA,
+    anthropic_tool_definition,
+    gemini_response_schema_config,
+    ollama_supports_structured_output,
+    openai_response_format,
+)
 
 LOG = logging.getLogger("fluid.cli.forge_copilot.llm")
+
+
+def _structured_outputs_enabled() -> bool:
+    """Slice UX-I kill-switch for provider-native JSON enforcement.
+
+    Set ``FLUID_LLM_STRUCTURED_OUTPUTS=0`` to disable structured
+    outputs across all providers and fall back to the legacy
+    text-JSON + ``extract_json_object`` pipeline.  Intended as a
+    break-glass escape for users on models that silently reject the
+    new response-format directives.
+    """
+    value = os.environ.get("FLUID_LLM_STRUCTURED_OUTPUTS", "1").strip().lower()
+    return value not in {"0", "false", "no", "off"}
+
+
+def streaming_is_enabled() -> bool:
+    """Slice UX-I kill-switch for SSE streaming of LLM responses.
+
+    Set ``FLUID_LLM_STREAMING=0`` to disable streaming across all
+    providers.  The legacy blocking ``call_llm`` path is preserved
+    in full; every call site that wants streaming checks this helper
+    and falls back to ``call_llm`` when it returns False.
+    """
+    value = os.environ.get("FLUID_LLM_STREAMING", "1").strip().lower()
+    return value not in {"0", "false", "no", "off"}
 
 # Provider → environment variable mapping.  Shared across ai_setup.py and
 # this module to avoid duplication.
@@ -114,6 +148,45 @@ class LlmConfig:
     endpoint: str
     api_key: Optional[str]
     timeout_seconds: int = 120
+    # Slice UX-I: opt-in/out of server-sent-event streaming on
+    # supported providers.  Defaults to True so the user sees tokens
+    # flowing instead of a silent spinner.  Set to False (or set
+    # ``FLUID_LLM_STREAMING=0``) to fall back to the legacy blocking
+    # ``call_llm`` path.  The blocking path is preserved in full for
+    # providers/models that don't yet support streaming, and for any
+    # user who needs a break-glass escape.
+    streaming: bool = True
+    # Slice UX-J: optional cheap/fast "routing" model used for the
+    # interview clarification round and other non-critical LLM calls.
+    # When unset, falls back to the strong ``model`` for everything.
+    # ``resolve_llm_config`` populates these from
+    # ``FLUID_LLM_ROUTING_MODEL`` / ``FLUID_LLM_ROUTING_ENDPOINT``
+    # env vars, or from provider-specific defaults if available.
+    routing_model: Optional[str] = None
+    routing_endpoint: Optional[str] = None
+
+    def for_routing(self) -> "LlmConfig":
+        """Return a shallow copy configured for the routing model.
+
+        If no routing model is set, returns ``self`` unchanged — so
+        callers don't need to branch on ``routing_model``.
+        """
+        if not self.routing_model:
+            return self
+        import dataclasses
+
+        overrides: Dict[str, Any] = {"model": self.routing_model}
+        if self.routing_endpoint:
+            overrides["endpoint"] = self.routing_endpoint
+        else:
+            # Re-derive endpoint for the routing model using the same
+            # provider's default-endpoint logic.
+            provider = BUILTIN_LLM_PROVIDERS.get(self.provider)
+            if provider:
+                overrides["endpoint"] = provider.default_endpoint(
+                    self.routing_model, dict(os.environ)
+                )
+        return dataclasses.replace(self, **overrides)
 
     @property
     def redacted_endpoint(self) -> str:
@@ -155,6 +228,44 @@ class LlmProvider(ABC):
     def extract_text(self, response_json: Dict[str, Any]) -> str:
         """Extract free-form response text from the provider response."""
 
+    # ------------------------------------------------------------------
+    # Streaming (slice UX-I)
+    # ------------------------------------------------------------------
+    #
+    # Streaming is a sibling to the blocking request path, not a
+    # replacement.  ``build_streaming_request`` returns a triple of
+    # (url, headers, payload) because Gemini's streaming endpoint
+    # differs from its blocking endpoint (``:streamGenerateContent``
+    # vs ``:generateContent``), so we can't reuse ``config.endpoint``
+    # directly.  ``iter_stream_chunks`` consumes the SSE response and
+    # yields text deltas — concatenating those deltas produces the
+    # same string that ``extract_text`` would have returned on the
+    # blocking path.
+
+    def build_streaming_request(
+        self, config: LlmConfig, system_prompt: str, user_prompt: str
+    ) -> tuple[str, Dict[str, str], Dict[str, Any]]:
+        """Return (url, headers, payload) for a streaming request.
+
+        Default implementation reuses ``build_request`` and adds
+        ``stream: True`` to the payload.  Providers whose streaming
+        endpoint differs from their blocking endpoint (Gemini) must
+        override this.
+        """
+        headers, payload = self.build_request(config, system_prompt, user_prompt)
+        payload = dict(payload)
+        payload["stream"] = True
+        return config.endpoint, headers, payload
+
+    def iter_stream_chunks(self, response: httpx.Response) -> Iterator[str]:
+        """Yield text deltas from an SSE-streamed response.
+
+        Default implementation drops the generator silently; every
+        concrete provider overrides this with its own SSE parser.
+        """
+        return
+        yield  # pragma: no cover — makes this a generator for type purposes
+
 
 class OpenAIProvider(LlmProvider):
     name = "openai"
@@ -176,7 +287,7 @@ class OpenAIProvider(LlmProvider):
         headers = {"Content-Type": "application/json"}
         if config.api_key:
             headers["Authorization"] = f"Bearer {config.api_key}"
-        payload = {
+        payload: Dict[str, Any] = {
             "model": config.model,
             "temperature": 0.2,
             "messages": [
@@ -184,10 +295,53 @@ class OpenAIProvider(LlmProvider):
                 {"role": "user", "content": user_prompt},
             ],
         }
+        # Slice UX-I: provider-native structured outputs.  For
+        # gpt-4o-mini / gpt-4o-2024-08-06+ this is strict
+        # ``json_schema`` mode which literally cannot return
+        # anything else; for older models it falls back to the
+        # weaker ``json_object`` mode.  Either path eliminates the
+        # "LLM returned markdown fences" repair retries.
+        if _structured_outputs_enabled():
+            payload["response_format"] = openai_response_format(config.model)
         return headers, payload
 
     def extract_text(self, response_json: Dict[str, Any]) -> str:
         return response_json["choices"][0]["message"]["content"]
+
+    def iter_stream_chunks(self, response: httpx.Response) -> Iterator[str]:
+        """Parse an OpenAI Chat Completions SSE stream.
+
+        Each SSE event is of the form::
+
+            data: {"choices":[{"delta":{"content":"..."}}], ...}
+            data: [DONE]
+
+        The concatenation of every yielded chunk equals the
+        ``choices[0].message.content`` value that
+        :meth:`extract_text` returns on the blocking path.
+        """
+        for raw_line in response.iter_lines():
+            if not raw_line:
+                continue
+            line = raw_line if isinstance(raw_line, str) else raw_line.decode("utf-8", "replace")
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if not data or data == "[DONE]":
+                if data == "[DONE]":
+                    return
+                continue
+            try:
+                event = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            choices = event.get("choices") or []
+            if not choices:
+                continue
+            delta = choices[0].get("delta") or {}
+            content = delta.get("content")
+            if content:
+                yield content
 
 
 class OllamaProvider(OpenAIProvider):
@@ -203,6 +357,19 @@ class OllamaProvider(OpenAIProvider):
     ) -> tuple[Dict[str, str], Dict[str, Any]]:
         headers, payload = super().build_request(config, system_prompt, user_prompt)
         headers.pop("Authorization", None)
+        # Slice UX-I: Ollama's chat-compat endpoint does not accept
+        # OpenAI's ``response_format: json_schema`` directive.  For
+        # known-good local models fall back to the OpenAI-compat
+        # ``{"type": "json_object"}`` (supported by recent Ollama
+        # builds via ``format: "json"``); for unknown models drop
+        # the directive entirely and rely on the in-prompt JSON
+        # nudge.
+        if _structured_outputs_enabled():
+            payload.pop("response_format", None)
+            if ollama_supports_structured_output(config.model):
+                payload["response_format"] = {"type": "json_object"}
+        else:
+            payload.pop("response_format", None)
         return headers, payload
 
 
@@ -222,20 +389,103 @@ class AnthropicProvider(LlmProvider):
         }
         if config.api_key:
             headers["x-api-key"] = config.api_key
-        payload = {
+        # Slice UX-I: the ``system`` field is a blocks array with a
+        # ``cache_control: ephemeral`` hint.  Anthropic marks this
+        # prefix as a 5-minute cache candidate; subsequent requests
+        # with the byte-identical prefix read cached tokens at ~10%
+        # of the normal input cost and ~50-80% faster TTFT.
+        # ``build_system_prompt`` is memoized upstream so the prefix
+        # is stable across retries and non-interactive reruns.
+        payload: Dict[str, Any] = {
             "model": config.model,
             "max_tokens": 8192,
-            "system": system_prompt,
+            "system": [
+                {
+                    "type": "text",
+                    "text": system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
             "messages": [{"role": "user", "content": user_prompt}],
         }
+        # Slice UX-I: force the model to emit its response via a
+        # single ``emit_forge_contract`` tool call.  The tool's
+        # ``input_schema`` is the response envelope JSON Schema, so
+        # the model cannot return anything outside the shape the
+        # validator expects.  ``extract_text`` below will unwrap the
+        # tool_use block and return the JSON-encoded ``input``.
+        if _structured_outputs_enabled():
+            payload["tools"] = [anthropic_tool_definition()]
+            payload["tool_choice"] = {
+                "type": "tool",
+                "name": "emit_forge_contract",
+            }
         return headers, payload
 
     def extract_text(self, response_json: Dict[str, Any]) -> str:
         content = response_json.get("content") or []
+        # Slice UX-I: support both legacy ``text`` blocks and
+        # ``tool_use`` blocks emitted by structured-output forced
+        # tool calls (``emit_forge_contract``).  When a tool_use
+        # block is present, return its JSON-encoded input so the
+        # downstream ``extract_json_object`` parser can consume it
+        # without any natural-language unwrapping.
+        for part in content:
+            if part.get("type") == "tool_use":
+                tool_input = part.get("input") or {}
+                return json.dumps(tool_input)
         for part in content:
             if part.get("type") == "text":
                 return part.get("text", "")
-        raise KeyError("Anthropic response did not contain a text block")
+        raise KeyError("Anthropic response did not contain a text or tool_use block")
+
+    def iter_stream_chunks(self, response: httpx.Response) -> Iterator[str]:
+        """Parse an Anthropic Messages API SSE stream.
+
+        Anthropic ships events in this shape::
+
+            event: content_block_start
+            data: {"type":"content_block_start","content_block":{"type":"text","text":""}}
+
+            event: content_block_delta
+            data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"..."}}
+
+        When the generation path is using the forced
+        ``emit_forge_contract`` tool (slice UX-I structured outputs),
+        the deltas carry ``input_json_delta`` with ``partial_json``
+        fragments that concatenate into the tool's JSON input.  This
+        parser handles both — the concatenation of every yielded
+        chunk matches what :meth:`extract_text` returns on the
+        blocking path (a JSON string for the tool_use path, plain
+        text for the legacy text path).
+        """
+        for raw_line in response.iter_lines():
+            if not raw_line:
+                continue
+            line = raw_line if isinstance(raw_line, str) else raw_line.decode("utf-8", "replace")
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if not data:
+                continue
+            try:
+                event = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            event_type = event.get("type")
+            if event_type == "content_block_delta":
+                delta = event.get("delta") or {}
+                delta_type = delta.get("type")
+                if delta_type == "text_delta":
+                    text = delta.get("text")
+                    if text:
+                        yield text
+                elif delta_type == "input_json_delta":
+                    partial = delta.get("partial_json")
+                    if partial:
+                        yield partial
+            elif event_type == "message_stop":
+                return
 
 
 class GeminiProvider(LlmProvider):
@@ -254,10 +504,18 @@ class GeminiProvider(LlmProvider):
         headers = {"Content-Type": "application/json"}
         if config.api_key:
             headers["x-goog-api-key"] = config.api_key
+        generation_config: Dict[str, Any] = {"temperature": 0.2}
+        # Slice UX-I: Gemini's structured output mode.  Attach a
+        # stripped-down JSON Schema to ``generationConfig`` so the
+        # model returns a response that matches the envelope shape
+        # directly, eliminating the "LLM returned prose instead of
+        # JSON" repair retries.
+        if _structured_outputs_enabled():
+            generation_config.update(gemini_response_schema_config())
         payload = {
             "systemInstruction": {"parts": [{"text": system_prompt}]},
             "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
-            "generationConfig": {"temperature": 0.2},
+            "generationConfig": generation_config,
         }
         return headers, payload
 
@@ -270,6 +528,59 @@ class GeminiProvider(LlmProvider):
                 if text:
                     return text
         raise KeyError("Gemini response did not contain any text")
+
+    # -- Streaming (slice UX-I) --------------------------------------------
+
+    def _streaming_url(self, config: LlmConfig) -> str:
+        """Rewrite the Gemini generate-content URL for SSE streaming.
+
+        Gemini exposes streaming via ``:streamGenerateContent?alt=sse``
+        rather than ``:generateContent``.  We patch the URL in place
+        so ``build_streaming_request`` can reuse the existing blocking
+        payload without caring about endpoint resolution.
+        """
+        endpoint = config.endpoint or ""
+        if ":generateContent" in endpoint:
+            endpoint = endpoint.replace(":generateContent", ":streamGenerateContent")
+        if "alt=sse" not in endpoint:
+            sep = "&" if "?" in endpoint else "?"
+            endpoint = f"{endpoint}{sep}alt=sse"
+        return endpoint
+
+    def build_streaming_request(
+        self, config: LlmConfig, system_prompt: str, user_prompt: str
+    ) -> tuple[str, Dict[str, str], Dict[str, Any]]:
+        headers, payload = self.build_request(config, system_prompt, user_prompt)
+        return self._streaming_url(config), headers, payload
+
+    def iter_stream_chunks(self, response: httpx.Response) -> Iterator[str]:
+        """Parse a Gemini ``streamGenerateContent?alt=sse`` response.
+
+        Each SSE event carries a partial Gemini response with one or
+        more text parts under ``candidates[0].content.parts``.  We
+        yield every non-empty text fragment in order; the
+        concatenation matches :meth:`extract_text` on the blocking
+        path.
+        """
+        for raw_line in response.iter_lines():
+            if not raw_line:
+                continue
+            line = raw_line if isinstance(raw_line, str) else raw_line.decode("utf-8", "replace")
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if not data:
+                continue
+            try:
+                event = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            for candidate in event.get("candidates") or []:
+                content = candidate.get("content") or {}
+                for part in content.get("parts") or []:
+                    text = part.get("text")
+                    if text:
+                        yield text
 
 
 # ---------------------------------------------------------------------------
@@ -368,7 +679,61 @@ def resolve_llm_config(args: Any, environ: Optional[Mapping[str, str]] = None) -
             ],
         )
 
-    return LlmConfig(provider=provider.name, model=model, endpoint=endpoint, api_key=api_key)
+    # Slice UX-J: resolve the optional routing model for cheap tasks
+    # (interview clarification, classification, etc.).  Env vars take
+    # precedence, then provider-specific defaults kick in.
+    routing_model = (
+        getattr(args, "llm_routing_model", None)
+        or env.get("FLUID_LLM_ROUTING_MODEL")
+    )
+    routing_endpoint = (
+        getattr(args, "llm_routing_endpoint", None)
+        or env.get("FLUID_LLM_ROUTING_ENDPOINT")
+    )
+    if not routing_model:
+        routing_model = _default_routing_model(provider.name, model)
+
+    return LlmConfig(
+        provider=provider.name,
+        model=model,
+        endpoint=endpoint,
+        api_key=api_key,
+        routing_model=routing_model,
+        routing_endpoint=routing_endpoint,
+    )
+
+
+# Slice UX-J: provider-specific routing model defaults.
+# These are cheap/fast models that handle the interview clarification
+# round well but are ~3-10x cheaper per input token than the strong
+# model used for contract generation.  If the strong and routing
+# models would be the same, we return None so ``LlmConfig.for_routing``
+# short-circuits to self (no extra resolution).
+_ROUTING_MODEL_DEFAULTS: Dict[str, Dict[str, Optional[str]]] = {
+    "anthropic": {
+        "claude-3-5-sonnet-latest": "claude-3-5-haiku-latest",
+        "claude-sonnet-4-20250514": "claude-3-5-haiku-latest",
+        "claude-3-5-sonnet-20241022": "claude-3-5-haiku-latest",
+    },
+    "openai": {
+        # gpt-4o-mini is already cheap; no routing benefit.
+        "gpt-4o": "gpt-4o-mini",
+        "gpt-4.1": "gpt-4.1-mini",
+    },
+    "gemini": {
+        "gemini-2.5-pro": "gemini-2.5-flash",
+        "gemini-1.5-pro": "gemini-2.0-flash",
+    },
+    # Ollama: local models, no cost consideration → no default routing.
+}
+
+
+def _default_routing_model(provider_name: str, strong_model: str) -> Optional[str]:
+    """Return the default routing model for *provider_name* when the
+    strong model is *strong_model*, or ``None`` when no cheaper
+    alternative is known."""
+    provider_defaults = _ROUTING_MODEL_DEFAULTS.get(provider_name, {})
+    return provider_defaults.get(strong_model)
 
 
 # ---------------------------------------------------------------------------
@@ -443,6 +808,81 @@ def call_llm(
                 "Verify the selected model supports JSON-friendly instruction following",
                 "Try a different --llm-model or --llm-provider",
             ],
+        ) from exc
+
+
+def call_llm_streaming(
+    provider: LlmProvider,
+    config: LlmConfig,
+    system_prompt: str,
+    user_prompt: str,
+) -> Iterator[str]:
+    """Slice UX-I: stream text deltas from the configured provider.
+
+    This is a generator that yields text chunks as they arrive via
+    SSE.  Callers typically accumulate into a buffer::
+
+        chunks = []
+        for chunk in call_llm_streaming(provider, config, sys, usr):
+            chunks.append(chunk)
+            # optional: update a live progress view
+        raw_text = "".join(chunks)
+
+    The concatenated buffer is byte-identical to what
+    :func:`call_llm` would have returned for the same request.  Every
+    downstream parser (``extract_json_object``, the retry loop,
+    validation) works unchanged.
+
+    Errors are translated to :class:`CopilotGenerationError` with the
+    same suggestions as the blocking path.  HTTP transient failures
+    are NOT retried here — callers that need retries should fall back
+    to :func:`call_llm` or wrap the generator in their own loop.
+    Retrying a partial SSE stream would require re-parsing chunks
+    delivered before the failure, which is not worth the complexity
+    when the blocking path already has a solid retry story.
+    """
+    url, headers, payload = provider.build_streaming_request(
+        config, system_prompt, user_prompt
+    )
+    suggestions = [
+        "Check the selected model and endpoint are correct",
+        "Verify the API key environment variable is set",
+        "Set FLUID_LLM_STREAMING=0 to fall back to the blocking path",
+    ]
+    try:
+        with httpx.Client(timeout=config.timeout_seconds) as client:
+            with client.stream("POST", url, headers=headers, json=payload) as response:
+                try:
+                    response.raise_for_status()
+                except httpx.HTTPStatusError as exc:
+                    # Drain the error body so the message is populated.
+                    try:
+                        response.read()
+                    except Exception:  # noqa: BLE001
+                        pass
+                    status = exc.response.status_code
+                    raise CopilotGenerationError(
+                        "copilot_llm_request_failed",
+                        f"LLM streaming request failed ({status}) "
+                        f"for {config.provider} model '{config.model}'.",
+                        suggestions=suggestions,
+                    ) from exc
+                yielded_any = False
+                for chunk in provider.iter_stream_chunks(response):
+                    if chunk:
+                        yielded_any = True
+                        yield chunk
+                if not yielded_any:
+                    raise CopilotGenerationError(
+                        "copilot_llm_stream_empty",
+                        f"LLM streaming response from {config.provider} was empty.",
+                        suggestions=suggestions,
+                    )
+    except httpx.HTTPError as exc:
+        raise CopilotGenerationError(
+            "copilot_llm_network_error",
+            f"LLM streaming network error for provider {config.provider}: {exc}",
+            suggestions=suggestions,
         ) from exc
 
 

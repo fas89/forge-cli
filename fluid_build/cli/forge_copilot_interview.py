@@ -52,6 +52,45 @@ INTERVIEW_MAX_ROUNDS = 3
 INTERVIEW_MAX_QUESTIONS_PER_ROUND = 2
 INTERVIEW_TRANSCRIPT_WINDOW = 6
 
+# Slice UX-I: the set of context slots that together are sufficient for
+# the generation LLM to produce a defensible contract WITHOUT a
+# clarification round.  When every slot in this tuple is already
+# populated, ``is_context_sufficient`` returns True and the interview
+# loop short-circuits the ``request_interview_decision`` LLM call — a
+# ~5-10s saving per run for users whose context is already rich.
+CONTEXT_SUFFICIENT_SLOTS: tuple[str, ...] = (
+    "project_goal",
+    "data_sources",
+    "use_case",
+)
+
+
+def is_context_sufficient(context: Mapping[str, Any]) -> bool:
+    """Return True when ``context`` already contains the minimum slots.
+
+    The generation LLM can produce a defensible contract as long as it
+    knows what the user is building (``project_goal``), where the data
+    comes from (``data_sources``), and what shape the output should
+    take (``use_case``).  Everything else has safe defaults or is
+    inferred by the scaffold heuristics in
+    ``forge_copilot_runtime._build_scaffold_decision``.
+
+    Callers can force a clarification round regardless by setting the
+    ``FLUID_COPILOT_FORCE_INTERVIEW=1`` environment variable; the
+    interview loop reads that before consulting this helper.
+    """
+    if not isinstance(context, Mapping):
+        return False
+    for slot in CONTEXT_SUFFICIENT_SLOTS:
+        value = context.get(slot)
+        if value is None:
+            return False
+        if isinstance(value, str) and not value.strip():
+            return False
+        if isinstance(value, (list, tuple, dict)) and len(value) == 0:
+            return False
+    return True
+
 SOURCE_PRECEDENCE = {
     "default": 0,
     "clarifier": 1,
@@ -426,6 +465,23 @@ def run_adaptive_copilot_interview(
         )
     _ask_bootstrap_questions(state, console, discovery_report=discovery_report)
 
+    # Slice UX-I: short-circuit the clarification LLM round if the
+    # bootstrap questions + discovery + project memory already filled
+    # in the minimum slots.  This saves one LLM call (~5-10s) per run
+    # for users who answered the local bootstrap questions fully.
+    # Users can force the old behaviour by setting
+    # ``FLUID_COPILOT_FORCE_INTERVIEW=1`` in their environment.
+    import os
+
+    force_interview = bool(os.environ.get("FLUID_COPILOT_FORCE_INTERVIEW"))
+    if (
+        not force_interview
+        and console
+        and not previous_failure
+        and is_context_sufficient(state.normalized_context)
+    ):
+        state.ready = True
+
     round_number = 0
     while console and state.remaining_rounds > 0 and not state.ready:
         decision = request_interview_decision(
@@ -505,7 +561,17 @@ def request_interview_decision(
     project_memory: Optional[Any] = None,
     previous_failure: Optional[List[str]] = None,
 ) -> InterviewDecision:
-    """Call the LLM to decide whether to ask more questions or proceed."""
+    """Call the LLM to decide whether to ask more questions or proceed.
+
+    Slice UX-J: if ``llm_config`` carries a ``routing_model``, the
+    clarification call uses the cheap/fast routing model instead of
+    the strong generation model.  Interview planning is a low-stakes
+    task (it only decides which questions to ask, not what the
+    contract contains) so a ~3-10x cheaper model is usually fine.
+    """
+    # Slice UX-J: route the interview clarification to the cheap model.
+    routing_config = llm_config.for_routing() if hasattr(llm_config, "for_routing") else llm_config
+
     system_prompt = build_clarification_system_prompt(capability_matrix)
     user_prompt = build_clarification_user_prompt(
         interview_state=state.to_prompt_payload(),
@@ -515,8 +581,8 @@ def request_interview_decision(
         previous_failure=previous_failure or [],
     )
     raw = call_llm(
-        provider=get_llm_provider(llm_config.provider),
-        config=llm_config,
+        provider=get_llm_provider(routing_config.provider),
+        config=routing_config,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
     )

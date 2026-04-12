@@ -22,6 +22,8 @@ so that ``from forge_copilot_runtime import X`` keeps working everywhere.
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 import logging
 import threading
 from dataclasses import dataclass, field
@@ -83,8 +85,10 @@ from fluid_build.cli.forge_copilot_llm_providers import (  # noqa: F401
     OllamaProvider,
     OpenAIProvider,
     call_llm,
+    call_llm_streaming,
     get_llm_provider,
     resolve_llm_config,
+    streaming_is_enabled,
 )
 
 # ---------------------------------------------------------------------------
@@ -161,9 +165,79 @@ class CopilotGenerationResult:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# System prompt cache (slice UX-I)
+# ---------------------------------------------------------------------------
+# ``build_system_prompt`` is pure: given the same capability matrix, it
+# always returns the same string.  The generation retry loop calls it
+# up to 3 times per run with the same input, and every call rebuilds
+# ~1400 tokens of interpolated text — wasted CPU and, more
+# importantly, wasted provider prompt-cache opportunities.  Memoizing
+# the result lets Anthropic's ``cache_control: ephemeral`` block and
+# OpenAI's automatic prompt caching actually fire, since both require
+# byte-identical prefixes across requests.
+#
+# The cache holds a single entry (most recent capability matrix →
+# prompt).  The retry loop always uses the same matrix, so a 1-entry
+# LRU is sufficient and avoids any need for a size policy.  Keyed on
+# a stable hash of the matrix JSON so that deep-copied matrices (which
+# break ``id()``-based keying) still hit the cache.
+_SYSTEM_PROMPT_CACHE: Optional[Dict[str, str]] = None
+_SYSTEM_PROMPT_LOCK = threading.Lock()
+
+
+def clear_system_prompt_cache() -> None:
+    """Drop the process-wide system prompt cache.
+
+    Tests that mutate the capability matrix inline (or monkey-patch
+    ``_build_system_prompt_raw``) should call this to force the next
+    ``build_system_prompt`` to rebuild.  Also chained from
+    ``clear_capability_matrix_cache`` so callers that invalidate the
+    upstream matrix cache don't end up with a stale system prompt.
+    """
+    global _SYSTEM_PROMPT_CACHE
+    with _SYSTEM_PROMPT_LOCK:
+        _SYSTEM_PROMPT_CACHE = None
+
+
+def _system_prompt_cache_key(capability_matrix: Mapping[str, Any]) -> Optional[str]:
+    """Compute a stable hash of *capability_matrix* for the cache.
+
+    Returns ``None`` when the matrix contains values that can't be
+    JSON-serialized — the caller then skips the cache entirely and
+    rebuilds every time.  That's safe (never a stale hit) and rare
+    enough in practice that the overhead is negligible.
+    """
+    try:
+        blob = json.dumps(capability_matrix, sort_keys=True, default=str)
+    except Exception:  # noqa: BLE001 — defensive
+        return None
+    engines_hash = hash(tuple(sorted(KNOWN_BUILD_ENGINES)))
+    return f"{hashlib.sha1(blob.encode('utf-8')).hexdigest()}:{engines_hash}"
+
+
 def build_system_prompt(capability_matrix: Mapping[str, Any]) -> str:
-    """Build the system prompt, injecting the known build engines list."""
-    return _build_system_prompt_raw(capability_matrix, sorted(KNOWN_BUILD_ENGINES))
+    """Build the system prompt, injecting the known build engines list.
+
+    Memoized per-process on a stable hash of the capability matrix
+    (slice UX-I).  Subsequent calls with the same matrix return the
+    byte-identical cached string, which is what Anthropic's
+    ``cache_control: ephemeral`` and OpenAI's automatic prefix caching
+    need to actually hit.
+    """
+    global _SYSTEM_PROMPT_CACHE
+    key = _system_prompt_cache_key(capability_matrix)
+    if key is not None:
+        with _SYSTEM_PROMPT_LOCK:
+            cached = _SYSTEM_PROMPT_CACHE
+            if cached is not None and cached.get("key") == key:
+                return cached["prompt"]
+
+    prompt = _build_system_prompt_raw(capability_matrix, sorted(KNOWN_BUILD_ENGINES))
+    if key is not None:
+        with _SYSTEM_PROMPT_LOCK:
+            _SYSTEM_PROMPT_CACHE = {"key": key, "prompt": prompt}
+    return prompt
 
 
 def build_seed_contract(
@@ -261,11 +335,14 @@ def clear_capability_matrix_cache() -> None:
 
     Tests (and any future ``fluid doctor refresh`` command) can call
     this to force the next ``build_capability_matrix()`` to recompute
-    from scratch.
+    from scratch.  Also invalidates the downstream system-prompt
+    cache (slice UX-I) so a subsequent ``build_system_prompt`` call
+    doesn't hand back a prompt that refers to a stale matrix.
     """
     global _CAPABILITY_MATRIX_CACHE
     with _CAPABILITY_MATRIX_LOCK:
         _CAPABILITY_MATRIX_CACHE = None
+    clear_system_prompt_cache()
 
 
 def build_capability_matrix() -> Dict[str, Any]:
@@ -401,6 +478,92 @@ def _build_capability_matrix_uncached() -> Dict[str, Any]:
     }
 
 
+def _call_llm_with_optional_streaming(
+    provider_adapter: LlmProvider,
+    llm_config: LlmConfig,
+    system_prompt: str,
+    user_prompt: str,
+) -> str:
+    """Slice UX-I: pick streaming vs blocking LLM transport.
+
+    Returns the full concatenated response text so the downstream
+    retry/repair loop and validation stay completely untouched.
+    Streaming is enabled when BOTH the per-call
+    ``llm_config.streaming`` flag and the process-wide
+    ``FLUID_LLM_STREAMING`` env kill-switch allow it.
+
+    When streaming is picked and yields real chunks, we also render
+    a live progress line via Rich (if a suitable Rich console is
+    importable) so the user sees tokens flowing instead of a silent
+    spinner.  Rich is imported lazily so this module stays
+    importable in headless test environments.
+
+    Any streaming-side error short-circuits to the blocking
+    ``call_llm`` path as a belt-and-braces safety net; the next
+    retry attempt will then use the blocking path too.
+    """
+    use_streaming = bool(getattr(llm_config, "streaming", True)) and streaming_is_enabled()
+    if not use_streaming:
+        return call_llm(provider_adapter, llm_config, system_prompt, user_prompt)
+
+    chunks: List[str] = []
+    live_ctx: Any = None
+    try:
+        # Lazy Rich import so the module remains importable in
+        # environments without Rich (e.g. minimal CI containers).
+        from rich.console import Console  # noqa: WPS433
+        from rich.live import Live  # noqa: WPS433
+        from rich.spinner import Spinner  # noqa: WPS433
+        from rich.text import Text  # noqa: WPS433
+
+        live_console = Console(stderr=True)
+        spinner = Spinner("dots", text=Text("Generating contract…", style="cyan"))
+        live_ctx = Live(spinner, console=live_console, refresh_per_second=12, transient=True)
+        live_ctx.__enter__()
+    except Exception:  # noqa: BLE001 — Rich is optional
+        live_ctx = None
+
+    def _update_live(char_count: int) -> None:
+        if live_ctx is None:
+            return
+        try:
+            from rich.spinner import Spinner  # noqa: WPS433
+            from rich.text import Text  # noqa: WPS433
+
+            label = Text.assemble(
+                ("Generating contract ", "cyan"),
+                (f"({char_count:,} chars)", "dim"),
+            )
+            live_ctx.update(Spinner("dots", text=label))
+        except Exception:  # noqa: BLE001
+            pass
+
+    try:
+        char_total = 0
+        for chunk in call_llm_streaming(
+            provider_adapter, llm_config, system_prompt, user_prompt
+        ):
+            chunks.append(chunk)
+            char_total += len(chunk)
+            if char_total % 256 < len(chunk):  # cheap throttle
+                _update_live(char_total)
+        return "".join(chunks)
+    except CopilotGenerationError as streaming_exc:
+        # Streaming layer failed — fall back to the blocking path so
+        # the user doesn't have to manually flip the kill-switch.
+        LOG.info(
+            "LLM streaming failed (%s); falling back to blocking call_llm",
+            streaming_exc,
+        )
+        return call_llm(provider_adapter, llm_config, system_prompt, user_prompt)
+    finally:
+        if live_ctx is not None:
+            try:
+                live_ctx.__exit__(None, None, None)
+            except Exception:  # noqa: BLE001
+                pass
+
+
 def generate_copilot_artifacts(
     context: Mapping[str, Any],
     *,
@@ -456,7 +619,9 @@ def generate_copilot_artifacts(
         )
         attempts.append(report)
 
-        raw_text = call_llm(provider_adapter, llm_config, system_prompt, user_prompt)
+        raw_text = _call_llm_with_optional_streaming(
+            provider_adapter, llm_config, system_prompt, user_prompt
+        )
         try:
             payload = extract_json_object(raw_text)
         except ValueError as exc:
