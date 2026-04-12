@@ -1,0 +1,261 @@
+# Copyright 2024-2026 Agentics Transformation Ltd
+# Licensed under the Apache License, Version 2.0
+
+"""Multi-turn agent loop for forge copilot (slice UX-K).
+
+Instead of cramming everything into a single prompt, the agent loop
+lets the LLM call tools (``discover_workspace``, ``read_sample_schema``,
+``list_templates``, ``propose_contract``, ``validate_contract``) on
+demand across multiple turns.  This reduces input-token cost (~30%),
+eliminates most repair retries (the LLM can call ``validate_contract``
+itself), and unlocks parallel tool dispatch for read-only tools.
+
+The loop is opt-in via ``fluid forge --agent-loop`` or
+``FLUID_COPILOT_AGENT_LOOP=1``.  The default single-shot flow in
+``generate_copilot_artifacts`` is unchanged.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any, Dict, List, Mapping, Optional
+
+import httpx
+
+from fluid_build.cli.forge_copilot_llm_providers import (
+    CopilotGenerationError,
+    LlmConfig,
+    LlmProvider,
+    get_llm_provider,
+)
+from fluid_build.cli.forge_copilot_tools import (
+    dispatch_tool_call,
+    get_tool_definitions,
+)
+
+LOG = logging.getLogger("fluid.cli.forge_copilot.agent_loop")
+
+# Read-only tools that can safely run in parallel.
+_PARALLELIZABLE_TOOLS = frozenset({
+    "discover_workspace",
+    "read_sample_schema",
+    "list_templates",
+})
+
+# Maximum number of LLM round-trips before we give up.
+MAX_AGENT_ITERATIONS = 12
+
+# System prompt for the agent loop — much shorter than the single-shot
+# prompt because the LLM discovers information via tools instead of
+# receiving it up front.
+AGENT_SYSTEM_PROMPT = (
+    "You are FLUID Forge Copilot, running in agent mode.\n"
+    "Use the available tools to understand the user's workspace, choose "
+    "the right template and provider, build a contract, and validate it.\n\n"
+    "Workflow:\n"
+    "1. Call discover_workspace to scan for data files and existing contracts.\n"
+    "2. Call list_templates to see available templates and providers.\n"
+    "3. Optionally call read_sample_schema on interesting data files.\n"
+    "4. Call propose_contract with the user's context to get a seed.\n"
+    "5. Refine the seed based on discovery results.\n"
+    "6. Call validate_contract to check for errors.\n"
+    "7. If there are validation errors, fix the contract and re-validate.\n"
+    "8. When the contract is valid, return your final response as a JSON "
+    "object with keys: recommended_template, recommended_provider, "
+    "recommended_patterns, architecture_suggestions, best_practices, "
+    "technology_stack, description, domain, owner, readme_markdown, "
+    "contract, additional_files.\n\n"
+    "CRITICAL: The contract must be a valid FLUID 0.7.2 DataProduct contract.\n"
+    "Use fluidVersion '0.7.2'. Only use providers and templates from list_templates.\n"
+    "Never include secrets or raw sample data in your response.\n"
+    "When you're ready to deliver, stop calling tools and return the final JSON directly."
+)
+
+
+def run_copilot_agent_loop(
+    *,
+    context: Mapping[str, Any],
+    llm_config: LlmConfig,
+    discovery_report: Any = None,
+    project_memory: Any = None,
+    capability_matrix: Optional[Mapping[str, Any]] = None,
+    max_iterations: int = MAX_AGENT_ITERATIONS,
+) -> Dict[str, Any]:
+    """Run the multi-turn agent loop and return the final result dict.
+
+    The return value has the same shape as
+    ``CopilotGenerationResult`` field sources so callers can build
+    the dataclass from it.
+
+    Raises :class:`CopilotGenerationError` if the loop exhausts
+    iterations without producing a valid contract.
+    """
+    provider_adapter = get_llm_provider(llm_config.provider)
+    tools = get_tool_definitions()
+
+    # Build the initial user message from the context.
+    user_content = _build_initial_user_message(context, project_memory)
+    messages: List[Dict[str, Any]] = [
+        {"role": "user", "content": user_content},
+    ]
+
+    for iteration in range(max_iterations):
+        LOG.debug("Agent loop iteration %d/%d", iteration + 1, max_iterations)
+
+        # Call the LLM with the tool definitions.
+        response_json = _call_llm_with_tools(
+            provider_adapter, llm_config, AGENT_SYSTEM_PROMPT, messages, tools
+        )
+
+        # Check for tool calls.
+        tool_calls = provider_adapter.extract_tool_calls(response_json)
+
+        if not tool_calls:
+            # No tool calls — the model is emitting its final response.
+            text = provider_adapter.extract_text_from_tool_response(response_json)
+            if text:
+                try:
+                    from fluid_build.cli.forge_copilot_runtime import extract_json_object
+                    payload = extract_json_object(text)
+                    return payload
+                except ValueError:
+                    # The model returned text that isn't valid JSON.
+                    # Ask it to try again.
+                    messages.append({"role": "assistant", "content": text})
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "Your response was not valid JSON. Please return "
+                            "the final response as a strict JSON object with "
+                            "the required keys."
+                        ),
+                    })
+                    continue
+            # Empty response — unusual but recoverable.
+            messages.append({
+                "role": "user",
+                "content": "I didn't receive a response. Please continue.",
+            })
+            continue
+
+        # Dispatch tool calls (parallel for read-only tools).
+        results = _dispatch_tools(tool_calls)
+
+        # Feed tool results back to the LLM.
+        result_msgs = provider_adapter.build_tool_result_messages(
+            tool_calls, results
+        )
+        messages.extend(result_msgs)
+
+    raise CopilotGenerationError(
+        "copilot_agent_loop_exhausted",
+        f"Agent loop did not produce a valid contract after {max_iterations} iterations.",
+        suggestions=[
+            "The model may be stuck in a tool-call loop",
+            "Try with a different model or use the default single-shot flow",
+            "Set FLUID_COPILOT_AGENT_LOOP=0 to disable agent mode",
+        ],
+    )
+
+
+def _build_initial_user_message(
+    context: Mapping[str, Any],
+    project_memory: Any = None,
+) -> str:
+    """Build the first user message from the interview context."""
+    parts = []
+    if context.get("project_goal"):
+        parts.append(f"Project goal: {context['project_goal']}")
+    if context.get("data_sources"):
+        parts.append(f"Data sources: {context['data_sources']}")
+    if context.get("use_case"):
+        parts.append(f"Use case: {context['use_case']}")
+    if context.get("domain"):
+        parts.append(f"Domain: {context['domain']}")
+    if context.get("owner_team"):
+        parts.append(f"Owner team: {context['owner_team']}")
+    if context.get("provider"):
+        parts.append(f"Preferred provider: {context['provider']}")
+
+    if project_memory:
+        try:
+            mem_payload = project_memory.to_prompt_payload()
+            parts.append(f"Project memory: {json.dumps(mem_payload, default=str)}")
+        except Exception:  # noqa: BLE001
+            pass
+
+    if not parts:
+        parts.append("Please help me create a FLUID data product contract.")
+
+    parts.append(
+        "\nPlease use tools to discover my workspace, choose the right "
+        "template, build and validate a contract, then return the final result."
+    )
+    return "\n".join(parts)
+
+
+def _call_llm_with_tools(
+    provider: LlmProvider,
+    config: LlmConfig,
+    system_prompt: str,
+    messages: List[Dict[str, Any]],
+    tools: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Make one LLM call with tool definitions and return the raw response."""
+    url, headers, payload = provider.build_tool_request(
+        config, system_prompt, messages, tools
+    )
+    try:
+        with httpx.Client(timeout=config.timeout_seconds) as client:
+            response = client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as exc:
+        raise CopilotGenerationError(
+            "copilot_agent_loop_request_failed",
+            f"Agent loop LLM request failed ({exc.response.status_code}) "
+            f"for {config.provider} model '{config.model}'.",
+            suggestions=[
+                "Check the model supports tool use",
+                "Try --llm-model gpt-4o / claude-3-5-sonnet-latest / gemini-1.5-pro",
+            ],
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise CopilotGenerationError(
+            "copilot_agent_loop_network_error",
+            f"Agent loop network error: {exc}",
+        ) from exc
+
+
+def _dispatch_tools(
+    tool_calls: List[Dict[str, Any]],
+) -> List[Any]:
+    """Dispatch tool calls, running read-only tools in parallel."""
+    if len(tool_calls) == 1:
+        tc = tool_calls[0]
+        return [dispatch_tool_call(tc["name"], tc["arguments"])]
+
+    # Check if ALL calls are parallelizable.
+    all_parallel = all(
+        tc["name"] in _PARALLELIZABLE_TOOLS for tc in tool_calls
+    )
+
+    if all_parallel and len(tool_calls) > 1:
+        results = [None] * len(tool_calls)
+        with ThreadPoolExecutor(max_workers=min(len(tool_calls), 4)) as pool:
+            futures = {
+                pool.submit(dispatch_tool_call, tc["name"], tc["arguments"]): i
+                for i, tc in enumerate(tool_calls)
+            }
+            for future in as_completed(futures):
+                idx = futures[future]
+                results[idx] = future.result()
+        return results
+
+    # Sequential fallback for mixed read/write calls.
+    return [
+        dispatch_tool_call(tc["name"], tc["arguments"])
+        for tc in tool_calls
+    ]

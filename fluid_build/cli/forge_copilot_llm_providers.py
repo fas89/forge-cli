@@ -266,6 +266,77 @@ class LlmProvider(ABC):
         return
         yield  # pragma: no cover — makes this a generator for type purposes
 
+    # ------------------------------------------------------------------
+    # Tool use / agent loop (slice UX-K)
+    # ------------------------------------------------------------------
+    #
+    # These methods are siblings to the single-shot ``build_request`` /
+    # ``extract_text`` path.  They're only called from
+    # ``forge_copilot_agent_loop.run_copilot_agent_loop`` when
+    # ``--agent-loop`` is set; the default single-shot flow in
+    # ``generate_copilot_artifacts`` never touches them.
+
+    def build_tool_request(
+        self,
+        config: LlmConfig,
+        system_prompt: str,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+    ) -> tuple[str, Dict[str, str], Dict[str, Any]]:
+        """Build (url, headers, payload) for a multi-turn tool-use call.
+
+        Must be overridden by providers that support tool use.
+        Default raises ``NotImplementedError``.
+        """
+        raise NotImplementedError(
+            f"Provider {self.name} does not support tool use"
+        )
+
+    def extract_tool_calls(
+        self, response_json: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """Extract tool calls from a provider response.
+
+        Returns a list of ``{"id": str, "name": str, "arguments": dict}``
+        dicts, or an empty list if the response has no tool calls
+        (i.e. the model emitted a final text response instead).
+        """
+        return []
+
+    def extract_text_from_tool_response(
+        self, response_json: Dict[str, Any]
+    ) -> Optional[str]:
+        """Extract final text content from a tool-use response.
+
+        Returns ``None`` if the response only contains tool calls and
+        no final text.
+        """
+        try:
+            return self.extract_text(response_json)
+        except (KeyError, IndexError):
+            return None
+
+    def build_tool_result_messages(
+        self, tool_calls: List[Dict[str, Any]], results: List[Any]
+    ) -> List[Dict[str, Any]]:
+        """Build the message(s) to feed tool results back to the LLM.
+
+        Must be overridden per provider because the message format
+        for tool results differs between OpenAI/Anthropic/Gemini.
+        """
+        raise NotImplementedError(
+            f"Provider {self.name} does not support tool result messages"
+        )
+
+
+@dataclass
+class ToolCall:
+    """A parsed tool call from an LLM response."""
+
+    id: str
+    name: str
+    arguments: Dict[str, Any]
+
 
 class OpenAIProvider(LlmProvider):
     name = "openai"
@@ -342,6 +413,91 @@ class OpenAIProvider(LlmProvider):
             content = delta.get("content")
             if content:
                 yield content
+
+    # -- Tool use (slice UX-K) ------------------------------------------
+
+    def build_tool_request(
+        self,
+        config: LlmConfig,
+        system_prompt: str,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+    ) -> tuple[str, Dict[str, str], Dict[str, Any]]:
+        headers: Dict[str, str] = {"Content-Type": "application/json"}
+        if config.api_key:
+            headers["Authorization"] = f"Bearer {config.api_key}"
+        openai_tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": t["name"],
+                    "description": t.get("description", ""),
+                    "parameters": t.get("input_schema", {}),
+                },
+            }
+            for t in tools
+        ]
+        payload: Dict[str, Any] = {
+            "model": config.model,
+            "temperature": 0.2,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                *messages,
+            ],
+            "tools": openai_tools,
+        }
+        return config.endpoint, headers, payload
+
+    def extract_tool_calls(
+        self, response_json: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        choices = response_json.get("choices") or []
+        if not choices:
+            return []
+        msg = choices[0].get("message") or {}
+        raw_calls = msg.get("tool_calls") or []
+        result = []
+        for tc in raw_calls:
+            fn = tc.get("function") or {}
+            try:
+                args = json.loads(fn.get("arguments", "{}"))
+            except (json.JSONDecodeError, TypeError):
+                args = {}
+            result.append({
+                "id": tc.get("id", ""),
+                "name": fn.get("name", ""),
+                "arguments": args,
+            })
+        return result
+
+    def build_tool_result_messages(
+        self, tool_calls: List[Dict[str, Any]], results: List[Any]
+    ) -> List[Dict[str, Any]]:
+        # OpenAI expects: assistant message with tool_calls, then one
+        # tool-role message per call result.
+        assistant_msg: Dict[str, Any] = {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": tc["id"],
+                    "type": "function",
+                    "function": {
+                        "name": tc["name"],
+                        "arguments": json.dumps(tc["arguments"]),
+                    },
+                }
+                for tc in tool_calls
+            ],
+        }
+        tool_msgs = [
+            {
+                "role": "tool",
+                "tool_call_id": tc["id"],
+                "content": json.dumps(result, default=str),
+            }
+            for tc, result in zip(tool_calls, results)
+        ]
+        return [assistant_msg] + tool_msgs
 
 
 class OllamaProvider(OpenAIProvider):
@@ -487,6 +643,87 @@ class AnthropicProvider(LlmProvider):
             elif event_type == "message_stop":
                 return
 
+    # -- Tool use (slice UX-K) ------------------------------------------
+
+    def build_tool_request(
+        self,
+        config: LlmConfig,
+        system_prompt: str,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+    ) -> tuple[str, Dict[str, str], Dict[str, Any]]:
+        headers: Dict[str, str] = {
+            "Content-Type": "application/json",
+            "anthropic-version": "2023-06-01",
+        }
+        if config.api_key:
+            headers["x-api-key"] = config.api_key
+        anthropic_tools = [
+            {
+                "name": t["name"],
+                "description": t.get("description", ""),
+                "input_schema": t.get("input_schema", {"type": "object", "properties": {}}),
+            }
+            for t in tools
+        ]
+        payload: Dict[str, Any] = {
+            "model": config.model,
+            "max_tokens": 8192,
+            "system": [
+                {
+                    "type": "text",
+                    "text": system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+            "messages": list(messages),
+            "tools": anthropic_tools,
+        }
+        return config.endpoint, headers, payload
+
+    def extract_tool_calls(
+        self, response_json: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        content = response_json.get("content") or []
+        result = []
+        for block in content:
+            if block.get("type") == "tool_use":
+                result.append({
+                    "id": block.get("id", ""),
+                    "name": block.get("name", ""),
+                    "arguments": block.get("input") or {},
+                })
+        return result
+
+    def build_tool_result_messages(
+        self, tool_calls: List[Dict[str, Any]], results: List[Any]
+    ) -> List[Dict[str, Any]]:
+        # Anthropic expects: assistant message with the raw content
+        # blocks (text + tool_use), then a user message with
+        # tool_result blocks.
+        # We reconstruct a simplified assistant message from the calls.
+        assistant_content = [
+            {
+                "type": "tool_use",
+                "id": tc["id"],
+                "name": tc["name"],
+                "input": tc["arguments"],
+            }
+            for tc in tool_calls
+        ]
+        user_content = [
+            {
+                "type": "tool_result",
+                "tool_use_id": tc["id"],
+                "content": json.dumps(result, default=str),
+            }
+            for tc, result in zip(tool_calls, results)
+        ]
+        return [
+            {"role": "assistant", "content": assistant_content},
+            {"role": "user", "content": user_content},
+        ]
+
 
 class GeminiProvider(LlmProvider):
     name = "gemini"
@@ -581,6 +818,97 @@ class GeminiProvider(LlmProvider):
                     text = part.get("text")
                     if text:
                         yield text
+
+    # -- Tool use (slice UX-K) ------------------------------------------
+
+    def build_tool_request(
+        self,
+        config: LlmConfig,
+        system_prompt: str,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+    ) -> tuple[str, Dict[str, str], Dict[str, Any]]:
+        headers: Dict[str, str] = {"Content-Type": "application/json"}
+        if config.api_key:
+            headers["x-goog-api-key"] = config.api_key
+        gemini_tools = [
+            {
+                "functionDeclarations": [
+                    {
+                        "name": t["name"],
+                        "description": t.get("description", ""),
+                        "parameters": t.get("input_schema", {"type": "object", "properties": {}}),
+                    }
+                    for t in tools
+                ]
+            }
+        ]
+        # Convert chat messages to Gemini's contents format
+        contents = []
+        for msg in messages:
+            role = "user" if msg.get("role") == "user" else "model"
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                contents.append({"role": role, "parts": [{"text": content}]})
+            elif isinstance(content, list):
+                parts = []
+                for block in content:
+                    if isinstance(block, dict):
+                        if block.get("type") == "text":
+                            parts.append({"text": block.get("text", "")})
+                        elif "functionCall" in block:
+                            parts.append(block)
+                        elif "functionResponse" in block:
+                            parts.append(block)
+                if parts:
+                    contents.append({"role": role, "parts": parts})
+        payload: Dict[str, Any] = {
+            "systemInstruction": {"parts": [{"text": system_prompt}]},
+            "contents": contents,
+            "tools": gemini_tools,
+            "generationConfig": {"temperature": 0.2},
+        }
+        return config.endpoint, headers, payload
+
+    def extract_tool_calls(
+        self, response_json: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        candidates = response_json.get("candidates") or []
+        result = []
+        for candidate in candidates:
+            content = candidate.get("content") or {}
+            for part in content.get("parts") or []:
+                fc = part.get("functionCall")
+                if fc:
+                    result.append({
+                        "id": fc.get("name", ""),
+                        "name": fc.get("name", ""),
+                        "arguments": fc.get("args") or {},
+                    })
+        return result
+
+    def build_tool_result_messages(
+        self, tool_calls: List[Dict[str, Any]], results: List[Any]
+    ) -> List[Dict[str, Any]]:
+        # Gemini: model turn with functionCall parts, then user turn
+        # with functionResponse parts
+        model_parts = [
+            {"functionCall": {"name": tc["name"], "args": tc["arguments"]}}
+            for tc in tool_calls
+        ]
+        user_parts = [
+            {
+                "functionResponse": {
+                    "name": tc["name"],
+                    "response": {"result": result},
+                }
+            }
+            for tc, result in zip(tool_calls, results)
+        ]
+        return [
+            {"role": "model", "content": model_parts},
+            {"role": "user", "content": user_parts},
+        ]
 
 
 # ---------------------------------------------------------------------------

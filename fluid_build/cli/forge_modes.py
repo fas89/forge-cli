@@ -1132,6 +1132,9 @@ def run_ai_copilot_mode(
         # .env.example, README.md, …) runs only when the user explicitly
         # opts in via --scaffold <template>.
         scaffold_template = get_cli_arg_fn(args, "scaffold", None)
+        use_agent_loop = bool(
+            get_cli_arg_fn(args, "agent_loop", False)
+        ) or bool(os.environ.get("FLUID_COPILOT_AGENT_LOOP"))
 
         if scaffold_template:
             success_result = copilot.create_project(
@@ -1139,6 +1142,19 @@ def run_ai_copilot_mode(
                 context,
                 copilot_options,
                 dry_run=bool(get_cli_arg_fn(args, "dry_run", False)),
+            )
+            if not success_result:
+                return 1
+        elif use_agent_loop:
+            # Slice UX-K: multi-turn agent loop with tool use.
+            success_result = _create_project_agent_loop(
+                target_dir=target_dir,
+                context=context,
+                copilot_options=copilot_options,
+                copilot=copilot,
+                dry_run=bool(get_cli_arg_fn(args, "dry_run", False)),
+                logger=logger,
+                console=console,
             )
             if not success_result:
                 return 1
@@ -1514,6 +1530,112 @@ def run_blueprint_mode(
         else:
             console_error(f"Blueprint mode failed: {exc}")
         return 1
+
+
+def _create_project_agent_loop(
+    *,
+    target_dir: Path,
+    context: Dict[str, Any],
+    copilot_options: Dict[str, Any],
+    copilot: Any,
+    dry_run: bool,
+    logger: logging.Logger,
+    console: Any,
+) -> bool:
+    """Slice UX-K: run the multi-turn agent loop with tool use.
+
+    This is the ``--agent-loop`` path.  Instead of the single-shot
+    prompt + repair-retry loop, the LLM calls tools iteratively to
+    discover the workspace, pick a template, build and validate the
+    contract.  The final result is the same shape as the minimal path
+    — ``contract.fluid.yaml`` written via ``write_contract``.
+    """
+    from fluid_build.cli.forge_contract_factory import write_contract
+    from fluid_build.cli.forge_copilot_agent_loop import run_copilot_agent_loop
+    from fluid_build.cli.forge_copilot_llm_providers import (
+        CopilotGenerationError,
+        resolve_llm_config,
+    )
+    from fluid_build.cli.forge_copilot_runtime import (
+        build_capability_matrix,
+        discover_local_context,
+    )
+
+    try:
+        llm_config = copilot_options.get("llm_config")
+        if not llm_config:
+            llm_config = resolve_llm_config(
+                type("Args", (), copilot_options)(),
+                environ=None,
+            )
+
+        if console:
+            try:
+                console.print(
+                    "[cyan]Running in agent-loop mode[/cyan] "
+                    "[dim](multi-turn tool use)[/dim]\n"
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
+        result = run_copilot_agent_loop(
+            context=context,
+            llm_config=llm_config,
+            project_memory=copilot_options.get("project_memory"),
+            capability_matrix=copilot_options.get("capability_matrix"),
+        )
+
+        contract = result.get("contract")
+        if not contract:
+            logger.error("Agent loop returned no contract")
+            if console:
+                try:
+                    console.print("[red]Agent loop did not produce a contract.[/red]")
+                except Exception:  # noqa: BLE001
+                    pass
+            return False
+
+        if dry_run:
+            if console:
+                try:
+                    console.print(
+                        f"[dim]DRY RUN: would write {target_dir}/contract.fluid.yaml[/dim]"
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+            return True
+
+        target_dir.mkdir(parents=True, exist_ok=True)
+        contract_path = target_dir / "contract.fluid.yaml"
+        write_contract(contract, contract_path, command="fluid forge --agent-loop")
+
+        if console:
+            try:
+                console.print(
+                    f"\n[green]Wrote[/green] [cyan]{contract_path}[/cyan]"
+                )
+            except Exception:  # noqa: BLE001
+                pass
+        return True
+
+    except CopilotGenerationError as exc:
+        logger.exception("Agent loop failed")
+        if console:
+            try:
+                console.print(f"[red]{exc.message}[/red]")
+                for sug in getattr(exc, "suggestions", []) or []:
+                    console.print(f"[dim]{sug}[/dim]")
+            except Exception:  # noqa: BLE001
+                pass
+        return False
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Agent loop crashed")
+        if console:
+            try:
+                console.print(f"[red]Agent loop failed: {exc}[/red]")
+            except Exception:  # noqa: BLE001
+                pass
+        return False
 
 
 def _create_project_minimal(
