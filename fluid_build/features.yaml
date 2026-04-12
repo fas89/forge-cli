@@ -254,7 +254,6 @@ command_groups:
     description: "Project scaffolding and code generation"
     commands:
       - forge
-      - blueprint
       - scaffold-ci
       - scaffold-composer
       - generate-airflow

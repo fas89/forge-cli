@@ -38,7 +38,6 @@ tests/cli/
 ├── test_opds.py             # Tests for opds command
 ├── test_admin.py            # Tests for admin command
 ├── test_forge.py            # Tests for forge command
-├── test_blueprint.py        # Tests for blueprint command
 ├── test_market.py           # Tests for market command
 └── test_auth.py             # Tests for auth command
 ```

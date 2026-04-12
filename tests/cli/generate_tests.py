@@ -40,7 +40,6 @@ COMMANDS = [
     "opds",
     "admin",
     "forge",
-    "blueprint",
     "market",
     "auth",
 ]

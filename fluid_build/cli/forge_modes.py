@@ -18,12 +18,10 @@ from __future__ import annotations
 
 __all__ = [
     "run_ai_copilot_mode",
-    "run_blueprint_mode",
     "run_domain_agent_mode",
-    "run_forge_blueprint_impl",
     "run_guided_mode",
     "run_template_mode",
-]  # Note: blueprint/domain_agent/template modes are deprecated but kept for backward compat
+]  # Note: domain_agent/template modes are deprecated but kept for backward compat
 
 
 import logging
@@ -62,7 +60,6 @@ from fluid_build.cli.forge_ui import (
     print_copilot_recovery_panel,
     print_free_tier_guide,
     print_welcome_panel,
-    show_blueprint_next_steps,
 )
 
 try:
@@ -321,8 +318,6 @@ def _print_mode_awareness(console: Any) -> None:
                 "[dim]← from a pre-built template[/dim]\n"
                 "  [cyan]fluid forge --mode agent[/cyan]      "
                 "[dim]← domain expert (finance, healthcare)[/dim]\n"
-                "  [cyan]fluid forge --mode blueprint[/cyan]  "
-                "[dim]← enterprise patterns[/dim]\n"
                 "  [cyan]fluid forge --blank[/cyan]           "
                 "[dim]← empty contract[/dim]",
                 border_style="bright_magenta",
@@ -1521,84 +1516,6 @@ def run_template_mode(
         return 1
 
 
-def run_blueprint_mode(
-    args: Any,
-    logger: logging.Logger,
-    *,
-    blueprint_registry: Any,
-    get_target_directory_fn: Callable[[Any, str], Path],
-    ask_confirmation_fn: Callable[..., bool] = ask_confirmation,
-    console_factory: Optional[Callable[[], Any]] = Console if RICH_AVAILABLE else None,
-) -> int:
-    """Run Forge with enterprise blueprint mode."""
-    console = console_factory() if console_factory else None
-
-    try:
-        if console and not args.non_interactive:
-            console.print("\n[bold blue]🏗️  Blueprint Mode[/bold blue]")
-            console.print("[dim]Creating enterprise data product from blueprint...[/dim]\n")
-
-        blueprint_name = args.blueprint or "customer-360-gcp"
-        blueprint = blueprint_registry.get_blueprint(blueprint_name)
-        if not blueprint:
-            available = blueprint_registry.list_blueprints()
-            if console:
-                console.print(f"[red]❌ Blueprint '{blueprint_name}' not found[/red]")
-                console.print("\n[bold]Available blueprints:[/bold]")
-                for bp in available:
-                    console.print(f"  • {bp.metadata.name} - {bp.metadata.title}")
-            else:
-                console_error(f"Blueprint '{blueprint_name}' not found")
-                cprint("\nAvailable blueprints:")
-                for bp in available:
-                    cprint(f"  • {bp.metadata.name} - {bp.metadata.title}")
-            return 1
-
-        target_dir = get_target_directory_fn(args, blueprint_name)
-        if target_dir.exists() and any(target_dir.iterdir()):
-            if console:
-                console.print(
-                    f"[yellow]⚠️  Directory {target_dir} already exists and is not empty[/yellow]"
-                )
-            else:
-                warning(f"Directory {target_dir} already exists and is not empty")
-
-            if not args.non_interactive:
-                if console:
-                    if not ask_confirmation_fn(
-                        console,
-                        "Continue and overwrite the existing directory?",
-                        default=False,
-                    ):
-                        return 1
-                else:
-                    response = input("Continue and overwrite? [y/N]: ")
-                    if response.lower() != "y":
-                        return 1
-            else:
-                return 1
-
-        blueprint.generate_project(target_dir)
-
-        if console:
-            show_blueprint_next_steps(console, target_dir=target_dir)
-        else:
-            success(f"Blueprint project created at {target_dir}")
-            cprint(f"{blueprint.metadata.title} - {blueprint.metadata.description}\n")
-            cprint("Next steps:")
-            cprint("  1. fluid validate contract.fluid.yaml")
-            cprint("  2. fluid plan contract.fluid.yaml --out runtime/plan.json")
-            cprint("  3. fluid apply runtime/plan.json\n")
-        return 0
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Blueprint mode failed")
-        if console:
-            console.print(f"[red]❌ Blueprint mode failed: {exc}[/red]")
-        else:
-            console_error(f"Blueprint mode failed: {exc}")
-        return 1
-
-
 def _create_project_agent_loop(
     *,
     target_dir: Path,
@@ -2322,75 +2239,3 @@ def run_guided_mode(
         return 1
 
 
-def run_forge_blueprint_impl(
-    args: Any,
-    blueprint_registry: Any,
-    *,
-    get_target_directory_fn: Callable[[Any, str], Path],
-) -> int:
-    """Legacy blueprint execution path retained for compatibility."""
-    logger = logging.getLogger(__name__)
-
-    try:
-        blueprint = blueprint_registry.get_blueprint(args.blueprint)
-        if not blueprint:
-            logger.error("Blueprint '%s' not found", args.blueprint)
-            logger.info("Available blueprints:")
-            for bp in blueprint_registry.list_blueprints():
-                logger.info("  - %s: %s", bp.metadata.name, bp.metadata.title)
-            return 1
-
-        target_dir = get_target_directory_fn(args, args.blueprint)
-        if target_dir.exists() and any(target_dir.iterdir()):
-            if not args.non_interactive:
-                response = input(
-                    f"Directory {target_dir} exists and is not empty. Continue? (y/N): "
-                )
-                if response.lower() != "y":
-                    logger.info("Operation cancelled")
-                    return 1
-            else:
-                logger.error("Target directory %s exists and is not empty", target_dir)
-                return 1
-
-        errors = blueprint.validate()
-        if errors:
-            logger.error("Blueprint validation failed:")
-            for error in errors:
-                logger.error("  - %s", error)
-            return 1
-
-        if not args.non_interactive:
-            logger.info("📋 Blueprint: %s", blueprint.metadata.title)
-            logger.info("   Description: %s", blueprint.metadata.description)
-            logger.info("   Complexity: %s", blueprint.metadata.complexity.value)
-            logger.info("   Setup Time: %s", blueprint.metadata.setup_time)
-            logger.info("   Providers: %s", ", ".join(blueprint.metadata.providers))
-            if not args.quickstart:
-                response = input("\nContinue with blueprint deployment? (Y/n): ")
-                if response.lower() == "n":
-                    logger.info("Operation cancelled")
-                    return 1
-
-        logger.info("🚀 Generating project from blueprint '%s'...", blueprint.metadata.name)
-        if args.dry_run:
-            logger.info("DRY RUN: Would create project in %s", target_dir)
-            logger.info("Files that would be created:")
-            for file_path in blueprint.path.rglob("*"):
-                if file_path.is_file() and file_path.name != "blueprint.yaml":
-                    logger.info("  - %s", file_path.relative_to(blueprint.path))
-            return 0
-
-        blueprint.generate_project(target_dir)
-        logger.info("✅ Blueprint '%s' deployed successfully!", blueprint.metadata.name)
-        logger.info("📁 Project created in: %s", target_dir)
-        logger.info("\n📖 Next Steps:")
-        logger.info("1. cd %s", target_dir)
-        logger.info("2. Review the generated files and documentation")
-        logger.info("3. Configure your data sources")
-        logger.info("4. Run: fluid validate")
-        logger.info("5. Run: dbt run (if using dbt)")
-        return 0
-    except Exception as exc:  # noqa: BLE001
-        logger.error("Blueprint deployment failed: %s", exc, exc_info=True)
-        return 1

@@ -528,7 +528,6 @@ def register_core_commands(sp: argparse._SubParsersAction) -> None:
     _try_register(sp, "datamesh_manager", "datamesh-manager", method="add_parser")
     _try_register(sp, "ai_setup", "ai")
     _try_register(sp, "forge", "forge")
-    _try_register(sp, "blueprint", "blueprint")
     _try_register(sp, "market", "market")
     _try_register(sp, "policy_check", "policy-check")
     _try_register(sp, "policy_compile", "policy-compile")

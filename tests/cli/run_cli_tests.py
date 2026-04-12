@@ -72,7 +72,6 @@ TEST_MODULES = [
     "test_opds",
     "test_admin",
     "test_forge",
-    "test_blueprint",
     "test_market",
     "test_auth",
 ]

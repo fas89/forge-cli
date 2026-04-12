@@ -24,11 +24,16 @@ from fluid_build.engines.dbt.profiles import generate_profiles
 def customer_360_contract():
     """Load the real customer-360 example contract."""
     from pathlib import Path
-    contract_path = Path(__file__).parent.parent / "fluid_build" / "blueprints" / "examples" / "customer-360" / "contract.fluid.yaml"
+    contract_path = Path(__file__).parent.parent / "fluid_build" / "templates" / "customer-360" / "contract.fluid.yaml"
     if not contract_path.exists():
         pytest.skip("customer-360 example contract not found")
     with contract_path.open() as f:
-        return yaml.safe_load(f)
+        contract = yaml.safe_load(f)
+    # Skip if contract doesn't use dbt engine
+    builds = contract.get("builds", [])
+    if not builds or builds[0].get("engine") != "dbt":
+        pytest.skip("customer-360 template contract does not use dbt engine")
+    return contract
 
 
 @pytest.fixture

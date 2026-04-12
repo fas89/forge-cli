@@ -21,7 +21,7 @@ The front door to FLUID - intelligently routes users to the right experience:
 - Template: Specific use case templates
 - Blank: Empty project skeleton
 
-Strategy: Router pattern - delegates to existing commands (blueprint, product-new, scaffold-ci)
+Strategy: Router pattern - delegates to existing commands (product-new, scaffold-ci)
 """
 
 import argparse
@@ -1495,20 +1495,9 @@ def template_mode(args, logger: logging.Logger) -> int:
     else:
         cprint(f"📦 Creating from template: {template_name}")
 
-    used_blueprint = False
-    try:
-        # Try to use existing blueprint command
-        from .blueprint import create_from_template
-
-        if not create_from_template(template_name, project_dir, logger):
-            return 1
-        used_blueprint = True
-
-    except (ImportError, AttributeError):
-        # Blueprint command not available - use our own template copy
-        success = copy_template(project_dir, template_name, logger)
-        if not success:
-            return 1
+    success = copy_template(project_dir, template_name, logger)
+    if not success:
+        return 1
 
     # Slice UX-F: after the template files have landed, rewrite the
     # product's contract.fluid.yaml through ``write_contract`` so it

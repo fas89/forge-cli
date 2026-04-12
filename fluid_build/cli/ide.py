@@ -762,7 +762,7 @@ _fluid_completion() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
     
     # Top-level commands
-    opts="validate plan apply viz-graph market auth forge blueprint admin doctor version providers"
+    opts="validate plan apply viz-graph market auth forge admin doctor version providers"
     
     case "${prev}" in
         fluid)
@@ -825,7 +825,6 @@ _fluid_commands() {
         'market:Data marketplace discovery'
         'auth:Authentication management'
         'forge:Interactive project creation'
-        'blueprint:Manage blueprints'
         'admin:Administrative commands'
         'doctor:Environment diagnostics'
         'version:Show version information'

@@ -336,65 +336,23 @@ class TestBlankMode:
 
 
 class TestTemplateMode:
-    def test_blueprint_create_from_template_success(self, tmp_path, logger, monkeypatch):
+    @patch("fluid_build.cli.init.copy_template", return_value=True)
+    def test_copy_template_success(self, _mock_copy, tmp_path, logger, monkeypatch):
         from fluid_build.cli.init import template_mode
 
         monkeypatch.chdir(tmp_path)
         args = _make_args(template="customer-360", name="my-c360", provider="local")
-        mock_blueprint = MagicMock()
-        mock_blueprint.create_from_template.return_value = True
-        monkeypatch.delitem(sys.modules, "fluid_build.cli.blueprint", raising=False)
-        with patch.dict("sys.modules", {"fluid_build.cli.blueprint": mock_blueprint}):
-            result = template_mode(args, logger)
-        assert result == 0
-
-    def test_blueprint_create_returns_false(self, tmp_path, logger, monkeypatch):
-        from fluid_build.cli.init import template_mode
-
-        monkeypatch.chdir(tmp_path)
-        args = _make_args(template="bad-tmpl", name="x", provider="local")
-        mock_blueprint = MagicMock()
-        mock_blueprint.create_from_template.return_value = False
-        monkeypatch.delitem(sys.modules, "fluid_build.cli.blueprint", raising=False)
-        with patch.dict("sys.modules", {"fluid_build.cli.blueprint": mock_blueprint}):
-            result = template_mode(args, logger)
-        assert result == 1
-
-    @patch("fluid_build.cli.init.copy_template", return_value=True)
-    def test_fallback_copy_template_success(self, _mock_copy, tmp_path, logger, monkeypatch):
-        from fluid_build.cli.init import template_mode
-
-        monkeypatch.chdir(tmp_path)
-        args = _make_args(template="my-tmpl", name="proj", provider="local")
-        monkeypatch.delitem(sys.modules, "fluid_build.cli.blueprint", raising=False)
-        with patch.dict("sys.modules", {"fluid_build.cli.blueprint": None}):
-            result = template_mode(args, logger)
+        result = template_mode(args, logger)
         assert result == 0
 
     @patch("fluid_build.cli.init.copy_template", return_value=False)
-    def test_fallback_copy_template_failure(self, _mock_copy, tmp_path, logger, monkeypatch):
+    def test_copy_template_failure(self, _mock_copy, tmp_path, logger, monkeypatch):
         from fluid_build.cli.init import template_mode
 
         monkeypatch.chdir(tmp_path)
         args = _make_args(template="bad-tmpl", name="proj", provider="local")
-        monkeypatch.delitem(sys.modules, "fluid_build.cli.blueprint", raising=False)
-        with patch.dict("sys.modules", {"fluid_build.cli.blueprint": None}):
-            result = template_mode(args, logger)
+        result = template_mode(args, logger)
         assert result == 1
-
-    def test_uses_template_name_when_no_project_name(self, tmp_path, logger, monkeypatch):
-        from fluid_build.cli.init import template_mode
-
-        monkeypatch.chdir(tmp_path)
-        args = _make_args(template="sales-analytics", name=None, provider="local")
-        mock_blueprint = MagicMock()
-        mock_blueprint.create_from_template.return_value = True
-        monkeypatch.delitem(sys.modules, "fluid_build.cli.blueprint", raising=False)
-        with patch.dict("sys.modules", {"fluid_build.cli.blueprint": mock_blueprint}):
-            result = template_mode(args, logger)
-        assert result == 0
-        call_args = mock_blueprint.create_from_template.call_args
-        assert call_args[0][0] == "sales-analytics"
 
 
 # ===========================================================================

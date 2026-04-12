@@ -78,7 +78,6 @@ builds:
       - debug
       
       # Project scaffolding
-      - blueprint
       - forge
       - init
       - generate-airflow
@@ -193,10 +192,9 @@ builds:
       - debug
       
       # Project scaffolding
-      - blueprint
       - forge
       - init
-      
+
       # Auth and market (experimental)
       - auth
       - market
@@ -247,7 +245,6 @@ builds:
       - viz-plan
       
       # Preview features
-      - blueprint
       - forge
       - init
       - auth

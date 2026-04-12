@@ -418,44 +418,6 @@ def show_next_steps_panel(
     console.print(_build_panel(text.strip(), title="Forge Complete", border_style="green"))
 
 
-def build_blueprint_next_steps(*, target_dir: Optional[Path] = None) -> str:
-    """Build the shared blueprint next-steps panel body."""
-    lines: list[str] = []
-    if target_dir:
-        contract_path = target_dir / "contract.fluid.yaml"
-        lines.extend(
-            [
-                f"[bold]Project folder:[/bold]  {target_dir}",
-                f"[bold]Contract file:[/bold]   {contract_path}",
-                "",
-                "[bold]Next steps:[/bold]",
-                f"  cd {target_dir}",
-                f"  {FORGE_VALIDATE_COMMAND}",
-            ]
-        )
-    else:
-        lines.extend(
-            [
-                "[bold]Next steps:[/bold]",
-                f"  {FORGE_VALIDATE_COMMAND}",
-            ]
-        )
-    return "\n".join(lines)
-
-
-def show_blueprint_next_steps(console: Any, target_dir: Optional[Path] = None) -> None:
-    """Render the blueprint next-steps panel."""
-    if not console or not RICH_AVAILABLE:
-        return
-    console.print(
-        _build_panel(
-            build_blueprint_next_steps(target_dir=target_dir).strip(),
-            title="Forge Complete",
-            border_style="green",
-        )
-    )
-
-
 # ---------------------------------------------------------------------------
 # Slice UX-L: post-generation performance summary
 # ---------------------------------------------------------------------------

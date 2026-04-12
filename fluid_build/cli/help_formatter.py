@@ -203,8 +203,7 @@ def print_main_help(parser: argparse.ArgumentParser) -> None:
         [
             ("generate-airflow", "Produce Airflow DAG  [dim](GCP · AWS · Snowflake)[/dim]"),
             ("export", "Export to Airflow · Dagster · Prefect  [dim]--engine[/dim]"),
-            ("forge", "Add a data product  [dim]AI copilot · template · agent · blueprint[/dim]"),
-            ("blueprint", "Browse / scaffold reusable templates"),
+            ("forge", "Add a data product  [dim]AI copilot · template · agent[/dim]"),
             ("scaffold-ci", "Generate CI/CD pipeline config"),
         ],
     )
@@ -562,17 +561,7 @@ _COMMAND_ENRICHMENT: dict[str, tuple[str, str]] = {
             "  fluid auth list"
         ),
     ),
-    "blueprint": (
-        "Browse, search, and deploy reusable data-product blueprints — complete enterprise templates.",
-        (
-            "  fluid blueprint list\n"
-            "  fluid blueprint search customer-360\n"
-            "  fluid blueprint describe customer-360\n"
-            "  fluid blueprint create customer-360 --out-dir ./my-project\n"
-            "  fluid blueprint validate my-blueprint/"
-        ),
-    ),
-    "copilot": (
+"copilot": (
         "AI-powered assistant that analyzes your project context and suggests improvements.",
         (
             "  fluid copilot interactive         # start chat session\n"

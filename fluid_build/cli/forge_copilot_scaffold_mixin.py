@@ -382,7 +382,6 @@ This project structure was intelligently created by FLUID AI Copilot.
 For more advanced features, explore:
 
 - `fluid forge --mode agent --agent domain-expert` for domain-specific assistance
-- `fluid forge --mode blueprint` for complete enterprise templates
 - `fluid market` for discovering existing data products
 
 ---
