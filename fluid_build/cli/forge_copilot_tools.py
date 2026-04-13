@@ -262,6 +262,42 @@ _register(
 # ---------------------------------------------------------------------------
 
 
+# ---- list_schedulers --------------------------------------------------------
+
+def _dispatch_list_schedulers(**_kw: Any) -> Dict[str, Any]:
+    """Return available scheduler engines and their supported platforms."""
+    try:
+        from fluid_build.schedulers import list_schedulers, get_scheduler
+
+        result = []
+        for name in list_schedulers():
+            sched = get_scheduler(name)
+            result.append({
+                "name": name,
+                "platforms": getattr(sched, "supported_platforms", None) or "all",
+            })
+        return {"schedulers": result, "trigger_types": ["cron", "event", "manual", "streaming"]}
+    except ImportError:
+        return {"schedulers": [], "trigger_types": ["cron", "event", "manual", "streaming"]}
+
+
+_register(
+    name="list_schedulers",
+    description=(
+        "List available schedule/orchestration engines (e.g., Airflow, Dagster, Prefect) "
+        "and supported trigger types.  Use this when the user asks about scheduling, "
+        "DAGs, pipelines, or orchestration."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": False,
+    },
+    impl=_dispatch_list_schedulers,
+)
+
+
 def get_tool_definitions() -> List[Dict[str, Any]]:
     """Return the tool definitions in the shape providers expect."""
     return [

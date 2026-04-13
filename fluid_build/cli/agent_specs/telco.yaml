@@ -60,10 +60,29 @@ questions:
         value: "no"
         aliases: ["n", "nope", "batch", "not really"]
 
+  - key: orchestration_pattern
+    question: What pipeline scheduling pattern fits best?
+    type: choice
+    required: false
+    choices:
+      - label: Real-time CDR/event processing
+        value: streaming
+        aliases: ["real time", "cdr", "streaming", "event stream"]
+      - label: Micro-batch (every 5-15 minutes)
+        value: micro_batch
+        aliases: ["micro batch", "5 min", "15 min", "frequent"]
+      - label: Daily batch (billing cycles, reports)
+        value: daily_batch
+        aliases: ["daily", "batch", "billing cycle", "nightly"]
+      - label: Event-driven (network alarms, provisioning)
+        value: event_driven
+        aliases: ["event", "alarm", "provisioning", "triggered"]
+
 resolver_defaults:
   product_type: customer_billing_intelligence
   sid_domain_focus: enterprise
   real_time_operations: "yes"
+  orchestration_pattern: micro_batch
 
 suggestion_defaults:
   recommended_template: analytics-template

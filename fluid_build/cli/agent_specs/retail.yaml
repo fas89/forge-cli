@@ -68,10 +68,29 @@ questions:
         value: large (>100m)
         aliases: ["large", "huge", "100m+", "enterprise scale"]
 
+  - key: orchestration_pattern
+    question: What pipeline scheduling pattern fits best?
+    type: choice
+    required: false
+    choices:
+      - label: Near-real-time inventory sync
+        value: near_realtime
+        aliases: ["near real time", "nrt", "inventory sync", "continuous"]
+      - label: Daily batch (overnight refresh)
+        value: daily_batch
+        aliases: ["daily", "batch", "overnight", "nightly"]
+      - label: Event-driven (POS transactions, clickstream)
+        value: event_driven
+        aliases: ["event", "pos", "clickstream", "transaction"]
+      - label: Micro-batch (every 15 minutes)
+        value: micro_batch
+        aliases: ["micro batch", "15 min", "frequent"]
+
 resolver_defaults:
   product_type: customer_360
   real_time_personalization: "yes"
   scale: medium (1m-100m)
+  orchestration_pattern: daily_batch
 
 suggestion_defaults:
   recommended_template: analytics-template

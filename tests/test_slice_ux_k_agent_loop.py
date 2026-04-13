@@ -93,14 +93,15 @@ def _final_response() -> Dict[str, Any]:
 
 
 class TestToolRegistry:
-    def test_five_tools_registered(self):
-        assert len(TOOL_REGISTRY) == 5
+    def test_tools_registered(self):
+        assert len(TOOL_REGISTRY) >= 5
         expected = {
             "discover_workspace",
             "read_sample_schema",
             "list_templates",
             "propose_contract",
             "validate_contract",
+            "list_schedulers",
         }
         assert set(TOOL_REGISTRY.keys()) == expected
 

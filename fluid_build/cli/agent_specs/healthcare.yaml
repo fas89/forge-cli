@@ -65,10 +65,29 @@ questions:
         value: deidentified_only
         aliases: ["deidentified", "de identified", "masked"]
 
+  - key: orchestration_pattern
+    question: What pipeline scheduling pattern fits best?
+    type: choice
+    required: false
+    choices:
+      - label: Daily batch with audit trail
+        value: daily_audited
+        aliases: ["daily", "batch", "nightly"]
+      - label: Near-real-time clinical updates
+        value: near_realtime
+        aliases: ["near real time", "nrt", "hourly", "clinical feeds"]
+      - label: Event-driven (HL7 messages, lab results)
+        value: event_driven
+        aliases: ["event", "hl7", "adt", "lab results", "message-driven"]
+      - label: Manual / research batch
+        value: manual
+        aliases: ["manual", "research", "ad hoc", "on demand"]
+
 resolver_defaults:
   product_type: patient_analytics
   hipaa_required: "yes"
   phi_handling: "yes"
+  orchestration_pattern: daily_audited
 
 suggestion_defaults:
   recommended_template: analytics-template

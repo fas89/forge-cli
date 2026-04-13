@@ -63,10 +63,32 @@ questions:
         value: "no"
         aliases: ["n", "nope", "batch", "not really"]
 
+  - key: orchestration_pattern
+    question: What pipeline scheduling pattern fits best?
+    type: choice
+    required: false
+    choices:
+      - label: End-of-day batch (T+1)
+        value: eod_batch
+        aliases: ["eod", "end of day", "t+1", "daily batch"]
+      - label: Intraday refresh
+        value: intraday
+        aliases: ["hourly", "every hour", "intraday"]
+      - label: Real-time streaming
+        value: streaming
+        aliases: ["real time", "streaming", "continuous"]
+      - label: Event-driven (trade settlement, file arrival)
+        value: event_driven
+        aliases: ["event", "settlement", "file arrival", "on arrival"]
+      - label: Manual / ad-hoc
+        value: manual
+        aliases: ["manual", "ad hoc", "on demand"]
+
 resolver_defaults:
   product_type: customer_analytics
   compliance_requirements: none
   real_time: "no"
+  orchestration_pattern: eod_batch
 
 suggestion_defaults:
   recommended_template: analytics-template

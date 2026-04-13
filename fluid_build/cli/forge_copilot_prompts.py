@@ -63,6 +63,9 @@ def build_system_prompt(
         "For engine='sql', properties must contain 'sql' with a SQL string.\n"
         "For engine='python', the build must have 'repository' and properties.model.\n"
         "execution must have trigger (object with type and iterations) and runtime (object with platform and resources).\n"
+        "trigger.type must be one of: 'cron' (time-based, e.g. daily at 2am), 'event' (data-arrival or webhook), "
+        "'manual' (on-demand), or 'streaming' (continuous). trigger.iterations is usually 1 for batch, -1 for streaming.\n"
+        "If the user asked for scheduling, set trigger.type='cron' and a sensible schedule in trigger.schedule (cron syntax).\n"
         "DO NOT add 'consumes' or 'produces' inside a build object.\n\n"
         "Each consume must have: productId (string) and exposeId (string). No other keys.\n\n"
         "Each expose must have: exposeId (string), kind (string), binding (object with platform, format, location), "
@@ -107,6 +110,8 @@ def build_clarification_system_prompt(capability_matrix: Mapping[str, Any]) -> s
         "Treat transcript.raw_input as primary evidence of user intent and transcript.resolved_value as a helpful local guess.\n"
         "If local matching is uncertain, prefer inferring from the raw wording over asking a rigid repeat question.\n"
         "Canonical use_case values: analytics, etl_pipeline, streaming, ml_pipeline, data_platform, other.\n"
+        "Canonical schedule_engine values: airflow, dagster, prefect.\n"
+        "Canonical trigger_type values: cron, event, manual, streaming.\n"
         "Canonical model values include: tmf_sid, nrf_arts, gs1_gdm, adobe_xdm, hl7_fhir, omop_cdm.\n"
         "Supporting standards include: gs1_gdm, gs1_epcis_cbv.\n"
         "For telco, retail, and healthcare requests, infer modeling standards from the raw wording whenever possible "
@@ -154,6 +159,8 @@ def build_clarification_user_prompt(
             "time_dimension",
             "time_granularity",
             "refresh_cadence",
+            "schedule_engine",
+            "trigger_type",
             "consumes",
         ],
         "priorities": [
@@ -165,6 +172,8 @@ def build_clarification_user_prompt(
             "If there was a generation failure, only ask questions that directly reduce that ambiguity.",
             "If existing_products are listed and the user's project_goal is semantically similar to an existing product, "
             "flag it in your reason field and ask: 'This looks similar to <existing_id>. Are you extending it or creating something new?'",
+            "If the user mentioned scheduling, DAGs, orchestration, or pipelines, infer schedule_engine and trigger_type. "
+            "Available schedulers: airflow, dagster, prefect. Default trigger_type is 'cron' for batch workloads.",
         ],
     }
     if project_memory:
