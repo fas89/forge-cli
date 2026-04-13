@@ -227,9 +227,22 @@ class GoogleCloudAuthProvider(AuthProvider):
             import google.auth.transport.requests
 
             if credentials_path:
-                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
+                # Use from_service_account_file when given an explicit path,
+                # avoiding mutation of os.environ["GOOGLE_APPLICATION_CREDENTIALS"].
+                from google.oauth2 import service_account as _sa
 
-            credentials, project = google.auth.default(scopes=self.scopes)
+                credentials = _sa.Credentials.from_service_account_file(
+                    credentials_path, scopes=self.scopes
+                )
+                project = None
+                try:
+                    with open(credentials_path) as _f:
+                        project = json.load(_f).get("project_id")
+                except Exception:
+                    pass
+            else:
+                credentials, project = google.auth.default(scopes=self.scopes)
+
             credentials.refresh(google.auth.transport.requests.Request())
 
             email = getattr(credentials, "service_account_email", None)
