@@ -285,7 +285,7 @@ class ForgeEngine:
 • Extensions: {status['extensions']['count']} loaded
 • Generators: {status['generators']['count']} available
 
-[bold green]Ready to forge your next data product! ⚡[/bold green]
+[bold green]System ready ⚡[/bold green]
         """
 
         self.console.print(Panel(welcome_text.strip(), title="🔨 FLUID Forge", style="blue"))

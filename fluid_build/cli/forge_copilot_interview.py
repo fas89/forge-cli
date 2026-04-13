@@ -473,7 +473,7 @@ def run_adaptive_copilot_interview(
 
     if console:
         print_interview_phase(
-            console, phase=1, total=3, label="Understanding your project"
+            console, phase=1, total=3, label="Tell us about your project"
         )
     _ask_bootstrap_questions(
         state, console, discovery_report=discovery_report, target_dir=target_dir,
@@ -532,7 +532,7 @@ def run_adaptive_copilot_interview(
 
     if console:
         print_interview_phase(
-            console, phase=3, total=3, label="Generating your contract"
+            console, phase=3, total=3, label="Building your contract"
         )
 
     state.normalized_context = state.finalize()

@@ -352,17 +352,30 @@ def run(args, logger: logging.Logger) -> int:
 
 
 def _offer_first_forge(args, logger: logging.Logger) -> None:
-    """After successful init, offer to forge the first data product."""
+    """After successful init, offer to forge the first data product.
+
+    Only shown when no contract.fluid.yaml exists yet in the target
+    directory — once forge creates one, this prompt is suppressed.
+    """
     try:
+        # Determine the product directory
+        target = getattr(args, "target_dir", None) or getattr(args, "name", ".")
+        target_path = Path(target).resolve()
+        contract_path = target_path / "contract.fluid.yaml"
+
+        # If a contract already exists, forge has already run — skip the offer
+        if contract_path.exists():
+            return
+
         if RICH_AVAILABLE:
             from rich.prompt import Confirm
 
             forge_now = Confirm.ask(
-                "\n[bold bright_cyan]Ready to forge your first data product?[/bold bright_cyan]",
+                "\n[bold bright_cyan]Ready to create your first data product?[/bold bright_cyan]",
                 default=True,
             )
         else:
-            answer = input("\nReady to forge your first data product? [Y/n] ").strip().lower()
+            answer = input("\nReady to create your first data product? [Y/n] ").strip().lower()
             forge_now = answer in ("", "y", "yes")
 
         if forge_now:
@@ -396,10 +409,10 @@ def _offer_first_forge(args, logger: logging.Logger) -> None:
             )
             forge_run(forge_args, logger)
     except (KeyboardInterrupt, EOFError):
-        cprint("\nSkipping forge — you can run 'fluid forge' anytime.")
+        cprint("\nYou can run 'fluid forge' anytime to create a data product.")
     except Exception as e:
         logger.debug(f"First-forge offer failed: {e}")
-        cprint("\nSkipping forge — you can run 'fluid forge' anytime.")
+        cprint("\nYou can run 'fluid forge' anytime to create a data product.")
 
 
 def _write_init_receipt(

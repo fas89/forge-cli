@@ -1808,14 +1808,29 @@ def _create_project_minimal(
                     for rel_path in sorted(fragment_files):
                         console.print(f"[dim]     {rel_path}[/dim]")
                     console.print(
-                        "[dim]   Tip: use --no-fragments for a single-file layout.[/dim]"
+                        "\n[bold]📦 Layout: Fragment-first (modular)[/bold]"
                     )
                     console.print(
-                        "[dim]   Run fluid bundle to see the resolved contract.[/dim]"
+                        "[dim]   Your contract was split into composable fragments under fragments/.[/dim]"
+                    )
+                    console.print(
+                        "[dim]   • fluid bundle        — reassemble into a single contract[/dim]"
+                    )
+                    console.print(
+                        "[dim]   • --no-fragments      — next forge will produce a single file instead[/dim]"
                     )
                 elif not force_flat and is_complex_enough_for_fragments(contract):
                     console.print(
-                        "[dim]   Tip: run fluid split to break this into composable fragments.[/dim]"
+                        "\n[bold]📦 Layout: Single file[/bold]"
+                    )
+                    console.print(
+                        "[dim]   For larger contracts, fragments help with reuse and team collaboration.[/dim]"
+                    )
+                    console.print(
+                        "[dim]   • fluid split         — break into composable fragments[/dim]"
+                    )
+                    console.print(
+                        "[dim]   • --fragments          — next forge will auto-split[/dim]"
                     )
                 if additional_files:
                     n = len(additional_files)
