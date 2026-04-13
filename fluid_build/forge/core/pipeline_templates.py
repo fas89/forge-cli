@@ -207,6 +207,18 @@ class BasePipelineTemplate:
             "apply": "fluid apply --plan plan.json",
             "test": "fluid test --coverage",
             "contract_test": "fluid contract-test --all",
+            "generate_transformation": "fluid generate transformation",
+            "generate_schedule": "fluid generate schedule",
+            "check_transformations": (
+                "if [ -f dbt_project.yml ] || [ -d models/ ]; then "
+                "fluid generate transformation --check; "
+                "fi"
+            ),
+            "check_schedules": (
+                "if [ -d dags/ ] || [ -d pipelines/ ] || [ -d flows/ ]; then "
+                "fluid generate schedule --check; "
+                "fi"
+            ),
             "visualize": "fluid viz-plan --output pipeline-viz.html && fluid viz-graph --output dependency-graph.png",
             "publish_opds": "fluid export-opds --output opds-catalog.json",
             "marketplace_publish": "fluid marketplace publish --catalog opds-catalog.json",
@@ -370,6 +382,8 @@ class GitHubActionsTemplate(BasePipelineTemplate):
                         *self._get_oidc_steps(config.oidc_provider),
                         {"name": "FLUID Doctor Check", "run": commands["doctor"]},
                         {"name": "Validate Configuration", "run": commands["validate"]},
+                        {"name": "Generate Transformations", "run": commands["generate_transformation"]},
+                        {"name": "Generate Schedules", "run": commands["generate_schedule"]},
                         {"name": "Generate Plan", "run": commands["plan"]},
                         {
                             "name": "Apply Changes",
@@ -434,8 +448,39 @@ class GitHubActionsTemplate(BasePipelineTemplate):
                         },
                     ],
                 },
-                "plan": {
+                "generate": {
                     "needs": "validate",
+                    "runs-on": "ubuntu-latest",
+                    "permissions": {"contents": "read"},
+                    "if": "needs.validate.outputs.changes-detected == 'true'",
+                    "steps": [
+                        {"name": "Checkout", "uses": _pin_action("actions/checkout@v4")},
+                        {
+                            "name": "Setup Python",
+                            "uses": _pin_action("actions/setup-python@v5"),
+                            "with": {"python-version": "3.9"},
+                        },
+                        {"name": "Install Dependencies", "run": "pip install -r requirements.txt"},
+                        {
+                            "name": "Generate Transformations",
+                            "run": commands["generate_transformation"],
+                        },
+                        {
+                            "name": "Generate Schedules",
+                            "run": commands["generate_schedule"],
+                        },
+                        {
+                            "name": "Check Transformation Drift",
+                            "run": commands["check_transformations"],
+                        },
+                        {
+                            "name": "Check Schedule Drift",
+                            "run": commands["check_schedules"],
+                        },
+                    ],
+                },
+                "plan": {
+                    "needs": "generate",
                     "runs-on": "ubuntu-latest",
                     "permissions": {"contents": "read"},
                     "if": "needs.validate.outputs.changes-detected == 'true'",
@@ -502,6 +547,14 @@ class GitHubActionsTemplate(BasePipelineTemplate):
                 },
                 {"name": "Install Dependencies", "run": "pip install -r requirements.txt"},
                 *self._get_oidc_steps(config.oidc_provider),
+                {
+                    "name": "Generate Transformations",
+                    "run": f"FLUID_ENV={env} {commands['generate_transformation']}",
+                },
+                {
+                    "name": "Generate Schedules",
+                    "run": f"FLUID_ENV={env} {commands['generate_schedule']}",
+                },
                 {
                     "name": "Download Plan",
                     "uses": _pin_action("actions/download-artifact@v4"),
@@ -680,7 +733,7 @@ class GitLabCITemplate(BasePipelineTemplate):
         """Generate basic GitLab CI pipeline"""
 
         return {
-            "stages": ["validate", "plan", "apply", "test", "publish"],
+            "stages": ["validate", "generate", "plan", "apply", "test", "publish"],
             "variables": env_vars,
             "image": "python:3.9",
             "before_script": ["pip install -r requirements.txt"],
@@ -688,6 +741,13 @@ class GitLabCITemplate(BasePipelineTemplate):
                 "stage": "validate",
                 "script": [commands["doctor"], commands["validate"]],
                 "rules": [{"if": "$CI_PIPELINE_SOURCE == 'push'"}],
+            },
+            "generate": {
+                "stage": "generate",
+                "script": [
+                    commands["generate_transformation"],
+                    commands["generate_schedule"],
+                ],
             },
             "plan": {
                 "stage": "plan",
@@ -724,18 +784,27 @@ class GitLabCITemplate(BasePipelineTemplate):
         """Generate standard GitLab CI pipeline with environments"""
 
         pipeline = {
-            "stages": ["validate", "test", "plan", "deploy", "publish"],
+            "stages": ["validate", "generate", "test", "plan", "deploy", "publish"],
             "variables": env_vars,
             "image": "python:3.9",
             "before_script": ["pip install -r requirements.txt"],
         }
 
-        # Add validation and testing jobs
+        # Add validation, generation, and testing jobs
         pipeline.update(
             {
                 "validate": {
                     "stage": "validate",
                     "script": [commands["doctor"], commands["validate"]],
+                },
+                "generate-artifacts": {
+                    "stage": "generate",
+                    "script": [
+                        commands["generate_transformation"],
+                        commands["generate_schedule"],
+                        commands["check_transformations"],
+                        commands["check_schedules"],
+                    ],
                 },
                 "unit-tests": {
                     "stage": "test",
@@ -772,6 +841,8 @@ class GitLabCITemplate(BasePipelineTemplate):
                     ' --role-session-name "fluid-ci-${CI_PIPELINE_ID}"'
                     " > /tmp/aws_creds.json"
                 )
+            deploy_script.append(f"FLUID_ENV={env} {commands['generate_transformation']}")
+            deploy_script.append(f"FLUID_ENV={env} {commands['generate_schedule']}")
             deploy_script.append(f"FLUID_ENV={env} {commands['apply']}")
 
             deploy_job = {
@@ -884,6 +955,8 @@ class AzureDevOpsTemplate(BasePipelineTemplate):
                         },
                         {"script": commands["doctor"], "displayName": "FLUID Doctor Check"},
                         {"script": commands["validate"], "displayName": "Validate configuration"},
+                        {"script": commands["generate_transformation"], "displayName": "Generate transformations"},
+                        {"script": commands["generate_schedule"], "displayName": "Generate schedules"},
                         {"script": commands["plan"], "displayName": "Generate plan"},
                         {
                             "task": "PublishBuildArtifacts@1",
@@ -941,6 +1014,14 @@ class AzureDevOpsTemplate(BasePipelineTemplate):
                                         {
                                             "task": "DownloadBuildArtifacts@0",
                                             "inputs": {"artifactName": "plan"},
+                                        },
+                                        {
+                                            "script": f"FLUID_ENV={env} {commands['generate_transformation']}",
+                                            "displayName": "Generate transformations",
+                                        },
+                                        {
+                                            "script": f"FLUID_ENV={env} {commands['generate_schedule']}",
+                                            "displayName": "Generate schedules",
                                         },
                                         {
                                             "script": f"FLUID_ENV={env} {commands['apply']}",
@@ -1063,6 +1144,21 @@ pipeline {{
             }}
         }}
         
+        stage('Generate Artifacts') {{
+            parallel {{
+                stage('Transformations') {{
+                    steps {{
+                        sh '{commands["generate_transformation"]}'
+                    }}
+                }}
+                stage('Schedules') {{
+                    steps {{
+                        sh '{commands["generate_schedule"]}'
+                    }}
+                }}
+            }}
+        }}
+
         stage('Plan') {{
             steps {{
                 sh '{commands["plan"]}'

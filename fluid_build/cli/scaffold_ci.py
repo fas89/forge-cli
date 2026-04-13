@@ -35,6 +35,7 @@ def register(subparsers: argparse._SubParsersAction):
 
 GITLAB = """stages:
   - validate
+  - generate
   - plan
   - test
   - apply
@@ -42,6 +43,11 @@ validate:
   stage: validate
   script:
     - python -m fluid_build.cli validate $CONTRACT
+generate:
+  stage: generate
+  script:
+    - python -m fluid_build.cli generate transformation
+    - python -m fluid_build.cli generate schedule
 plan:
   stage: plan
   script:
@@ -70,7 +76,17 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
       - run: python -m fluid_build.cli validate ${{ env.CONTRACT }}
+  generate:
+    needs: [validate]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - run: python -m fluid_build.cli generate transformation
+      - run: python -m fluid_build.cli generate schedule
   plan:
+    needs: [generate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -105,6 +121,20 @@ pipeline {
         stage('Validate') {
             steps {
                 sh 'python -m fluid_build.cli validate $CONTRACT'
+            }
+        }
+        stage('Generate') {
+            parallel {
+                stage('Transformations') {
+                    steps {
+                        sh 'python -m fluid_build.cli generate transformation'
+                    }
+                }
+                stage('Schedules') {
+                    steps {
+                        sh 'python -m fluid_build.cli generate schedule'
+                    }
+                }
             }
         }
         stage('Plan') {
