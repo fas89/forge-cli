@@ -117,6 +117,19 @@ def run(args: Any, logger: logging.Logger) -> int:
             )
             return 1
 
+        # Synthesize orchestration from builds when the contract lacks one.
+        if not contract.get("orchestration") and contract.get("builds"):
+            from fluid_build.schedulers.synthesis import synthesize_orchestration_from_builds
+
+            provider = contract.get("provider", "")
+            synthesized = synthesize_orchestration_from_builds(
+                contract, scheduler_name, provider=provider,
+            )
+            if synthesized:
+                contract = {**contract, "orchestration": synthesized}
+                if getattr(args, "verbose", False):
+                    info(logger, f"Synthesized orchestration from {len(synthesized.get('tasks', []))} build steps")
+
         # --- Look up scheduler ---
         from fluid_build.schedulers import get_scheduler, has_scheduler, list_schedulers
 

@@ -2042,6 +2042,28 @@ def _generate_schedule_artifacts(
         if not scheduler_name:
             return {}
 
+        # Synthesize orchestration from builds when the contract lacks one.
+        # The LLM generates builds (transformations) but not orchestration
+        # (scheduling), so we derive tasks from the build steps.
+        if not orchestration and contract.get("builds"):
+            from fluid_build.schedulers.synthesis import synthesize_orchestration_from_builds
+
+            synthesized = synthesize_orchestration_from_builds(
+                contract, scheduler_name, provider=context.get("provider", ""),
+            )
+            if synthesized:
+                contract = {**contract, "orchestration": synthesized}
+                orchestration = synthesized
+                if console:
+                    try:
+                        n = len(synthesized.get("tasks", []))
+                        console.print(
+                            f"\n[dim]Synthesized {scheduler_name} schedule from "
+                            f"{n} build step{'s' if n != 1 else ''}[/dim]"
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
+
         # Skip if BYOS path is set (user has their own schedule)
         if context.get("byos_path"):
             if console:
