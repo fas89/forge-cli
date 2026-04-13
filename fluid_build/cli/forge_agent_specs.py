@@ -37,7 +37,7 @@ class AgentSpecError(ValueError):
 
 @dataclass(frozen=True)
 class AgentSpec:
-    """Validated built-in domain-agent spec."""
+    """Validated domain-agent spec (built-in or user-defined)."""
 
     name: str
     domain: str
@@ -48,6 +48,7 @@ class AgentSpec:
     rules: List[Dict[str, Any]] = field(default_factory=list)
     next_step_tips: List[str] = field(default_factory=list)
     conditional_next_step_tips: List[Dict[str, Any]] = field(default_factory=list)
+    keywords: List[str] = field(default_factory=list)
 
 
 def _require_mapping(value: Any, *, label: str) -> Mapping[str, Any]:
@@ -231,6 +232,13 @@ def load_agent_spec_from_path(spec_path: Path) -> AgentSpec:
         if str(item or "").strip()
     ]
 
+    raw_keywords = payload.get("keywords") or []
+    keywords = [
+        str(kw).strip().lower()
+        for kw in (raw_keywords if isinstance(raw_keywords, list) else [])
+        if str(kw or "").strip()
+    ]
+
     return AgentSpec(
         name=name,
         domain=domain,
@@ -247,6 +255,7 @@ def load_agent_spec_from_path(spec_path: Path) -> AgentSpec:
         conditional_next_step_tips=_normalize_conditional_tips(
             payload.get("conditional_next_step_tips"), spec_name=spec_name
         ),
+        keywords=keywords,
     )
 
 
@@ -259,10 +268,101 @@ def load_builtin_agent_spec(spec_name: str) -> AgentSpec:
     return load_agent_spec_from_path(AGENT_SPECS_DIR / f"{safe_name}.yaml")
 
 
+USER_AGENTS_DIR_NAME = "agents"
+
+# Files in agent_specs/ that are not actual agent specs.
+_NON_SPEC_FILES = {"domain_keywords.yaml", "custom.yaml.template"}
+
+_LOG = __import__("logging").getLogger("fluid.cli.forge.agent_specs")
+
+
+def _user_agent_dirs() -> List[Path]:
+    """Return user agent-spec directories in priority order (workspace → global)."""
+    dirs: List[Path] = []
+    local = Path.cwd() / ".fluid" / USER_AGENTS_DIR_NAME
+    if local.is_dir():
+        dirs.append(local)
+    global_dir = Path.home() / ".fluid" / USER_AGENTS_DIR_NAME
+    if global_dir.is_dir() and global_dir != local:
+        dirs.append(global_dir)
+    return dirs
+
+
+def discover_all_agent_specs() -> Dict[str, "AgentSpec"]:
+    """Discover all agent specs: user (workspace + global) + built-in.
+
+    Returns ``{name: spec}`` where workspace specs shadow global specs
+    and global specs shadow built-in specs with the same name.
+    """
+    specs: Dict[str, AgentSpec] = {}
+
+    # Built-in agents (lowest priority).
+    for yaml_path in sorted(AGENT_SPECS_DIR.glob("*.yaml")):
+        if yaml_path.name in _NON_SPEC_FILES:
+            continue
+        try:
+            spec = load_agent_spec_from_path(yaml_path)
+            specs[spec.name] = spec
+        except (AgentSpecError, Exception) as exc:  # noqa: BLE001
+            _LOG.debug("Skipping invalid built-in spec %s: %s", yaml_path.name, exc)
+
+    # User agents (higher priority — iterate in reverse so workspace wins).
+    for user_dir in reversed(_user_agent_dirs()):
+        for yaml_path in sorted(user_dir.glob("*.yaml")):
+            if yaml_path.name in _NON_SPEC_FILES:
+                continue
+            try:
+                spec = load_agent_spec_from_path(yaml_path)
+                specs[spec.name] = spec
+            except (AgentSpecError, Exception) as exc:  # noqa: BLE001
+                _LOG.warning(
+                    "Skipping invalid user agent spec %s: %s", yaml_path, exc
+                )
+
+    return specs
+
+
+def load_user_or_builtin_spec(name: str) -> AgentSpec:
+    """Load a spec by name: user directories first, then built-in."""
+    safe_name = str(name or "").strip().lower()
+    if not safe_name:
+        raise AgentSpecError("Agent spec name cannot be empty.")
+
+    # Check user directories in priority order.
+    for user_dir in _user_agent_dirs():
+        path = user_dir / f"{safe_name}.yaml"
+        if path.exists():
+            return load_agent_spec_from_path(path)
+
+    # Fall back to built-in.
+    return load_builtin_agent_spec(safe_name)
+
+
+def scaffold_user_agent(name: str, target_dir: Path | None = None) -> Path:
+    """Scaffold a new user agent spec from the built-in template.
+
+    Returns the path to the created file.
+    """
+    safe_name = str(name or "").strip().lower().replace(" ", "-")
+    dest_dir = (target_dir or Path.cwd()) / ".fluid" / USER_AGENTS_DIR_NAME
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"{safe_name}.yaml"
+
+    template = AGENT_SPECS_DIR / "custom.yaml.template"
+    content = template.read_text(encoding="utf-8")
+    content = content.replace("my-domain", safe_name)
+    content = content.replace("My Domain", safe_name.replace("-", " ").title())
+    dest.write_text(content, encoding="utf-8")
+    return dest
+
+
 __all__ = [
     "AGENT_SPECS_DIR",
     "AgentSpec",
     "AgentSpecError",
+    "discover_all_agent_specs",
     "load_agent_spec_from_path",
     "load_builtin_agent_spec",
+    "load_user_or_builtin_spec",
+    "scaffold_user_agent",
 ]

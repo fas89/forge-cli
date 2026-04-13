@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Mapping, Optional
 
 import httpx
@@ -34,6 +34,7 @@ from fluid_build.cli.forge_copilot_tools import (
     dispatch_tool_call,
     get_tool_definitions,
 )
+from fluid_build.schema_manager import FluidSchemaManager
 
 LOG = logging.getLogger("fluid.cli.forge_copilot.agent_loop")
 
@@ -50,28 +51,36 @@ MAX_AGENT_ITERATIONS = 12
 # System prompt for the agent loop — much shorter than the single-shot
 # prompt because the LLM discovers information via tools instead of
 # receiving it up front.
-AGENT_SYSTEM_PROMPT = (
-    "You are FLUID Forge Copilot, running in agent mode.\n"
-    "Use the available tools to understand the user's workspace, choose "
-    "the right template and provider, build a contract, and validate it.\n\n"
-    "Workflow:\n"
-    "1. Call discover_workspace to scan for data files and existing contracts.\n"
-    "2. Call list_templates to see available templates and providers.\n"
-    "3. Optionally call read_sample_schema on interesting data files.\n"
-    "4. Call propose_contract with the user's context to get a seed.\n"
-    "5. Refine the seed based on discovery results.\n"
-    "6. Call validate_contract to check for errors.\n"
-    "7. If there are validation errors, fix the contract and re-validate.\n"
-    "8. When the contract is valid, return your final response as a JSON "
-    "object with keys: recommended_template, recommended_provider, "
-    "recommended_patterns, architecture_suggestions, best_practices, "
-    "technology_stack, description, domain, owner, readme_markdown, "
-    "contract, additional_files.\n\n"
-    "CRITICAL: The contract must be a valid FLUID 0.7.2 DataProduct contract.\n"
-    "Use fluidVersion '0.7.2'. Only use providers and templates from list_templates.\n"
-    "Never include secrets or raw sample data in your response.\n"
-    "When you're ready to deliver, stop calling tools and return the final JSON directly."
-)
+
+
+def _build_agent_system_prompt() -> str:
+    fv = FluidSchemaManager.latest_bundled_version()
+    return (
+        "You are FLUID Forge Copilot, running in agent mode.\n"
+        "Use the available tools to understand the user's workspace, choose "
+        "the right template and provider, build a contract, and validate it.\n\n"
+        "Workflow:\n"
+        "1. Call discover_workspace to scan for data files and existing contracts.\n"
+        "2. Call list_templates to see available templates and providers.\n"
+        "3. Optionally call read_sample_schema on interesting data files.\n"
+        "4. Call propose_contract with the user's context to get a seed.\n"
+        "5. Refine the seed based on discovery results.\n"
+        "6. Call validate_contract to check for errors.\n"
+        "7. If there are validation errors, fix the contract and re-validate.\n"
+        "8. When the contract is valid, return your final response as a JSON "
+        "object with keys: recommended_template, recommended_provider, "
+        "recommended_patterns, architecture_suggestions, best_practices, "
+        "technology_stack, description, domain, owner, readme_markdown, "
+        "contract, additional_files.\n\n"
+        f"CRITICAL: The contract must be a valid FLUID {fv} DataProduct contract.\n"
+        f"Use fluidVersion '{fv}'. Only use providers and templates from list_templates.\n"
+        "Never include secrets or raw sample data in your response.\n"
+        "When you're ready to deliver, stop calling tools and return the final JSON directly."
+    )
+
+
+# Keep backward-compatible module-level name for any external references.
+AGENT_SYSTEM_PROMPT = _build_agent_system_prompt()
 
 
 def run_copilot_agent_loop(
@@ -109,7 +118,7 @@ def run_copilot_agent_loop(
 
         # Call the LLM with the tool definitions.
         response_json = _call_llm_with_tools(
-            provider_adapter, llm_config, AGENT_SYSTEM_PROMPT, messages, tools
+            provider_adapter, llm_config, _build_agent_system_prompt(), messages, tools
         )
 
         # Check for tool calls.
@@ -274,15 +283,15 @@ def _dispatch_tools(
     )
 
     if all_parallel and len(tool_calls) > 1:
-        results = [None] * len(tool_calls)
+        # Submit all futures in parallel but collect results in input
+        # order so that logging and downstream processing are
+        # deterministic across runs.
         with ThreadPoolExecutor(max_workers=min(len(tool_calls), 4)) as pool:
-            futures = {
-                pool.submit(dispatch_tool_call, tc["name"], tc["arguments"]): i
-                for i, tc in enumerate(tool_calls)
-            }
-            for future in as_completed(futures):
-                idx = futures[future]
-                results[idx] = future.result()
+            futures = [
+                pool.submit(dispatch_tool_call, tc["name"], tc["arguments"])
+                for tc in tool_calls
+            ]
+            results = [f.result() for f in futures]
         return results
 
     # Sequential fallback for mixed read/write calls.

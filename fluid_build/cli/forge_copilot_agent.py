@@ -55,6 +55,7 @@ from fluid_build.cli.forge_copilot_taxonomy import (
 )
 from fluid_build.cli.forge_copilot_taxonomy import clean_text as _clean_text
 from fluid_build.cli.forge_dialogs import ask_confirmation
+from fluid_build.schema_manager import FluidSchemaManager
 from fluid_build.cli.forge_ui import print_assumptions_panel, show_lines_panel
 
 try:
@@ -519,7 +520,9 @@ class CopilotAgentBase(CopilotProjectMemoryMixin, CopilotLegacyScaffoldMixin, AI
             "ai_suggestions": suggestions,
         }
         if generation_result:
-            config["fluid_version"] = generation_result.contract.get("fluidVersion", "0.7.2")
+            config["fluid_version"] = generation_result.contract.get(
+                "fluidVersion", FluidSchemaManager.latest_bundled_version()
+            )
             config["copilot_generated_contract"] = generation_result.contract
             config["copilot_generated_readme"] = generation_result.readme_markdown
             if generation_result.additional_files:

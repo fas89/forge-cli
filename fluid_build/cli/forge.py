@@ -215,9 +215,16 @@ def register(subparsers: argparse._SubParsersAction):
     )
     parser.add_argument("--target-dir", "-d", help="Target directory for project creation")
     parser.add_argument("--provider", "-p", help="Infrastructure provider to use")
+    try:
+        from fluid_build.cli.forge_agents import get_all_domain_names
+
+        domain_names = ", ".join(get_all_domain_names())
+    except Exception:  # noqa: BLE001
+        domain_names = "finance, healthcare, retail, telco"
     parser.add_argument(
         "--domain",
-        help="Domain hint for AI (e.g., finance, healthcare, retail, telco)",
+        help=f"Domain agent for AI (available: {domain_names}). "
+        "Custom agents: drop a YAML spec in .fluid/agents/",
     )
     parser.add_argument(
         "--non-interactive",
@@ -628,6 +635,7 @@ def run(args, logger: logging.Logger) -> int:
                 before_snapshot=before_snapshot,
                 scan_root=scan_root,
                 logger=logger,
+                provenance=getattr(args, "_copilot_provenance", None),
             )
             _print_forge_next_steps(console, args, scan_root)
         return result
@@ -704,6 +712,7 @@ def _write_forge_receipt(
     before_snapshot,
     scan_root: Path,
     logger: logging.Logger,
+    provenance: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Write ``<product>/.fluid/forge-receipt.json`` for this run.
 
@@ -752,12 +761,15 @@ def _write_forge_receipt(
                 reason=entry.reason,
             )
 
-        builder.set_inputs(
-            blank=bool(get_cli_arg(args, "blank", False)) or None,
-            non_interactive=bool(get_cli_arg(args, "non_interactive", False)) or None,
-            context=get_cli_arg(args, "context", None),
-            target_dir=get_cli_arg(args, "target_dir", None),
-        )
+        inputs: Dict[str, Any] = {
+            "blank": bool(get_cli_arg(args, "blank", False)) or None,
+            "non_interactive": bool(get_cli_arg(args, "non_interactive", False)) or None,
+            "context": get_cli_arg(args, "context", None),
+            "target_dir": get_cli_arg(args, "target_dir", None),
+        }
+        if provenance:
+            inputs["provenance"] = provenance
+        builder.set_inputs(**inputs)
 
         doc = builder.build_document()
 

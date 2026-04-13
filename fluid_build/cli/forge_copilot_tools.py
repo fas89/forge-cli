@@ -20,7 +20,11 @@ import logging
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+from fluid_build.schema_manager import FluidSchemaManager
+
 LOG = logging.getLogger("fluid.cli.forge_copilot.tools")
+
+_FV = FluidSchemaManager.latest_bundled_version()
 
 # ---------------------------------------------------------------------------
 # Tool definitions — {name, description, input_schema, impl}
@@ -178,7 +182,7 @@ def _dispatch_propose_contract(
 _register(
     name="propose_contract",
     description=(
-        "Generate a seed FLUID 0.7.2 contract scaffold for the given "
+        f"Generate a seed FLUID {_FV} contract scaffold for the given "
         "context, template, and provider.  The seed is a starting "
         "point — refine it based on the discovery report and user "
         "requirements before returning it as your final contract."
@@ -236,7 +240,7 @@ def _dispatch_validate_contract(
 _register(
     name="validate_contract",
     description=(
-        "Validate a candidate FLUID 0.7.2 contract against the local "
+        f"Validate a candidate FLUID {_FV} contract against the local "
         "schema and capability matrix.  Returns {errors, warnings}.  "
         "If errors is empty, the contract is valid."
     ),

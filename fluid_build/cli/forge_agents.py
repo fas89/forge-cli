@@ -69,22 +69,60 @@ DOMAIN_AGENTS = {
 
 
 def get_agent(agent_name: str) -> AIAgentBase:
-    """Get a domain agent by name."""
-    if agent_name not in DOMAIN_AGENTS:
-        raise ValueError(
-            f"Agent '{agent_name}' not found. Available: {', '.join(DOMAIN_AGENTS.keys())}"
-        )
-    return DOMAIN_AGENTS[agent_name]()
+    """Get a domain agent by name (user-defined agents are checked first)."""
+    # Built-in agents.
+    if agent_name in DOMAIN_AGENTS:
+        return DOMAIN_AGENTS[agent_name]()
+
+    # User-defined agents (workspace → global).
+    try:
+        from fluid_build.cli.forge_agent_specs import load_user_or_builtin_spec
+
+        spec = load_user_or_builtin_spec(agent_name)
+        return DeclarativeDomainAgent(spec.name)
+    except Exception:  # noqa: BLE001
+        pass
+
+    available = ", ".join(get_all_domain_names())
+    raise ValueError(f"Agent '{agent_name}' not found. Available: {available}")
+
+
+def get_all_domain_names() -> List[str]:
+    """Return all available domain names (built-in + user-defined)."""
+    names = list(DOMAIN_AGENTS.keys())
+    try:
+        from fluid_build.cli.forge_agent_specs import discover_all_agent_specs
+
+        for name in discover_all_agent_specs():
+            if name not in names:
+                names.append(name)
+    except Exception:  # noqa: BLE001
+        pass
+    return sorted(names)
 
 
 def list_agents() -> List[Dict[str, str]]:
-    """List all available domain agents."""
+    """List all available domain agents (built-in + user-defined)."""
     agents = []
+    seen = set()
     for name, agent_class in DOMAIN_AGENTS.items():
         agent = agent_class()
         agents.append(
-            {"name": agent.name, "domain": agent.domain, "description": agent.description}
+            {"name": agent.name, "domain": agent.domain, "description": agent.description, "source": "built-in"}
         )
+        seen.add(agent.name)
+
+    try:
+        from fluid_build.cli.forge_agent_specs import discover_all_agent_specs
+
+        for name, spec in discover_all_agent_specs().items():
+            if name not in seen:
+                agents.append(
+                    {"name": spec.name, "domain": spec.domain, "description": spec.description, "source": "user"}
+                )
+    except Exception:  # noqa: BLE001
+        pass
+
     return agents
 
 
@@ -96,6 +134,7 @@ __all__ = [
     "TelcoAgent",
     "DOMAIN_AGENTS",
     "get_agent",
+    "get_all_domain_names",
     "list_agents",
     "_raw_answer",
     "_resolve_context_choice",

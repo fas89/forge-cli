@@ -120,9 +120,9 @@ FORGE_RESPONSE_SCHEMA: Dict[str, Any] = {
         "contract": {
             "type": "object",
             "description": (
-                "A FLUID 0.7.2 DataProduct contract.  The provider-level "
-                "schema is deliberately permissive; downstream semantic "
-                "validation enforces the FLUID contract rules."
+                "A FLUID DataProduct contract (latest schema version).  "
+                "The provider-level schema is deliberately permissive; "
+                "downstream semantic validation enforces the FLUID contract rules."
             ),
             "additionalProperties": True,
             "properties": {},

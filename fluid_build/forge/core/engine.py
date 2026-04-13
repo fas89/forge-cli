@@ -493,8 +493,14 @@ class ForgeEngine:
 
             # FLUID version selection
             if "fluid_version" not in self.project_config:
+                try:
+                    from fluid_build.schema_manager import FluidSchemaManager
+
+                    available = FluidSchemaManager.BUNDLED_VERSIONS
+                except Exception:  # noqa: BLE001
+                    available = ["0.4.0", "0.5.7", "0.7.1", "0.7.2"]
                 version_choice = Prompt.ask(
-                    "FLUID specification version", choices=["0.5.7", "0.4.0"], default="0.5.7"
+                    "FLUID specification version", choices=available, default=available[-1]
                 )
                 self.project_config["fluid_version"] = version_choice
 

@@ -230,6 +230,11 @@ def register(subparsers: argparse._SubParsersAction):
         action="store_true",
         help="Suppress the next-steps panel and other post-success hints",
     )
+    p.add_argument(
+        "--agent",
+        metavar="NAME",
+        help="Scaffold a custom domain agent spec in .fluid/agents/ (e.g., --agent insurance)",
+    )
     # Advanced: post-run control knobs — hidden unless --advanced is passed
     mark_advanced(
         p.add_argument(
@@ -259,6 +264,18 @@ def run(args, logger: logging.Logger) -> int:
         # Handle --list-templates early — no workspace, no mode detection.
         if getattr(args, "list_templates", False):
             return _print_templates_list()
+
+        # Handle --agent: scaffold a custom domain agent spec.
+        agent_name = getattr(args, "agent", None)
+        if agent_name:
+            from fluid_build.cli.forge_agent_specs import scaffold_user_agent
+
+            target = getattr(args, "target_dir", None)
+            target_path = Path(target).resolve() if target else None
+            path = scaffold_user_agent(agent_name, target_dir=target_path)
+            print(f"Created {path}")
+            print(f"Edit the file to customize questions, rules, and suggestions.")
+            print(f"Then run: fluid forge --domain {agent_name}")
 
         # If --dir is specified, switch to that directory first.
         target_dir = getattr(args, "target_dir", None)

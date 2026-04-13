@@ -26,6 +26,7 @@ import hashlib
 import json
 import logging
 import threading
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
@@ -158,6 +159,7 @@ class CopilotGenerationResult:
     attempt_reports: List[GenerationAttemptReport]
     scaffold_decision: Optional[ScaffoldDecisionReport] = None
     project_memory: Optional[CopilotMemorySnapshot] = None
+    provenance: Optional[Dict[str, Any]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -647,6 +649,17 @@ def generate_copilot_artifacts(
         report.validation_warnings = validation_warnings
 
         if not validation_errors:
+            provenance = {
+                "llm_provider": llm_config.provider,
+                "llm_model": llm_config.model,
+                "system_prompt_hash": hashlib.sha256(system_prompt.encode()).hexdigest()[:16],
+                "user_prompt_hash": hashlib.sha256(user_prompt.encode()).hexdigest()[:16],
+                "discovery_hash": hashlib.sha256(
+                    json.dumps(discovery_report.to_prompt_payload(), sort_keys=True).encode()
+                ).hexdigest()[:16],
+                "attempt": attempt_index,
+                "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+            }
             return CopilotGenerationResult(
                 suggestions=normalized["suggestions"],
                 contract=normalized["contract"],
@@ -656,6 +669,7 @@ def generate_copilot_artifacts(
                 attempt_reports=attempts,
                 scaffold_decision=scaffold_decision,
                 project_memory=project_memory,
+                provenance=provenance,
             )
 
         previous_errors = validation_errors

@@ -28,6 +28,14 @@ domain: My Domain
 # Required: one-line description of this domain's expertise
 description: Expert in [your domain] data products and [your speciality]
 
+# Keywords for automatic domain detection (optional but recommended).
+# When a user mentions these words during the interview, this agent is
+# auto-selected without needing --domain. At least 2 keyword hits trigger detection.
+keywords:
+  - my-domain
+  - keyword1
+  - keyword2
+
 # Questions to ask during the interview.
 # These are suggested to the AI — it may use them or skip based on context.
 # type: "choice" (pick from list) or "text" (free-form answer)

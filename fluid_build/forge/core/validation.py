@@ -247,17 +247,22 @@ class ProjectValidator:
                     )
                 )
 
-        # Validate apiVersion
-        if "apiVersion" in contract:
-            api_version = contract["apiVersion"]
-            valid_versions = ["0.5.7", "0.4.0"]
-            if api_version not in valid_versions:
+        # Validate apiVersion / fluidVersion
+        declared_version = contract.get("apiVersion") or contract.get("fluidVersion")
+        if declared_version:
+            try:
+                from fluid_build.schema_manager import FluidSchemaManager
+
+                known_versions = set(FluidSchemaManager.BUNDLED_VERSIONS)
+            except Exception:  # noqa: BLE001
+                known_versions = {"0.4.0", "0.5.7", "0.7.1", "0.7.2"}
+            if declared_version not in known_versions:
                 self.issues.append(
                     ValidationIssue(
                         level=ValidationLevel.WARNING,
-                        message=f"Unknown API version: {api_version}",
+                        message=f"Unknown schema version: {declared_version}",
                         file_path="contract.fluid.yaml",
-                        suggestion=f"Use supported version: {', '.join(valid_versions)}",
+                        suggestion=f"Use supported version: {', '.join(sorted(known_versions))}",
                     )
                 )
 

@@ -278,8 +278,18 @@ def discover_local_context(
         if report.files_scanned >= MAX_DISCOVERY_FILES:
             break
 
-    report.detected_sources = detected_sources[:MAX_SAMPLE_FILES]
-    report.provider_hints = [name for name, _ in provider_counts.most_common()]
+    report.detected_sources = sorted(
+        detected_sources[:MAX_SAMPLE_FILES],
+        key=lambda s: s.get("path", ""),
+    )
+    # Sort by count descending, then alphabetically for deterministic
+    # tie-breaking across runs against the same workspace.
+    report.provider_hints = sorted(
+        [name for name, _ in provider_counts.most_common()],
+        key=lambda x: (-provider_counts[x], x),
+    )
+    report.sql_files.sort(key=lambda s: s.get("path", ""))
+    report.sample_files.sort(key=lambda s: s.get("path", ""))
     report.sample_data_missing = len(report.sample_files) == 0
 
     if report.sql_files:
@@ -371,6 +381,9 @@ def rescan_sample_data(
                 if logger:
                     logger.debug("rescan_sample_failed: %s", exc)
 
+    # Re-sort after enrichment for deterministic ordering.
+    report.sample_files.sort(key=lambda s: s.get("path", ""))
+    report.detected_sources.sort(key=lambda s: s.get("path", ""))
     report.sample_data_missing = len(report.sample_files) == 0
 
     # Scan models/ folder for user-supplied data models

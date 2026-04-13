@@ -222,7 +222,7 @@ class TestValidateContract:
         v = ProjectValidator(tmp_path)
         result = v.validate_project()
         warn_msgs = [w.message for w in result.warnings]
-        assert any("Unknown API version" in m for m in warn_msgs)
+        assert any("Unknown schema version" in m for m in warn_msgs)
 
     def test_unexpected_kind(self, tmp_path):
         (tmp_path / "contract.fluid.yaml").write_text(

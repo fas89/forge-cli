@@ -45,7 +45,11 @@ _KEYWORDS_PATH = Path(__file__).with_name("agent_specs") / "domain_keywords.yaml
 
 @lru_cache(maxsize=1)
 def _load_domain_keywords() -> Tuple[Dict[str, List[str]], int]:
-    """Load domain keywords from the external YAML file.
+    """Load domain keywords from the built-in file + user agent specs.
+
+    User-defined agents with a ``keywords`` field in their YAML spec
+    are automatically included in the keyword map, enabling transparent
+    auto-detection for custom domain agents.
 
     Returns ``(domain_keywords_dict, min_hits)`` or falls back to empty
     defaults if the file cannot be read.
@@ -54,6 +58,17 @@ def _load_domain_keywords() -> Tuple[Dict[str, List[str]], int]:
         raw = yaml.safe_load(_KEYWORDS_PATH.read_text(encoding="utf-8"))
         domains = raw.get("domains") or {}
         min_hits = int(raw.get("min_keyword_hits", 2))
+
+        # Merge keywords from user-defined agent specs.
+        try:
+            from fluid_build.cli.forge_agent_specs import discover_all_agent_specs
+
+            for name, spec in discover_all_agent_specs().items():
+                if spec.keywords and name not in domains:
+                    domains[name] = spec.keywords
+        except Exception:  # noqa: BLE001
+            pass
+
         LOG.debug(
             "Loaded domain keywords: %d domains, min_hits=%d",
             len(domains),
@@ -119,9 +134,9 @@ def enrich_context_with_domain(
     If the spec cannot be loaded the context is returned unchanged.
     """
     try:
-        from fluid_build.cli.forge_agent_specs import AgentSpecError, load_builtin_agent_spec
+        from fluid_build.cli.forge_agent_specs import AgentSpecError, load_user_or_builtin_spec
 
-        spec = load_builtin_agent_spec(domain)
+        spec = load_user_or_builtin_spec(domain)
     except (AgentSpecError, FileNotFoundError, ImportError, ValueError) as exc:
         LOG.warning("Could not load domain spec for %r: %s", domain, exc)
         return context
@@ -153,11 +168,19 @@ def enrich_context_with_domain(
             for q in spec.questions[:5]
         ]
 
-    # Load data_modeling_standards directly from YAML (not in AgentSpec dataclass)
+    # Load data_modeling_standards directly from YAML (not in AgentSpec dataclass).
+    # Check user directories first, then fall back to built-in.
     try:
-        from fluid_build.cli.forge_agent_specs import AGENT_SPECS_DIR
+        from fluid_build.cli.forge_agent_specs import AGENT_SPECS_DIR, _user_agent_dirs
 
-        spec_path = AGENT_SPECS_DIR / f"{domain}.yaml"
+        spec_path = None
+        for user_dir in _user_agent_dirs():
+            candidate = user_dir / f"{domain}.yaml"
+            if candidate.exists():
+                spec_path = candidate
+                break
+        if spec_path is None:
+            spec_path = AGENT_SPECS_DIR / f"{domain}.yaml"
         if spec_path.exists():
             raw = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
             modeling = raw.get("data_modeling_standards")

@@ -1134,6 +1134,38 @@ def run_ai_copilot_mode(
 
         # --- Domain auto-detection: load expertise packs transparently ---
         explicit_domain = get_cli_arg_fn(args, "domain", None)
+
+        # BYODA: when --domain points to an unknown agent, offer to scaffold.
+        if explicit_domain:
+            from fluid_build.cli.forge_agent_specs import (
+                AgentSpecError,
+                load_user_or_builtin_spec,
+                scaffold_user_agent,
+            )
+
+            try:
+                load_user_or_builtin_spec(explicit_domain)
+            except (AgentSpecError, FileNotFoundError):
+                if console and not is_non_interactive:
+                    console.print(
+                        f"\n[yellow]No agent found for [bold]{explicit_domain}[/bold].[/yellow]"
+                    )
+                    from fluid_build.cli.forge_dialogs import ask_confirmation
+
+                    if ask_confirmation(console, "Create a custom domain agent?", default=True):
+                        path = scaffold_user_agent(explicit_domain)
+                        console.print(
+                            f"[green]Created {path}[/green]\n"
+                            f"Edit the file to customize questions, rules, and suggestions.\n"
+                            f"Then re-run: [bold]fluid forge --domain {explicit_domain}[/bold]"
+                        )
+                        return 0
+                    # User declined — continue without domain enrichment.
+                    explicit_domain = None
+                else:
+                    logger.warning("Unknown domain agent: %s (skipping)", explicit_domain)
+                    explicit_domain = None
+
         if explicit_domain or not context.get("domain_expertise"):
             from fluid_build.cli.forge_domain_enrichment import (
                 detect_domain,
@@ -1223,6 +1255,12 @@ def run_ai_copilot_mode(
             )
             if not success_result:
                 return 1
+
+        # Surface provenance from the copilot result so the forge
+        # receipt can include it (args is the shared namespace between
+        # the mode runner and the receipt writer in forge.py).
+        if hasattr(copilot, "_last_provenance"):
+            args._copilot_provenance = copilot._last_provenance
 
         # Post-generation: create data + dbt scaffolding (slice UX-H:
         # gated on --scaffold so the minimal path leaves an empty
@@ -1686,6 +1724,11 @@ def _create_project_minimal(
 
         suggestions = generation_result.suggestions
         contract = generation_result.contract
+
+        # Stash provenance on the copilot object so the caller can
+        # include it in the forge receipt.
+        if getattr(generation_result, "provenance", None):
+            copilot._last_provenance = generation_result.provenance
 
         # Optional UI: reuse the copilot's own analysis panel so the
         # minimal path has feature parity with the engine path aside

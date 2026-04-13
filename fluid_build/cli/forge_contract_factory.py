@@ -36,6 +36,7 @@ from typing import Any, Dict, Optional
 import yaml
 
 from fluid_build.cli.artifact_paths import CONTRACT_FILENAME
+from fluid_build.schema_manager import FluidSchemaManager
 
 LOG = logging.getLogger("fluid.cli.forge.contract_factory")
 
@@ -76,7 +77,7 @@ def build_minimal_contract(
         build_doc["properties"] = {"model": "main"}
 
     return {
-        "fluidVersion": "0.7.2",
+        "fluidVersion": FluidSchemaManager.latest_bundled_version(),
         "kind": "DataProduct",
         "id": product_id,
         "name": name or product_id.replace("-", " ").title(),

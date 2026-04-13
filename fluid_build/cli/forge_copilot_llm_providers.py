@@ -84,6 +84,30 @@ def _structured_outputs_enabled() -> bool:
     return value not in {"0", "false", "no", "off"}
 
 
+# ---------------------------------------------------------------------------
+# Determinism controls
+# ---------------------------------------------------------------------------
+
+# Constant seed for OpenAI-compatible providers.  Combined with
+# temperature 0 this makes sampling fully deterministic for a given
+# prompt (modulo model-version changes on the provider side).
+_OPENAI_SEED: int = 42
+
+
+def _get_temperature() -> float:
+    """Return the LLM sampling temperature.
+
+    Defaults to ``0.0`` (fully deterministic) which is appropriate for
+    structured-JSON contract generation.  Override with
+    ``FLUID_LLM_TEMPERATURE`` for experimentation.
+    """
+    raw = os.environ.get("FLUID_LLM_TEMPERATURE", "0.0")
+    try:
+        return max(0.0, min(2.0, float(raw)))
+    except ValueError:
+        return 0.0
+
+
 def streaming_is_enabled() -> bool:
     """Slice UX-I kill-switch for SSE streaming of LLM responses.
 
@@ -360,7 +384,8 @@ class OpenAIProvider(LlmProvider):
             headers["Authorization"] = f"Bearer {config.api_key}"
         payload: Dict[str, Any] = {
             "model": config.model,
-            "temperature": 0.2,
+            "temperature": _get_temperature(),
+            "seed": _OPENAI_SEED,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -439,7 +464,8 @@ class OpenAIProvider(LlmProvider):
         ]
         payload: Dict[str, Any] = {
             "model": config.model,
-            "temperature": 0.2,
+            "temperature": _get_temperature(),
+            "seed": _OPENAI_SEED,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 *messages,
@@ -741,7 +767,7 @@ class GeminiProvider(LlmProvider):
         headers = {"Content-Type": "application/json"}
         if config.api_key:
             headers["x-goog-api-key"] = config.api_key
-        generation_config: Dict[str, Any] = {"temperature": 0.2}
+        generation_config: Dict[str, Any] = {"temperature": _get_temperature()}
         # Slice UX-I note: Gemini's responseSchema doesn't handle
         # deeply nested free-form objects (like the ``contract``
         # field which is itself a full FLUID contract with 10+
@@ -879,7 +905,7 @@ class GeminiProvider(LlmProvider):
             "systemInstruction": {"parts": [{"text": system_prompt}]},
             "contents": contents,
             "tools": gemini_tools,
-            "generationConfig": {"temperature": 0.2},
+            "generationConfig": {"temperature": _get_temperature()},
         }
         return config.endpoint, headers, payload
 

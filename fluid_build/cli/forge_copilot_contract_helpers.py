@@ -41,6 +41,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 import yaml
 
 from fluid_build.cli.forge_copilot_memory import CopilotMemorySnapshot
+from fluid_build.schema_manager import FluidSchemaManager
 from fluid_build.cli.forge_copilot_taxonomy import (
     CANONICAL_MODEL_LABELS,
     SUPPORTING_STANDARD_LABELS,
@@ -514,8 +515,36 @@ def build_seed_contract(
     if not isinstance(consumes, list):
         consumes = []
 
-    return {
-        "fluidVersion": "0.7.2",
+    # --- Build expose with optional agentPolicy stub ---
+    expose: Dict[str, Any] = {
+        "exposeId": expose_name,
+        "kind": str(interview_summary.get("output_kind") or "table"),
+        "binding": _default_binding(provider_name, expose_name),
+        "contract": {"schema": columns},
+        "semantics": _build_semantics_from_interview_summary(
+            columns=columns,
+            interview_summary=interview_summary,
+            expose_name=expose_name,
+            description=description,
+        ),
+    }
+
+    data_sensitivity = (
+        context.get("data_sensitivity")
+        or interview_summary.get("data_sensitivity")
+    )
+    if data_sensitivity in ("confidential", "restricted"):
+        expose["policy"] = {
+            "agentPolicy": {
+                "deniedUseCases": ["training", "fine_tuning"],
+                "canStore": False,
+                "canReason": False,
+                "auditRequired": True,
+            }
+        }
+
+    seed: Dict[str, Any] = {
+        "fluidVersion": FluidSchemaManager.latest_bundled_version(),
         "kind": "DataProduct",
         "id": f"generated.{project_name}",
         "name": project_name.replace("-", " ").title(),
@@ -527,21 +556,30 @@ def build_seed_contract(
         },
         "consumes": consumes,
         "builds": [build],
-        "exposes": [
-            {
-                "exposeId": expose_name,
-                "kind": str(interview_summary.get("output_kind") or "table"),
-                "binding": _default_binding(provider_name, expose_name),
-                "contract": {"schema": columns},
-                "semantics": _build_semantics_from_interview_summary(
-                    columns=columns,
-                    interview_summary=interview_summary,
-                    expose_name=expose_name,
-                    description=description,
-                ),
-            }
-        ],
+        "exposes": [expose],
     }
+
+    # --- Optional sovereignty stub ---
+    jurisdiction = (
+        context.get("jurisdiction")
+        or interview_summary.get("jurisdiction")
+    )
+    regulatory = (
+        context.get("regulatory_framework")
+        or interview_summary.get("regulatory_framework")
+    )
+    if jurisdiction or regulatory:
+        sovereignty: Dict[str, Any] = {
+            "enforcementMode": "strict",
+        }
+        if jurisdiction:
+            sovereignty["jurisdiction"] = jurisdiction
+        if regulatory:
+            frameworks = regulatory if isinstance(regulatory, list) else [regulatory]
+            sovereignty["regulatoryFramework"] = frameworks
+        seed["sovereignty"] = sovereignty
+
+    return seed
 
 
 def classify_generation_failure(attempts: Sequence[Any]) -> str:
