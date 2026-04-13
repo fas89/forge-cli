@@ -264,8 +264,15 @@ _register(
 
 # ---- list_schedulers --------------------------------------------------------
 
+_TRIGGER_TYPES = ["cron", "event", "manual", "streaming"]
+_cached_schedulers: Optional[Dict[str, Any]] = None
+
+
 def _dispatch_list_schedulers(**_kw: Any) -> Dict[str, Any]:
     """Return available scheduler engines and their supported platforms."""
+    global _cached_schedulers
+    if _cached_schedulers is not None:
+        return _cached_schedulers
     try:
         from fluid_build.schedulers import list_schedulers, get_scheduler
 
@@ -276,9 +283,10 @@ def _dispatch_list_schedulers(**_kw: Any) -> Dict[str, Any]:
                 "name": name,
                 "platforms": getattr(sched, "supported_platforms", None) or "all",
             })
-        return {"schedulers": result, "trigger_types": ["cron", "event", "manual", "streaming"]}
+        _cached_schedulers = {"schedulers": result, "trigger_types": _TRIGGER_TYPES}
+        return _cached_schedulers
     except ImportError:
-        return {"schedulers": [], "trigger_types": ["cron", "event", "manual", "streaming"]}
+        return {"schedulers": [], "trigger_types": _TRIGGER_TYPES}
 
 
 _register(

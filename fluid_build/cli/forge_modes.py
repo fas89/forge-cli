@@ -1661,10 +1661,9 @@ def _create_project_minimal(
     """
     from fluid_build.cli.forge_contract_factory import write_contract
     from fluid_build.cli.forge_copilot_llm_providers import CopilotGenerationError
-    from fluid_build.cli.forge_copilot_taxonomy import normalize_copilot_context
 
     try:
-        context = normalize_copilot_context(context)
+        # Context is already normalized by the caller (run_ai_copilot_mode).
         options = dict(copilot_options or {})
         options.setdefault("target_dir", str(target_dir))
 

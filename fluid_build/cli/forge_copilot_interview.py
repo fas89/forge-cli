@@ -866,23 +866,37 @@ def _ask_schedule_question(
     discovery_report: DiscoveryReport,
 ) -> None:
     """Ask if user wants schedule generation, then which scheduler and BYOS."""
-    answer = ask_friendly_text(
-        console,
-        "Do you want to generate a schedule/orchestration? (yes/no)",
-        required=False,
-    )
-    if not answer or answer.strip().lower() not in ("yes", "y", "yeah", "yep", "sure"):
-        return
+    # If the domain agent already set an orchestration_pattern, the user has
+    # implicitly opted in to scheduling — skip the yes/no question.
+    orch_pattern = state.normalized_context.get("orchestration_pattern")
+    if orch_pattern:
+        state.record_turn(
+            role="user",
+            content="yes",
+            field="wants_schedule",
+            question_id="bootstrap_wants_schedule",
+            raw_input=f"(inferred from orchestration_pattern={orch_pattern})",
+            resolved_value="true",
+            resolution_status="inferred",
+        )
+    else:
+        answer = ask_friendly_text(
+            console,
+            "Do you want to generate a schedule/orchestration? (yes/no)",
+            required=False,
+        )
+        if not answer or answer.strip().lower() not in ("yes", "y", "yeah", "yep", "sure"):
+            return
 
-    state.record_turn(
-        role="user",
-        content="yes",
-        field="wants_schedule",
-        question_id="bootstrap_wants_schedule",
-        raw_input=answer,
-        resolved_value="true",
-        resolution_status="matched",
-    )
+        state.record_turn(
+            role="user",
+            content="yes",
+            field="wants_schedule",
+            question_id="bootstrap_wants_schedule",
+            raw_input=answer,
+            resolved_value="true",
+            resolution_status="matched",
+        )
 
     # Ask which scheduler
     _ask_scheduler_selection(state, console, discovery_report=discovery_report)

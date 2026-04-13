@@ -44,7 +44,9 @@ def _sanitize_task_id(name: str) -> str:
     """Convert a build name/id into a valid task identifier."""
     sanitized = re.sub(r"[^a-zA-Z0-9_]", "_", name)
     sanitized = re.sub(r"_+", "_", sanitized).strip("_").lower()
-    if not sanitized or sanitized[0].isdigit():
+    if not sanitized:
+        return "task_unnamed"
+    if sanitized[0].isdigit():
         sanitized = f"task_{sanitized}"
     return sanitized
 

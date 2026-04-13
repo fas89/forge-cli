@@ -41,7 +41,7 @@ class TestSanitizeTaskId:
         assert _sanitize_task_id("1_first_step") == "task_1_first_step"
 
     def test_empty_string(self):
-        assert _sanitize_task_id("") == "task_"
+        assert _sanitize_task_id("") == "task_unnamed"
 
     def test_special_chars(self):
         result = _sanitize_task_id("build@v2.0!")
