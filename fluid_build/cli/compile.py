@@ -128,19 +128,64 @@ def _serialize(contract: Dict[str, Any], fmt: str) -> str:
     )
 
 
+def _has_refs(obj: Any) -> bool:
+    """Check if a parsed contract tree contains any $ref pointers."""
+    if isinstance(obj, dict):
+        if "$ref" in obj:
+            return True
+        return any(_has_refs(v) for v in obj.values())
+    if isinstance(obj, list):
+        return any(_has_refs(item) for item in obj)
+    return False
+
+
 def run(args: argparse.Namespace, logger: logging.Logger) -> int:
     contract_path = args.contract
     out = args.out
     env = args.env
+
+    # When writing to stdout, move ALL log output to stderr so it doesn't
+    # corrupt the YAML/JSON output.  Walk every logger that might write to
+    # stdout and replace the handler with a stderr-targeted one.
+    if out == "-":
+        _stderr_handler = logging.StreamHandler(sys.stderr)
+        _stderr_handler.setFormatter(logging.Formatter("%(message)s"))
+        for _lgr in [logging.getLogger(), logger, logging.getLogger("fluid.loader")]:
+            for h in list(_lgr.handlers):
+                if getattr(h, "stream", None) is sys.stdout:
+                    _lgr.removeHandler(h)
+            _lgr.addHandler(_stderr_handler)
+            _lgr.propagate = False
+
+    # Auto-detect output: if a fragments/ directory exists alongside the
+    # contract, the user almost certainly wants a bundled file on disk
+    # rather than stdout output.
+    contract_dir = Path(contract_path).parent
+    if out == "-" and (contract_dir / "fragments").is_dir():
+        out = str(contract_dir / "contract.bundled.fluid.yaml")
+
     fmt = _infer_format(out, args.format)
 
+    # Use a quiet logger for the compile step when writing to stdout,
+    # so compile_start/compile_done don't pollute the output.
+    _compile_logger = logger
+    if out == "-":
+        _compile_logger = logging.getLogger("fluid.bundle.quiet")
+        _compile_logger.setLevel(logging.WARNING)
+
     try:
+        # Load the raw contract first to check for $ref presence
+        from ..loader import _parse_file
+
+        raw_contract = _parse_file(Path(contract_path).resolve())
+        has_refs = _has_refs(raw_contract)
+
         # Compile: resolve all $ref pointers
-        compiled = compile_contract(contract_path, logger=logger)
+        compiled = compile_contract(contract_path, logger=_compile_logger)
 
         # Apply environment overlay on top (if requested)
         if env:
-            from ..loader import _deep_merge, _overlay_candidates, _parse_file
+            from ..loader import _deep_merge, _overlay_candidates
 
             base_path = Path(contract_path)
             for cand in _overlay_candidates(base_path, env):
@@ -160,6 +205,14 @@ def run(args: argparse.Namespace, logger: logging.Logger) -> int:
         sys.stderr.write(f"❌ Compilation failed: {e}\n")
         return 1
 
+    # Feedback: tell the user if the contract had nothing to bundle
+    if not has_refs and not env:
+        sys.stderr.write(
+            "ℹ️  Contract has no $ref pointers — already a single file.\n"
+            "   Use 'fluid split' first to break it into fragments,\n"
+            "   then 'fluid bundle' to reassemble.\n"
+        )
+
     # Serialize
     output = _serialize(compiled, fmt)
 
@@ -170,7 +223,6 @@ def run(args: argparse.Namespace, logger: logging.Logger) -> int:
         p = Path(out)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(output, encoding="utf-8")
-        logger.info("bundle_written", extra={"out": str(p), "format": fmt})
         sys.stderr.write(f"✅ Bundled contract written to {p}\n")
 
     return 0
