@@ -116,11 +116,13 @@ class TestGoogleCloudAuthProvider:
         assert any("cloud-platform" in s for s in p.scopes)
 
     def test_check_auth_gcloud_not_installed(self):
+        """When neither SDK nor CLI is available, check_auth returns NOT_AUTHENTICATED."""
         p = self._make()
-        with patch.object(p, "_run_command", side_effect=CLIError(1, "cmd_not_found")):
+        with patch.object(p, "_run_command", side_effect=CLIError(1, "cmd_not_found")), \
+             patch.object(p, "_has_sdk", return_value=False), \
+             patch("shutil.which", return_value=None):
             result = _run_async(p.check_auth())
-        assert result.status == AuthStatus.ERROR
-        assert "not installed" in result.error_message.lower()
+        assert result.status == AuthStatus.NOT_AUTHENTICATED
 
     def test_check_auth_authenticated(self):
         p = self._make({"project_id": "proj"})
@@ -128,7 +130,9 @@ class TestGoogleCloudAuthProvider:
         mock_cp.returncode = 0
         mock_cp.stdout = "user@example.com\n"
 
-        with patch.object(p, "_run_command", return_value=mock_cp):
+        with patch.object(p, "_has_sdk", return_value=False), \
+             patch("shutil.which", return_value="/usr/bin/gcloud"), \
+             patch.object(p, "_run_command", return_value=mock_cp):
             result = _run_async(p.check_auth())
         assert result.status == AuthStatus.AUTHENTICATED
 
@@ -139,12 +143,14 @@ class TestGoogleCloudAuthProvider:
                 result = _run_async(p.logout())
         assert result is True
 
-    def test_login_exception_returns_error_result(self):
+    def test_login_non_interactive_no_creds_returns_not_authenticated(self):
+        """In non-interactive mode with no credentials, login returns NOT_AUTHENTICATED."""
         p = self._make()
-        with patch.object(p, "_run_command", side_effect=RuntimeError("boom")):
+        with patch.object(p, "_is_interactive", return_value=False), \
+             patch.object(p, "_has_sdk", return_value=False), \
+             patch("shutil.which", return_value=None):
             result = _run_async(p.login())
-        assert result.status == AuthStatus.ERROR
-        assert "Google Cloud" in result.error_message
+        assert result.status == AuthStatus.NOT_AUTHENTICATED
 
 
 # ── AWSAuthProvider ───────────────────────────────────────────────────
@@ -165,11 +171,12 @@ class TestAWSAuthProvider:
         assert p.profile == "prod"
 
     def test_check_auth_cli_not_installed(self):
+        """When neither SDK nor CLI is available, check_auth returns NOT_AUTHENTICATED."""
         p = self._make()
-        with patch.object(p, "_run_command", side_effect=CLIError(1, "cmd_not_found")):
+        with patch.object(p, "_has_boto3", return_value=False), \
+             patch("shutil.which", return_value=None):
             result = _run_async(p.check_auth())
-        assert result.status == AuthStatus.ERROR
-        assert "AWS CLI" in result.error_message
+        assert result.status == AuthStatus.NOT_AUTHENTICATED
 
     def test_check_auth_authenticated(self):
         import json
@@ -180,15 +187,11 @@ class TestAWSAuthProvider:
             "Account": "123456789",
             "Arn": "arn:aws:iam::123:user/x",
         }
-        mock_version = MagicMock(returncode=0, stdout="")
         mock_identity = MagicMock(returncode=0, stdout=json.dumps(identity))
 
-        def _side(cmd, **kw):
-            if "--version" in cmd:
-                return mock_version
-            return mock_identity
-
-        with patch.object(p, "_run_command", side_effect=_side):
+        with patch.object(p, "_has_boto3", return_value=False), \
+             patch("shutil.which", return_value="/usr/bin/aws"), \
+             patch.object(p, "_run_command", return_value=mock_identity):
             result = _run_async(p.check_auth())
         assert result.status == AuthStatus.AUTHENTICATED
         assert result.user_info["account"] == "123456789"
@@ -199,11 +202,14 @@ class TestAWSAuthProvider:
             result = _run_async(p.logout())
         assert result is True
 
-    def test_login_exception_returns_error(self):
+    def test_login_exception_returns_not_authenticated(self):
+        """In non-interactive mode with no credentials, login returns NOT_AUTHENTICATED."""
         p = self._make()
-        with patch.object(p, "_run_command", side_effect=RuntimeError("no aws")):
+        with patch.object(p, "_is_interactive", return_value=False), \
+             patch.object(p, "_has_boto3", return_value=False), \
+             patch("shutil.which", return_value=None):
             result = _run_async(p.login())
-        assert result.status == AuthStatus.ERROR
+        assert result.status == AuthStatus.NOT_AUTHENTICATED
 
 
 # ── AzureAuthProvider ─────────────────────────────────────────────────
@@ -223,11 +229,12 @@ class TestAzureAuthProvider:
         assert p.subscription_id == "s-456"
 
     def test_check_auth_cli_not_installed(self):
+        """When neither SDK nor CLI is available, check_auth returns NOT_AUTHENTICATED."""
         p = self._make()
-        with patch.object(p, "_run_command", side_effect=CLIError(1, "cmd_not_found")):
+        with patch.object(p, "_has_sdk", return_value=False), \
+             patch("shutil.which", return_value=None):
             result = _run_async(p.check_auth())
-        assert result.status == AuthStatus.ERROR
-        assert "Azure CLI" in result.error_message
+        assert result.status == AuthStatus.NOT_AUTHENTICATED
 
     def test_check_auth_authenticated(self):
         import json
@@ -239,15 +246,11 @@ class TestAzureAuthProvider:
             "tenantId": "t-id",
             "user": {"name": "user@example.com", "type": "user"},
         }
-        mock_ver = MagicMock(returncode=0, stdout="")
         mock_acct = MagicMock(returncode=0, stdout=json.dumps(account_data))
 
-        def _side(cmd, **kw):
-            if "--version" in cmd:
-                return mock_ver
-            return mock_acct
-
-        with patch.object(p, "_run_command", side_effect=_side):
+        with patch.object(p, "_has_sdk", return_value=False), \
+             patch("shutil.which", return_value="/usr/bin/az"), \
+             patch.object(p, "_run_command", return_value=mock_acct):
             result = _run_async(p.check_auth())
         assert result.status == AuthStatus.AUTHENTICATED
         assert result.user_info["user"] == "user@example.com"
@@ -260,7 +263,8 @@ class TestAzureAuthProvider:
             called.append(cmd)
             return MagicMock(returncode=0)
 
-        with patch.object(p, "_run_command", side_effect=_side):
+        with patch("shutil.which", return_value="/usr/bin/az"), \
+             patch.object(p, "_run_command", side_effect=_side):
             result = _run_async(p.logout())
         assert result is True
         assert any("logout" in str(c) for c in called)
@@ -320,12 +324,14 @@ class TestDatabricksAuthProvider:
         assert p.host == "https://my.databricks.com"
         assert p.cluster_id == "cl-123"
 
-    def test_login_cli_not_installed_returns_error(self):
+    def test_login_cli_not_installed_returns_not_authenticated(self):
+        """In non-interactive mode with no credentials, login returns NOT_AUTHENTICATED."""
         p = self._make()
-        with patch.object(p, "_run_command", side_effect=CLIError(1, "cmd_not_found")):
+        with patch.object(p, "_is_interactive", return_value=False), \
+             patch("shutil.which", return_value=None), \
+             patch("os.path.exists", return_value=False):
             result = _run_async(p.login())
-        assert result.status == AuthStatus.ERROR
-        assert "Databricks CLI" in result.error_message
+        assert result.status == AuthStatus.NOT_AUTHENTICATED
 
     def test_logout_returns_true_when_no_config_file(self):
         p = self._make()

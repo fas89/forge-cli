@@ -190,22 +190,26 @@ class TestGCPAuthProvider:
         return GoogleCloudAuthProvider({}, logger)
 
     def test_check_auth_authenticated(self):
-        version_cp = _make_completed_process(0, "gcloud 400")
         token_cp = _make_completed_process(0, "ya29.token")
         account_cp = _make_completed_process(0, "user@example.com")
         project_cp = _make_completed_process(0, "my-project")
 
-        side_effects = [version_cp, token_cp, account_cp, project_cp]
-        with patch("subprocess.run", side_effect=side_effects):
-            result = _run_coro(self._provider().check_auth())
+        side_effects = [token_cp, account_cp, project_cp]
+        p = self._provider()
+        with patch.object(p, "_has_sdk", return_value=False), \
+             patch("shutil.which", return_value="/usr/bin/gcloud"), \
+             patch("subprocess.run", side_effect=side_effects):
+            result = _run_coro(p.check_auth())
         assert result.status == AuthStatus.AUTHENTICATED
         assert result.user_info.get("account") == "user@example.com"
 
     def test_check_auth_not_installed(self):
-        with patch("subprocess.run", side_effect=FileNotFoundError("no gcloud")):
-            result = _run_coro(self._provider().check_auth())
-        assert result.status == AuthStatus.ERROR
-        assert "not installed" in (result.error_message or "").lower()
+        """When neither SDK nor CLI is available, check_auth returns NOT_AUTHENTICATED."""
+        p = self._provider()
+        with patch.object(p, "_has_sdk", return_value=False), \
+             patch("shutil.which", return_value=None):
+            result = _run_coro(p.check_auth())
+        assert result.status == AuthStatus.NOT_AUTHENTICATED
 
     def test_logout_returns_true(self):
         revoke_cp = _make_completed_process(0)
@@ -213,14 +217,14 @@ class TestGCPAuthProvider:
             result = _run_coro(self._provider().logout())
         assert result is True
 
-    def test_login_exception_returns_error_result(self):
-        with patch.object(
-            GoogleCloudAuthProvider,
-            "_run_command",
-            side_effect=Exception("unexpected"),
-        ):
-            result = _run_coro(self._provider().login())
-        assert result.status == AuthStatus.ERROR
+    def test_login_exception_returns_not_authenticated(self):
+        """In non-interactive mode with no credentials, login returns NOT_AUTHENTICATED."""
+        p = self._provider()
+        with patch.object(p, "_is_interactive", return_value=False), \
+             patch.object(p, "_has_sdk", return_value=False), \
+             patch("shutil.which", return_value=None):
+            result = _run_coro(p.login())
+        assert result.status == AuthStatus.NOT_AUTHENTICATED
 
 
 # ---------------------------------------------------------------------------
@@ -233,26 +237,33 @@ class TestAWSAuthProvider:
         return AWSAuthProvider({"region": "us-east-1", "profile": "default"}, logger)
 
     def test_check_auth_authenticated(self):
-        aws_cp = _make_completed_process(0, "aws-cli/2.0")
         identity_json = '{"UserId": "AIDA", "Account": "123", "Arn": "arn:aws"}'
         identity_cp = _make_completed_process(0, identity_json)
 
-        with patch("subprocess.run", side_effect=[aws_cp, identity_cp]):
-            result = _run_coro(self._provider().check_auth())
+        p = self._provider()
+        with patch.object(p, "_has_boto3", return_value=False), \
+             patch("shutil.which", return_value="/usr/bin/aws"), \
+             patch("subprocess.run", return_value=identity_cp):
+            result = _run_coro(p.check_auth())
         assert result.status == AuthStatus.AUTHENTICATED
 
     def test_check_auth_not_configured(self):
-        aws_cp = _make_completed_process(0, "aws-cli/2.0")
         fail_cp = _make_completed_process(255, "", "Unable to locate credentials")
 
-        with patch("subprocess.run", side_effect=[aws_cp, fail_cp]):
-            result = _run_coro(self._provider().check_auth())
+        p = self._provider()
+        with patch.object(p, "_has_boto3", return_value=False), \
+             patch("shutil.which", return_value="/usr/bin/aws"), \
+             patch("subprocess.run", return_value=fail_cp):
+            result = _run_coro(p.check_auth())
         assert result.status == AuthStatus.NOT_AUTHENTICATED
 
     def test_check_auth_cli_not_installed(self):
-        with patch("subprocess.run", side_effect=FileNotFoundError("no aws")):
-            result = _run_coro(self._provider().check_auth())
-        assert result.status == AuthStatus.ERROR
+        """When neither SDK nor CLI is available, check_auth returns NOT_AUTHENTICATED."""
+        p = self._provider()
+        with patch.object(p, "_has_boto3", return_value=False), \
+             patch("shutil.which", return_value=None):
+            result = _run_coro(p.check_auth())
+        assert result.status == AuthStatus.NOT_AUTHENTICATED
 
     def test_logout_returns_true(self):
         cp = _make_completed_process(0)
@@ -271,20 +282,24 @@ class TestAzureAuthProvider:
         return AzureAuthProvider({}, logger)
 
     def test_check_auth_authenticated(self):
-        version_cp = _make_completed_process(0, "azure-cli 2.50")
         account_json = '{"id": "sub-id", "name": "My Sub", "tenantId": "t-1", "user": {"name": "user@ms.com", "type": "user"}}'
         account_cp = _make_completed_process(0, account_json)
 
-        with patch("subprocess.run", side_effect=[version_cp, account_cp]):
-            result = _run_coro(self._provider().check_auth())
+        p = self._provider()
+        with patch.object(p, "_has_sdk", return_value=False), \
+             patch("shutil.which", return_value="/usr/bin/az"), \
+             patch("subprocess.run", return_value=account_cp):
+            result = _run_coro(p.check_auth())
         assert result.status == AuthStatus.AUTHENTICATED
 
     def test_check_auth_not_authenticated(self):
-        version_cp = _make_completed_process(0, "azure-cli 2.50")
         fail_cp = _make_completed_process(1, "[]", "Please run az login")
 
-        with patch("subprocess.run", side_effect=[version_cp, fail_cp]):
-            result = _run_coro(self._provider().check_auth())
+        p = self._provider()
+        with patch.object(p, "_has_sdk", return_value=False), \
+             patch("shutil.which", return_value="/usr/bin/az"), \
+             patch("subprocess.run", return_value=fail_cp):
+            result = _run_coro(p.check_auth())
         assert result.status in (AuthStatus.NOT_AUTHENTICATED, AuthStatus.ERROR)
 
     def test_logout_returns_true(self):
@@ -341,22 +356,21 @@ class TestDatabricksAuthProvider:
         return DatabricksAuthProvider({"host": "https://my.azuredatabricks.net"}, logger)
 
     def test_check_auth_authenticated(self):
-        version_cp = _make_completed_process(0, "databricks 0.18")
         workspace_cp = _make_completed_process(0, "/Shared\n/Users")
-        user_cp = _make_completed_process(
-            0, '{"userName": "user@example.com", "displayName": "User"}'
-        )
 
-        with patch("subprocess.run", side_effect=[version_cp, workspace_cp, user_cp]):
-            result = _run_coro(self._provider().check_auth())
+        p = self._provider()
+        with patch("shutil.which", return_value="/usr/bin/databricks"), \
+             patch("os.path.exists", return_value=False), \
+             patch("subprocess.run", return_value=workspace_cp):
+            result = _run_coro(p.check_auth())
         assert result.status == AuthStatus.AUTHENTICATED
 
     def test_check_auth_not_authenticated(self):
-        version_cp = _make_completed_process(0, "databricks 0.18")
-        fail_cp = _make_completed_process(1, "", "Token not configured")
-
-        with patch("subprocess.run", side_effect=[version_cp, fail_cp]):
-            result = _run_coro(self._provider().check_auth())
+        """When no credentials or CLI available, returns NOT_AUTHENTICATED."""
+        p = DatabricksAuthProvider({}, logger)
+        with patch("shutil.which", return_value=None), \
+             patch("os.path.exists", return_value=False):
+            result = _run_coro(p.check_auth())
         assert result.status == AuthStatus.NOT_AUTHENTICATED
 
     def test_logout_removes_config_file(self):

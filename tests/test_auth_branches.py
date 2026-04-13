@@ -22,6 +22,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from fluid_build.cli.auth import AuthResult
+
 # ---- AuthStatus and AuthResult dataclass tests ----
 
 
@@ -170,20 +172,11 @@ class TestGoogleCloudAuthProvider:
         from fluid_build.cli.auth import AuthStatus
 
         p = self._make_provider()
-        # First call: gcloud version - success
-        # Second call: print-access-token - success
-        # Third call: get account info
-        call_count = [0]
-
-        def mock_run(cmd, **kwargs):
-            call_count[0] += 1
-            result = MagicMock()
-            result.returncode = 0
-            result.stdout = "test-account@example.com"
-            return result
-
-        p._run_command = mock_run
-        result = asyncio.run(p.check_auth())
+        mock_cp = MagicMock(returncode=0, stdout="test-account@example.com")
+        p._run_command = MagicMock(return_value=mock_cp)
+        with patch.object(p, "_has_sdk", return_value=False), \
+             patch("shutil.which", return_value="/usr/bin/gcloud"):
+            result = asyncio.run(p.check_auth())
         assert result.status == AuthStatus.AUTHENTICATED
 
     def test_check_auth_not_authenticated(self):
@@ -246,19 +239,16 @@ class TestAWSAuthProvider:
         from fluid_build.cli.auth import AuthStatus
 
         p = self._make_provider()
-        call_count = [0]
-
-        def mock_run(cmd, **kwargs):
-            call_count[0] += 1
-            result = MagicMock()
-            result.returncode = 0
-            result.stdout = json.dumps(
+        mock_cp = MagicMock(
+            returncode=0,
+            stdout=json.dumps(
                 {"Account": "123456", "UserId": "user1", "Arn": "arn:aws:iam::123:user/test"}
-            )
-            return result
-
-        p._run_command = mock_run
-        result = asyncio.run(p.check_auth())
+            ),
+        )
+        p._run_command = MagicMock(return_value=mock_cp)
+        with patch.object(p, "_has_boto3", return_value=False), \
+             patch("shutil.which", return_value="/usr/bin/aws"):
+            result = asyncio.run(p.check_auth())
         assert result.status == AuthStatus.AUTHENTICATED
 
     def test_check_auth_aws_not_installed(self):
@@ -327,24 +317,21 @@ class TestAzureAuthProvider:
         from fluid_build.cli.auth import AuthStatus
 
         p = self._make_provider()
-        call_count = [0]
-
-        def mock_run(cmd, **kwargs):
-            call_count[0] += 1
-            result = MagicMock()
-            result.returncode = 0
-            result.stdout = json.dumps(
+        mock_cp = MagicMock(
+            returncode=0,
+            stdout=json.dumps(
                 {
                     "name": "my-sub",
                     "user": {"name": "test@example.com", "type": "user"},
                     "tenantId": "t1",
                     "id": "sub-1",
                 }
-            )
-            return result
-
-        p._run_command = mock_run
-        result = asyncio.run(p.check_auth())
+            ),
+        )
+        p._run_command = MagicMock(return_value=mock_cp)
+        with patch.object(p, "_has_sdk", return_value=False), \
+             patch("shutil.which", return_value="/usr/bin/az"):
+            result = asyncio.run(p.check_auth())
         assert result.status == AuthStatus.AUTHENTICATED
 
     def test_check_auth_not_installed(self):
@@ -364,7 +351,8 @@ class TestAzureAuthProvider:
     def test_logout_exception(self):
         p = self._make_provider()
         p._run_command = MagicMock(side_effect=RuntimeError)
-        result = asyncio.run(p.logout())
+        with patch("shutil.which", return_value="/usr/bin/az"):
+            result = asyncio.run(p.logout())
         assert result is False
 
 
@@ -448,8 +436,14 @@ class TestDatabricksAuthProvider:
         from fluid_build.cli.auth import AuthStatus
 
         p = self._make_provider()
-        p._run_command = MagicMock(return_value=MagicMock(returncode=0, stdout="/Users"))
-        result = asyncio.run(p.check_auth())
+        # Databricks check_auth tries REST API first with host+token from config/env
+        with patch.object(p, "_validate_via_api") as mock_api:
+            mock_api.return_value = AuthResult(
+                provider="databricks",
+                status=AuthStatus.AUTHENTICATED,
+                user_info={"user_name": "test"},
+            )
+            result = asyncio.run(p.check_auth())
         assert result.status == AuthStatus.AUTHENTICATED
 
     def test_check_auth_not_installed(self):

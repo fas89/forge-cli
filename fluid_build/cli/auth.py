@@ -78,6 +78,7 @@ class AuthResult:
     expires_at: Optional[str] = None
     scopes: List[str] = field(default_factory=list)
     error_message: Optional[str] = None
+    auth_method: Optional[str] = None  # e.g., "gcloud CLI", "service account key", "env var"
 
 
 class AuthProvider:
@@ -116,6 +117,85 @@ class AuthProvider:
             self.logger.error(f"Command not found: {command[0]} - {e}")
             raise CLIError(1, "command_not_found", {"command": command[0]})
 
+    # ── Smart-auth helpers ────────────────────────────────────────────────
+
+    def _is_interactive(self) -> bool:
+        """True when running in an interactive terminal (not CI)."""
+        return os.isatty(0) and os.isatty(1)
+
+    def _get_keyring_credential(self, key: str) -> Optional[str]:
+        """Retrieve a credential previously saved to the OS keyring."""
+        try:
+            from fluid_build.credentials.keyring_store import KeyringCredentialStore
+            return KeyringCredentialStore.get_credential(f"{self.name}.{key}")
+        except Exception:
+            return None
+
+    def _save_to_keyring(self, key: str, value: str) -> bool:
+        """Save a credential to the OS keyring. Returns True on success."""
+        try:
+            from fluid_build.credentials.keyring_store import KeyringCredentialStore
+            KeyringCredentialStore.set_credential(f"{self.name}.{key}", value)
+            return True
+        except Exception as e:
+            self.logger.debug(f"Failed to save to keyring: {e}")
+            return False
+
+    def _offer_save_to_keyring(self, credentials: Dict[str, str]) -> None:
+        """If interactive, ask the user whether to persist credentials to the OS keyring."""
+        if not self._is_interactive():
+            return
+        try:
+            if RICH_AVAILABLE:
+                save = Confirm.ask(
+                    "\n  Save to secure keyring for future use?", default=True
+                )
+            else:
+                resp = input("\n  Save to secure keyring for future use? (y/n): ")
+                save = resp.strip().lower() in ("y", "yes", "")
+
+            if save:
+                ok = True
+                for k, v in credentials.items():
+                    if not self._save_to_keyring(k, v):
+                        ok = False
+                if ok:
+                    msg = "  ✅ Credentials saved — next login will be automatic"
+                else:
+                    msg = "  ⚠️  Could not save (keyring may not be available)"
+                if self.console and RICH_AVAILABLE:
+                    self.console.print(f"[green]{msg}[/green]" if ok else f"[yellow]{msg}[/yellow]")
+                else:
+                    cprint(msg)
+        except Exception:
+            pass
+
+    def _annotate_method(self, result: AuthResult, method: str) -> AuthResult:
+        """Stamp the auth method used onto the result."""
+        result.auth_method = method
+        result.user_info["auth_method"] = method
+        return result
+
+    def _show_methods_panel(self, methods: List[tuple]) -> None:
+        """Display a Rich panel showing which auth methods are available.
+
+        Each entry is (label, available: bool, detail: str).
+        """
+        if not (self.console and RICH_AVAILABLE):
+            cprint("  Checking available auth methods...")
+            for label, available, detail in methods:
+                icon = "✓" if available else "✗"
+                cprint(f"    {icon} {label:<30} {detail}")
+            return
+
+        lines = []
+        for label, available, detail in methods:
+            icon = "[green]✓[/green]" if available else "[red]✗[/red]"
+            lines.append(f"  {icon} {label:<30} {detail}")
+        self.console.print("\n  Checking available auth methods...")
+        for line in lines:
+            self.console.print(line)
+
 
 class GoogleCloudAuthProvider(AuthProvider):
     """Google Cloud Platform authentication provider"""
@@ -132,70 +212,185 @@ class GoogleCloudAuthProvider(AuthProvider):
             ],
         )
 
-    async def login(self, **kwargs) -> AuthResult:
-        """Initiate Google Cloud authentication flow"""
+    @staticmethod
+    def _has_sdk() -> bool:
         try:
-            # Pre-check: is gcloud installed?
-            import shutil
+            import google.auth  # noqa: F401
+            return True
+        except ImportError:
+            return False
 
-            if not shutil.which("gcloud"):
-                install_url = "https://cloud.google.com/sdk/docs/install"
+    def _validate_via_sdk(self, credentials_path: Optional[str] = None) -> AuthResult:
+        """Validate GCP credentials via the google-auth SDK (no CLI needed)."""
+        try:
+            import google.auth
+            import google.auth.transport.requests
+
+            if credentials_path:
+                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
+
+            credentials, project = google.auth.default(scopes=self.scopes)
+            credentials.refresh(google.auth.transport.requests.Request())
+
+            email = getattr(credentials, "service_account_email", None)
+            return AuthResult(
+                provider=self.name,
+                status=AuthStatus.AUTHENTICATED,
+                user_info={
+                    "account": email or "authenticated",
+                    "project": project or self.project_id or "unknown",
+                    "credential_type": type(credentials).__name__,
+                },
+                scopes=self.scopes,
+            )
+        except Exception as e:
+            return AuthResult(
+                provider=self.name,
+                status=AuthStatus.NOT_AUTHENTICATED,
+                error_message=str(e),
+            )
+
+    def _login_via_cli(self) -> AuthResult:
+        """Run the interactive gcloud CLI login flow."""
+        if self.console and RICH_AVAILABLE:
+            self.console.print(
+                Panel.fit(
+                    "[bold blue]🔐 Google Cloud Authentication[/bold blue]\n\n"
+                    "This will open your web browser to complete authentication.\n"
+                    f"Project: [cyan]{self.project_id or 'Not specified'}[/cyan]",
+                    border_style="blue",
+                )
+            )
+            if not Confirm.ask("\nProceed with authentication?", default=True):
                 return AuthResult(
                     provider=self.name,
-                    status=AuthStatus.ERROR,
-                    error_message=(
-                        f"gcloud CLI not found. Install the Google Cloud SDK first:\n"
-                        f"  {install_url}"
-                    ),
+                    status=AuthStatus.NOT_AUTHENTICATED,
+                    error_message="User cancelled authentication",
                 )
-
-            if self.console and RICH_AVAILABLE:
-                self.console.print(
-                    Panel.fit(
-                        "[bold blue]🔐 Google Cloud Authentication[/bold blue]\n\n"
-                        "This will open your web browser to complete authentication.\n"
-                        f"Project: [cyan]{self.project_id or 'Not specified'}[/cyan]",
-                        border_style="blue",
-                    )
-                )
-
-                if not Confirm.ask("\nProceed with authentication?", default=True):
-                    return AuthResult(
-                        provider=self.name,
-                        status=AuthStatus.NOT_AUTHENTICATED,
-                        error_message="User cancelled authentication",
-                    )
-
-                with Progress(
-                    SpinnerColumn(),
-                    TextColumn("[progress.description]{task.description}"),
-                    console=self.console,
-                ) as progress:
-                    task = progress.add_task(
-                        "Configuring application default credentials...", total=1
-                    )
-
-                    # Run gcloud auth application-default login
-                    command = ["gcloud", "auth", "application-default", "login"]
-                    if self.scopes:
-                        command.extend(["--scopes", ",".join(self.scopes)])
-                    if self.project_id:
-                        command.extend(["--project", self.project_id])
-
-                    self._run_command(command, capture_output=False)
-                    progress.update(task, completed=1)
-            else:
-                cprint("🔐 Initiating Google Cloud authentication...")
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=self.console,
+            ) as progress:
+                task = progress.add_task("Configuring application default credentials...", total=1)
                 command = ["gcloud", "auth", "application-default", "login"]
                 if self.scopes:
                     command.extend(["--scopes", ",".join(self.scopes)])
                 if self.project_id:
                     command.extend(["--project", self.project_id])
                 self._run_command(command, capture_output=False)
+                progress.update(task, completed=1)
+        else:
+            cprint("🔐 Initiating Google Cloud authentication via gcloud CLI...")
+            command = ["gcloud", "auth", "application-default", "login"]
+            if self.scopes:
+                command.extend(["--scopes", ",".join(self.scopes)])
+            if self.project_id:
+                command.extend(["--project", self.project_id])
+            self._run_command(command, capture_output=False)
 
-            # Verify authentication
-            return await self.check_auth()
+        result = self._validate_via_sdk()
+        if result.status == AuthStatus.AUTHENTICATED:
+            return self._annotate_method(result, "gcloud CLI")
+        return result
 
+    def _prompt_for_credentials(self) -> AuthResult:
+        """Guide the user to provide a service account key file path."""
+        msg = "  Path to service account key JSON: "
+        if RICH_AVAILABLE:
+            path = Prompt.ask("\n  Path to service account key JSON")
+        else:
+            path = input(f"\n{msg}")
+
+        path = os.path.expanduser(path.strip())
+        if not os.path.isfile(path):
+            return AuthResult(
+                provider=self.name,
+                status=AuthStatus.ERROR,
+                error_message=f"File not found: {path}",
+            )
+
+        # Quick sanity: must be valid JSON with required fields
+        try:
+            with open(path) as f:
+                data = json.load(f)
+            if "type" not in data:
+                return AuthResult(
+                    provider=self.name,
+                    status=AuthStatus.ERROR,
+                    error_message=f"Invalid key file (missing 'type' field): {path}",
+                )
+        except json.JSONDecodeError:
+            return AuthResult(
+                provider=self.name,
+                status=AuthStatus.ERROR,
+                error_message=f"File is not valid JSON: {path}",
+            )
+
+        result = self._validate_via_sdk(credentials_path=path)
+        if result.status == AuthStatus.AUTHENTICATED:
+            result = self._annotate_method(result, "service account key")
+            self._offer_save_to_keyring({"service_account_key_path": path})
+        return result
+
+    async def login(self, **kwargs) -> AuthResult:
+        """Smart login: CLI → env var → keyring → ADC → guided prompt."""
+        import shutil
+        try:
+            has_cli = bool(shutil.which("gcloud"))
+            has_sdk = self._has_sdk()
+            env_creds = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+            keyring_path = self._get_keyring_credential("service_account_key_path")
+            interactive = self._is_interactive()
+
+            if interactive:
+                self._show_methods_panel([
+                    ("gcloud CLI", has_cli, "installed" if has_cli else "not installed"),
+                    ("GOOGLE_APPLICATION_CREDENTIALS", bool(env_creds), env_creds or "not set"),
+                    ("Saved credentials", bool(keyring_path), "found" if keyring_path else "none"),
+                    ("Manual setup", interactive, "available"),
+                ])
+
+            # 1. CLI (interactive only — opens browser)
+            if has_cli and interactive:
+                try:
+                    return self._login_via_cli()
+                except Exception:
+                    self.logger.debug("gcloud CLI login failed, trying next method")
+
+            # 2. Env var + SDK
+            if env_creds and has_sdk:
+                result = self._validate_via_sdk(env_creds)
+                if result.status == AuthStatus.AUTHENTICATED:
+                    return self._annotate_method(result, "GOOGLE_APPLICATION_CREDENTIALS")
+
+            # 3. Keyring + SDK
+            if keyring_path and has_sdk:
+                result = self._validate_via_sdk(keyring_path)
+                if result.status == AuthStatus.AUTHENTICATED:
+                    return self._annotate_method(result, "saved service account key")
+
+            # 4. ADC default chain (covers WIF, compute engine metadata, etc.)
+            if has_sdk:
+                result = self._validate_via_sdk()
+                if result.status == AuthStatus.AUTHENTICATED:
+                    return self._annotate_method(result, "Application Default Credentials")
+
+            # 5. Interactive prompt
+            if interactive and has_sdk:
+                return self._prompt_for_credentials()
+
+            # 6. Nothing worked
+            return AuthResult(
+                provider=self.name,
+                status=AuthStatus.NOT_AUTHENTICATED,
+                error_message=(
+                    "No GCP credentials found. Options:\n"
+                    "  • Install gcloud: https://cloud.google.com/sdk/docs/install\n"
+                    "  • Set GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json\n"
+                    "  • Run interactively: fluid auth login gcp"
+                ),
+            )
         except Exception as e:
             return AuthResult(
                 provider=self.name,
@@ -205,99 +400,71 @@ class GoogleCloudAuthProvider(AuthProvider):
 
     async def logout(self) -> bool:
         """Logout from Google Cloud"""
+        import shutil
         try:
-            # Revoke application default credentials
-            try:
-                self._run_command(["gcloud", "auth", "application-default", "revoke"], check=False)
-            except Exception:
-                pass
+            if shutil.which("gcloud"):
+                try:
+                    self._run_command(["gcloud", "auth", "application-default", "revoke"], check=False)
+                except Exception:
+                    pass
+                try:
+                    self._run_command(["gcloud", "auth", "revoke", "--all"], check=False)
+                except Exception:
+                    pass
 
-            # Revoke user credentials
-            try:
-                self._run_command(["gcloud", "auth", "revoke", "--all"], check=False)
-            except Exception:
-                pass
-
-            # Remove environment variable
             if "GOOGLE_APPLICATION_CREDENTIALS" in os.environ:
                 del os.environ["GOOGLE_APPLICATION_CREDENTIALS"]
 
             self.logger.info("Google Cloud logout completed")
             return True
-
         except Exception as e:
             self.logger.error(f"Google Cloud logout failed: {e}")
             return False
 
     async def check_auth(self) -> AuthResult:
-        """Check Google Cloud authentication status"""
+        """Check GCP auth — tries SDK first, CLI second."""
+        import shutil
         try:
-            # Check if gcloud is installed
-            try:
-                self._run_command(["gcloud", "version"], capture_output=True)
-            except Exception:
-                return AuthResult(
-                    provider=self.name,
-                    status=AuthStatus.ERROR,
-                    error_message="gcloud CLI not installed. Please install Google Cloud SDK.",
-                )
+            # Try SDK first (works without gcloud)
+            if self._has_sdk():
+                result = self._validate_via_sdk()
+                if result.status == AuthStatus.AUTHENTICATED:
+                    return self._annotate_method(result, "SDK")
 
-            # Check application default credentials
-            try:
-                result = self._run_command(
-                    ["gcloud", "auth", "application-default", "print-access-token"],
-                    capture_output=True,
-                )
-                if result.returncode == 0:
-                    # Get user info
-                    try:
-                        account_result = self._run_command(
+            # Fallback: gcloud CLI
+            if shutil.which("gcloud"):
+                try:
+                    r = self._run_command(
+                        ["gcloud", "auth", "application-default", "print-access-token"],
+                        capture_output=True,
+                    )
+                    if r.returncode == 0:
+                        account_r = self._run_command(
                             ["gcloud", "config", "get-value", "account"], capture_output=True
                         )
-                        account = (
-                            account_result.stdout.strip() if account_result.stdout else "unknown"
-                        )
-
-                        project_result = self._run_command(
+                        project_r = self._run_command(
                             ["gcloud", "config", "get-value", "project"], capture_output=True
                         )
-                        project = (
-                            project_result.stdout.strip()
-                            if project_result.stdout
-                            else self.project_id
+                        return self._annotate_method(
+                            AuthResult(
+                                provider=self.name,
+                                status=AuthStatus.AUTHENTICATED,
+                                user_info={
+                                    "account": (account_r.stdout.strip() if account_r.stdout else "unknown"),
+                                    "project": (project_r.stdout.strip() if project_r.stdout else self.project_id),
+                                },
+                                scopes=self.scopes,
+                            ),
+                            "gcloud CLI",
                         )
+                except Exception:
+                    pass
 
-                        return AuthResult(
-                            provider=self.name,
-                            status=AuthStatus.AUTHENTICATED,
-                            user_info={
-                                "account": account,
-                                "project": project,
-                                "cli_version": "installed",
-                            },
-                            scopes=self.scopes,
-                        )
-                    except Exception:
-                        return AuthResult(
-                            provider=self.name,
-                            status=AuthStatus.AUTHENTICATED,
-                            user_info={"account": "authenticated"},
-                            scopes=self.scopes,
-                        )
-                else:
-                    return AuthResult(
-                        provider=self.name,
-                        status=AuthStatus.NOT_AUTHENTICATED,
-                        error_message="No valid application default credentials found",
-                    )
-
-            except subprocess.CalledProcessError:
-                return AuthResult(
-                    provider=self.name,
-                    status=AuthStatus.NOT_AUTHENTICATED,
-                    error_message="Application default credentials not configured",
-                )
-
+            return AuthResult(
+                provider=self.name,
+                status=AuthStatus.NOT_AUTHENTICATED,
+                error_message="No valid GCP credentials found",
+            )
         except Exception as e:
             return AuthResult(provider=self.name, status=AuthStatus.ERROR, error_message=str(e))
 
@@ -310,71 +477,199 @@ class AWSAuthProvider(AuthProvider):
         self.region = config.get("region", "us-east-1")
         self.profile = config.get("profile", "default")
 
-    async def login(self, **kwargs) -> AuthResult:
-        """Initiate AWS authentication flow"""
+    @staticmethod
+    def _has_boto3() -> bool:
         try:
-            import shutil
+            import boto3  # noqa: F401
+            return True
+        except ImportError:
+            return False
 
-            if not shutil.which("aws"):
+    def _validate_via_sdk(
+        self,
+        access_key: Optional[str] = None,
+        secret_key: Optional[str] = None,
+        session_token: Optional[str] = None,
+    ) -> AuthResult:
+        """Validate AWS credentials via boto3 STS (no CLI needed)."""
+        try:
+            import boto3
+
+            kwargs: Dict[str, Any] = {"region_name": self.region}
+            if access_key and secret_key:
+                kwargs["aws_access_key_id"] = access_key
+                kwargs["aws_secret_access_key"] = secret_key
+                if session_token:
+                    kwargs["aws_session_token"] = session_token
+
+            session = boto3.Session(**kwargs)
+            sts = session.client("sts")
+            identity = sts.get_caller_identity()
+
+            return AuthResult(
+                provider=self.name,
+                status=AuthStatus.AUTHENTICATED,
+                user_info={
+                    "user_id": identity.get("UserId"),
+                    "account": identity.get("Account"),
+                    "arn": identity.get("Arn"),
+                    "region": self.region,
+                },
+            )
+        except Exception as e:
+            return AuthResult(
+                provider=self.name,
+                status=AuthStatus.NOT_AUTHENTICATED,
+                error_message=str(e),
+            )
+
+    def _login_via_cli(self) -> AuthResult:
+        """Run the interactive AWS CLI login flow (SSO or configure)."""
+        if self.console and RICH_AVAILABLE:
+            self.console.print(
+                Panel.fit(
+                    "[bold blue]🔐 AWS Authentication[/bold blue]\n\n"
+                    f"Region: [cyan]{self.region}[/cyan]\n"
+                    f"Profile: [cyan]{self.profile}[/cyan]\n\n"
+                    "This will initiate AWS SSO login or configure credentials.",
+                    border_style="blue",
+                )
+            )
+            if not Confirm.ask("\nProceed with AWS authentication?", default=True):
                 return AuthResult(
                     provider=self.name,
-                    status=AuthStatus.ERROR,
-                    error_message=(
-                        "AWS CLI not found. Install it first:\n"
-                        "  https://aws.amazon.com/cli/"
-                    ),
+                    status=AuthStatus.NOT_AUTHENTICATED,
+                    error_message="User cancelled authentication",
                 )
-
-            if self.console and RICH_AVAILABLE:
-                self.console.print(
-                    Panel.fit(
-                        "[bold blue]🔐 AWS Authentication[/bold blue]\n\n"
-                        f"Region: [cyan]{self.region}[/cyan]\n"
-                        f"Profile: [cyan]{self.profile}[/cyan]\n\n"
-                        "This will initiate AWS SSO login or configure credentials.",
-                        border_style="blue",
-                    )
-                )
-
-                if not Confirm.ask("\nProceed with AWS authentication?", default=True):
-                    return AuthResult(
-                        provider=self.name,
-                        status=AuthStatus.NOT_AUTHENTICATED,
-                        error_message="User cancelled authentication",
-                    )
-
-                with Progress(
-                    SpinnerColumn(),
-                    TextColumn("[progress.description]{task.description}"),
-                    console=self.console,
-                ) as progress:
-                    task = progress.add_task("Initiating AWS SSO login...", total=1)
-
-                    # Try SSO login first, fallback to configure
-                    try:
-                        command = ["aws", "sso", "login", "--profile", self.profile]
-                        self._run_command(command, capture_output=False)
-                    except Exception:
-                        # Fallback to aws configure
-                        self.console.print(
-                            "\n[yellow]SSO not configured. Setting up AWS credentials...[/yellow]"
-                        )
-                        command = ["aws", "configure", "--profile", self.profile]
-                        self._run_command(command, capture_output=False)
-
-                    progress.update(task, completed=1)
-            else:
-                cprint("🔐 Initiating AWS authentication...")
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=self.console,
+            ) as progress:
+                task = progress.add_task("Initiating AWS SSO login...", total=1)
                 try:
-                    command = ["aws", "sso", "login", "--profile", self.profile]
-                    self._run_command(command, capture_output=False)
+                    self._run_command(
+                        ["aws", "sso", "login", "--profile", self.profile], capture_output=False
+                    )
                 except Exception:
-                    cprint("SSO not configured. Setting up AWS credentials...")
-                    command = ["aws", "configure", "--profile", self.profile]
-                    self._run_command(command, capture_output=False)
+                    self.console.print(
+                        "\n[yellow]SSO not configured. Setting up AWS credentials...[/yellow]"
+                    )
+                    self._run_command(
+                        ["aws", "configure", "--profile", self.profile], capture_output=False
+                    )
+                progress.update(task, completed=1)
+        else:
+            cprint("🔐 Initiating AWS authentication via CLI...")
+            try:
+                self._run_command(
+                    ["aws", "sso", "login", "--profile", self.profile], capture_output=False
+                )
+            except Exception:
+                cprint("SSO not configured. Setting up AWS credentials...")
+                self._run_command(
+                    ["aws", "configure", "--profile", self.profile], capture_output=False
+                )
 
-            return await self.check_auth()
+        result = self._validate_via_sdk()
+        if result.status == AuthStatus.AUTHENTICATED:
+            return self._annotate_method(result, "AWS CLI")
+        return result
 
+    def _prompt_for_credentials(self) -> AuthResult:
+        """Guide the user to provide AWS access keys."""
+        from getpass import getpass
+
+        if RICH_AVAILABLE:
+            access_key = Prompt.ask("\n  AWS Access Key ID")
+        else:
+            access_key = input("\n  AWS Access Key ID: ")
+        secret_key = getpass("  AWS Secret Access Key: ")
+        session_token = getpass("  AWS Session Token (optional, press Enter to skip): ")
+
+        access_key = access_key.strip()
+        secret_key = secret_key.strip()
+        session_token = session_token.strip() or None
+
+        if not access_key or not secret_key:
+            return AuthResult(
+                provider=self.name,
+                status=AuthStatus.ERROR,
+                error_message="Access Key ID and Secret Access Key are required",
+            )
+
+        result = self._validate_via_sdk(access_key, secret_key, session_token)
+        if result.status == AuthStatus.AUTHENTICATED:
+            result = self._annotate_method(result, "access key")
+            creds_to_save = {"access_key_id": access_key, "secret_access_key": secret_key}
+            if session_token:
+                creds_to_save["session_token"] = session_token
+            self._offer_save_to_keyring(creds_to_save)
+        return result
+
+    async def login(self, **kwargs) -> AuthResult:
+        """Smart login: CLI → env vars → keyring → boto3 default → guided prompt."""
+        import shutil
+        try:
+            has_cli = bool(shutil.which("aws"))
+            has_sdk = self._has_boto3()
+            env_key = os.environ.get("AWS_ACCESS_KEY_ID")
+            env_secret = os.environ.get("AWS_SECRET_ACCESS_KEY")
+            kr_key = self._get_keyring_credential("access_key_id")
+            kr_secret = self._get_keyring_credential("secret_access_key")
+            interactive = self._is_interactive()
+
+            if interactive:
+                self._show_methods_panel([
+                    ("AWS CLI", has_cli, "installed" if has_cli else "not installed"),
+                    ("AWS_ACCESS_KEY_ID", bool(env_key), "set" if env_key else "not set"),
+                    ("Saved credentials", bool(kr_key), "found" if kr_key else "none"),
+                    ("Manual setup", interactive, "available"),
+                ])
+
+            # 1. CLI (interactive)
+            if has_cli and interactive:
+                try:
+                    return self._login_via_cli()
+                except Exception:
+                    self.logger.debug("AWS CLI login failed, trying next method")
+
+            # 2. Env vars + SDK
+            if env_key and env_secret and has_sdk:
+                result = self._validate_via_sdk(
+                    env_key, env_secret, os.environ.get("AWS_SESSION_TOKEN")
+                )
+                if result.status == AuthStatus.AUTHENTICATED:
+                    return self._annotate_method(result, "AWS_ACCESS_KEY_ID env var")
+
+            # 3. Keyring + SDK
+            if kr_key and kr_secret and has_sdk:
+                result = self._validate_via_sdk(
+                    kr_key, kr_secret, self._get_keyring_credential("session_token")
+                )
+                if result.status == AuthStatus.AUTHENTICATED:
+                    return self._annotate_method(result, "saved access key")
+
+            # 4. boto3 default chain (~/.aws/credentials, IAM roles, etc.)
+            if has_sdk:
+                result = self._validate_via_sdk()
+                if result.status == AuthStatus.AUTHENTICATED:
+                    return self._annotate_method(result, "AWS credential chain")
+
+            # 5. Interactive prompt
+            if interactive and has_sdk:
+                return self._prompt_for_credentials()
+
+            return AuthResult(
+                provider=self.name,
+                status=AuthStatus.NOT_AUTHENTICATED,
+                error_message=(
+                    "No AWS credentials found. Options:\n"
+                    "  • Install AWS CLI: https://aws.amazon.com/cli/\n"
+                    "  • Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY\n"
+                    "  • Run interactively: fluid auth login aws"
+                ),
+            )
         except Exception as e:
             return AuthResult(
                 provider=self.name,
@@ -384,73 +679,60 @@ class AWSAuthProvider(AuthProvider):
 
     async def logout(self) -> bool:
         """Logout from AWS"""
+        import shutil
         try:
-            # For AWS SSO
-            try:
-                self._run_command(["aws", "sso", "logout", "--profile", self.profile], check=False)
-            except Exception:
-                pass
-
+            if shutil.which("aws"):
+                try:
+                    self._run_command(
+                        ["aws", "sso", "logout", "--profile", self.profile], check=False
+                    )
+                except Exception:
+                    pass
             self.logger.info("AWS logout completed")
             return True
-
         except Exception as e:
             self.logger.error(f"AWS logout failed: {e}")
             return False
 
     async def check_auth(self) -> AuthResult:
-        """Check AWS authentication status"""
+        """Check AWS auth — tries boto3 SDK first, CLI second."""
+        import shutil
         try:
-            # Check if AWS CLI is installed
-            try:
-                self._run_command(["aws", "--version"], capture_output=True)
-            except Exception:
-                return AuthResult(
-                    provider=self.name,
-                    status=AuthStatus.ERROR,
-                    error_message="AWS CLI not installed. Please install AWS CLI.",
-                )
+            if self._has_boto3():
+                result = self._validate_via_sdk()
+                if result.status == AuthStatus.AUTHENTICATED:
+                    return self._annotate_method(result, "SDK")
 
-            # Check credentials
-            try:
-                command = [
-                    "aws",
-                    "sts",
-                    "get-caller-identity",
-                    "--profile",
-                    self.profile,
-                    "--output",
-                    "json",
-                ]
-                result = self._run_command(command, capture_output=True)
-
-                if result.returncode == 0:
-                    identity = json.loads(result.stdout)
-                    return AuthResult(
-                        provider=self.name,
-                        status=AuthStatus.AUTHENTICATED,
-                        user_info={
-                            "user_id": identity.get("UserId"),
-                            "account": identity.get("Account"),
-                            "arn": identity.get("Arn"),
-                            "profile": self.profile,
-                            "region": self.region,
-                        },
+            if shutil.which("aws"):
+                try:
+                    r = self._run_command(
+                        ["aws", "sts", "get-caller-identity", "--profile", self.profile, "--output", "json"],
+                        capture_output=True,
                     )
-                else:
-                    return AuthResult(
-                        provider=self.name,
-                        status=AuthStatus.NOT_AUTHENTICATED,
-                        error_message="No valid AWS credentials found",
-                    )
+                    if r.returncode == 0:
+                        identity = json.loads(r.stdout)
+                        return self._annotate_method(
+                            AuthResult(
+                                provider=self.name,
+                                status=AuthStatus.AUTHENTICATED,
+                                user_info={
+                                    "user_id": identity.get("UserId"),
+                                    "account": identity.get("Account"),
+                                    "arn": identity.get("Arn"),
+                                    "profile": self.profile,
+                                    "region": self.region,
+                                },
+                            ),
+                            "AWS CLI",
+                        )
+                except Exception:
+                    pass
 
-            except subprocess.CalledProcessError:
-                return AuthResult(
-                    provider=self.name,
-                    status=AuthStatus.NOT_AUTHENTICATED,
-                    error_message="AWS credentials not configured or expired",
-                )
-
+            return AuthResult(
+                provider=self.name,
+                status=AuthStatus.NOT_AUTHENTICATED,
+                error_message="No valid AWS credentials found",
+            )
         except Exception as e:
             return AuthResult(provider=self.name, status=AuthStatus.ERROR, error_message=str(e))
 
@@ -463,74 +745,207 @@ class AzureAuthProvider(AuthProvider):
         self.tenant_id = config.get("tenant_id")
         self.subscription_id = config.get("subscription_id")
 
-    async def login(self, **kwargs) -> AuthResult:
-        """Initiate Azure authentication flow"""
+    @staticmethod
+    def _has_sdk() -> bool:
         try:
-            import shutil
+            import azure.identity  # noqa: F401
+            return True
+        except ImportError:
+            return False
 
-            if not shutil.which("az"):
+    def _validate_via_sdk(
+        self,
+        client_id: Optional[str] = None,
+        client_secret: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+    ) -> AuthResult:
+        """Validate Azure credentials via azure-identity SDK (no CLI needed)."""
+        try:
+            from azure.identity import ClientSecretCredential, DefaultAzureCredential
+
+            if client_id and client_secret and tenant_id:
+                credential = ClientSecretCredential(
+                    tenant_id=tenant_id,
+                    client_id=client_id,
+                    client_secret=client_secret,
+                )
+            else:
+                credential = DefaultAzureCredential()
+
+            token = credential.get_token("https://management.azure.com/.default")
+            return AuthResult(
+                provider=self.name,
+                status=AuthStatus.AUTHENTICATED,
+                user_info={
+                    "tenant_id": tenant_id or self.tenant_id or "default",
+                    "client_id": client_id or "default credential",
+                    "token_expires": str(token.expires_on) if token else "unknown",
+                },
+            )
+        except Exception as e:
+            return AuthResult(
+                provider=self.name,
+                status=AuthStatus.NOT_AUTHENTICATED,
+                error_message=str(e),
+            )
+
+    def _login_via_cli(self) -> AuthResult:
+        """Run the interactive az CLI login flow."""
+        if self.console and RICH_AVAILABLE:
+            self.console.print(
+                Panel.fit(
+                    "[bold blue]🔐 Azure Authentication[/bold blue]\n\n"
+                    f"Tenant: [cyan]{self.tenant_id or 'Default'}[/cyan]\n"
+                    f"Subscription: [cyan]{self.subscription_id or 'Default'}[/cyan]\n\n"
+                    "This will open your web browser to complete authentication.",
+                    border_style="blue",
+                )
+            )
+            if not Confirm.ask("\nProceed with Azure authentication?", default=True):
                 return AuthResult(
                     provider=self.name,
-                    status=AuthStatus.ERROR,
-                    error_message=(
-                        "Azure CLI not found. Install it first:\n"
-                        "  https://learn.microsoft.com/en-us/cli/azure/install-azure-cli"
-                    ),
+                    status=AuthStatus.NOT_AUTHENTICATED,
+                    error_message="User cancelled authentication",
                 )
-
-            if self.console and RICH_AVAILABLE:
-                self.console.print(
-                    Panel.fit(
-                        "[bold blue]🔐 Azure Authentication[/bold blue]\n\n"
-                        f"Tenant: [cyan]{self.tenant_id or 'Default'}[/cyan]\n"
-                        f"Subscription: [cyan]{self.subscription_id or 'Default'}[/cyan]\n\n"
-                        "This will open your web browser to complete authentication.",
-                        border_style="blue",
-                    )
-                )
-
-                if not Confirm.ask("\nProceed with Azure authentication?", default=True):
-                    return AuthResult(
-                        provider=self.name,
-                        status=AuthStatus.NOT_AUTHENTICATED,
-                        error_message="User cancelled authentication",
-                    )
-
-                with Progress(
-                    SpinnerColumn(),
-                    TextColumn("[progress.description]{task.description}"),
-                    console=self.console,
-                ) as progress:
-                    task = progress.add_task("Initiating Azure login...", total=1)
-
-                    command = ["az", "login"]
-                    if self.tenant_id:
-                        command.extend(["--tenant", self.tenant_id])
-
-                    self._run_command(command, capture_output=False)
-
-                    # Set subscription if provided
-                    if self.subscription_id:
-                        self._run_command(
-                            ["az", "account", "set", "--subscription", self.subscription_id]
-                        )
-
-                    progress.update(task, completed=1)
-            else:
-                cprint("🔐 Initiating Azure authentication...")
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=self.console,
+            ) as progress:
+                task = progress.add_task("Initiating Azure login...", total=1)
                 command = ["az", "login"]
                 if self.tenant_id:
                     command.extend(["--tenant", self.tenant_id])
-
                 self._run_command(command, capture_output=False)
-
                 if self.subscription_id:
                     self._run_command(
                         ["az", "account", "set", "--subscription", self.subscription_id]
                     )
+                progress.update(task, completed=1)
+        else:
+            cprint("🔐 Initiating Azure authentication via CLI...")
+            command = ["az", "login"]
+            if self.tenant_id:
+                command.extend(["--tenant", self.tenant_id])
+            self._run_command(command, capture_output=False)
+            if self.subscription_id:
+                self._run_command(
+                    ["az", "account", "set", "--subscription", self.subscription_id]
+                )
 
-            return await self.check_auth()
+        result = self._validate_via_sdk()
+        if result.status == AuthStatus.AUTHENTICATED:
+            return self._annotate_method(result, "Azure CLI")
+        # Fallback to CLI status check
+        try:
+            r = self._run_command(["az", "account", "show", "--output", "json"], capture_output=True)
+            if r.returncode == 0:
+                info = json.loads(r.stdout)
+                return self._annotate_method(
+                    AuthResult(
+                        provider=self.name,
+                        status=AuthStatus.AUTHENTICATED,
+                        user_info={
+                            "name": info.get("name"),
+                            "tenant_id": info.get("tenantId"),
+                            "user": info.get("user", {}).get("name"),
+                        },
+                    ),
+                    "Azure CLI",
+                )
+        except Exception:
+            pass
+        return result
 
+    def _prompt_for_credentials(self) -> AuthResult:
+        """Guide the user to provide Azure service principal credentials."""
+        from getpass import getpass
+
+        if RICH_AVAILABLE:
+            tenant = Prompt.ask("\n  Azure Tenant ID")
+            client = Prompt.ask("  Application (Client) ID")
+        else:
+            tenant = input("\n  Azure Tenant ID: ")
+            client = input("  Application (Client) ID: ")
+        secret = getpass("  Client Secret: ")
+
+        tenant, client, secret = tenant.strip(), client.strip(), secret.strip()
+        if not all([tenant, client, secret]):
+            return AuthResult(
+                provider=self.name,
+                status=AuthStatus.ERROR,
+                error_message="Tenant ID, Client ID, and Client Secret are all required",
+            )
+
+        result = self._validate_via_sdk(client, secret, tenant)
+        if result.status == AuthStatus.AUTHENTICATED:
+            result = self._annotate_method(result, "service principal")
+            self._offer_save_to_keyring({
+                "tenant_id": tenant, "client_id": client, "client_secret": secret,
+            })
+        return result
+
+    async def login(self, **kwargs) -> AuthResult:
+        """Smart login: CLI → env vars → keyring → DefaultAzureCredential → guided prompt."""
+        import shutil
+        try:
+            has_cli = bool(shutil.which("az"))
+            has_sdk = self._has_sdk()
+            env_client = os.environ.get("AZURE_CLIENT_ID")
+            env_secret = os.environ.get("AZURE_CLIENT_SECRET")
+            env_tenant = os.environ.get("AZURE_TENANT_ID")
+            kr_client = self._get_keyring_credential("client_id")
+            kr_secret = self._get_keyring_credential("client_secret")
+            kr_tenant = self._get_keyring_credential("tenant_id")
+            interactive = self._is_interactive()
+
+            if interactive:
+                self._show_methods_panel([
+                    ("Azure CLI", has_cli, "installed" if has_cli else "not installed"),
+                    ("AZURE_CLIENT_ID", bool(env_client), "set" if env_client else "not set"),
+                    ("Saved credentials", bool(kr_client), "found" if kr_client else "none"),
+                    ("Manual setup", interactive, "available"),
+                ])
+
+            # 1. CLI
+            if has_cli and interactive:
+                try:
+                    return self._login_via_cli()
+                except Exception:
+                    self.logger.debug("Azure CLI login failed, trying next method")
+
+            # 2. Env vars + SDK
+            if env_client and env_secret and env_tenant and has_sdk:
+                result = self._validate_via_sdk(env_client, env_secret, env_tenant)
+                if result.status == AuthStatus.AUTHENTICATED:
+                    return self._annotate_method(result, "AZURE_CLIENT_ID env var")
+
+            # 3. Keyring + SDK
+            if kr_client and kr_secret and kr_tenant and has_sdk:
+                result = self._validate_via_sdk(kr_client, kr_secret, kr_tenant)
+                if result.status == AuthStatus.AUTHENTICATED:
+                    return self._annotate_method(result, "saved service principal")
+
+            # 4. DefaultAzureCredential (managed identity, VS Code, etc.)
+            if has_sdk:
+                result = self._validate_via_sdk()
+                if result.status == AuthStatus.AUTHENTICATED:
+                    return self._annotate_method(result, "DefaultAzureCredential")
+
+            # 5. Interactive prompt
+            if interactive and has_sdk:
+                return self._prompt_for_credentials()
+
+            return AuthResult(
+                provider=self.name,
+                status=AuthStatus.NOT_AUTHENTICATED,
+                error_message=(
+                    "No Azure credentials found. Options:\n"
+                    "  • Install Azure CLI: https://learn.microsoft.com/en-us/cli/azure/install-azure-cli\n"
+                    "  • Set AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID\n"
+                    "  • Run interactively: fluid auth login azure"
+                ),
+            )
         except Exception as e:
             return AuthResult(
                 provider=self.name,
@@ -540,61 +955,53 @@ class AzureAuthProvider(AuthProvider):
 
     async def logout(self) -> bool:
         """Logout from Azure"""
+        import shutil
         try:
-            self._run_command(["az", "logout"], check=False)
+            if shutil.which("az"):
+                self._run_command(["az", "logout"], check=False)
             self.logger.info("Azure logout completed")
             return True
-
         except Exception as e:
             self.logger.error(f"Azure logout failed: {e}")
             return False
 
     async def check_auth(self) -> AuthResult:
-        """Check Azure authentication status"""
+        """Check Azure auth — tries SDK first, CLI second."""
+        import shutil
         try:
-            # Check if Azure CLI is installed
-            try:
-                self._run_command(["az", "--version"], capture_output=True)
-            except Exception:
-                return AuthResult(
-                    provider=self.name,
-                    status=AuthStatus.ERROR,
-                    error_message="Azure CLI not installed. Please install Azure CLI.",
-                )
+            if self._has_sdk():
+                result = self._validate_via_sdk()
+                if result.status == AuthStatus.AUTHENTICATED:
+                    return self._annotate_method(result, "SDK")
 
-            # Check authentication
-            try:
-                result = self._run_command(
-                    ["az", "account", "show", "--output", "json"], capture_output=True
-                )
-
-                if result.returncode == 0:
-                    account_info = json.loads(result.stdout)
-                    return AuthResult(
-                        provider=self.name,
-                        status=AuthStatus.AUTHENTICATED,
-                        user_info={
-                            "name": account_info.get("name"),
-                            "id": account_info.get("id"),
-                            "tenant_id": account_info.get("tenantId"),
-                            "user": account_info.get("user", {}).get("name"),
-                            "type": account_info.get("user", {}).get("type"),
-                        },
+            if shutil.which("az"):
+                try:
+                    r = self._run_command(
+                        ["az", "account", "show", "--output", "json"], capture_output=True
                     )
-                else:
-                    return AuthResult(
-                        provider=self.name,
-                        status=AuthStatus.NOT_AUTHENTICATED,
-                        error_message="No active Azure session found",
-                    )
+                    if r.returncode == 0:
+                        info = json.loads(r.stdout)
+                        return self._annotate_method(
+                            AuthResult(
+                                provider=self.name,
+                                status=AuthStatus.AUTHENTICATED,
+                                user_info={
+                                    "name": info.get("name"),
+                                    "id": info.get("id"),
+                                    "tenant_id": info.get("tenantId"),
+                                    "user": info.get("user", {}).get("name"),
+                                },
+                            ),
+                            "Azure CLI",
+                        )
+                except Exception:
+                    pass
 
-            except subprocess.CalledProcessError:
-                return AuthResult(
-                    provider=self.name,
-                    status=AuthStatus.NOT_AUTHENTICATED,
-                    error_message="Azure CLI not authenticated",
-                )
-
+            return AuthResult(
+                provider=self.name,
+                status=AuthStatus.NOT_AUTHENTICATED,
+                error_message="No valid Azure credentials found",
+            )
         except Exception as e:
             return AuthResult(provider=self.name, status=AuthStatus.ERROR, error_message=str(e))
 
@@ -901,101 +1308,189 @@ class DatabricksAuthProvider(AuthProvider):
         self.cluster_id = config.get("cluster_id")
         self.workspace_id = config.get("workspace_id")
 
-    async def login(self, **kwargs) -> AuthResult:
-        """Initiate Databricks authentication using Databricks CLI"""
+    def _validate_via_api(self, host: str, token: str) -> AuthResult:
+        """Validate Databricks credentials via REST API (no CLI needed)."""
+        import urllib.request
+
+        url = f"{host.rstrip('/')}/api/2.0/preview/scim/v2/Me"
+        req = urllib.request.Request(
+            url,
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+        )
         try:
-            import shutil
-
-            if not shutil.which("databricks"):
-                return AuthResult(
-                    provider=self.name,
-                    status=AuthStatus.ERROR,
-                    error_message=(
-                        "Databricks CLI not found. Install it first:\n"
-                        "  pip install databricks-cli"
-                    ),
-                )
-
-            if self.console:
-                self.console.print(
-                    Panel(
-                        f"🧱 Databricks Authentication\n\n"
-                        f"Host: [cyan]{self.host or 'Not specified'}[/cyan]\n"
-                        f"Workspace ID: [cyan]{self.workspace_id or 'Not specified'}[/cyan]\n"
-                        f"Cluster ID: [cyan]{self.cluster_id or 'Not specified'}[/cyan]\n\n"
-                        "This will configure Databricks CLI authentication.\n"
-                        "You'll need your workspace URL and personal access token.",
-                        border_style="blue",
-                    )
-                )
-
-                if not Confirm.ask("\nProceed with Databricks authentication?", default=True):
-                    return AuthResult(
-                        provider=self.name,
-                        status=AuthStatus.NOT_AUTHENTICATED,
-                        error_message="User cancelled authentication",
-                    )
-
-            if self.console:
-                with Progress(
-                    SpinnerColumn(),
-                    TextColumn("[progress.description]{task.description}"),
-                    console=self.console,
-                ) as progress:
-                    task = progress.add_task("Configuring Databricks CLI...", total=1)
-
-                    # Configure Databricks CLI
-                    command = ["databricks", "configure", "--token"]
-                    if self.host:
-                        # Non-interactive configuration if host is provided
-                        self._run_command(
-                            command + ["--host", self.host], capture_output=False, check=False
-                        )
-                    else:
-                        # Interactive configuration
-                        self._run_command(command, capture_output=False, check=False)
-
-                    progress.update(task, completed=1)
-            else:
-                command = ["databricks", "configure", "--token"]
-                if self.host:
-                    self._run_command(
-                        command + ["--host", self.host], capture_output=False, check=False
-                    )
-                else:
-                    self._run_command(command, capture_output=False, check=False)
-
-            # Test the configuration
-            test_result = self._run_command(
-                ["databricks", "workspace", "list", "/"], capture_output=True, check=False
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read())
+            return AuthResult(
+                provider=self.name,
+                status=AuthStatus.AUTHENTICATED,
+                user_info={
+                    "user_name": data.get("userName"),
+                    "display_name": data.get("displayName"),
+                    "host": host,
+                    "workspace_id": self.workspace_id,
+                    "cluster_id": self.cluster_id,
+                },
+            )
+        except Exception as e:
+            return AuthResult(
+                provider=self.name,
+                status=AuthStatus.NOT_AUTHENTICATED,
+                error_message=str(e),
             )
 
-            if test_result.returncode == 0:
+    def _login_via_cli(self) -> AuthResult:
+        """Run the interactive Databricks CLI configure flow."""
+        if self.console and RICH_AVAILABLE:
+            self.console.print(
+                Panel(
+                    f"🧱 Databricks Authentication\n\n"
+                    f"Host: [cyan]{self.host or 'Not specified'}[/cyan]\n\n"
+                    "This will configure Databricks CLI authentication.",
+                    border_style="blue",
+                )
+            )
+            if not Confirm.ask("\nProceed with Databricks authentication?", default=True):
                 return AuthResult(
                     provider=self.name,
-                    status=AuthStatus.AUTHENTICATED,
-                    user_info={
-                        "host": self.host,
-                        "workspace_id": self.workspace_id,
-                        "cluster_id": self.cluster_id,
-                        "cli_version": "installed",
-                    },
+                    status=AuthStatus.NOT_AUTHENTICATED,
+                    error_message="User cancelled authentication",
                 )
-            else:
-                error_msg = (
-                    test_result.stderr.strip() if test_result.stderr else "Authentication failed"
-                )
-                return AuthResult(
-                    provider=self.name, status=AuthStatus.NOT_AUTHENTICATED, error_message=error_msg
-                )
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=self.console,
+            ) as progress:
+                task = progress.add_task("Configuring Databricks CLI...", total=1)
+                command = ["databricks", "configure", "--token"]
+                if self.host:
+                    command.extend(["--host", self.host])
+                self._run_command(command, capture_output=False, check=False)
+                progress.update(task, completed=1)
+        else:
+            command = ["databricks", "configure", "--token"]
+            if self.host:
+                command.extend(["--host", self.host])
+            self._run_command(command, capture_output=False, check=False)
 
+        # Verify via CLI
+        test = self._run_command(
+            ["databricks", "workspace", "list", "/"], capture_output=True, check=False
+        )
+        if test.returncode == 0:
+            return self._annotate_method(
+                AuthResult(
+                    provider=self.name,
+                    status=AuthStatus.AUTHENTICATED,
+                    user_info={"host": self.host, "workspace_id": self.workspace_id},
+                ),
+                "Databricks CLI",
+            )
+        return AuthResult(
+            provider=self.name,
+            status=AuthStatus.NOT_AUTHENTICATED,
+            error_message=test.stderr.strip() if test.stderr else "CLI configuration failed",
+        )
+
+    def _prompt_for_credentials(self) -> AuthResult:
+        """Guide the user to provide Databricks host + personal access token."""
+        from getpass import getpass
+
+        if RICH_AVAILABLE:
+            host = Prompt.ask("\n  Databricks workspace URL (e.g., https://dbc-xxx.cloud.databricks.com)")
+        else:
+            host = input("\n  Databricks workspace URL: ")
+        token = getpass("  Personal Access Token: ")
+
+        host, token = host.strip(), token.strip()
+        if not host or not token:
+            return AuthResult(
+                provider=self.name,
+                status=AuthStatus.ERROR,
+                error_message="Workspace URL and Personal Access Token are required",
+            )
+        if not host.startswith("https://"):
+            host = f"https://{host}"
+
+        result = self._validate_via_api(host, token)
+        if result.status == AuthStatus.AUTHENTICATED:
+            result = self._annotate_method(result, "personal access token")
+            self._offer_save_to_keyring({"host": host, "token": token})
+        return result
+
+    async def login(self, **kwargs) -> AuthResult:
+        """Smart login: CLI → env vars → keyring → config file → guided prompt."""
+        import shutil
+        try:
+            has_cli = bool(shutil.which("databricks"))
+            env_host = os.environ.get("DATABRICKS_HOST") or self.host
+            env_token = os.environ.get("DATABRICKS_TOKEN") or self.token
+            kr_host = self._get_keyring_credential("host")
+            kr_token = self._get_keyring_credential("token")
+            interactive = self._is_interactive()
+
+            if interactive:
+                self._show_methods_panel([
+                    ("Databricks CLI", has_cli, "installed" if has_cli else "not installed"),
+                    ("DATABRICKS_HOST", bool(env_host), env_host or "not set"),
+                    ("Saved credentials", bool(kr_host), "found" if kr_host else "none"),
+                    ("Manual setup", interactive, "available"),
+                ])
+
+            # 1. CLI (interactive)
+            if has_cli and interactive:
+                try:
+                    return self._login_via_cli()
+                except Exception:
+                    self.logger.debug("Databricks CLI login failed, trying next method")
+
+            # 2. Env vars + REST API
+            if env_host and env_token:
+                result = self._validate_via_api(env_host, env_token)
+                if result.status == AuthStatus.AUTHENTICATED:
+                    return self._annotate_method(result, "DATABRICKS_TOKEN env var")
+
+            # 3. Keyring + REST API
+            if kr_host and kr_token:
+                result = self._validate_via_api(kr_host, kr_token)
+                if result.status == AuthStatus.AUTHENTICATED:
+                    return self._annotate_method(result, "saved access token")
+
+            # 4. ~/.databrickscfg file
+            cfg_path = os.path.expanduser("~/.databrickscfg")
+            if os.path.exists(cfg_path):
+                try:
+                    import configparser
+                    cfg = configparser.ConfigParser()
+                    cfg.read(cfg_path)
+                    cfg_host = cfg.get("DEFAULT", "host", fallback=None)
+                    cfg_token = cfg.get("DEFAULT", "token", fallback=None)
+                    if cfg_host and cfg_token:
+                        result = self._validate_via_api(cfg_host, cfg_token)
+                        if result.status == AuthStatus.AUTHENTICATED:
+                            return self._annotate_method(result, "~/.databrickscfg")
+                except Exception:
+                    pass
+
+            # 5. Interactive prompt
+            if interactive:
+                return self._prompt_for_credentials()
+
+            return AuthResult(
+                provider=self.name,
+                status=AuthStatus.NOT_AUTHENTICATED,
+                error_message=(
+                    "No Databricks credentials found. Options:\n"
+                    "  • Set DATABRICKS_HOST and DATABRICKS_TOKEN\n"
+                    "  • Install Databricks CLI: pip install databricks-cli\n"
+                    "  • Run interactively: fluid auth login databricks"
+                ),
+            )
         except Exception as e:
             return AuthResult(provider=self.name, status=AuthStatus.ERROR, error_message=str(e))
 
     async def logout(self) -> bool:
         """Logout from Databricks (clear stored configuration)"""
         try:
-            # Remove Databricks CLI configuration
             config_file = os.path.expanduser("~/.databrickscfg")
             if os.path.exists(config_file):
                 os.remove(config_file)
@@ -1006,63 +1501,53 @@ class DatabricksAuthProvider(AuthProvider):
             return False
 
     async def check_auth(self) -> AuthResult:
-        """Check Databricks authentication status"""
+        """Check Databricks auth — tries REST API first, CLI second."""
+        import shutil
         try:
-            # Check if Databricks CLI is installed
-            try:
-                self._run_command(["databricks", "--version"], capture_output=True)
-            except CLIError:
-                return AuthResult(
-                    provider=self.name,
-                    status=AuthStatus.ERROR,
-                    error_message="Databricks CLI not installed. Please install: pip install databricks-cli",
-                )
+            # Try env/keyring + API first
+            host = os.environ.get("DATABRICKS_HOST") or self.host or self._get_keyring_credential("host")
+            token = os.environ.get("DATABRICKS_TOKEN") or self.token or self._get_keyring_credential("token")
+            if host and token:
+                result = self._validate_via_api(host, token)
+                if result.status == AuthStatus.AUTHENTICATED:
+                    return self._annotate_method(result, "REST API")
 
-            # Test authentication by listing workspace
-            result = self._run_command(
-                ["databricks", "workspace", "list", "/"], capture_output=True, check=False
-            )
-
-            if result.returncode == 0:
-                # Try to get current user info
+            # Try ~/.databrickscfg
+            cfg_path = os.path.expanduser("~/.databrickscfg")
+            if os.path.exists(cfg_path):
                 try:
-                    user_result = self._run_command(
-                        ["databricks", "current-user", "me"], capture_output=True, check=False
-                    )
-                    user_info = {}
-                    if user_result.returncode == 0:
-                        import json
-
-                        user_data = json.loads(user_result.stdout)
-                        user_info = {
-                            "user_name": user_data.get("userName"),
-                            "display_name": user_data.get("displayName"),
-                            "email": (
-                                user_data.get("emails", [{}])[0].get("value")
-                                if user_data.get("emails")
-                                else None
-                            ),
-                        }
+                    import configparser
+                    cfg = configparser.ConfigParser()
+                    cfg.read(cfg_path)
+                    cfg_host = cfg.get("DEFAULT", "host", fallback=None)
+                    cfg_token = cfg.get("DEFAULT", "token", fallback=None)
+                    if cfg_host and cfg_token:
+                        result = self._validate_via_api(cfg_host, cfg_token)
+                        if result.status == AuthStatus.AUTHENTICATED:
+                            return self._annotate_method(result, "~/.databrickscfg")
                 except Exception:
-                    user_info = {}
+                    pass
 
-                return AuthResult(
-                    provider=self.name,
-                    status=AuthStatus.AUTHENTICATED,
-                    user_info={
-                        **user_info,
-                        "host": self.host,
-                        "workspace_id": self.workspace_id,
-                        "cluster_id": self.cluster_id,
-                    },
+            # Fallback: CLI
+            if shutil.which("databricks"):
+                r = self._run_command(
+                    ["databricks", "workspace", "list", "/"], capture_output=True, check=False
                 )
-            else:
-                return AuthResult(
-                    provider=self.name,
-                    status=AuthStatus.NOT_AUTHENTICATED,
-                    error_message="Databricks CLI not configured or credentials invalid",
-                )
+                if r.returncode == 0:
+                    return self._annotate_method(
+                        AuthResult(
+                            provider=self.name,
+                            status=AuthStatus.AUTHENTICATED,
+                            user_info={"host": self.host, "workspace_id": self.workspace_id},
+                        ),
+                        "Databricks CLI",
+                    )
 
+            return AuthResult(
+                provider=self.name,
+                status=AuthStatus.NOT_AUTHENTICATED,
+                error_message="No valid Databricks credentials found",
+            )
         except Exception as e:
             return AuthResult(provider=self.name, status=AuthStatus.ERROR, error_message=str(e))
 
