@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -273,7 +274,7 @@ USER_AGENTS_DIR_NAME = "agents"
 # Files in agent_specs/ that are not actual agent specs.
 _NON_SPEC_FILES = {"domain_keywords.yaml", "custom.yaml.template"}
 
-_LOG = __import__("logging").getLogger("fluid.cli.forge.agent_specs")
+_LOG = logging.getLogger("fluid.cli.forge.agent_specs")
 
 
 def _user_agent_dirs() -> List[Path]:
