@@ -483,6 +483,11 @@ def print_forge_performance_summary(
     else:
         lines.append("  [bold]Skills[/bold]      not installed")
 
+    # Team memory
+    team_memory = stats.get("team_memory")
+    if team_memory:
+        lines.append(f"  [bold]Team[/bold]        {team_memory}")
+
     # Interview
     interview_skipped = stats.get("interview_skipped", False)
     if interview_skipped:

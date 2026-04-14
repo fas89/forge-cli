@@ -1186,6 +1186,30 @@ def run_ai_copilot_mode(
                         message=f"Detected {domain} domain — loading expertise pack.",
                     )
 
+        # --- Team memory: load shared conventions ---
+        try:
+            from fluid_build.cli.forge_team_memory import load_team_memory
+            from fluid_build.util.workspace import find_workspace_root
+
+            ws_root = find_workspace_root(Path.cwd()) or Path.cwd()
+            tm = load_team_memory(ws_root)
+            if tm is not None:
+                perf_stats["team_memory"] = tm.summary_line()
+                if console:
+                    print_dialog_status(
+                        console,
+                        status="info",
+                        message=f"Loaded team memory ({tm.summary_line()}).",
+                    )
+            elif console and not is_non_interactive:
+                from fluid_build.cli.console import cprint
+
+                cprint(
+                    "[dim]Tip: create .fluid/team-memory.yaml to share conventions with your team[/dim]"
+                )
+        except Exception:  # noqa: BLE001
+            pass
+
         # Slice UX-L: populate perf_stats from what we know so far.
         from fluid_build.cli.forge_copilot_llm_providers import streaming_is_enabled
 

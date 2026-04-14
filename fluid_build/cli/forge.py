@@ -153,6 +153,7 @@ class CopilotAgent(CopilotAgentBase):
         llm_config: Any,
         discovery_report: Any,
         project_memory: Any,
+        team_memory: Any = None,
         capability_matrix: Any,
     ) -> CopilotGenerationResult:
         return generate_copilot_artifacts(
@@ -160,6 +161,7 @@ class CopilotAgent(CopilotAgentBase):
             llm_config=llm_config,
             discovery_report=discovery_report,
             project_memory=project_memory,
+            team_memory=team_memory,
             capability_matrix=capability_matrix,
             logger=LOG,
         )

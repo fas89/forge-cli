@@ -553,6 +553,15 @@ def _ensure_workspace(args, logger: logging.Logger) -> None:
     # matrix in the redesign plan.
     _ensure_gitignore_template(cwd)
 
+    # Scaffold team memory template so the team can share conventions.
+    try:
+        from fluid_build.cli.forge_team_memory import scaffold_team_memory
+
+        tm_path = scaffold_team_memory(cwd)
+        logger.debug("Scaffolded team memory at %s", tm_path)
+    except Exception:  # noqa: BLE001 — best-effort
+        pass
+
     if RICH_AVAILABLE:
         console.print(
             f"[dim]Created {WORKSPACE_FILENAME} — workspace [bold]{ws_name}[/bold][/dim]\n"

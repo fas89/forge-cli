@@ -200,6 +200,7 @@ class CopilotAgentBase(CopilotProjectMemoryMixin, CopilotLegacyScaffoldMixin, AI
         llm_config: Any,
         discovery_report: Any,
         project_memory: Any,
+        team_memory: Any = None,
         capability_matrix: Any,
     ) -> CopilotGenerationResult:
         return generate_copilot_artifacts(
@@ -207,6 +208,7 @@ class CopilotAgentBase(CopilotProjectMemoryMixin, CopilotLegacyScaffoldMixin, AI
             llm_config=llm_config,
             discovery_report=discovery_report,
             project_memory=project_memory,
+            team_memory=team_memory,
             capability_matrix=capability_matrix,
             logger=LOG,
         )
@@ -373,11 +375,26 @@ class CopilotAgentBase(CopilotProjectMemoryMixin, CopilotLegacyScaffoldMixin, AI
         """Generate and validate copilot artifacts via the LLM runtime."""
         context = normalize_copilot_context(context)
         runtime_inputs = self.prepare_runtime_inputs(copilot_options)
+
+        # Load team memory from workspace root (if available).
+        team_memory_payload = None
+        try:
+            from fluid_build.cli.forge_team_memory import load_team_memory
+            from fluid_build.util.workspace import find_workspace_root
+
+            ws_root = find_workspace_root(Path.cwd()) or Path.cwd()
+            tm = load_team_memory(ws_root)
+            if tm is not None:
+                team_memory_payload = tm.to_prompt_payload()
+        except Exception:  # noqa: BLE001
+            pass
+
         return self._generate_copilot_artifacts_dependency(
             context,
             llm_config=runtime_inputs["llm_config"],
             discovery_report=runtime_inputs["discovery_report"],
             project_memory=runtime_inputs["project_memory"],
+            team_memory=team_memory_payload,
             capability_matrix=runtime_inputs["capability_matrix"],
         )
 

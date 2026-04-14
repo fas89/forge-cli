@@ -54,6 +54,12 @@ def build_system_prompt(
         "Treat project_memory as a soft preference layer only. Explicit user context and the current "
         "discovery report take precedence.\n"
         "Use interview_summary as the authoritative statement of current user intent.\n\n"
+        "TEAM MEMORY: If team_memory is provided, treat it as authoritative team conventions:\n"
+        "- Use team vocabulary (entities, measures, dimensions) as preferred names in the contract.\n"
+        "- Apply team naming conventions (product_prefix, layer_convention, column_style).\n"
+        "- Respect team defaults (provider, build_engine, domain, owner_team) unless the user overrides.\n"
+        "- Honour team decisions — do not contradict architectural decisions the team has made.\n"
+        "Team memory takes precedence over project_memory and personal defaults.\n\n"
         "If interview_summary includes canonical_model or supporting_standards, use them as the authoritative "
         "semantic modeling guidance for entity names, measures, dimensions, and descriptions.\n"
         "Prefer canonical business vocabulary from those standards over source-table or file-specific names.\n\n"
@@ -253,6 +259,7 @@ def build_clarification_user_prompt(
     discovery_report: Any,
     capability_matrix: Mapping[str, Any],
     project_memory: Optional[CopilotMemorySnapshot] = None,
+    team_memory: Optional[Mapping[str, Any]] = None,
     previous_failure: Sequence[str] | None = None,
 ) -> str:
     """Build the adaptive interview prompt payload."""
@@ -302,6 +309,8 @@ def build_clarification_user_prompt(
             "and suggest agentPolicy constraints (canStore=false, deniedUseCases=[training, fine_tuning]).",
         ],
     }
+    if team_memory:
+        payload["team_memory"] = team_memory
     if project_memory:
         payload["project_memory"] = project_memory.to_prompt_payload()
     if previous_failure:
@@ -332,6 +341,7 @@ def build_user_prompt(
     previous_errors: Sequence[str],
     previous_payload: Optional[Mapping[str, Any]],
     project_memory: Optional[CopilotMemorySnapshot] = None,
+    team_memory: Optional[Mapping[str, Any]] = None,
 ) -> str:
     """Build the attempt-specific user prompt."""
     interview_summary = _normalize_interview_summary(context)
@@ -397,6 +407,8 @@ def build_user_prompt(
             "Include a schema.yml with column descriptions."
         )
 
+    if team_memory:
+        prompt["team_memory"] = team_memory
     if project_memory:
         prompt["project_memory"] = project_memory.to_prompt_payload()
     if previous_errors:

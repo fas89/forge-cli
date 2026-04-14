@@ -620,6 +620,7 @@ def generate_copilot_artifacts(
     llm_config: LlmConfig,
     discovery_report: DiscoveryReport,
     project_memory: Optional[CopilotMemorySnapshot] = None,
+    team_memory: Optional[Dict[str, Any]] = None,
     capability_matrix: Optional[Mapping[str, Any]] = None,
     logger: Optional[logging.Logger] = None,
     max_attempts: int = 3,
@@ -627,6 +628,17 @@ def generate_copilot_artifacts(
     """Generate and validate copilot artifacts with a repair loop."""
     capabilities = dict(capability_matrix or build_capability_matrix())
     provider_adapter = get_llm_provider(llm_config.provider)
+
+    # Apply team memory defaults to context gaps (team memory sits between
+    # explicit user input and project/personal memory in precedence).
+    if team_memory:
+        team_defaults = (team_memory.get("conventions") or {}).get("defaults") or {}
+        context = dict(context)  # shallow copy to avoid mutating caller's dict
+        for key in ("provider", "domain", "owner_team", "build_engine"):
+            team_value = team_defaults.get(key)
+            if team_value and not context.get(key):
+                context[key] = team_value
+
     scaffold_decision = _build_scaffold_decision(
         context,
         discovery_report,
@@ -660,6 +672,7 @@ def generate_copilot_artifacts(
             previous_errors=previous_errors,
             previous_payload=previous_payload,
             project_memory=project_memory,
+            team_memory=team_memory,
         )
 
         report = GenerationAttemptReport(
