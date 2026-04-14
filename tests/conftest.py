@@ -145,3 +145,14 @@ def mock_bigquery_client():
     """Provide a mock BigQuery client."""
     with patch("google.cloud.bigquery.Client") as mock_client:
         yield mock_client
+
+
+@pytest.fixture(autouse=True)
+def _disable_copilot_self_eval(monkeypatch):
+    """Disable self-evaluation LLM calls in all tests.
+
+    The self-evaluation feature calls ``call_llm`` a second time after
+    generation succeeds.  This interferes with tests that mock
+    ``call_llm`` with exact side-effect counts.
+    """
+    monkeypatch.setenv("FLUID_COPILOT_SELF_EVAL", "0")

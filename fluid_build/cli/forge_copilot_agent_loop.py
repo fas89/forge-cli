@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Mapping, Optional
 
@@ -48,6 +49,57 @@ _PARALLELIZABLE_TOOLS = frozenset({
 # Maximum number of LLM round-trips before we give up.
 MAX_AGENT_ITERATIONS = 12
 
+# After this many iterations, compact old tool results to stay within
+# context window limits.  Configurable via FLUID_AGENT_COMPACT_AFTER.
+_COMPACT_AFTER = int(os.environ.get("FLUID_AGENT_COMPACT_AFTER", "6"))
+_COMPACT_KEEP_TAIL = 4  # Keep last N messages intact.
+_COMPACT_MAX_CHARS = 500  # Truncate old tool results to this length.
+
+
+def _compact_message_history(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Truncate old tool result messages to prevent context window overflow.
+
+    Keeps the first message (original user context) and the last
+    ``_COMPACT_KEEP_TAIL`` messages intact.  Messages in between have
+    their content truncated to ``_COMPACT_MAX_CHARS`` characters.
+    """
+    if len(messages) <= _COMPACT_KEEP_TAIL + 1:
+        return messages
+
+    head = messages[:1]
+    tail = messages[-_COMPACT_KEEP_TAIL:]
+    middle = messages[1:-_COMPACT_KEEP_TAIL]
+
+    compacted_middle: List[Dict[str, Any]] = []
+    for msg in middle:
+        content = msg.get("content", "")
+        if isinstance(content, str) and len(content) > _COMPACT_MAX_CHARS:
+            msg = dict(msg)
+            msg["content"] = content[:_COMPACT_MAX_CHARS] + f" [truncated — {len(content)} chars total]"
+        elif isinstance(content, list):
+            # Anthropic-style content blocks — truncate text blocks.
+            new_blocks = []
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    text = block.get("text", "")
+                    if len(text) > _COMPACT_MAX_CHARS:
+                        block = dict(block)
+                        block["text"] = text[:_COMPACT_MAX_CHARS] + f" [truncated — {len(text)} chars total]"
+                new_blocks.append(block)
+            msg = dict(msg)
+            msg["content"] = new_blocks
+        compacted_middle.append(msg)
+
+    before = sum(len(json.dumps(m.get("content", ""))) for m in messages)
+    result = head + compacted_middle + tail
+    after = sum(len(json.dumps(m.get("content", ""))) for m in result)
+    LOG.debug(
+        "Compacted message history: %d messages, %d→%d chars",
+        len(result), before, after,
+    )
+    return result
+
+
 # System prompt for the agent loop — much shorter than the single-shot
 # prompt because the LLM discovers information via tools instead of
 # receiving it up front.
@@ -59,6 +111,14 @@ def _build_agent_system_prompt() -> str:
         "You are FLUID Forge Copilot, running in agent mode.\n"
         "Use the available tools to understand the user's workspace, choose "
         "the right template and provider, build a contract, and validate it.\n\n"
+        "PLANNING: Before calling any tools, state a brief plan (2-4 sentences):\n"
+        "- What you already know from the user's context\n"
+        "- What information is missing and needs discovery\n"
+        "- Which tools you will call and in what order\n"
+        "- Your strategy for building the contract\n"
+        "You may emit your plan text alongside your first tool calls in the same response.\n\n"
+        "REASONING: Before each major decision, briefly state your reasoning.\n"
+        "When returning the final contract, include a 'reasoning' key explaining your choices.\n\n"
         "Workflow:\n"
         "1. Call discover_workspace to scan for data files and existing contracts.\n"
         "2. Call list_templates to see available templates and providers.\n"
@@ -115,6 +175,10 @@ def run_copilot_agent_loop(
     total_tool_calls = 0
     for iteration in range(max_iterations):
         LOG.debug("Agent loop iteration %d/%d", iteration + 1, max_iterations)
+
+        # Compact old messages to stay within context window limits.
+        if iteration >= _COMPACT_AFTER:
+            messages = _compact_message_history(messages)
 
         # Call the LLM with the tool definitions.
         response_json = _call_llm_with_tools(

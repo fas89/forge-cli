@@ -252,6 +252,15 @@ class LlmProvider(ABC):
     def extract_text(self, response_json: Dict[str, Any]) -> str:
         """Extract free-form response text from the provider response."""
 
+    def extract_usage(self, response_json: Dict[str, Any]) -> Dict[str, int]:
+        """Extract token usage from the provider response.
+
+        Returns ``{input_tokens, output_tokens, total_tokens}``.
+        Default implementation returns zeros; providers override with
+        their specific response shapes.
+        """
+        return {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+
     # ------------------------------------------------------------------
     # Streaming (slice UX-I)
     # ------------------------------------------------------------------
@@ -403,6 +412,12 @@ class OpenAIProvider(LlmProvider):
 
     def extract_text(self, response_json: Dict[str, Any]) -> str:
         return response_json["choices"][0]["message"]["content"]
+
+    def extract_usage(self, response_json: Dict[str, Any]) -> Dict[str, int]:
+        usage = response_json.get("usage") or {}
+        inp = usage.get("prompt_tokens", 0)
+        out = usage.get("completion_tokens", 0)
+        return {"input_tokens": inp, "output_tokens": out, "total_tokens": inp + out}
 
     def iter_stream_chunks(self, response: httpx.Response) -> Iterator[str]:
         """Parse an OpenAI Chat Completions SSE stream.
@@ -621,6 +636,12 @@ class AnthropicProvider(LlmProvider):
                 return part.get("text", "")
         raise KeyError("Anthropic response did not contain a text or tool_use block")
 
+    def extract_usage(self, response_json: Dict[str, Any]) -> Dict[str, int]:
+        usage = response_json.get("usage") or {}
+        inp = usage.get("input_tokens", 0)
+        out = usage.get("output_tokens", 0)
+        return {"input_tokens": inp, "output_tokens": out, "total_tokens": inp + out}
+
     def iter_stream_chunks(self, response: httpx.Response) -> Iterator[str]:
         """Parse an Anthropic Messages API SSE stream.
 
@@ -800,6 +821,13 @@ class GeminiProvider(LlmProvider):
                 if text:
                     return text
         raise KeyError("Gemini response did not contain any text")
+
+    def extract_usage(self, response_json: Dict[str, Any]) -> Dict[str, int]:
+        usage = response_json.get("usageMetadata") or {}
+        inp = usage.get("promptTokenCount", 0)
+        out = usage.get("candidatesTokenCount", 0)
+        total = usage.get("totalTokenCount", inp + out)
+        return {"input_tokens": inp, "output_tokens": out, "total_tokens": total}
 
     # -- Streaming (slice UX-I) --------------------------------------------
 
@@ -1118,6 +1146,22 @@ _TRANSIENT_STATUS_CODES = {429, 502, 503, 504}
 _LLM_MAX_RETRIES = 2
 _LLM_RETRY_BASE_SECONDS = 2.0
 
+# Cumulative token usage across all LLM calls in this process.
+# Not thread-safe by design — LLM calls are sequential in the current
+# architecture.  If call_llm is ever invoked from threads, wrap updates
+# with a threading.Lock.
+_cumulative_usage: Dict[str, int] = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+
+
+def get_cumulative_token_usage() -> Dict[str, int]:
+    """Return cumulative token usage across all LLM calls in this process."""
+    return dict(_cumulative_usage)
+
+
+def reset_token_usage() -> None:
+    """Reset cumulative token counters (useful for testing)."""
+    _cumulative_usage.update({"input_tokens": 0, "output_tokens": 0, "total_tokens": 0})
+
 
 def call_llm(
     provider: LlmProvider,
@@ -1173,7 +1217,14 @@ def call_llm(
             ) from exc
 
     try:
-        return provider.extract_text(response.json())
+        resp_json = response.json()
+        usage = provider.extract_usage(resp_json)
+        _cumulative_usage["input_tokens"] += usage.get("input_tokens", 0)
+        _cumulative_usage["output_tokens"] += usage.get("output_tokens", 0)
+        _cumulative_usage["total_tokens"] += usage.get("total_tokens", 0)
+        return provider.extract_text(resp_json)
+    except CopilotGenerationError:
+        raise
     except Exception as exc:  # noqa: BLE001
         raise CopilotGenerationError(
             "copilot_llm_response_invalid",

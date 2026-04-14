@@ -504,6 +504,13 @@ def print_forge_performance_summary(
         else:
             lines.append(f"  [bold]Generation[/bold]  {gen_time:.1f}s")
 
+    # Token usage
+    total_tokens = stats.get("total_tokens", 0)
+    if total_tokens > 0:
+        input_t = stats.get("input_tokens", 0)
+        output_t = stats.get("output_tokens", 0)
+        lines.append(f"  [bold]Tokens[/bold]      {input_t:,} in / {output_t:,} out ({total_tokens:,} total)")
+
     # Tips (contextual suggestions)
     tips = []
     if not stats.get("skills_loaded"):

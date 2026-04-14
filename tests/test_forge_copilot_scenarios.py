@@ -606,7 +606,10 @@ def test_copilot_scenario_validation_repair_loop_uses_second_attempt(tmp_path: P
 
     assert len(result.attempt_reports) == 2
     assert result.attempt_reports[0].validation_errors == ["First attempt failed validation"]
-    assert captured_prompts[1]["repair_feedback"] == ["First attempt failed validation"]
+    feedback = captured_prompts[1]["repair_feedback"]
+    assert len(feedback) == 1
+    assert feedback[0]["error"] == "First attempt failed validation"
+    assert "category" in feedback[0]
     assert captured_prompts[1]["previous_response_summary"]["recommended_template"] == "starter"
     assert result.suggestions["recommended_template"] == "analytics"
 

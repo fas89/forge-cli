@@ -123,6 +123,87 @@ _STRUCTURAL_ERROR_KEYWORDS = (
 )
 
 
+# Maps keyword patterns in error strings to repair guidance.
+_REPAIR_GUIDANCE: List[Dict[str, Any]] = [
+    {
+        "pattern": "binding.platform",
+        "category": "missing_field",
+        "fix_hint": "Add 'platform' to each expose binding using one of the allowed providers.",
+        "example": '{"platform": "local", "format": "parquet", "location": {"path": "..."}}',
+    },
+    {
+        "pattern": "not supported for provider",
+        "category": "engine_incompatible",
+        "fix_hint": "Check the capability matrix — the chosen engine is not compatible with the provider.",
+    },
+    {
+        "pattern": "unsupported provider",
+        "category": "invalid_value",
+        "fix_hint": "Use only providers listed in the capability matrix.",
+    },
+    {
+        "pattern": "unsupported template",
+        "category": "invalid_value",
+        "fix_hint": "Use only templates listed in the capability matrix.",
+    },
+    {
+        "pattern": "missing an engine",
+        "category": "missing_field",
+        "fix_hint": "Every build must have an 'engine' field (sql, python, or dbt).",
+    },
+    {
+        "pattern": "must include sql",
+        "category": "missing_field",
+        "fix_hint": "For engine='sql', properties must contain a 'sql' key with a SQL string.",
+        "example": '{"sql": "SELECT 1 AS id"}',
+    },
+    {
+        "pattern": "must define repository",
+        "category": "missing_field",
+        "fix_hint": "For engine='python', the build must have a 'repository' field.",
+    },
+    {
+        "pattern": "semantics",
+        "category": "semantics_incomplete",
+        "fix_hint": "Each expose needs a 'semantics' block with name, description, entities, measures, and dimensions.",
+    },
+    {
+        "pattern": "is a required property",
+        "category": "missing_field",
+        "fix_hint": "A required field is missing — add the named property to the object.",
+    },
+    {
+        "pattern": "is not valid",
+        "category": "invalid_value",
+        "fix_hint": "The value does not match the schema. Check allowed enum values or types.",
+    },
+]
+
+
+def build_structured_repair_feedback(
+    errors: Sequence[str],
+) -> List[Dict[str, Any]]:
+    """Convert raw validation errors into structured repair guidance.
+
+    Each error is annotated with a category, a concrete fix hint, and an
+    optional JSON example.  The original error text is always preserved
+    so the LLM can still interpret novel errors.
+    """
+    feedback: List[Dict[str, Any]] = []
+    for error in errors:
+        entry: Dict[str, Any] = {"error": error, "category": "schema_violation", "fix_hint": ""}
+        lower = error.lower()
+        for guidance in _REPAIR_GUIDANCE:
+            if guidance["pattern"] in lower:
+                entry["category"] = guidance["category"]
+                entry["fix_hint"] = guidance["fix_hint"]
+                if "example" in guidance:
+                    entry["example"] = guidance["example"]
+                break
+        feedback.append(entry)
+    return feedback
+
+
 def _coerce_string_list(value: Any) -> List[str]:
     if isinstance(value, list):
         return [str(item).strip() for item in value if str(item or "").strip()]

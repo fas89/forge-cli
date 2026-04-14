@@ -275,7 +275,10 @@ class TestCopilotMemoryRuntimeIntegration:
         }
 
         def _fake_call_llm(provider, config, system_prompt, user_prompt):
-            captured["user_prompt"] = json.loads(user_prompt)
+            # Only capture the generation call (first call), not
+            # self-evaluation or other subsequent calls.
+            if "user_prompt" not in captured:
+                captured["user_prompt"] = json.loads(user_prompt)
             return json.dumps(payload)
 
         with patch("fluid_build.cli.forge_copilot_runtime.call_llm", side_effect=_fake_call_llm):

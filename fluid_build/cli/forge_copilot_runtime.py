@@ -25,6 +25,7 @@ import copy
 import hashlib
 import json
 import logging
+import os
 import threading
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
@@ -63,6 +64,9 @@ from fluid_build.cli.forge_copilot_contract_helpers import (
 )
 from fluid_build.cli.forge_copilot_contract_helpers import (
     validate_generated_result as _validate_generated_result_raw,
+)
+from fluid_build.cli.forge_copilot_contract_helpers import (
+    build_structured_repair_feedback,
 )
 
 # ---------------------------------------------------------------------------
@@ -566,6 +570,50 @@ def _call_llm_with_optional_streaming(
                 pass
 
 
+def _self_eval_enabled() -> bool:
+    """Kill-switch for post-generation self-evaluation."""
+    value = os.environ.get("FLUID_COPILOT_SELF_EVAL", "1").strip().lower()
+    return value not in {"0", "false", "no", "off"}
+
+
+def _self_evaluate_contract(
+    llm_config: "LlmConfig",
+    context: Mapping[str, Any],
+    contract: Dict[str, Any],
+    logger: Optional[logging.Logger] = None,
+) -> Optional[Dict[str, Any]]:
+    """Ask the routing model to evaluate a generated contract (fail-open).
+
+    Returns ``{"score": int, "issues": [...], "suggestions": [...]}``
+    or ``None`` if the evaluation call fails for any reason.
+    """
+    if not _self_eval_enabled():
+        return None
+    try:
+        from fluid_build.cli.forge_copilot_prompts import build_evaluation_prompt
+
+        eval_prompt = build_evaluation_prompt(context, contract)
+        routing_config = llm_config.for_routing()
+        adapter = get_llm_provider(routing_config.provider)
+        raw = call_llm(
+            adapter,
+            routing_config,
+            "You are a contract quality evaluator. Return strict JSON only.",
+            eval_prompt,
+        )
+        result = json.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(result, dict) and "score" in result:
+            if logger:
+                logger.info(
+                    "Self-evaluation score: %s/10", result.get("score")
+                )
+            return result
+    except Exception as exc:  # noqa: BLE001 — fail-open
+        if logger:
+            logger.debug("Self-evaluation failed (skipping): %s", exc)
+    return None
+
+
 def generate_copilot_artifacts(
     context: Mapping[str, Any],
     *,
@@ -649,6 +697,25 @@ def generate_copilot_artifacts(
         report.validation_warnings = validation_warnings
 
         if not validation_errors:
+            # Self-evaluation: ask the routing model to rate the contract.
+            # If score < 7, treat evaluation issues as repair feedback and
+            # loop back for another attempt.  Fail-open — evaluation
+            # errors never block a valid contract from being returned.
+            eval_result = _self_evaluate_contract(
+                llm_config, context, normalized["contract"], logger=logger,
+            )
+            if eval_result and eval_result.get("score", 10) < 7 and attempt_index < max_attempts:
+                issues = eval_result.get("issues") or eval_result.get("suggestions") or []
+                if issues:
+                    previous_errors = build_structured_repair_feedback(
+                        [f"Quality issue: {issue}" for issue in issues]
+                    )
+                    previous_payload = payload
+                    report.validation_warnings.append(
+                        f"Self-evaluation score {eval_result.get('score')}/10 — retrying."
+                    )
+                    continue
+
             provenance = {
                 "llm_provider": llm_config.provider,
                 "llm_model": llm_config.model,
@@ -658,6 +725,7 @@ def generate_copilot_artifacts(
                     json.dumps(discovery_report.to_prompt_payload(), sort_keys=True).encode()
                 ).hexdigest()[:16],
                 "attempt": attempt_index,
+                "self_eval_score": eval_result.get("score") if eval_result else None,
                 "timestamp_utc": datetime.now(timezone.utc).isoformat(),
             }
             return CopilotGenerationResult(
@@ -672,7 +740,7 @@ def generate_copilot_artifacts(
                 provenance=provenance,
             )
 
-        previous_errors = validation_errors
+        previous_errors = build_structured_repair_feedback(validation_errors)
         previous_payload = payload
 
     attempt_summaries = []

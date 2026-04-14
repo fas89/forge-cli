@@ -57,7 +57,15 @@ def build_system_prompt(
         "If interview_summary includes canonical_model or supporting_standards, use them as the authoritative "
         "semantic modeling guidance for entity names, measures, dimensions, and descriptions.\n"
         "Prefer canonical business vocabulary from those standards over source-table or file-specific names.\n\n"
-        "The JSON object must contain keys: recommended_template, recommended_provider, "
+        # --- Chain-of-thought reasoning ---
+        "REASONING: Before generating the contract, think through these steps in order:\n"
+        "1. Analyze the data sources — what schema shape, column types, and relationships are implied?\n"
+        "2. Evaluate which template best matches the use case and why.\n"
+        "3. Select the provider and build engine based on the capability matrix and compatibility rules.\n"
+        "4. Design entity modeling — identify primary keys, measures, dimensions, and time grains.\n"
+        "5. Determine if sovereignty or agentPolicy blocks are needed based on compliance context.\n"
+        "Include your reasoning in a top-level 'reasoning' key (string) in the response JSON.\n\n"
+        "The JSON object must contain keys: reasoning, recommended_template, recommended_provider, "
         "recommended_patterns, architecture_suggestions, best_practices, technology_stack, "
         "description, domain, owner, readme_markdown, contract, additional_files.\n\n"
         f"CRITICAL: The contract value must be a JSON object that strictly conforms to the FLUID {fv} schema.\n"
@@ -133,6 +141,71 @@ def build_system_prompt(
         "Follow the seed_contract structure exactly as a reference for the correct schema shape.\n"
         f"Allowed providers: {providers}.\n"
         "Only use build engines from the provided capability matrix."
+    )
+
+
+_EVAL_MAX_SCHEMA_COLUMNS = 3
+
+
+def _truncate_contract_for_eval(contract: Mapping[str, Any]) -> dict:
+    """Return a lightweight copy of the contract for evaluation.
+
+    Large schema arrays are truncated to the first few columns to keep
+    the evaluation prompt small enough for the routing model.
+    """
+    c = dict(contract)
+    exposes = c.get("exposes")
+    if isinstance(exposes, list):
+        trimmed = []
+        for expose in exposes:
+            expose = dict(expose)
+            schema = (expose.get("contract") or {}).get("schema")
+            if isinstance(schema, list) and len(schema) > _EVAL_MAX_SCHEMA_COLUMNS:
+                expose = dict(expose)
+                expose["contract"] = dict(expose.get("contract") or {})
+                expose["contract"]["schema"] = schema[:_EVAL_MAX_SCHEMA_COLUMNS]
+                expose["contract"]["_truncated_columns"] = len(schema)
+            trimmed.append(expose)
+        c["exposes"] = trimmed
+    return c
+
+
+def build_evaluation_prompt(
+    context: Mapping[str, Any],
+    contract: Mapping[str, Any],
+) -> str:
+    """Build a prompt that asks the LLM to evaluate a generated contract.
+
+    Used for self-evaluation after schema validation passes — checks
+    semantic quality, not just structural correctness.  The response
+    is a small JSON: ``{"score": int, "issues": [str], "suggestions": [str]}``.
+    """
+    goal = context.get("project_goal") or context.get("description") or ""
+    use_case = context.get("use_case") or ""
+    data_sources = context.get("data_sources") or ""
+    return json.dumps(
+        {
+            "task": "Evaluate this FLUID contract against the user's requirements.",
+            "user_requirements": {
+                "project_goal": goal,
+                "use_case": use_case,
+                "data_sources": data_sources,
+            },
+            "contract": _truncate_contract_for_eval(contract),
+            "evaluation_criteria": [
+                "Completeness: Does the contract cover all data sources and use cases mentioned?",
+                "Entity modeling: Are primary keys, measures, dimensions, and time grains sensible?",
+                "Production-readiness: Are bindings, triggers, and engine choices appropriate?",
+                "Semantic quality: Are names, descriptions, and business vocabulary clear?",
+            ],
+            "response_format": {
+                "score": "integer 1-10 (10 = excellent)",
+                "issues": "list of specific problems found (empty if score >= 7)",
+                "suggestions": "list of concrete improvements",
+            },
+        },
+        indent=2,
+        sort_keys=True,
     )
 
 

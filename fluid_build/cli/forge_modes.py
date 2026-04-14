@@ -934,6 +934,9 @@ def run_ai_copilot_mode(
             "generation_time_s": 0.0,
             "agent_loop_rounds": 0,
             "agent_loop_tool_calls": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
         }
 
         context: Dict[str, Any] = {}
@@ -1293,6 +1296,13 @@ def run_ai_copilot_mode(
 
         # Slice UX-L: render the performance summary panel.
         perf_stats["generation_time_s"] = round(_time.monotonic() - _run_start, 1)
+        try:
+            from fluid_build.cli.forge_copilot_llm_providers import get_cumulative_token_usage
+
+            usage = get_cumulative_token_usage()
+            perf_stats.update(usage)
+        except Exception:  # noqa: BLE001
+            pass
         try:
             from fluid_build.cli.forge_ui import print_forge_performance_summary
 
