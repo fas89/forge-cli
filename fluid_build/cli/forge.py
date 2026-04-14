@@ -225,8 +225,8 @@ def register(subparsers: argparse._SubParsersAction):
         domain_names = "finance, healthcare, retail, telco"
     parser.add_argument(
         "--domain",
-        help=f"Domain agent for AI (available: {domain_names}). "
-        "Custom agents: drop a YAML spec in .fluid/agents/",
+        help=f"Domain expertise agent ({domain_names}). "
+        "Custom: drop a YAML in .fluid/agents/ — see docs at https://fluid-build.dev/docs/forge/agents",
     )
     parser.add_argument(
         "--non-interactive",
@@ -239,7 +239,8 @@ def register(subparsers: argparse._SubParsersAction):
         help="Preview what would be created without generating files",
     )
     parser.add_argument(
-        "--context", help="Additional context for AI (JSON string or file path)"
+        "--context",
+        help='Additional context as JSON or file path (e.g., \'{"provider":"gcp","domain":"retail"}\')',
     )
 
     # --- LLM flags ---

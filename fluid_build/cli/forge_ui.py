@@ -509,6 +509,12 @@ def print_forge_performance_summary(
         else:
             lines.append(f"  [bold]Generation[/bold]  {gen_time:.1f}s")
 
+    # Quality score (self-evaluation)
+    self_eval = stats.get("self_eval_score")
+    if self_eval is not None:
+        color = "green" if self_eval >= 7 else "yellow" if self_eval >= 5 else "red"
+        lines.append(f"  [bold]Quality[/bold]     [{color}]{self_eval}/10[/{color}]")
+
     # Token usage
     total_tokens = stats.get("total_tokens", 0)
     if total_tokens > 0:

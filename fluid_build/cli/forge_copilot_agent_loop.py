@@ -193,7 +193,7 @@ def run_copilot_agent_loop(
             if console:
                 try:
                     console.print(
-                        f"[dim]  Round {iteration + 1}/{max_iterations} — final response[/dim]"
+                        f"  [bold green]Round {iteration + 1}[/bold green]  Delivering contract"
                     )
                 except Exception:  # noqa: BLE001
                     pass
@@ -230,11 +230,11 @@ def run_copilot_agent_loop(
 
         # Slice UX-L: show which tools are being called.
         total_tool_calls += len(tool_calls)
-        tool_names = ", ".join(tc["name"] for tc in tool_calls)
+        tool_list = " → ".join(tc["name"] for tc in tool_calls)
         if console:
             try:
                 console.print(
-                    f"[dim]  Round {iteration + 1}/{max_iterations} — calling {tool_names}[/dim]"
+                    f"  [bold cyan]Round {iteration + 1}[/bold cyan]  {tool_list}"
                 )
             except Exception:  # noqa: BLE001
                 pass

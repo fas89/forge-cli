@@ -1148,20 +1148,44 @@ def run_ai_copilot_mode(
 
             try:
                 load_user_or_builtin_spec(explicit_domain)
-            except (AgentSpecError, FileNotFoundError):
+            except AgentSpecError as spec_err:
+                # Show the specific validation error so the user can fix it.
                 if console and not is_non_interactive:
-                    console.print(
-                        f"\n[yellow]No agent found for [bold]{explicit_domain}[/bold].[/yellow]"
+                    print_dialog_status(
+                        console,
+                        status="warning",
+                        message=f"Agent spec error for '{explicit_domain}': {spec_err}",
+                    )
+                else:
+                    logger.warning("Invalid agent spec for %s: %s", explicit_domain, spec_err)
+                explicit_domain = None
+            except FileNotFoundError:
+                if console and not is_non_interactive:
+                    print_dialog_status(
+                        console,
+                        status="warning",
+                        message=f"No agent found for '{explicit_domain}'.",
                     )
                     from fluid_build.cli.forge_dialogs import ask_confirmation
 
                     if ask_confirmation(console, "Create a custom domain agent?", default=True):
-                        path = scaffold_user_agent(explicit_domain)
-                        console.print(
-                            f"[green]Created {path}[/green]\n"
-                            f"Edit the file to customize questions, rules, and suggestions.\n"
-                            f"Then re-run: [bold]fluid forge --domain {explicit_domain}[/bold]"
-                        )
+                        try:
+                            path = scaffold_user_agent(explicit_domain)
+                            print_dialog_status(
+                                console,
+                                status="success",
+                                message=f"Created {path.relative_to(Path.cwd())}",
+                            )
+                            console.print(
+                                f"  Edit the file to customize questions, rules, and suggestions.\n"
+                                f"  Then re-run: [bold]fluid forge --domain {explicit_domain}[/bold]\n"
+                            )
+                        except Exception as scaffold_err:  # noqa: BLE001
+                            print_dialog_status(
+                                console,
+                                status="error",
+                                message=f"Could not create agent: {scaffold_err}",
+                            )
                         return 0
                     # User declined — continue without domain enrichment.
                     explicit_domain = None
@@ -1183,15 +1207,19 @@ def run_ai_copilot_mode(
                     print_dialog_status(
                         console,
                         status="info",
-                        message=f"Detected {domain} domain — loading expertise pack.",
+                        message=f"Loaded {domain} domain expertise pack.",
                     )
 
         # --- Team memory: load shared conventions ---
         try:
-            from fluid_build.cli.forge_team_memory import load_team_memory
+            from fluid_build.cli.forge_team_memory import (
+                TEAM_MEMORY_FILENAME,
+                load_team_memory,
+            )
             from fluid_build.util.workspace import find_workspace_root
 
             ws_root = find_workspace_root(Path.cwd()) or Path.cwd()
+            team_memory_path = ws_root / ".fluid" / TEAM_MEMORY_FILENAME
             tm = load_team_memory(ws_root)
             if tm is not None:
                 perf_stats["team_memory"] = tm.summary_line()
@@ -1201,11 +1229,18 @@ def run_ai_copilot_mode(
                         status="info",
                         message=f"Loaded team memory ({tm.summary_line()}).",
                     )
+            elif team_memory_path.exists() and console:
+                # File exists but failed to parse — show actionable error.
+                print_dialog_status(
+                    console,
+                    status="warning",
+                    message=f"Could not parse {TEAM_MEMORY_FILENAME}. Check YAML syntax.",
+                )
             elif console and not is_non_interactive:
-                from fluid_build.cli.console import cprint
-
-                cprint(
-                    "[dim]Tip: create .fluid/team-memory.yaml to share conventions with your team[/dim]"
+                print_dialog_status(
+                    console,
+                    status="info",
+                    message="No team memory found. Create .fluid/team-memory.yaml to share conventions.",
                 )
         except Exception:  # noqa: BLE001
             pass
@@ -1288,6 +1323,9 @@ def run_ai_copilot_mode(
         # the mode runner and the receipt writer in forge.py).
         if hasattr(copilot, "_last_provenance"):
             args._copilot_provenance = copilot._last_provenance
+            score = copilot._last_provenance.get("self_eval_score")
+            if score is not None:
+                perf_stats["self_eval_score"] = score
 
         # Post-generation: create data + dbt scaffolding (slice UX-H:
         # gated on --scaffold so the minimal path leaves an empty
