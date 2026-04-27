@@ -43,6 +43,7 @@ and review the diff as part of the PR.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -108,6 +109,32 @@ class TestDefaultGuidanceFiles:
         assert "modeling technique mandate" in text
         assert "data_modeling_guidance" in text
 
+    def test_clarification_yaml_exists_and_loads(self):
+        import yaml
+
+        path = _DEFAULTS_DIR / "clarification.yaml"
+        assert path.exists(), f"expected {path} to ship with the package"
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        assert isinstance(raw, dict)
+        assert isinstance(raw.get("system_prompt"), str)
+        text = raw["system_prompt"].lower()
+        assert "interview planner" in text
+        assert "${fluid_version}" in raw["system_prompt"]
+        assert "${providers}" in raw["system_prompt"]
+
+    def test_evaluation_yaml_exists_and_loads(self):
+        import yaml
+
+        path = _DEFAULTS_DIR / "evaluation.yaml"
+        assert path.exists(), f"expected {path} to ship with the package"
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        assert isinstance(raw, dict)
+        assert isinstance(raw.get("system_prompt"), str)
+        payload = json.loads(raw["system_prompt"])
+        assert payload["task"].startswith("Evaluate this FLUID contract")
+        assert "evaluation_criteria" in payload
+        assert "response_format" in payload
+
 
 class TestDefaultGuidanceLoaded:
     """``_DEFAULT_GUIDANCE`` must expose required keys non-empty."""
@@ -129,6 +156,53 @@ class TestDefaultGuidanceLoaded:
         ].strip(), (
             "technique mandate guidance must not be empty — check _defaults/technique_mandate.yaml"
         )
+
+    def test_auxiliary_prompt_map_has_required_keys(self):
+        from fluid_build.cli.forge_copilot_prompts import _AUXILIARY_PROMPTS
+
+        assert "clarification" in _AUXILIARY_PROMPTS
+        assert "evaluation" in _AUXILIARY_PROMPTS
+        assert _AUXILIARY_PROMPTS[
+            "clarification"
+        ].strip(), "clarification prompt must not be empty — check _defaults/clarification.yaml"
+        assert _AUXILIARY_PROMPTS[
+            "evaluation"
+        ].strip(), "evaluation prompt must not be empty — check _defaults/evaluation.yaml"
+
+
+class TestAuxiliaryPromptComposition:
+    """Auxiliary YAML prompt fragments must drive their prompt builders."""
+
+    def test_clarification_prompt_renders_yaml_placeholders(self):
+        from fluid_build.cli.forge_copilot_prompts import build_clarification_system_prompt
+
+        prompt = build_clarification_system_prompt(_canonical_matrix())
+
+        assert "${" not in prompt
+        assert "FLUID" in prompt
+        assert "Allowed providers: local, gcp, aws, snowflake." in prompt
+        assert (
+            "Known templates: analytics, etl_pipeline, ml_pipeline, starter, streaming." in prompt
+        )
+
+    def test_evaluation_prompt_uses_yaml_template(self):
+        from fluid_build.cli.forge_copilot_prompts import (
+            _AUXILIARY_PROMPTS,
+            build_evaluation_prompt,
+        )
+
+        template_payload = json.loads(_AUXILIARY_PROMPTS["evaluation"])
+        prompt = build_evaluation_prompt(
+            {"project_goal": "Customer analytics", "use_case": "analytics"},
+            {"id": "customer_analytics"},
+        )
+        payload = json.loads(prompt)
+
+        assert payload["task"] == template_payload["task"]
+        assert payload["evaluation_criteria"] == template_payload["evaluation_criteria"]
+        assert payload["response_format"] == template_payload["response_format"]
+        assert payload["user_requirements"]["project_goal"] == "Customer analytics"
+        assert payload["contract"]["id"] == "customer_analytics"
 
 
 class TestSystemPromptSnapshot:
