@@ -37,7 +37,7 @@ from fluid_build.schema_manager import FluidSchemaManager
 
 LOG = logging.getLogger("fluid.cli.forge_copilot.tools")
 
-_FV = FluidSchemaManager.latest_bundled_version()
+_FV = FluidSchemaManager.default_scaffolding_version()
 
 # SECURITY_REVIEW S-003: workspace confinement for LLM-driven tools.
 # Files the copilot reads are (a) confined to the caller-provided

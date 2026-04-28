@@ -77,7 +77,7 @@ def build_minimal_contract(
         build_doc["properties"] = {"model": "main"}
 
     return {
-        "fluidVersion": FluidSchemaManager.latest_bundled_version(),
+        "fluidVersion": FluidSchemaManager.default_scaffolding_version(),
         "kind": "DataProduct",
         "id": product_id,
         "name": name or product_id.replace("-", " ").title(),

@@ -255,7 +255,7 @@ class ProjectValidator:
 
                 known_versions = set(FluidSchemaManager.BUNDLED_VERSIONS)
             except Exception:  # noqa: BLE001
-                known_versions = {"0.4.0", "0.5.7", "0.7.1", "0.7.2"}
+                known_versions = {"0.4.0", "0.5.7", "0.7.1", "0.7.2", "0.7.3"}
             if declared_version not in known_versions:
                 self.issues.append(
                     ValidationIssue(

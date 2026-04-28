@@ -6,6 +6,13 @@ MCP-compatible client (Claude Code, Cursor, Continue, etc.). The
 server speaks the standard MCP wire format over stdin/stdout — no
 HTTP, no auth dance, no extra ports.
 
+> **See also:** [`fluid mcp output-port serve`](MCP_OUTPUT_PORT.md)
+> is the consumer-side counterpart to this authoring server. It
+> binds one expose from a FLUID contract and serves
+> `describe`, `sample`, `query` tools to MCP clients that want to
+> *consume* the data product, not author its contract. Different
+> command, different threat model, same wire format.
+
 ## What's exposed
 
 | Tool | Read/Write | What it does |

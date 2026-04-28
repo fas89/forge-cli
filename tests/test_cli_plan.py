@@ -340,12 +340,17 @@ class TestDefaultFluidVersionIsDynamic(unittest.TestCase):
     Stale defaults silently route new contracts through old code paths.
     """
 
-    def test_default_version_matches_schema_manager_latest(self):
+    def test_default_version_matches_schema_manager_default(self):
         from fluid_build.cli.plan import _default_fluid_version
         from fluid_build.schema_manager import SchemaManager
 
-        # The helper MUST delegate to SchemaManager (not hardcoded).
-        assert _default_fluid_version() == SchemaManager.latest_bundled_version()
+        # The helper MUST delegate to SchemaManager. The default for
+        # an undated contract is the *scaffolding* default — the
+        # version ``fluid init`` would emit today — not whichever
+        # version happens to be the highest bundled. Bumping the
+        # scaffolding default is a deliberate, separate decision
+        # (see :attr:`FluidSchemaManager.DEFAULT_SCAFFOLDING_VERSION`).
+        assert _default_fluid_version() == SchemaManager.default_scaffolding_version()
 
     def test_default_version_is_not_a_stale_literal(self):
         """Regression: if someone re-adds a hardcoded fallback, catch it."""

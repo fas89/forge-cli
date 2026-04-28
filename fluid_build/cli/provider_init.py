@@ -31,8 +31,10 @@ COMMAND = "provider-init"
 
 
 def _latest_fluid_version() -> str:
-    """Return the newest bundled FLUID schema version (resolved lazily)."""
-    return FluidSchemaManager.latest_bundled_version()
+    """Return the FLUID version freshly-scaffolded contracts should
+    declare (resolved lazily). Pinned to the scaffolding default,
+    not necessarily the newest bundled schema."""
+    return FluidSchemaManager.default_scaffolding_version()
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:

@@ -1,0 +1,38 @@
+fluidVersion: "0.7.3"
+kind: DataProduct
+id: gold.api.payments_inline_v1
+name: Payments API (inline OpenAPI)
+metadata:
+  layer: Silver
+  owner:
+    team: platform-payments
+    email: payments@example.com
+  businessContext:
+    domain: Payments
+exposes:
+  - exposeId: payments_api
+    title: Payments API
+    kind: api
+    contract:
+      schema:
+        - name: payment_id
+          type: STRING
+          required: true
+    binding:
+      platform: aws
+      format: http_api
+      location:
+        region: us-east-1
+        gateway: payments.api.example.com
+    openapi:
+      openapi: "3.1.0"
+      info:
+        title: Payments
+        version: "1.0.0"
+      paths:
+        /payments:
+          get:
+            summary: List payments
+            responses:
+              "200":
+                description: ok

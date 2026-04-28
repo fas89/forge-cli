@@ -84,8 +84,15 @@ class TestSchemaVersionCoverage:
         latest = FluidSchemaManager.latest_bundled_version()
         assert latest == FluidSchemaManager.BUNDLED_VERSIONS[-1]
 
-    def test_copilot_targets_latest_version(self):
-        """The copilot prompt helpers must target the latest bundled version."""
+    def test_copilot_targets_default_scaffolding_version(self):
+        """The copilot prompt helpers target the scaffolding default,
+        not necessarily the latest bundled version.
+
+        Registering a new schema in the codebase doesn't auto-bump
+        the LLM-emitted contracts onto it. The bump is a separate,
+        deliberate action — see
+        :attr:`FluidSchemaManager.DEFAULT_SCAFFOLDING_VERSION`.
+        """
         from fluid_build.cli.forge_copilot_prompts import _latest_fluid_version
 
-        assert _latest_fluid_version() == FluidSchemaManager.latest_bundled_version()
+        assert _latest_fluid_version() == FluidSchemaManager.default_scaffolding_version()

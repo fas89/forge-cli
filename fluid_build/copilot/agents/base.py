@@ -104,7 +104,7 @@ class StageSession:
     tiered: bool = False
     no_cache: bool = False
     cache_ttl: Optional[int] = None
-    fluid_version: str = field(default_factory=FluidSchemaManager.latest_bundled_version)
+    fluid_version: str = field(default_factory=FluidSchemaManager.default_scaffolding_version)
     capability_matrix: Dict[str, Any] = field(default_factory=dict)
     project_memory: Optional[Dict[str, Any]] = None
     team_memory: Optional[Dict[str, Any]] = None

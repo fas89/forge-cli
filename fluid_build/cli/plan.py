@@ -84,19 +84,21 @@ COMMAND = "plan"
 
 
 def _default_fluid_version() -> str:
-    """Return the latest bundled FLUID schema version (dynamic lookup).
+    """Return the FLUID version assumed when a contract doesn't declare
+    ``fluidVersion``.
 
-    Used as the fallback when a contract doesn't declare ``fluidVersion``
-    — instead of hardcoding a number that goes stale every release, we
-    ask ``SchemaManager`` which version is the newest bundled schema on
-    disk. When we ship 0.8.x, the fallback tracks it automatically.
+    Pinned to the scaffolding default rather than the newest bundled
+    schema so an undated contract is read with the conservative shape
+    that matches what `fluid init` writes today. Bumping the
+    scaffolding default is a deliberate, separate decision — see
+    :attr:`FluidSchemaManager.DEFAULT_SCAFFOLDING_VERSION`.
 
     Lazy-imported so ``plan.py``'s module load doesn't pull the full
     schema_manager graph for ``--help`` invocations.
     """
     from fluid_build.schema_manager import SchemaManager
 
-    return SchemaManager.latest_bundled_version()
+    return SchemaManager.default_scaffolding_version()
 
 
 def write_json_idempotent(path: str, obj: Any) -> None:

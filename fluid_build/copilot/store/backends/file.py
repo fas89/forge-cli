@@ -41,7 +41,9 @@ class FileBackend(Store):
         self.root = (root or (Path.home() / ".fluid" / "store")).expanduser()
         self.root.mkdir(parents=True, exist_ok=True)
         self.workspace_root = workspace_root or Path.cwd()
-        self.default_fluid_version = fluid_version or FluidSchemaManager.latest_bundled_version()
+        self.default_fluid_version = (
+            fluid_version or FluidSchemaManager.default_scaffolding_version()
+        )
         # Guard so we only announce the legacy read once per process.
         self._legacy_announced = False
 

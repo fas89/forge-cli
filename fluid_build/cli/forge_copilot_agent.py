@@ -543,7 +543,7 @@ class CopilotAgentBase(CopilotProjectMemoryMixin, CopilotLegacyScaffoldMixin, AI
         }
         if generation_result:
             config["fluid_version"] = generation_result.contract.get(
-                "fluidVersion", FluidSchemaManager.latest_bundled_version()
+                "fluidVersion", FluidSchemaManager.default_scaffolding_version()
             )
             config["copilot_generated_contract"] = generation_result.contract
             config["copilot_generated_readme"] = generation_result.readme_markdown

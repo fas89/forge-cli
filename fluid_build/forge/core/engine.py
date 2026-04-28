@@ -498,7 +498,7 @@ class ForgeEngine:
 
                     available = FluidSchemaManager.BUNDLED_VERSIONS
                 except Exception:  # noqa: BLE001
-                    available = ["0.4.0", "0.5.7", "0.7.1", "0.7.2"]
+                    available = ["0.4.0", "0.5.7", "0.7.1", "0.7.2", "0.7.3"]
                 version_choice = Prompt.ask(
                     "FLUID specification version", choices=available, default=available[-1]
                 )

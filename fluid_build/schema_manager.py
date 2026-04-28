@@ -71,7 +71,7 @@ def _discover_bundled_versions() -> List[str]:
                 versions.add(match.group(1))
 
     if not versions:
-        versions.update(["0.4.0", "0.5.7", "0.7.1", "0.7.2"])
+        versions.update(["0.4.0", "0.5.7", "0.7.1", "0.7.2", "0.7.3"])
 
     return sorted(versions, key=_schema_version_sort_key)
 
@@ -344,12 +344,31 @@ class FluidSchemaManager:
     # Bundled schema versions (embedded in package)
     BUNDLED_VERSIONS = _discover_bundled_versions()
 
+    # Default version used when authoring NEW contracts via `fluid init`,
+    # the staged-forge copilot, or the in-memory store. Deliberately
+    # pinned to a *stable* version even when newer bundled schemas
+    # exist — bumping the scaffolding default is a separate decision
+    # from registering a new schema. Update this only when the next
+    # version has been proven in the field.
+    DEFAULT_SCAFFOLDING_VERSION = "0.7.2"
+
     @classmethod
     def latest_bundled_version(cls) -> str:
         """Return the newest bundled FLUID schema version."""
         if cls.BUNDLED_VERSIONS:
             return cls.BUNDLED_VERSIONS[-1]
-        return "0.7.2"
+        return cls.DEFAULT_SCAFFOLDING_VERSION
+
+    @classmethod
+    def default_scaffolding_version(cls) -> str:
+        """Return the version newly-scaffolded contracts should declare.
+
+        Pinned to :attr:`DEFAULT_SCAFFOLDING_VERSION`. Distinct from
+        :meth:`latest_bundled_version` so we can register a new schema
+        in the codebase (so authors who opt in can use it) without
+        also forcing every freshly-initialised contract onto it.
+        """
+        return cls.DEFAULT_SCAFFOLDING_VERSION
 
     def __init__(
         self,

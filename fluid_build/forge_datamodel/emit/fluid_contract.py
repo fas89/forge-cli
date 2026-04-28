@@ -469,7 +469,11 @@ def build_contract_from_logical(
             labels["provenance"] = provenance_block
 
     return {
-        "fluidVersion": FluidSchemaManager.latest_bundled_version(),
+        # Newly emitted contracts pin the *scaffolding default*, not
+        # the latest bundled version. Bumping the scaffolding default
+        # is a deliberate, separate decision — see
+        # ``FluidSchemaManager.DEFAULT_SCAFFOLDING_VERSION``.
+        "fluidVersion": FluidSchemaManager.default_scaffolding_version(),
         "kind": "DataProduct",
         "id": f"generated.{slug}",
         "name": logical.name.replace("_", " ").title(),

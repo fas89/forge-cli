@@ -1,0 +1,35 @@
+fluidVersion: "0.7.3"
+kind: DataProduct
+id: gold.transform.customer_360_extracted_v1
+name: Customer 360 (SQL extracted to bundle source)
+metadata:
+  layer: Gold
+  owner:
+    team: customer-analytics
+    email: customer@example.com
+  businessContext:
+    domain: Customer
+exposes:
+  - exposeId: customer_profiles
+    title: Customer profiles
+    kind: table
+    contract:
+      schema:
+        - name: customer_id
+          type: STRING
+          required: true
+    binding:
+      platform: gcp
+      format: bigquery_table
+      location:
+        project: company-data
+        dataset: customer
+        table: profiles
+builds:
+  - id: build_customer_360
+    pattern: embedded-logic
+    engine: sql
+    properties:
+      sql:
+        $source: "sources/sql/builds_0__customer_360.sql"
+      language: sql

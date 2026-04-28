@@ -770,6 +770,19 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     )
     serve.set_defaults(func=run)
 
+    # Consumer-side MCP output-port server lives in a sibling module so
+    # the authoring-side surface above stays focused on forge-authoring
+    # concerns. The import is deferred so a stripped-down install
+    # without the output-port adapters still wires up `fluid mcp serve`.
+    try:
+        from . import mcp_output_port
+
+        mcp_output_port.attach_to_mcp_subparsers(sp)
+    except ImportError as exc:  # pragma: no cover - defensive
+        logging.getLogger("fluid.cli.mcp").debug(
+            "mcp_output_port_unavailable: %s", exc
+        )
+
 
 def run(args, logger: logging.Logger) -> int:
     action = getattr(args, "mcp_action", None)
@@ -777,6 +790,14 @@ def run(args, logger: logging.Logger) -> int:
         # Bare ``fluid mcp`` — render the friendly guide instead of
         # exiting non-zero with a generic "subcommand required" error.
         return _render_mcp_guide()
+    if action == "output-port":
+        try:
+            from . import mcp_output_port
+
+            return mcp_output_port.run(args, logger)
+        except ImportError as exc:  # pragma: no cover - defensive
+            logger.error("mcp_output_port_unavailable: %s", exc)
+            return 1
     if action != "serve":
         return 1
     policy = _build_policy_from_args(args)

@@ -38,8 +38,17 @@ from .forge_copilot_contract_helpers import _normalize_interview_summary
 
 
 def _latest_fluid_version() -> str:
-    """Return the newest bundled FLUID schema version."""
-    return FluidSchemaManager.latest_bundled_version()
+    """Return the FLUID version freshly-scaffolded contracts should
+    declare.
+
+    Pinned to :meth:`FluidSchemaManager.default_scaffolding_version`
+    rather than ``latest_bundled_version`` so registering a new schema
+    in the codebase doesn't silently shift every LLM-generated
+    contract onto the new shape. Bumping the scaffolding default is a
+    deliberate, separate action — see
+    :attr:`FluidSchemaManager.DEFAULT_SCAFFOLDING_VERSION`.
+    """
+    return FluidSchemaManager.default_scaffolding_version()
 
 
 # Default-guidance directory under agent_specs/. Each ``.yaml`` file has

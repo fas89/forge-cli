@@ -145,7 +145,7 @@ def _compact_message_history(messages: List[Dict[str, Any]]) -> List[Dict[str, A
 
 
 def _build_agent_system_prompt() -> str:
-    fv = FluidSchemaManager.latest_bundled_version()
+    fv = FluidSchemaManager.default_scaffolding_version()
     return (
         "You are FLUID Forge Copilot, running in agent mode.\n"
         "Use the available tools to understand the user's workspace, choose "
