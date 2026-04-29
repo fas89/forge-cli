@@ -1,0 +1,19 @@
+metadata:
+  name: test-product
+  version: 1.0.0
+  status: active
+  owner:
+    team: data-team
+    email: data@example.com
+contract:
+  id: test-product
+  kind: DataProduct
+  version: 1.0.0
+exposes:
+- exposeId: test_table
+  contract:
+    schema:
+    - name: id
+      type: STRING
+    servers: []
+expects: []

@@ -25,6 +25,7 @@ import logging
 import os
 import re
 import signal
+import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -69,7 +70,9 @@ class SecurePathValidator:
 
     def validate_input_path(self, path: Union[str, Path], file_type: str = "file") -> Path:
         """Validate an input file path for reading"""
-        path_obj = Path(path).resolve()
+        raw_path = Path(path)
+        self._validate_path_security(raw_path, "read")
+        path_obj = raw_path.resolve()
 
         # Check if path exists
         if not path_obj.exists():
@@ -85,7 +88,6 @@ class SecurePathValidator:
             )
 
         # Security validations
-        self._validate_path_security(path_obj, "read")
         self._validate_file_extension(path_obj)
         self._validate_file_size(path_obj)
 
@@ -93,10 +95,11 @@ class SecurePathValidator:
 
     def validate_output_path(self, path: Union[str, Path], file_type: str = "output") -> Path:
         """Validate an output file path for writing"""
-        path_obj = Path(path).resolve()
+        raw_path = Path(path)
+        self._validate_path_security(raw_path, "write")
+        path_obj = raw_path.resolve()
 
         # Security validations
-        self._validate_path_security(path_obj, "write")
         self._validate_output_directory(path_obj)
 
         return path_obj
@@ -122,12 +125,16 @@ class SecurePathValidator:
                 ],
             )
 
+        resolved_path = path.resolve(strict=False)
+        resolved_str = str(resolved_path)
+
         # Check path depth
-        if len(path.parts) > MAX_PATH_DEPTH:
+        path_depth = self._calculate_effective_depth(resolved_path)
+        if path_depth > MAX_PATH_DEPTH:
             raise FluidCLIError(
                 1,
                 "path_too_deep",
-                f"Path depth exceeds maximum ({MAX_PATH_DEPTH}): {path}",
+                f"Path depth exceeds maximum ({MAX_PATH_DEPTH}): {resolved_path}",
                 suggestions=[
                     "Use shorter file paths",
                     "Organize files in shallower directory structures",
@@ -136,18 +143,62 @@ class SecurePathValidator:
 
         # Check for forbidden system paths
         for forbidden in self.security_context.forbidden_paths:
-            if path_str.startswith(forbidden):
-                raise FluidCLIError(
-                    1,
-                    "forbidden_path_access",
-                    f"Access to system path forbidden: {path}",
-                    context={"path": path_str, "forbidden_prefix": forbidden},
-                    suggestions=[
-                        "Use paths within your project directory",
-                        "Avoid system directories",
-                        "Use relative paths from your working directory",
-                    ],
-                )
+            forbidden_root = Path(forbidden)
+            for forbidden_alias in self._path_aliases(forbidden_root):
+                if resolved_path == forbidden_alias or resolved_path.is_relative_to(forbidden_alias):
+                    if self._is_allowed_system_subpath(resolved_path):
+                        break
+                    raise FluidCLIError(
+                        1,
+                        "forbidden_path_access",
+                        f"Access to system path forbidden: {resolved_path}",
+                        context={"path": resolved_str, "forbidden_prefix": forbidden},
+                        suggestions=[
+                            "Use paths within your project directory",
+                            "Avoid system directories",
+                            "Use relative paths from your working directory",
+                        ],
+                    )
+
+    def _calculate_effective_depth(self, path: Path) -> int:
+        """Calculate path depth relative to trusted local roots when possible."""
+        candidate_roots = self._trusted_local_roots()
+        for base in candidate_roots:
+            if path == base:
+                return 0
+            if path.is_relative_to(base):
+                return len(path.relative_to(base).parts)
+
+        return len([part for part in path.parts if part not in {path.anchor, ""}])
+
+    def _is_allowed_system_subpath(self, path: Path) -> bool:
+        """Allow standard local work areas such as temp dirs and the user's home."""
+        return any(path == root or path.is_relative_to(root) for root in self._trusted_local_roots())
+
+    def _trusted_local_roots(self) -> list[Path]:
+        """Roots that are considered safe local working areas."""
+        roots = [Path.cwd().resolve(), Path.home().resolve()]
+        roots.extend(self._path_aliases(Path(tempfile.gettempdir())))
+
+        unique: list[Path] = []
+        seen = set()
+        for root in roots:
+            root_str = str(root)
+            if root_str not in seen:
+                seen.add(root_str)
+                unique.append(root)
+        unique.sort(key=lambda item: len(str(item)), reverse=True)
+        return unique
+
+    def _path_aliases(self, path: Path) -> list[Path]:
+        """Return equivalent path aliases used by the host OS."""
+        candidates = {path.resolve(strict=False)}
+        path_str = str(path)
+        if path_str.startswith("/private/"):
+            candidates.add(Path(path_str[len("/private") :]).resolve(strict=False))
+        elif path_str.startswith("/var/"):
+            candidates.add(Path(f"/private{path_str}").resolve(strict=False))
+        return list(candidates)
 
     def _validate_file_extension(self, path: Path) -> None:
         """Validate file extension"""

@@ -1,0 +1,43 @@
+# Team Memory — shared conventions for the AI copilot.
+#
+# This file is committed to git so every engineer on the team shares
+# the same defaults, naming patterns, and architectural decisions.
+#
+# The AI copilot uses these as authoritative guidance when generating
+# FLUID contracts.  Explicit CLI flags and interview answers always
+# take precedence over team memory.
+#
+# Docs: https://fluid-build.dev/docs/forge/team-memory
+
+conventions:
+  # Naming patterns applied to generated contracts.
+  naming:
+    # product_prefix: "acme"           # All product IDs start with this
+    # layer_convention: medallion       # bronze / silver / gold
+    column_style: snake_case
+
+  # Default values when the engineer doesn't specify.
+  defaults:
+    provider: local
+    # build_engine: dbt
+    # domain: analytics
+    # owner_team: data-team
+
+# Architectural decisions the team has made.
+# The AI uses these to avoid re-debating settled questions.
+decisions: []
+  # - date: "2026-01-15"
+  #   decision: "Use BigQuery for all new analytics products"
+  #   rationale: "Team has GCP expertise, data lake is on GCS"
+
+# Domain-specific vocabulary the AI should prefer in contracts.
+vocabulary:
+  entities: []
+    # - customer_id
+    # - order_id
+  measures: []
+    # - total_revenue
+    # - order_count
+  dimensions: []
+    # - order_date
+    # - region

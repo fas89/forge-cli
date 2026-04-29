@@ -1,0 +1,296 @@
+{
+  "envelope": {
+    "generated_at": "2026-04-28T23:19:13.990549Z",
+    "generated_by": {
+      "command": "fluid forge",
+      "tool": "fluid-cli",
+      "version": "0.0.0"
+    },
+    "kind": "DiscoveryCache",
+    "schema_version": 1
+  },
+  "file_tree_hash": "9d7e53e081050e5b70deabf9df3f80b03f779235b06290a3fc4c538ce3f962fe",
+  "report": {
+    "authoring_mode": "flat",
+    "build_constraints": [
+      "Discovery payload must exclude raw sample rows, full file contents, and credentials.",
+      "Use only providers and templates supported by the local Forge registries.",
+      "Prefer placeholder env vars for destination configuration instead of hard-coded secrets."
+    ],
+    "cache_hit": false,
+    "dbt_projects": [],
+    "detected_sources": [
+      {
+        "columns": {
+          "permissions": "object"
+        },
+        "format": "json",
+        "path": "/Users/A200004702/Documents/Open-Source Community/forge-cli/.claude/settings.local.json",
+        "provider_hints": [
+          "local"
+        ],
+        "sampled_rows": 1
+      },
+      {
+        "columns": {
+          "color": "string",
+          "description": "string",
+          "name": "string"
+        },
+        "format": "json",
+        "path": "/Users/A200004702/Documents/Open-Source Community/forge-cli/.github/labels.json",
+        "provider_hints": [
+          "local"
+        ],
+        "sampled_rows": 5
+      },
+      {
+        "columns": {
+          "execution_id": "string",
+          "metrics": "object",
+          "plan": "object",
+          "timestamp": "datetime"
+        },
+        "format": "json",
+        "path": "/Users/A200004702/Documents/Open-Source Community/forge-cli/runtime/apply_state.json",
+        "provider_hints": [
+          "local"
+        ],
+        "sampled_rows": 1
+      },
+      {
+        "columns": {
+          "actions": "array",
+          "contract": "object",
+          "format_version": "string",
+          "generated_at": "number",
+          "total_actions": "integer"
+        },
+        "format": "json",
+        "path": "/Users/A200004702/Documents/Open-Source Community/forge-cli/runtime/hello-plan.json",
+        "provider_hints": [
+          "local"
+        ],
+        "sampled_rows": 1
+      },
+      {
+        "columns": {
+          "actions": "array",
+          "contract": "object",
+          "dependency_graph": "object",
+          "format_version": "string",
+          "generated_at": "number",
+          "has_dependencies": "boolean",
+          "total_actions": "integer"
+        },
+        "format": "json",
+        "path": "/Users/A200004702/Documents/Open-Source Community/forge-cli/runtime/plan-0.7.2.json",
+        "provider_hints": [
+          "local"
+        ],
+        "sampled_rows": 1
+      },
+      {
+        "columns": {
+          "actions": "array",
+          "contract": "object",
+          "dependency_graph": "object",
+          "format_version": "string",
+          "generated_at": "number",
+          "has_dependencies": "boolean",
+          "total_actions": "integer"
+        },
+        "format": "json",
+        "path": "/Users/A200004702/Documents/Open-Source Community/forge-cli/runtime/plan-gcp-0.7.2.json",
+        "provider_hints": [
+          "gcp"
+        ],
+        "sampled_rows": 1
+      }
+    ],
+    "discovery_warnings": [],
+    "existing_contracts": [],
+    "files_scanned": 300,
+    "provider_hints": [
+      "local",
+      "gcp"
+    ],
+    "readmes": [
+      {
+        "headings": [
+          "Stop writing boilerplate. Start declaring Data Products.",
+          "\ud83c\udf0a What is FLUID?",
+          "\ud83e\udd2f Why We Built This",
+          "The Old Way vs. The FLUID Way",
+          "\u26a1 60 Seconds to Magic",
+          "1. Install the CLI",
+          "2. Validate your data product contract",
+          "3. See exactly what will happen",
+          "4. Deploy infrastructure, logic, and governance \u2014 instantly"
+        ],
+        "path": "/Users/A200004702/Documents/Open-Source Community/forge-cli/README.md",
+        "word_count": 553
+      },
+      {
+        "headings": [
+          "FLUID Build \u2014 **Full System Diagnostic** (`diagnose.sh`)",
+          "\u2728 What this script does",
+          "\ud83d\udce6 Repository Layout Assumptions",
+          "\u2705 Prerequisites"
+        ],
+        "path": "/Users/A200004702/Documents/Open-Source Community/forge-cli/scripts/README.md",
+        "word_count": 243
+      },
+      {
+        "headings": [
+          "FLUID Build - Comprehensive Testing Framework",
+          "\ud83d\ude80 Quick Start",
+          "Single Command Testing",
+          "Quick validation (recommended first run)",
+          "Full test suite",
+          "Integration tests with cloud provider",
+          "\ud83d\udccb What Gets Tested",
+          "\ud83d\udcc1 Output Structure",
+          "\ud83d\udee0\ufe0f Command Options",
+          "Basic Options",
+          "Test Suite Control"
+        ],
+        "path": "/Users/A200004702/Documents/Open-Source Community/forge-cli/scripts/README_COMPREHENSIVE.md",
+        "word_count": 367
+      },
+      {
+        "headings": [
+          "FLUID Build CLI Testing Framework",
+          "Overview",
+          "Quick Start",
+          "Basic Usage",
+          "Quick validation test (dry-run mode)",
+          "Full test suite with dry-run",
+          "Run with custom output directory",
+          "Integration Testing",
+          "Set up GCP project for testing",
+          "Authenticate (choose one method)",
+          "OR",
+          "Run integration tests"
+        ],
+        "path": "/Users/A200004702/Documents/Open-Source Community/forge-cli/scripts/README_TESTING.md",
+        "word_count": 280
+      },
+      {
+        "headings": [
+          "FLUID Build Consolidated Test Suite",
+          "Test Organization",
+          "Quick Start",
+          "Run All Tests",
+          "Standard test run",
+          "With coverage report",
+          "Via admin command",
+          "Run Specific Tests",
+          "CLI tests only",
+          "Runtime tests only",
+          "Specific test files",
+          "Single test file directly"
+        ],
+        "path": "/Users/A200004702/Documents/Open-Source Community/forge-cli/tests/README.md",
+        "word_count": 280
+      }
+    ],
+    "sample_data_missing": false,
+    "sample_files": [
+      {
+        "columns": {
+          "permissions": "object"
+        },
+        "format": "json",
+        "path": "/Users/A200004702/Documents/Open-Source Community/forge-cli/.claude/settings.local.json",
+        "provider_hints": [
+          "local"
+        ],
+        "sampled_rows": 1
+      },
+      {
+        "columns": {
+          "color": "string",
+          "description": "string",
+          "name": "string"
+        },
+        "format": "json",
+        "path": "/Users/A200004702/Documents/Open-Source Community/forge-cli/.github/labels.json",
+        "provider_hints": [
+          "local"
+        ],
+        "sampled_rows": 5
+      },
+      {
+        "columns": {
+          "execution_id": "string",
+          "metrics": "object",
+          "plan": "object",
+          "timestamp": "datetime"
+        },
+        "format": "json",
+        "path": "/Users/A200004702/Documents/Open-Source Community/forge-cli/runtime/apply_state.json",
+        "provider_hints": [
+          "local"
+        ],
+        "sampled_rows": 1
+      },
+      {
+        "columns": {
+          "actions": "array",
+          "contract": "object",
+          "format_version": "string",
+          "generated_at": "number",
+          "total_actions": "integer"
+        },
+        "format": "json",
+        "path": "/Users/A200004702/Documents/Open-Source Community/forge-cli/runtime/hello-plan.json",
+        "provider_hints": [
+          "local"
+        ],
+        "sampled_rows": 1
+      },
+      {
+        "columns": {
+          "actions": "array",
+          "contract": "object",
+          "dependency_graph": "object",
+          "format_version": "string",
+          "generated_at": "number",
+          "has_dependencies": "boolean",
+          "total_actions": "integer"
+        },
+        "format": "json",
+        "path": "/Users/A200004702/Documents/Open-Source Community/forge-cli/runtime/plan-0.7.2.json",
+        "provider_hints": [
+          "local"
+        ],
+        "sampled_rows": 1
+      },
+      {
+        "columns": {
+          "actions": "array",
+          "contract": "object",
+          "dependency_graph": "object",
+          "format_version": "string",
+          "generated_at": "number",
+          "has_dependencies": "boolean",
+          "total_actions": "integer"
+        },
+        "format": "json",
+        "path": "/Users/A200004702/Documents/Open-Source Community/forge-cli/runtime/plan-gcp-0.7.2.json",
+        "provider_hints": [
+          "gcp"
+        ],
+        "sampled_rows": 1
+      }
+    ],
+    "scan_time_ms": 38,
+    "sql_files": [],
+    "terraform_projects": [],
+    "user_data_models": [],
+    "workspace_roots": [
+      "/Users/A200004702/Documents/Open-Source Community/forge-cli"
+    ]
+  }
+}

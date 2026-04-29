@@ -160,7 +160,7 @@ class GraphMetrics:
     def mark_render_complete(self) -> None:
         """Mark rendering as complete."""
         current_time = time.time()
-        if self.load_time:
+        if self.load_time is not None:
             self.render_time = current_time - (self.start_time + self.load_time)
         self.total_time = current_time - self.start_time
 

@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "kind": "InitReceipt",
+  "generated_at": "2026-04-27T23:53:31.893050Z",
+  "generated_by": {
+    "tool": "fluid-cli",
+    "version": "0.0.0",
+    "command": "fluid init --template customer-360"
+  },
+  "run_id": "19dd15cc7f5-06cf2b79",
+  "flow": "template",
+  "dry_run": false,
+  "artifacts": [
+    {
+      "path": "fluid.workspace.yaml",
+      "action": "create",
+      "sha256": "a3b600f5e956ea5cb008f4b1820271583afea59ed3b3502981247369b7395e3e",
+      "size": 202
+    }
+  ],
+  "skipped": [],
+  "inputs": {
+    "template": "customer-360",
+    "provider": "local"
+  }
+}

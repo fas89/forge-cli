@@ -1,0 +1,10 @@
+schema_version: 1
+kind: WorkspaceConfig
+generated_at: '2026-04-27T23:53:31.875280Z'
+generated_by:
+  tool: fluid-cli
+  version: 0.0.0
+  command: fluid init
+workspace:
+  name: forge-cli
+  provider: local
