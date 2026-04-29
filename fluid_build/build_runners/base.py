@@ -85,6 +85,94 @@ def is_dbt_build(build: Dict[str, Any]) -> bool:
     return engine == "dbt" or engine.startswith("dbt-")
 
 
+# Engines that ship as acquisition runners under build_runners/<engine>/.
+ACQUISITION_ENGINES = frozenset(
+    {"duckdb", "airbyte", "meltano", "dlt", "kafka-connect", "debezium"}
+)
+
+
+def is_acquisition_build(build: Dict[str, Any]) -> bool:
+    """Return True for builds with ``pattern: acquisition`` AND a known runner."""
+    if (build.get("pattern") or "").strip().lower() != "acquisition":
+        return False
+    engine = (build.get("engine") or "").strip().lower()
+    return engine in ACQUISITION_ENGINES
+
+
+def _execute_acquisition_build(
+    build: Dict[str, Any],
+    contract: Dict[str, Any],
+    contract_dir: Path,
+    *,
+    dry_run: bool,
+    sample_rows: Any = None,
+) -> int:
+    """Dispatch an acquisition build to the matching runner module."""
+    engine = (build.get("engine") or "").strip().lower()
+    if engine == "duckdb":
+        from .duckdb.runner import execute_duckdb_build
+
+        return execute_duckdb_build(
+            build,
+            contract,
+            contract_dir,
+            dry_run=dry_run,
+            sample_rows=sample_rows,
+        )
+    if engine == "dlt":
+        from .dlt.runner import execute_dlt_build
+
+        return execute_dlt_build(
+            build,
+            contract,
+            contract_dir,
+            dry_run=dry_run,
+            sample_rows=sample_rows,
+        )
+    if engine == "meltano":
+        from .meltano.runner import execute_meltano_build
+
+        return execute_meltano_build(
+            build,
+            contract,
+            contract_dir,
+            dry_run=dry_run,
+            sample_rows=sample_rows,
+        )
+    if engine == "airbyte":
+        from .airbyte.runner import execute_airbyte_build
+
+        return execute_airbyte_build(
+            build,
+            contract,
+            contract_dir,
+            dry_run=dry_run,
+            sample_rows=sample_rows,
+        )
+    if engine == "kafka-connect":
+        from .kafka_connect.runner import execute_kafka_connect_build
+
+        return execute_kafka_connect_build(
+            build,
+            contract,
+            contract_dir,
+            dry_run=dry_run,
+            sample_rows=sample_rows,
+        )
+    if engine == "debezium":
+        from .debezium.runner import execute_debezium_build
+
+        return execute_debezium_build(
+            build,
+            contract,
+            contract_dir,
+            dry_run=dry_run,
+            sample_rows=sample_rows,
+        )
+    LOG.error("acquisition.engine_not_implemented engine=%s build=%s", engine, build.get("id"))
+    return 1
+
+
 def run_builds_from_args(
     args: argparse.Namespace,
     logger: logging.Logger,
@@ -153,6 +241,23 @@ def run_builds_from_args(
 
     for build in builds:
         build_id = build.get("id", "unknown")
+
+        if is_acquisition_build(build):
+            sample_rows = getattr(args, "sample_rows", None)
+            result = _execute_acquisition_build(
+                build,
+                contract,
+                contract_path.parent,
+                dry_run=args.dry_run,
+                sample_rows=sample_rows,
+            )
+            if result == 0:
+                total_executed += 1
+            else:
+                total_failed += 1
+                if args.fail_fast:
+                    break
+            continue
 
         if is_dbt_build(build):
             project_dir = resolve_dbt_project_path(contract_path, build)

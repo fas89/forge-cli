@@ -534,6 +534,7 @@ def register_core_commands(sp: argparse._SubParsersAction) -> None:
     _try_register(sp, "datamesh_manager", "datamesh-manager", method="add_parser")
     _try_register(sp, "ai_setup", "ai")
     _try_register(sp, "forge", "forge")
+    _try_register(sp, "contract", "contract")
     _try_register(sp, "market", "market")
     # ``fluid policy {check,compile,apply}`` — unified umbrella that
     # groups the three policy verbs under one subcommand. The legacy

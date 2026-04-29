@@ -101,6 +101,37 @@ def run(args, logger: logging.Logger) -> int:
         else:
             res = {"status": "noop", "note": "provider has no policy applier"}
         info(logger, "policy_apply_result", **res)
+
+        # ── Acquisition pattern: register retention + alert + cost policies ─
+        # Bronze acquisition contracts emit retention sweeper schedules,
+        # alerter-channel config, PII-masking actions for classified
+        # columns, and cost-budget guards. These land under
+        # ``.fluid/policies/<contract-id>/`` and are picked up at next
+        # apply by the acquisition runtime.
+        try:
+            contract = data.get("contract") or {}
+            if contract:
+                from pathlib import Path as _Path
+
+                from fluid_build.cli._acquisition_stage_ext import (
+                    is_acquisition_contract,
+                    policy_apply_acquisition,
+                )
+
+                if is_acquisition_contract(contract):
+                    acq_results = policy_apply_acquisition(contract, _Path.cwd())
+                    for r in acq_results:
+                        info(
+                            logger,
+                            "policy_apply_acquisition",
+                            product_id=r.product_id,
+                            build_id=r.build_id,
+                            actions_applied=r.actions_applied,
+                            skipped=r.skipped,
+                        )
+        except Exception as acq_exc:  # noqa: BLE001
+            logger.warning(f"acquisition policy registration skipped: {acq_exc}")
+
         return 0 if res.get("status") in ("ok", "noop") else 1
     except CLIError:
         raise

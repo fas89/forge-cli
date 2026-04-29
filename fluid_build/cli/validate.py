@@ -158,6 +158,17 @@ Examples:
             "collect-all so one bad file doesn't hide issues in others."
         ),
     )
+    p.add_argument(
+        "--probe",
+        action="store_true",
+        default=False,
+        help=(
+            "NEW in v0.7.3: Extend validation with live external probes for "
+            "acquisition contracts (secret resolution, source connectivity, "
+            "image-signature presence, source schema fingerprint vs baseline). "
+            "Off by default; pure schema validation otherwise."
+        ),
+    )
 
     p.set_defaults(cmd=COMMAND, func=run)
 

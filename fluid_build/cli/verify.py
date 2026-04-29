@@ -1022,6 +1022,34 @@ def run(args: argparse.Namespace, logger: logging.Logger) -> int:
         else:
             mismatch_count += 1
 
+    # ── Acquisition pattern: post-apply probes ─────────────────────────
+    # When the contract has any ``pattern: acquisition`` builds, run the
+    # acquisition stage extension against the current workdir. The
+    # extension checks: a run record exists, records landed, run state
+    # is SUCCEEDED or PARTIAL, no DLQ overflow, and cost is within
+    # budget. Failures count toward the verify exit code under
+    # ``--strict``.
+    try:
+        from fluid_build.cli._acquisition_stage_ext import (
+            is_acquisition_contract,
+            verify_acquisition,
+        )
+
+        if is_acquisition_contract(contract):
+            cprint("\n" + "=" * 80)
+            cprint("🔄 Acquisition Post-Apply Probes")
+            cprint("=" * 80)
+            acq_results = verify_acquisition(contract, Path.cwd())
+            for r in acq_results:
+                cprint(f"\n   Build: {r.product_id}/{r.build_id}")
+                for c in r.checks:
+                    icon = "✅" if c.passed else "❌"
+                    cprint(f"      {icon} {c.name}: {c.detail}")
+                    if not c.passed:
+                        mismatch_count += 1
+    except Exception as exc:  # noqa: BLE001 — verify must not crash the CLI
+        warning(f"Acquisition probes skipped: {exc}")
+
     # Summary
     cprint("\n" + "=" * 80)
     cprint("📊 Verification Summary")
