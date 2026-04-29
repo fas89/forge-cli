@@ -37,6 +37,7 @@ from typing import Any, Dict, List, Mapping, Optional
 
 import httpx
 
+from fluid_build.cli.forge_copilot_agents_md import load_agents_md
 from fluid_build.cli.forge_copilot_llm_providers import (
     CopilotGenerationError,
     LlmConfig,
@@ -60,9 +61,6 @@ _PARALLELIZABLE_TOOLS = frozenset(
     }
 )
 
-# Maximum number of LLM round-trips before we give up.
-MAX_AGENT_ITERATIONS = 12
-
 
 def _int_env(name: str, default: int) -> int:
     """Read an integer from the environment, falling back to ``default``.
@@ -82,11 +80,77 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
+# Maximum number of LLM round-trips before we give up. Configurable
+# via ``FLUID_AGENT_MAX_ROUNDS`` for users who want shorter (CI:
+# fail fast on stuck loops) or longer (interactive: more headroom
+# for iterative refinement) bounds without code changes.
+MAX_AGENT_ITERATIONS = _int_env("FLUID_AGENT_MAX_ROUNDS", 12)
+
+
 # After this many iterations, compact old tool results to stay within
 # context window limits.  Configurable via FLUID_AGENT_COMPACT_AFTER.
 _COMPACT_AFTER = _int_env("FLUID_AGENT_COMPACT_AFTER", 6)
 _COMPACT_KEEP_TAIL = 4  # Keep last N messages intact.
 _COMPACT_MAX_CHARS = 500  # Truncate old tool results to this length.
+
+# Truthy strings we accept for boolean env knobs. Mirrors the
+# convention used by ``FLUID_COPILOT_AGENT_LOOP``.
+_TRUTHY_ENV = {"1", "true", "yes", "on"}
+
+
+def _bool_env(name: str) -> bool:
+    """Return ``True`` if *name* is set to a truthy value, else ``False``."""
+    return os.environ.get(name, "").strip().lower() in _TRUTHY_ENV
+
+
+def _extract_planning_text(response_json: Dict[str, Any]) -> Optional[str]:
+    """Best-effort extraction of the model's narration text.
+
+    Returns text the model emitted alongside its tool calls (the
+    "PLANNING" / "REASONING" blocks the system prompt asks for), or
+    ``None`` when no narration text is present.
+
+    Inlined here rather than added to ``LlmProvider`` because it's a
+    visibility-only concern with no semantic impact on the loop;
+    promote to the provider abstraction if we end up needing it
+    elsewhere.
+    """
+    # Anthropic: ``content`` is a list of ``text`` and ``tool_use`` blocks.
+    content = response_json.get("content")
+    if isinstance(content, list):
+        parts = [
+            block.get("text", "")
+            for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        ]
+        joined = "\n".join(p for p in parts if p).strip()
+        if joined:
+            return joined
+
+    # OpenAI: when there are tool calls, ``message.content`` may
+    # still hold a string of accompanying narration (or ``None``).
+    choices = response_json.get("choices")
+    if isinstance(choices, list) and choices:
+        msg = choices[0].get("message") or {}
+        text = msg.get("content")
+        if isinstance(text, str) and text.strip():
+            return text.strip()
+
+    # Gemini: candidates[0].content.parts holds ``text`` and
+    # ``functionCall`` parts; we want only the text ones.
+    candidates = response_json.get("candidates")
+    if isinstance(candidates, list) and candidates:
+        gemini_parts = (candidates[0].get("content") or {}).get("parts") or []
+        parts = [
+            part.get("text", "")
+            for part in gemini_parts
+            if isinstance(part, dict) and "text" in part
+        ]
+        joined = "\n".join(p for p in parts if p).strip()
+        if joined:
+            return joined
+
+    return None
 
 
 def _compact_message_history(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -144,9 +208,9 @@ def _compact_message_history(messages: List[Dict[str, Any]]) -> List[Dict[str, A
 # receiving it up front.
 
 
-def _build_agent_system_prompt() -> str:
+def _build_agent_system_prompt(agents_md: Optional[str] = None) -> str:
     fv = FluidSchemaManager.latest_bundled_version()
-    return (
+    base = (
         "You are FLUID Forge Copilot, running in agent mode.\n"
         "Use the available tools to understand the user's workspace, choose "
         "the right template and provider, build a contract, and validate it.\n\n"
@@ -177,8 +241,27 @@ def _build_agent_system_prompt() -> str:
         "When you're ready to deliver, stop calling tools and return the final JSON directly."
     )
 
+    if not agents_md:
+        return base
 
-# Keep backward-compatible module-level name for any external references.
+    # Project-specific conventions take precedence over generic
+    # defaults. The agent should treat them as constraints, not
+    # suggestions — hence the leading directive.
+    return (
+        f"{base}\n\n"
+        "PROJECT CONVENTIONS (from workspace AGENTS.md — honor these "
+        "over your defaults whenever they conflict):\n"
+        "---\n"
+        f"{agents_md}\n"
+        "---"
+    )
+
+
+# Keep backward-compatible module-level name for any external
+# references. This is the *generic* prompt, with no per-workspace
+# conventions baked in. ``run_copilot_agent_loop`` rebuilds a
+# workspace-aware variant once per loop invocation when an
+# ``AGENTS.md`` is present.
 AGENT_SYSTEM_PROMPT = _build_agent_system_prompt()
 
 
@@ -216,6 +299,29 @@ def run_copilot_agent_loop(
     # call within this loop sees the same canonical root.
     ws_root: Path = (workspace_root or Path.cwd()).resolve()
 
+    # ``FLUID_AGENT_EXPLAIN`` surfaces the model's narration text
+    # (the "PLANNING" / "REASONING" blocks the system prompt asks
+    # for) between rounds. Off by default — interactive users opt
+    # in when they want to see *why* the copilot is making each
+    # tool choice. Read once per loop entry to keep tests simple.
+    explain_mode = _bool_env("FLUID_AGENT_EXPLAIN")
+
+    # Load the project's AGENTS.md (if any) and bake it into the
+    # system prompt for this loop invocation. Done once per loop
+    # rather than per-iteration: the file doesn't change mid-run, and
+    # the schema-version lookup inside ``_build_agent_system_prompt``
+    # is cheap.
+    agents_md = load_agents_md(ws_root)
+    system_prompt = _build_agent_system_prompt(agents_md=agents_md)
+    if agents_md and console:
+        try:
+            console.print(
+                "[dim]  Loaded workspace AGENTS.md "
+                f"({len(agents_md)} chars) into copilot context[/dim]"
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
     # Build the initial user message from the context.
     user_content = _build_initial_user_message(context, project_memory)
     messages: List[Dict[str, Any]] = [
@@ -230,12 +336,12 @@ def run_copilot_agent_loop(
         if iteration >= _COMPACT_AFTER:
             messages = _compact_message_history(messages)
 
-        # Call the LLM with the tool definitions. AGENT_SYSTEM_PROMPT is
-        # cached at module-import time; FluidSchemaManager.latest_bundled_version()
-        # doesn't change over the lifetime of a CLI invocation, so rebuilding
-        # the prompt on every iteration just wastes work.
+        # Call the LLM with the tool definitions.  ``system_prompt``
+        # is built once per loop invocation above (workspace-aware
+        # if AGENTS.md is present), so rebuilding per iteration would
+        # just waste work.
         response_json = _call_llm_with_tools(
-            provider_adapter, llm_config, AGENT_SYSTEM_PROMPT, messages, tools
+            provider_adapter, llm_config, system_prompt, messages, tools
         )
 
         # Check for tool calls.
@@ -290,6 +396,18 @@ def run_copilot_agent_loop(
         total_tool_calls += len(tool_calls)
         tool_list = " → ".join(tc["name"] for tc in tool_calls)
         if console:
+            # When ``FLUID_AGENT_EXPLAIN`` is on, surface any
+            # narration text the model emitted alongside its tool
+            # calls. The system prompt asks for a "PLANNING" block;
+            # without explain mode that text was previously emitted
+            # to the void.
+            if explain_mode:
+                planning_text = _extract_planning_text(response_json)
+                if planning_text:
+                    try:
+                        console.print(f"  [dim]planning:[/dim] [italic]{planning_text}[/italic]")
+                    except Exception:  # noqa: BLE001
+                        pass
             try:
                 console.print(f"  [bold cyan]Round {iteration + 1}[/bold cyan]  {tool_list}")
             except Exception:  # noqa: BLE001
