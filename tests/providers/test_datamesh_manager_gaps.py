@@ -535,6 +535,70 @@ class TestPublishTestResults:
 
 
 # ===================================================================
+# Team payload compatibility for local Entropy / DMM
+# ===================================================================
+
+
+class TestEnsureTeamPayload:
+    """Team auto-creation should send a payload DMM can accept."""
+
+    @patch.object(DataMeshManagerProvider, "_request")
+    @patch.object(DataMeshManagerProvider, "_session")
+    def test_ensure_team_includes_required_type_and_owner_details(self, mock_session, mock_request):
+        mock_session.return_value.get.return_value = MagicMock(status_code=404)
+        mock_request.return_value = MagicMock(status_code=200)
+
+        provider = _make_provider()
+        fluid = {
+            "metadata": {
+                "owner": {
+                    "team": "telco-data-platform",
+                    "email": "data-platform@example.com",
+                }
+            }
+        }
+
+        provider._ensure_team(fluid, "telco-data-platform")
+
+        payload = mock_request.call_args.kwargs["json_body"]
+        assert payload["id"] == "telco-data-platform"
+        assert payload["name"] == "telco-data-platform"
+        assert payload["type"] == "Data Product Team"
+        assert payload["contactEmail"] == "data-platform@example.com"
+        assert payload["members"] == [
+            {"emailAddress": "data-platform@example.com", "role": "Owner"}
+        ]
+
+    def test_build_team_payload_preserves_optional_owner_fields(self):
+        fluid = {
+            "owner": {
+                "team": "analytics-team",
+                "name": "Analytics Team",
+                "type": "Governance Group",
+                "description": "Owns governed analytics products.",
+                "email": "analytics@example.com",
+                "members": [{"emailAddress": "owner@example.com", "role": "Owner"}],
+                "tags": ["analytics", "governed"],
+                "links": {"slack": "https://example.slack.com/analytics"},
+                "custom": {"cost-center": "FIN-42"},
+            }
+        }
+
+        payload = DataMeshManagerProvider._build_team_payload(fluid, "analytics-team")
+        assert payload == {
+            "id": "analytics-team",
+            "name": "Analytics Team",
+            "type": "Governance Group",
+            "description": "Owns governed analytics products.",
+            "contactEmail": "analytics@example.com",
+            "members": [{"emailAddress": "owner@example.com", "role": "Owner"}],
+            "tags": ["analytics", "governed"],
+            "links": {"slack": "https://example.slack.com/analytics"},
+            "custom": {"cost-center": "FIN-42"},
+        }
+
+
+# ===================================================================
 # Gap 1 CLI integration: --publish flag on fluid test
 # ===================================================================
 

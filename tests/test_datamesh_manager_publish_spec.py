@@ -147,6 +147,12 @@ def _sample_odps_consumes_with_source_system_contract():
     return contract
 
 
+def _sample_odps_consumes_with_explicit_contract_id():
+    contract = _sample_odps_consumes_contract()
+    contract["consumes"][0]["contractId"] = "upstream.explicit.contract.v1"
+    return contract
+
+
 def test_apply_dry_run_defaults_to_dps_spec():
     provider = DataMeshManagerProvider(api_key="dummy", api_url="https://api.entropy-data.com")
 
@@ -252,9 +258,9 @@ def test_apply_dry_run_odps_maps_consumes_to_top_level_input_ports():
         provider_hint="odps",
     )
 
-    # The ODPS-Bitol provider only emits fields that were explicitly declared
-    # on the consume entries — it no longer fabricates ``contractId`` suffixes
-    # or defaults ``required: True``. See CHANGELOG for rationale.
+    # The DMM provider overlays deterministic contract IDs for Entropy's ODPS
+    # publish API while preserving the ODPS renderer's explicit-only behavior
+    # everywhere else.
     input_ports = result["payload"].get("inputPorts", [])
     assert input_ports == [
         {
@@ -263,6 +269,7 @@ def test_apply_dry_run_odps_maps_consumes_to_top_level_input_ports():
             "description": "Supply daily subscriber usage features to the health model.",
             "version": "1",
             "reference": "bizlab.teleforge.subscriber_usage_daily_lineage_local",
+            "contractId": "bizlab.teleforge.subscriber_usage_daily_lineage_local.subscriber_usage_daily",
         },
         {
             "id": "billing_health_daily",
@@ -270,8 +277,26 @@ def test_apply_dry_run_odps_maps_consumes_to_top_level_input_ports():
             "description": "Supply payment behavior and overdue indicators to the health model.",
             "version": "1",
             "reference": "bizlab.teleforge.billing_health_daily_lineage_local",
+            "contractId": "bizlab.teleforge.billing_health_daily_lineage_local.billing_health_daily",
         },
     ]
+
+
+def test_apply_dry_run_odps_preserves_explicit_consume_contract_id():
+    provider = DataMeshManagerProvider(api_key="dummy", api_url="https://api.entropy-data.com")
+
+    result = provider.apply(
+        _sample_odps_consumes_with_explicit_contract_id(),
+        dry_run=True,
+        provider_hint="odps",
+    )
+
+    input_ports = result["payload"].get("inputPorts", [])
+    assert input_ports[0]["contractId"] == "upstream.explicit.contract.v1"
+    assert (
+        input_ports[1]["contractId"]
+        == "bizlab.teleforge.billing_health_daily_lineage_local.billing_health_daily"
+    )
 
 
 def test_apply_dry_run_odps_preserves_input_port_source_system_metadata():

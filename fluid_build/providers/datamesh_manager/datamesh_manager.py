@@ -42,6 +42,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from fluid_build.providers.base import BaseProvider, ProviderError
+from fluid_build.util.contract import consumes_to_canonical_ports
 
 if TYPE_CHECKING:
     import requests as requests_typing
@@ -394,6 +395,7 @@ class DataMeshManagerProvider(BaseProvider):
                 team_obj = {}
             team_obj.setdefault("name", tid)
             dp["team"] = team_obj
+            self._ensure_odps_input_port_contract_ids(dp, fluid)
         else:
             dp["teamId"] = tid
 
@@ -832,6 +834,49 @@ class DataMeshManagerProvider(BaseProvider):
             return self.DATA_PRODUCT_SPEC_ODPS
 
         return self.DATA_PRODUCT_SPEC_DPS
+
+    @staticmethod
+    def _ensure_odps_input_port_contract_ids(
+        odps_payload: Dict[str, Any], fluid: Mapping[str, Any]
+    ) -> None:
+        """Backfill ODPS input-port contract IDs from FLUID consumes when missing.
+
+        Entropy's ODPS product API requires ``inputPorts[].contractId``. The
+        upstream ODPS renderer intentionally keeps contract IDs explicit-only,
+        so the DMM provider overlays deterministic references here using the
+        canonical consume reference ``{productId}.{exposeId}``.
+        """
+        input_ports = odps_payload.get("inputPorts")
+        if not isinstance(input_ports, list) or not input_ports:
+            return
+
+        canonical_ports = consumes_to_canonical_ports(fluid, logger=LOG)
+        contract_ids_by_id: Dict[str, str] = {}
+        for canonical in canonical_ports:
+            port_id = canonical.get("id")
+            if not port_id:
+                continue
+
+            contract_id = canonical.get("contract_id")
+            if not contract_id:
+                reference = canonical.get("reference")
+                if reference:
+                    contract_id = f"{reference}.{port_id}"
+
+            if contract_id:
+                contract_ids_by_id[str(port_id)] = str(contract_id)
+
+        for port in input_ports:
+            if not isinstance(port, dict) or port.get("contractId"):
+                continue
+
+            port_id = port.get("id") or port.get("name")
+            if not port_id:
+                continue
+
+            contract_id = contract_ids_by_id.get(str(port_id))
+            if contract_id:
+                port["contractId"] = contract_id
 
     # ---- port mapping -----------------------------------------------------
 
@@ -1606,6 +1651,47 @@ class DataMeshManagerProvider(BaseProvider):
 
     # ---- team management --------------------------------------------------
 
+    @staticmethod
+    def _build_team_payload(fluid: Mapping[str, Any], team_id: str) -> Dict[str, Any]:
+        """Build a Data Mesh Manager team payload from FLUID owner metadata."""
+        owner = fluid.get("owner", fluid.get("metadata", {}).get("owner", {}))
+        if not isinstance(owner, Mapping):
+            owner = {}
+
+        team: Dict[str, Any] = {
+            "id": team_id,
+            "name": owner.get("name") or owner.get("team") or team_id,
+            "type": owner.get("type") or owner.get("teamType") or "Data Product Team",
+        }
+
+        description = owner.get("description")
+        if description:
+            team["description"] = description
+
+        contact_email = owner.get("email")
+        if contact_email:
+            team["contactEmail"] = contact_email
+
+        members = owner.get("members")
+        if isinstance(members, list) and members:
+            team["members"] = members
+        elif contact_email:
+            team["members"] = [{"emailAddress": contact_email, "role": "Owner"}]
+
+        tags = owner.get("tags")
+        if isinstance(tags, list) and tags:
+            team["tags"] = tags
+
+        links = owner.get("links")
+        if isinstance(links, Mapping) and links:
+            team["links"] = dict(links)
+
+        custom = owner.get("custom")
+        if isinstance(custom, Mapping) and custom:
+            team["custom"] = dict(custom)
+
+        return team
+
     def _ensure_team(self, fluid: Mapping[str, Any], team_id: str) -> None:
         """Create team via ``PUT /api/teams/{id}`` if it doesn't exist."""
         try:
@@ -1620,13 +1706,7 @@ class DataMeshManagerProvider(BaseProvider):
         except Exception:
             pass  # proceed to create
 
-        owner = fluid.get("owner", fluid.get("metadata", {}).get("owner", {}))
-        team: Dict[str, Any] = {
-            "id": team_id,
-            "name": owner.get("name") or owner.get("team") or team_id,
-        }
-        if owner.get("email"):
-            team["contactEmail"] = owner["email"]
+        team = self._build_team_payload(fluid, team_id)
 
         try:
             resp = self._request("PUT", f"/api/teams/{team_id}", json_body=team)
