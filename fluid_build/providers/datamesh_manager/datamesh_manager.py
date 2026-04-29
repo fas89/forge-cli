@@ -41,7 +41,9 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+from fluid_build.credentials import CatalogCredentialAdapter
 from fluid_build.providers.base import BaseProvider, ProviderError
+from fluid_build.providers.catalogs.base import BaseCatalogProvider
 
 if TYPE_CHECKING:
     import requests as requests_typing
@@ -133,8 +135,13 @@ class DataMeshManagerProvider(BaseProvider):
         super().__init__(**kwargs)
         self.name = "datamesh-manager"
         self._log = logger or LOG
+        self._credential_adapter = CatalogCredentialAdapter("dmm")
 
-        self.api_key = api_key or os.getenv("DMM_API_KEY", "")
+        self.api_key = self._credential_adapter.get_credential(
+            "api_key",
+            required=False,
+            cli_value=api_key,
+        ) or ""
         self.api_url = (api_url or os.getenv("DMM_API_URL", _DEFAULT_API_URL)).rstrip("/")
 
         if not REQUESTS_AVAILABLE:
@@ -837,7 +844,15 @@ class DataMeshManagerProvider(BaseProvider):
 
     def _map_input_ports(self, fluid: Mapping[str, Any]) -> List[Dict[str, Any]]:
         ports: List[Dict[str, Any]] = []
-        for expect in fluid.get("expects", []):
+        inputs: List[Mapping[str, Any]] = []
+        expects = fluid.get("expects", [])
+        if isinstance(expects, list):
+            inputs.extend(expect for expect in expects if isinstance(expect, Mapping))
+        consumes = fluid.get("consumes", [])
+        if isinstance(consumes, list):
+            inputs.extend(consume for consume in consumes if isinstance(consume, Mapping))
+
+        for expect in inputs:
             port: Dict[str, Any] = {
                 "id": expect.get("id", str(uuid.uuid4())),
                 "name": expect.get("name") or expect.get("id", "input"),
@@ -848,7 +863,12 @@ class DataMeshManagerProvider(BaseProvider):
                 port["type"] = _PROVIDER_TYPE_MAP.get(provider.lower(), provider.title())
 
             # Source system link
-            source_system = expect.get("source_system") or expect.get("sourceSystem")
+            source_system = (
+                expect.get("source_system")
+                or expect.get("sourceSystem")
+                or expect.get("productId")
+                or expect.get("ref")
+            )
             if source_system:
                 port["sourceSystemId"] = source_system
 
@@ -1054,13 +1074,13 @@ class DataMeshManagerProvider(BaseProvider):
     def _extract_provider(section: Mapping[str, Any]) -> str:
         """Extract provider/platform name from an expose or expect block.
 
-        Supports both legacy (``provider: gcp``) and FLUID 0.7.1
-        (``binding.platform: gcp``) patterns.
+        Supports legacy (``provider: gcp``) plus FLUID 0.7.1
+        ``binding.platform`` and ``binding.provider`` patterns.
         """
-        # 0.7.1 pattern: binding.platform
+        # 0.7.1 pattern: binding.platform / binding.provider
         binding = section.get("binding", {})
         if isinstance(binding, dict):
-            platform = binding.get("platform", "")
+            platform = binding.get("platform") or binding.get("provider") or ""
             if platform:
                 return str(platform)
         # Legacy pattern
@@ -1607,10 +1627,11 @@ class DataMeshManagerProvider(BaseProvider):
         except Exception:
             pass  # proceed to create
 
-        owner = fluid.get("owner", fluid.get("metadata", {}).get("owner", {}))
+        owner = self._extract_owner(fluid)
         team: Dict[str, Any] = {
             "id": team_id,
             "name": owner.get("name") or owner.get("team") or team_id,
+            "type": "team",
         }
         if owner.get("email"):
             team["contactEmail"] = owner["email"]
@@ -1649,13 +1670,24 @@ class DataMeshManagerProvider(BaseProvider):
 
     @staticmethod
     def _derive_team_id(fluid: Mapping[str, Any]) -> str:
-        owner = fluid.get("owner", fluid.get("metadata", {}).get("owner", {}))
+        owner = DataMeshManagerProvider._extract_owner(fluid)
         if isinstance(owner, dict):
             for key in ("team", "name", "id"):
                 val = owner.get(key)
                 if val and isinstance(val, str):
                     return val.strip().lower().replace(" ", "-")
         return "default-team"
+
+    @staticmethod
+    def _extract_owner(fluid: Mapping[str, Any]) -> Dict[str, Any]:
+        raw_owner = fluid.get("owner", fluid.get("metadata", {}).get("owner", {}))
+        if isinstance(raw_owner, Mapping):
+            return dict(raw_owner)
+        # Delegate string/other normalization to the shared catalog normalizer
+        owner = BaseCatalogProvider._normalize_owner(raw_owner)
+        if owner.team == "unknown" and owner.email == "":
+            return {}
+        return {"team": owner.team, "name": owner.name, "id": owner.id, "email": owner.email}
 
     # ---- HTTP helpers -----------------------------------------------------
 
@@ -1715,7 +1747,7 @@ class DataMeshManagerProvider(BaseProvider):
     def _require_api_key(self) -> None:
         if not self.api_key:
             raise ProviderError(
-                "DMM_API_KEY environment variable is required.\n"
-                "Generate one at: https://app.entropy-data.com "
-                "-> Organization -> Settings -> API Keys"
+                "DMM API key is required.\n"
+                "Set DMM_API_KEY, or run: fluid auth set --provider dmm --key api_key\n"
+                "Then verify with: fluid auth status --provider dmm"
             )

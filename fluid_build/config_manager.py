@@ -345,6 +345,60 @@ class FluidConfig:
                         catalog_config["auth"] = {}
                     catalog_config["auth"]["api_key"] = api_key
 
+            elif catalog_name in {"datamesh-manager", "dmm", "entropy-data"}:
+                endpoint = os.environ.get("DMM_API_URL")
+                api_key = os.environ.get("DMM_API_KEY")
+                if endpoint:
+                    catalog_config["endpoint"] = endpoint
+                if api_key:
+                    if "auth" not in catalog_config:
+                        catalog_config["auth"] = {}
+                    catalog_config["auth"]["type"] = "api_key"
+                    catalog_config["auth"]["api_key"] = api_key
+
+            elif catalog_name == "datahub":
+                endpoint = os.environ.get("DATAHUB_ENDPOINT") or os.environ.get("DATAHUB_SERVER_URL")
+                token = os.environ.get("DATAHUB_TOKEN")
+                if endpoint:
+                    catalog_config["endpoint"] = endpoint
+                if token:
+                    if "auth" not in catalog_config:
+                        catalog_config["auth"] = {}
+                    catalog_config["auth"]["type"] = "bearer"
+                    catalog_config["auth"]["token"] = token
+
+            elif catalog_name == "atlan":
+                endpoint = os.environ.get("ATLAN_ENDPOINT") or os.environ.get("ATLAN_BASE_URL")
+                api_key = os.environ.get("ATLAN_API_KEY")
+                if endpoint:
+                    catalog_config["endpoint"] = endpoint
+                if api_key:
+                    if "auth" not in catalog_config:
+                        catalog_config["auth"] = {}
+                    catalog_config["auth"]["type"] = "bearer"
+                    catalog_config["auth"]["api_key"] = api_key
+
+            elif catalog_name == "collibra":
+                endpoint = os.environ.get("COLLIBRA_ENDPOINT") or os.environ.get("COLLIBRA_BASE_URL")
+                token = os.environ.get("COLLIBRA_TOKEN")
+                username = os.environ.get("COLLIBRA_USERNAME")
+                password = os.environ.get("COLLIBRA_PASSWORD")
+                if endpoint:
+                    catalog_config["endpoint"] = endpoint
+                if token:
+                    if "auth" not in catalog_config:
+                        catalog_config["auth"] = {}
+                    catalog_config["auth"]["type"] = "bearer"
+                    catalog_config["auth"]["token"] = token
+                elif username or password:
+                    if "auth" not in catalog_config:
+                        catalog_config["auth"] = {}
+                    catalog_config["auth"]["type"] = "basic"
+                    if username:
+                        catalog_config["auth"]["username"] = username
+                    if password:
+                        catalog_config["auth"]["password"] = password
+
             return catalog_config
 
         return catalogs
@@ -529,11 +583,34 @@ catalogs:
     circuit_breaker_threshold: 3
     circuit_breaker_timeout: 60
 
+  # datamesh-manager:
+  #   endpoint: https://api.entropy-data.com
+  #   auth:
+  #     type: api_key
+  #     # api_key will be read from DMM_API_KEY env var
+  #   enabled: false
+  #
   # Example: Collibra catalog (future support)
+  # datahub:
+  #   endpoint: https://datahub.company.com
+  #   auth:
+  #     type: bearer
+  #     # token will be read from DATAHUB_TOKEN env var
+  #   enabled: false
+  #
+  # atlan:
+  #   endpoint: https://tenant.atlan.com
+  #   auth:
+  #     type: bearer
+  #     # api_key will be read from ATLAN_API_KEY env var
+  #   enabled: false
+  #
   # collibra:
   #   endpoint: https://collibra.company.com
   #   auth:
   #     type: bearer
+  #     # token can be read from COLLIBRA_TOKEN
+  #     # or fall back to COLLIBRA_USERNAME / COLLIBRA_PASSWORD
   #   enabled: false
 
 # Output configuration

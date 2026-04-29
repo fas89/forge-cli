@@ -35,15 +35,44 @@ import os
 import pytest
 import yaml
 
-from fluid_build.config_manager import (
-    DEFAULT_CONFIG,
-    FluidConfig,
-    get_config,
-    reset_config,
-)
+from fluid_build.config_manager import DEFAULT_CONFIG, FluidConfig, get_config, reset_config
 
-# Snapshot of pristine defaults (before any test mutates them via shallow copy).
-_PRISTINE_DEFAULTS = copy.deepcopy(DEFAULT_CONFIG)
+# Snapshot of pristine defaults independent from prior module mutations.
+_PRISTINE_DEFAULTS = {
+    "logging": {"level": "INFO", "format": "text", "file": None, "console": True},
+    "cache": {"dir": "~/.fluid/cache", "schema_cache_days": 7, "auto_refresh": True},
+    "network": {
+        "timeout": 30,
+        "connect_timeout": 10,
+        "max_retries": 3,
+        "rate_limit": 50,
+        "verify_ssl": True,
+    },
+    "validation": {"strict": False, "offline": False, "schema_version": None},
+    "apply": {
+        "dry_run": False,
+        "parallel_phases": True,
+        "rollback_strategy": "immediate",
+        "timeout_minutes": 60,
+    },
+    "providers": {
+        "gcp": {"default_region": "us-central1", "default_location": "US"},
+        "aws": {"default_region": "us-east-1"},
+        "snowflake": {"default_warehouse": "COMPUTE_WH"},
+    },
+    "catalogs": {
+        "fluid-command-center": {
+            "endpoint": "http://localhost:8000",
+            "auth": {"type": "api_key"},
+            "enabled": True,
+            "max_retries": 3,
+            "timeout": 30.0,
+            "circuit_breaker_threshold": 3,
+            "circuit_breaker_timeout": 60,
+        }
+    },
+    "output": {"format": "text", "color": True, "verbose": False, "quiet": False},
+}
 
 
 # ---------------------------------------------------------------------------
@@ -62,6 +91,8 @@ def _isolate_config(monkeypatch, tmp_path):
 
     saved = copy.deepcopy(_PRISTINE_DEFAULTS)
     reset_config()
+    _cm.DEFAULT_CONFIG.clear()
+    _cm.DEFAULT_CONFIG.update(copy.deepcopy(saved))
     # Prevent reading the real home / system configs
     monkeypatch.setenv("HOME", str(tmp_path / "fakehome"))
     monkeypatch.setenv("USERPROFILE", str(tmp_path / "fakehome"))  # Windows compat

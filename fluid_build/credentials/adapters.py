@@ -27,6 +27,19 @@ from .resolver import BaseCredentialResolver, CredentialConfig
 logger = logging.getLogger(__name__)
 
 
+CATALOG_PROVIDER_ALIASES = {
+    "datamesh-manager": "dmm",
+    "entropy-data": "dmm",
+}
+
+
+def canonicalize_catalog_provider(provider: str) -> str:
+    """Normalize catalog provider aliases."""
+
+    normalized = (provider or "").strip().lower()
+    return CATALOG_PROVIDER_ALIASES.get(normalized, normalized)
+
+
 class SnowflakeCredentialAdapter(BaseCredentialResolver):
     """
     Snowflake credential adapter.
@@ -240,3 +253,13 @@ class AWSCredentialAdapter(BaseCredentialResolver):
 
         # Otherwise use boto3's default chain
         return self._get_provider_default("session", **kwargs)
+
+
+class CatalogCredentialAdapter(BaseCredentialResolver):
+    """Credential adapter for catalog publish providers."""
+
+    def __init__(self, provider: str, config: Optional[CredentialConfig] = None):
+        super().__init__(provider=canonicalize_catalog_provider(provider), config=config)
+
+    def _get_provider_default(self, key: str, **kwargs) -> Optional[str]:
+        return None

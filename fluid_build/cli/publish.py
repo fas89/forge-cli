@@ -20,7 +20,7 @@ making them discoverable for other teams and data consumers.
 
 Workflow:
 1. Load and validate FLUID contract
-2. Map contract to catalog asset format
+2. Map contract to catalog publish format
 3. Publish to configured catalog(s)
 4. Verify publication success
 5. Display catalog URL
@@ -252,40 +252,41 @@ async def publish_contract(
             error=f"Failed to create catalog provider: {e}",
         )
 
-    # Map contract to asset
+    # Map contract to normalized publish product
     try:
-        asset = provider.map_contract_to_asset(contract)
+        product = provider.map_contract_to_product(contract)
+        product.source_contract = contract
         # Attach raw contract YAML so catalogs can store the full file
-        asset.contract_yaml = contract_path.read_text(encoding="utf-8")
+        product.contract_yaml = contract_path.read_text(encoding="utf-8")
     except Exception as e:
         return PublishResult(
             success=False,
             catalog_id=catalog_name,
             asset_id=contract.get("id", str(contract_path)),
-            error=f"Failed to map contract to asset: {e}",
+            error=f"Failed to map contract to publish product: {e}",
         )
 
     if verbose:
-        logger.info(f"📦 Mapped contract to asset: {asset.name} (ID: {asset.id})")
+        logger.info(f"📦 Mapped contract to product: {product.name} (ID: {product.id})")
 
     # Verify-only mode
     if verify_only:
-        exists = await provider.verify(asset.id)
+        exists = await provider.verify(product.id)
         return PublishResult(
             success=exists,
             catalog_id=catalog_name,
-            asset_id=asset.id,
+            asset_id=product.id,
             error=None if exists else "Asset not found in catalog",
             details={"verified": exists, "operation": "verify"},
         )
 
     # Dry-run mode
     if dry_run:
-        is_valid, error_msg = provider.validate_asset(asset)
+        is_valid, error_msg = provider.validate_product(product)
         return PublishResult(
             success=is_valid,
             catalog_id=catalog_name,
-            asset_id=asset.id,
+            asset_id=product.id,
             error=error_msg,
             details={"dry_run": True, "valid": is_valid},
         )
@@ -300,7 +301,7 @@ async def publish_contract(
             return PublishResult(
                 success=False,
                 catalog_id=catalog_name,
-                asset_id=asset.id,
+                asset_id=product.id,
                 error="Catalog health check failed - endpoint not accessible",
             )
 
@@ -308,7 +309,7 @@ async def publish_contract(
     if verbose:
         logger.info(f"🚀 Publishing to {catalog_name}...")
 
-    result = await provider.publish(asset)
+    result = await provider.publish(product)
     return result
 
 

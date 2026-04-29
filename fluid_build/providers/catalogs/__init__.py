@@ -12,9 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Catalog provider registry"""
+"""Catalog provider registry."""
 
-from .base import BaseCatalogProvider, CatalogAsset, PublishResult
+from .base import (
+    BaseCatalogProvider,
+    CatalogAsset,
+    CatalogAssetRef,
+    CatalogContractRef,
+    CatalogOwner,
+    CatalogPort,
+    CatalogProduct,
+    PublishResult,
+)
 from .fluid_cc import FluidCommandCenterProvider
 
 # Lazy-import optional catalog backends ─ don't crash if deps are missing
@@ -22,6 +31,21 @@ try:
     from .datamesh_manager import DataMeshManagerCatalogProvider
 except Exception:
     DataMeshManagerCatalogProvider = None  # type: ignore[assignment,misc]
+
+try:
+    from .datahub import DataHubCatalogProvider
+except Exception:
+    DataHubCatalogProvider = None  # type: ignore[assignment,misc]
+
+try:
+    from .atlan import AtlanCatalogProvider
+except Exception:
+    AtlanCatalogProvider = None  # type: ignore[assignment,misc]
+
+try:
+    from .collibra import CollibraCatalogProvider
+except Exception:
+    CollibraCatalogProvider = None  # type: ignore[assignment,misc]
 
 # Registry of available catalog providers
 CATALOG_PROVIDERS = {
@@ -34,6 +58,15 @@ if DataMeshManagerCatalogProvider is not None:
     CATALOG_PROVIDERS["datamesh-manager"] = DataMeshManagerCatalogProvider
     CATALOG_PROVIDERS["entropy-data"] = DataMeshManagerCatalogProvider
     CATALOG_PROVIDERS["dmm"] = DataMeshManagerCatalogProvider
+
+if DataHubCatalogProvider is not None:
+    CATALOG_PROVIDERS["datahub"] = DataHubCatalogProvider
+
+if AtlanCatalogProvider is not None:
+    CATALOG_PROVIDERS["atlan"] = AtlanCatalogProvider
+
+if CollibraCatalogProvider is not None:
+    CATALOG_PROVIDERS["collibra"] = CollibraCatalogProvider
 
 
 def get_catalog_provider(catalog_type: str, config: dict) -> BaseCatalogProvider:
@@ -61,6 +94,11 @@ def get_catalog_provider(catalog_type: str, config: dict) -> BaseCatalogProvider
 
 __all__ = [
     "BaseCatalogProvider",
+    "CatalogOwner",
+    "CatalogPort",
+    "CatalogContractRef",
+    "CatalogAssetRef",
+    "CatalogProduct",
     "CatalogAsset",
     "PublishResult",
     "FluidCommandCenterProvider",

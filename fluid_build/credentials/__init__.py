@@ -28,8 +28,10 @@ Secure credential resolution across all providers with multiple sources:
 
 from .adapters import (
     AWSCredentialAdapter,
+    CatalogCredentialAdapter,
     GCPCredentialAdapter,
     SnowflakeCredentialAdapter,
+    canonicalize_catalog_provider,
 )
 from .resolver import (
     BaseCredentialResolver,
@@ -69,9 +71,15 @@ def get_adapter(provider: str, config: CredentialConfig = None) -> BaseCredentia
         "snowflake": get_snowflake_adapter,
         "gcp": get_gcp_adapter,
         "aws": get_aws_adapter,
+        "dmm": lambda cfg: CatalogCredentialAdapter("dmm", config=cfg),
+        "datamesh-manager": lambda cfg: CatalogCredentialAdapter("dmm", config=cfg),
+        "entropy-data": lambda cfg: CatalogCredentialAdapter("dmm", config=cfg),
+        "datahub": lambda cfg: CatalogCredentialAdapter("datahub", config=cfg),
+        "atlan": lambda cfg: CatalogCredentialAdapter("atlan", config=cfg),
+        "collibra": lambda cfg: CatalogCredentialAdapter("collibra", config=cfg),
     }
 
-    adapter_func = adapters.get(provider.lower())
+    adapter_func = adapters.get(canonicalize_catalog_provider(provider))
     if not adapter_func:
         raise ValueError(f"Unknown provider: {provider}")
 
@@ -86,6 +94,8 @@ __all__ = [
     "SnowflakeCredentialAdapter",
     "GCPCredentialAdapter",
     "AWSCredentialAdapter",
+    "CatalogCredentialAdapter",
+    "canonicalize_catalog_provider",
     "get_snowflake_adapter",
     "get_gcp_adapter",
     "get_aws_adapter",

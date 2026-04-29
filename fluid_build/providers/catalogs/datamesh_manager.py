@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict
 
-from .base import BaseCatalogProvider, CatalogAsset, PublishResult
+from .base import BaseCatalogProvider, CatalogProduct, PublishResult
 
 LOG = logging.getLogger(__name__)
 
@@ -40,24 +40,22 @@ class DataMeshManagerCatalogProvider(BaseCatalogProvider):
         # Lazy-import to avoid hard dependency at load time
         from fluid_build.providers.datamesh_manager import DataMeshManagerProvider
 
-        api_key = config.get("api_key") or config.get("auth", {}).get("api_key", "")
         api_url = config.get("endpoint") or config.get("url", "")
         self._provider = DataMeshManagerProvider(
-            api_key=api_key or None,
             api_url=api_url or None,
         )
 
     # -- BaseCatalogProvider interface --------------------------------------
 
-    async def publish(self, asset: CatalogAsset) -> PublishResult:
-        """Publish *asset* as a data product to Entropy Data."""
-        fluid = self._asset_to_fluid(asset)
+    async def publish(self, product: CatalogProduct) -> PublishResult:
+        """Publish *product* as a data product to Entropy Data."""
+        fluid = product.source_contract or self._product_to_fluid(product)
         try:
             result = self._provider.apply(fluid, publish_contract=True)
             return PublishResult(
                 success=True,
                 catalog_id=self.name,
-                asset_id=asset.id,
+                asset_id=product.id,
                 catalog_url=result.get("url"),
                 details=result,
             )
@@ -65,13 +63,13 @@ class DataMeshManagerCatalogProvider(BaseCatalogProvider):
             return PublishResult(
                 success=False,
                 catalog_id=self.name,
-                asset_id=asset.id,
+                asset_id=product.id,
                 error=str(exc),
             )
 
-    async def update(self, asset: CatalogAsset) -> PublishResult:
+    async def update(self, product: CatalogProduct) -> PublishResult:
         # PUT is idempotent — publish == update
-        return await self.publish(asset)
+        return await self.publish(product)
 
     async def verify(self, asset_id: str) -> bool:
         try:
@@ -96,39 +94,67 @@ class DataMeshManagerCatalogProvider(BaseCatalogProvider):
     # -- helpers ------------------------------------------------------------
 
     @staticmethod
-    def _asset_to_fluid(asset: CatalogAsset) -> Dict[str, Any]:
-        """Convert a CatalogAsset back to a minimal FLUID dict."""
+    def _product_to_fluid(product: CatalogProduct) -> Dict[str, Any]:
+        """Fallback reconstruction when callers did not preserve source_contract."""
         fluid: Dict[str, Any] = {
-            "id": asset.id,
-            "name": asset.name,
-            "description": asset.description,
+            "id": product.id,
+            "name": product.name,
+            "description": product.description,
+            "kind": product.kind,
+            "domain": product.domain,
             "metadata": {
-                "name": asset.name,
-                "description": asset.description,
-                "domain": asset.domain,
-                "version": asset.version,
-                "tags": asset.tags,
-                "layer": asset.layer,
-                "status": "active",
+                "name": product.name,
+                "description": product.description,
+                "domain": product.domain,
+                "version": product.version,
+                "tags": product.tags,
+                "layer": product.layer,
+                "status": product.status or "active",
             },
             "owner": {
-                "team": asset.owner,
-                "email": asset.owner_email,
+                "team": product.owner.team,
+                "email": product.owner.email,
+                "name": product.owner.name,
             },
         }
 
-        # Build a minimal expose from location info
-        if asset.location or asset.platform != "unknown":
-            expose: Dict[str, Any] = {
-                "id": asset.id,
-                "provider": asset.platform,
-            }
-            if asset.location:
-                expose["location"] = (
-                    asset.location if isinstance(asset.location, str) else str(asset.location)
-                )
-            if asset.schema:
-                expose["schema"] = {"fields": asset.schema}
-            fluid["exposes"] = [expose]
+        if product.input_ports:
+            fluid["expects"] = []
+            for port in product.input_ports:
+                expect: Dict[str, Any] = {
+                    "id": port.id,
+                    "name": port.name,
+                    "description": port.description,
+                    "provider": port.platform,
+                }
+                if port.location is not None:
+                    expect["location"] = port.location
+                if port.source_system_id:
+                    expect["sourceSystem"] = port.source_system_id
+                fluid["expects"].append(expect)
+
+        if product.output_ports:
+            fluid["exposes"] = []
+            for port in product.output_ports:
+                expose: Dict[str, Any] = {
+                    "id": port.id,
+                    "exposeId": port.id,
+                    "name": port.name,
+                    "description": port.description,
+                    "kind": port.kind,
+                    "provider": port.platform,
+                }
+                binding: Dict[str, Any] = {}
+                if port.platform and port.platform != "unknown":
+                    binding["platform"] = port.platform
+                if port.location is not None:
+                    binding["location"] = port.location
+                if isinstance(port.custom, dict) and port.custom.get("format") is not None:
+                    binding["format"] = port.custom["format"]
+                if binding:
+                    expose["binding"] = binding
+                if port.schema:
+                    expose["contract"] = {"schema": port.schema}
+                fluid["exposes"].append(expose)
 
         return fluid

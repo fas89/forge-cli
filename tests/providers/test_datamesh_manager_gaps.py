@@ -86,6 +86,10 @@ class TestExtractProvider:
         section = {"binding": {"platform": "gcp", "format": "bigquery_table"}}
         assert DataMeshManagerProvider._extract_provider(section) == "gcp"
 
+    def test_binding_provider(self):
+        section = {"binding": {"provider": "snowflake", "format": "table"}}
+        assert DataMeshManagerProvider._extract_provider(section) == "snowflake"
+
     def test_legacy_provider(self):
         section = {"provider": "snowflake"}
         assert DataMeshManagerProvider._extract_provider(section) == "snowflake"
@@ -240,6 +244,41 @@ class TestMapOutputPortsV071:
         assert server["account"] == "p"
         assert server["database"] == "d"
         assert server["table"] == "t"
+
+
+class TestInputPortFallbacks:
+    """Test that older and newer input dependency shapes are both accepted."""
+
+    def test_map_input_ports_uses_consumes_when_expects_missing(self):
+        provider = _make_provider()
+        fluid = {
+            "consumes": [
+                {
+                    "id": "orders",
+                    "name": "Orders",
+                    "description": "Orders upstream dependency",
+                    "provider": "gcp",
+                    "productId": "raw.orders",
+                    "exposeId": "orders_table",
+                }
+            ]
+        }
+
+        ports = provider._map_input_ports(fluid)
+
+        assert len(ports) == 1
+        assert ports[0]["id"] == "orders"
+        assert ports[0]["name"] == "Orders"
+        assert ports[0]["sourceSystemId"] == "raw.orders"
+
+
+class TestOwnerNormalization:
+    """Test owner normalization for string-based contract owners."""
+
+    def test_derive_team_id_from_owner_email_string(self):
+        fluid = {"metadata": {"owner": "analytics.team@example.com"}}
+
+        assert DataMeshManagerProvider._derive_team_id(fluid) == "analytics-team"
 
 
 # ===================================================================

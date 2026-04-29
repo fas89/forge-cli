@@ -21,7 +21,7 @@ import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fluid_build.cli.console import success
 
@@ -81,14 +81,26 @@ class BaseCredentialResolver(ABC):
         self.provider = provider
         self.config = config or CredentialConfig()
         self._cache: Dict[str, Any] = {}
+        self._cache_sources: Dict[str, CredentialSource] = {}
 
         logger.debug(f"Initialized {provider} credential resolver")
 
     def get_credential(
         self, key: str, required: bool = True, cli_value: Optional[str] = None, **kwargs
     ) -> Optional[str]:
+        value, _ = self.get_credential_with_source(
+            key,
+            required=required,
+            cli_value=cli_value,
+            **kwargs,
+        )
+        return value
+
+    def get_credential_with_source(
+        self, key: str, required: bool = True, cli_value: Optional[str] = None, **kwargs
+    ) -> Tuple[Optional[str], Optional[CredentialSource]]:
         """
-        Resolve credential using priority chain.
+        Resolve credential using priority chain and return the winning source.
 
         Resolution order:
         1. CLI argument (explicit override)
@@ -114,86 +126,85 @@ class BaseCredentialResolver(ABC):
         Raises:
             CredentialError: If required credential not found
         """
-        # Check cache first
         cache_key = f"{self.provider}.{key}"
         if cache_key in self._cache:
             logger.debug(f"Credential '{key}' retrieved from cache")
-            return self._cache[cache_key]
+            return self._cache[cache_key], self._cache_sources.get(cache_key)
 
-        # Try each source in priority order
         value = None
+        source = None
 
-        # 1. CLI argument (highest priority)
         if cli_value is not None:
             value = cli_value
+            source = CredentialSource.CLI_ARGUMENT
             logger.debug(f"Credential '{key}' from CLI argument")
 
-        # 2. Environment variable
         if value is None:
             value = self._get_from_env(key)
             if value:
+                source = CredentialSource.ENVIRONMENT
                 logger.debug(f"Credential '{key}' from environment variable")
 
-        # 3. .env file
         if value is None:
             value = self._get_from_dotenv(key)
             if value:
+                source = CredentialSource.DOTENV
                 logger.debug(f"Credential '{key}' from .env file")
 
-        # 4. OS Keyring
         if value is None:
             value = self._get_from_keyring(key)
             if value:
+                source = CredentialSource.KEYRING
                 logger.debug(f"Credential '{key}' from OS keyring")
 
-        # 5. Encrypted file
         if value is None:
             value = self._get_from_encrypted_file(key)
             if value:
+                source = CredentialSource.ENCRYPTED_FILE
                 logger.debug(f"Credential '{key}' from encrypted file")
 
-        # 6. Config file
         if value is None:
             value = self._get_from_config(key)
             if value:
+                source = CredentialSource.CONFIG_FILE
                 logger.debug(f"Credential '{key}' from config file")
 
-        # 7. Vault
         if value is None:
             value = self._get_from_vault(key)
             if value:
+                source = CredentialSource.VAULT
                 logger.debug(f"Credential '{key}' from Vault")
 
-        # 8. Secret Manager
         if value is None:
             value = self._get_from_secret_manager(key)
             if value:
+                source = CredentialSource.SECRET_MANAGER
                 logger.debug(f"Credential '{key}' from secret manager")
 
-        # 9. Provider-specific default
         if value is None:
             value = self._get_provider_default(key, **kwargs)
             if value:
+                source = CredentialSource.PROVIDER_DEFAULT
                 logger.debug(f"Credential '{key}' from provider default")
 
-        # 10. Interactive prompt (lowest priority)
         if value is None and self.config.allow_prompt and required:
             value = self._get_from_prompt(key)
             if value:
+                source = CredentialSource.PROMPT
                 logger.debug(f"Credential '{key}' from interactive prompt")
 
-        # Handle not found
         if value is None and required:
             suggestions = self._get_suggestions(key)
             raise CredentialError(
                 f"Required credential not found: {self.provider}.{key}", suggestions=suggestions
             )
 
-        # Cache the result
         if value is not None:
             self._cache[cache_key] = value
+            if source is not None:
+                self._cache_sources[cache_key] = source
 
-        return value
+        return value, source
 
     def _get_from_env(self, key: str) -> Optional[str]:
         """Get credential from environment variable."""
@@ -323,13 +334,35 @@ class BaseCredentialResolver(ABC):
     def _save_to_keyring(self, key: str, value: str):
         """Save credential to OS keyring."""
         try:
-            from .keyring_store import KeyringCredentialStore
-
-            keyring_key = f"{self.provider}.{key}"
-            KeyringCredentialStore.set_credential(keyring_key, value)
-            success(f"Saved {self.provider} {key} to secure keyring")
+            self.store_credential(key, value)
         except Exception as e:
             logger.warning(f"Failed to save to keyring: {e}")
+
+    def store_credential(self, key: str, value: str) -> None:
+        """Store a credential in the OS keyring."""
+        from .keyring_store import KeyringCredentialStore
+
+        keyring_key = f"{self.provider}.{key}"
+        KeyringCredentialStore.set_credential(keyring_key, value)
+        self._cache[keyring_key] = value
+        self._cache_sources[keyring_key] = CredentialSource.KEYRING
+        success(f"Saved {self.provider} {key} to secure keyring")
+
+    def get_stored_credential(self, key: str) -> Optional[str]:
+        """Read a credential directly from the OS keyring."""
+        from .keyring_store import KeyringCredentialStore
+
+        keyring_key = f"{self.provider}.{key}"
+        return KeyringCredentialStore.get_credential(keyring_key)
+
+    def clear_stored_credential(self, key: str) -> None:
+        """Delete a credential from the OS keyring."""
+        from .keyring_store import KeyringCredentialStore
+
+        keyring_key = f"{self.provider}.{key}"
+        KeyringCredentialStore.delete_credential(keyring_key)
+        self._cache.pop(keyring_key, None)
+        self._cache_sources.pop(keyring_key, None)
 
     @abstractmethod
     def _get_provider_default(self, key: str, **kwargs) -> Optional[str]:
@@ -353,4 +386,5 @@ class BaseCredentialResolver(ABC):
     def clear_cache(self):
         """Clear credential cache."""
         self._cache.clear()
+        self._cache_sources.clear()
         logger.debug(f"Cleared credential cache for {self.provider}")

@@ -82,6 +82,13 @@ class TestBaseCredentialResolver:
             value = resolver.get_credential("password")
             assert value == "env_secret"
 
+    def test_get_credential_with_source(self):
+        resolver = ConcreteResolver("snowflake")
+        with patch.dict(os.environ, {"SNOWFLAKE_PASSWORD": "env_secret"}):
+            value, source = resolver.get_credential_with_source("password")
+            assert value == "env_secret"
+            assert source == CredentialSource.ENVIRONMENT
+
     def test_env_var_plain_key(self):
         resolver = ConcreteResolver("mydb")
         with patch.dict(os.environ, {"PASSWORD": "plain_secret"}, clear=False):
@@ -114,8 +121,10 @@ class TestBaseCredentialResolver:
     def test_clear_cache(self):
         resolver = ConcreteResolver("test")
         resolver._cache["test.key"] = "cached"
+        resolver._cache_sources["test.key"] = CredentialSource.KEYRING
         resolver.clear_cache()
         assert resolver._cache == {}
+        assert resolver._cache_sources == {}
 
     def test_get_suggestions(self):
         resolver = ConcreteResolver("snowflake")
@@ -154,3 +163,19 @@ class TestBaseCredentialResolver:
         with patch.dict(os.environ, {"SNOWFLAKE_PASSWORD": "from_env"}):
             value = resolver.get_credential("password", cli_value="from_cli")
             assert value == "from_cli"
+
+    def test_store_and_clear_stored_credential(self):
+        resolver = ConcreteResolver("datahub")
+        with patch(
+            "fluid_build.credentials.keyring_store.KeyringCredentialStore.set_credential"
+        ) as mock_set, patch(
+            "fluid_build.credentials.keyring_store.KeyringCredentialStore.get_credential"
+        ) as mock_get, patch(
+            "fluid_build.credentials.keyring_store.KeyringCredentialStore.delete_credential"
+        ) as mock_delete:
+            mock_get.return_value = "stored"
+            resolver.store_credential("token", "secret")
+            assert resolver.get_stored_credential("token") == "stored"
+            resolver.clear_stored_credential("token")
+            mock_set.assert_called_once_with("datahub.token", "secret")
+            mock_delete.assert_called_once_with("datahub.token")
