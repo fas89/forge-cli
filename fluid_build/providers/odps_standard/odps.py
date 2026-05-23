@@ -47,6 +47,12 @@ class OdpsStandardProvider(_BitolOdpsProvider):
         self.odps_version = self.api_version
         self.odps_spec_url = self.spec_url
         self.default_port_version = "1"
+        # Legacy callers (e.g. DataMeshManagerProvider's publish path) feed
+        # partially-populated contracts to this back-compat alias and expect
+        # the render call to succeed even when the per-port ODCS misses
+        # spec-required server fields. New code should use BitolOdpsProvider
+        # directly to opt into strict validation (ODPS_STRICT=true).
+        self.strict_validation = False
 
     @property
     def name(self) -> str:

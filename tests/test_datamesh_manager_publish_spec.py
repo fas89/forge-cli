@@ -120,6 +120,100 @@ def test_apply_dry_run_uses_odps_spec_when_provider_hint_is_odps():
     assert "info" not in payload
 
 
+def test_apply_dry_run_uses_odps_spec_when_contract_kind_is_dataproduct():
+    """Bitol-style FLUID contracts declare ``kind: DataProduct``; the publish
+    payload must therefore default to ODPS so Entropy CE (configured for
+    ``odps`` only) accepts it. Regression test for the issue surfaced by
+    running ``publish:pre`` against the snowflake-biz-lab repo.
+    """
+    provider = DataMeshManagerProvider(api_key="dummy", api_url="https://api.entropy-data.com")
+    contract = _sample_contract()
+    contract["kind"] = "DataProduct"
+
+    result = provider.apply(contract, dry_run=True)
+
+    payload = result["payload"]
+    # ODPS path emits apiVersion + kind, not the DPS dataProductSpecification field
+    assert payload.get("kind") == "DataProduct"
+    assert "apiVersion" in payload
+
+
+def test_apply_dry_run_dps_spec_unchanged_for_legacy_contract():
+    """A FLUID contract without ``kind: DataProduct`` and no ODPS hint still
+    falls back to the legacy DPS specification."""
+    provider = DataMeshManagerProvider(api_key="dummy", api_url="https://api.entropy-data.com")
+
+    result = provider.apply(_sample_contract(), dry_run=True)
+
+    assert result["payload"]["dataProductSpecification"] == "0.0.1"
+
+
+def test_ensure_team_payload_includes_type_field():
+    """Entropy CE 2.0.x's ``PUT /api/teams/{id}`` requires a non-null ``type``
+    field. The fluid CLI's team payload must include it (default ``internal``)
+    or the publish fails with HTTP 400 "Failed to read request".
+    """
+    provider = DataMeshManagerProvider(api_key="dummy", api_url="https://api.entropy-data.com")
+
+    captured: dict = {}
+
+    def fake_request(method, path, json_body=None, **kw):
+        captured["method"] = method
+        captured["path"] = path
+        captured["json_body"] = json_body
+
+        class _Resp:
+            status_code = 200
+
+        return _Resp()
+
+    fake_session = MagicMock()
+    # Force the GET to return 404 so _ensure_team falls through to PUT
+    fake_session.get.return_value = SimpleNamespace(status_code=404)
+
+    with (
+        patch.object(provider, "_session", return_value=fake_session),
+        patch.object(provider, "_request", side_effect=fake_request),
+    ):
+        provider._ensure_team(
+            {"owner": {"team": "telco-data-platform", "email": "data-platform@example.com"}},
+            "telco-data-platform",
+        )
+
+    assert captured["method"] == "PUT"
+    assert captured["path"] == "/api/teams/telco-data-platform"
+    assert captured["json_body"]["type"] == "internal"
+    assert captured["json_body"]["id"] == "telco-data-platform"
+
+
+def test_ensure_team_type_override_via_owner_team_type():
+    """``owner.team_type`` overrides the default ``internal``."""
+    provider = DataMeshManagerProvider(api_key="dummy", api_url="https://api.entropy-data.com")
+    captured: dict = {}
+
+    def fake_request(method, path, json_body=None, **kw):
+        captured["json_body"] = json_body
+
+        class _Resp:
+            status_code = 200
+
+        return _Resp()
+
+    fake_session = MagicMock()
+    fake_session.get.return_value = SimpleNamespace(status_code=404)
+
+    with (
+        patch.object(provider, "_session", return_value=fake_session),
+        patch.object(provider, "_request", side_effect=fake_request),
+    ):
+        provider._ensure_team(
+            {"owner": {"team": "bu-analytics", "team_type": "business-unit"}},
+            "bu-analytics",
+        )
+
+    assert captured["json_body"]["type"] == "business-unit"
+
+
 def test_apply_dry_run_allows_explicit_spec_override():
     provider = DataMeshManagerProvider(api_key="dummy", api_url="https://api.entropy-data.com")
 

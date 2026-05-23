@@ -161,6 +161,7 @@ class DataMeshManagerProvider(BaseProvider):
                 data_product_specification=self._resolve_data_product_specification(
                     data_product_specification,
                     provider_hint=provider_hint,
+                    fluid=c,
                 ),
             )
             actions.append(
@@ -214,6 +215,7 @@ class DataMeshManagerProvider(BaseProvider):
                 data_product_specification=self._resolve_data_product_specification(
                     data_product_specification,
                     provider_hint=provider_hint,
+                    fluid=c,
                 ),
                 validate_generated_contracts=validate_generated_contracts,
                 validation_mode=validation_mode,
@@ -816,19 +818,29 @@ class DataMeshManagerProvider(BaseProvider):
         value: Optional[str],
         *,
         provider_hint: Optional[str] = None,
+        fluid: Optional[Mapping[str, Any]] = None,
     ) -> str:
         """Resolve outgoing dataProductSpecification.
 
         Resolution order:
         1) explicit value
         2) ODPS provider hint (``odps``/``opds``)
-        3) default DPS specification
+        3) Bitol DataProduct convention: ``fluid["kind"] == "DataProduct"``
+           (set by Bitol-style contracts; Entropy CE infers ``odps`` from this)
+        4) default DPS specification
         """
         if value:
             return str(value).strip()
 
         hint = str(provider_hint or "").strip().lower()
         if hint in {"odps", "opds"}:
+            return self.DATA_PRODUCT_SPEC_ODPS
+
+        if isinstance(fluid, Mapping) and str(fluid.get("kind", "")).lower() == "dataproduct":
+            # Bitol Open Data Product Standard convention — `kind: DataProduct`
+            # at the top of the FLUID file signals that downstream consumers
+            # (Entropy CE, DMM) should treat it as ODPS, not the older
+            # FLUID-flavoured Data Product Specification ("0.0.1").
             return self.DATA_PRODUCT_SPEC_ODPS
 
         return self.DATA_PRODUCT_SPEC_DPS
@@ -1624,6 +1636,11 @@ class DataMeshManagerProvider(BaseProvider):
         team: Dict[str, Any] = {
             "id": team_id,
             "name": owner.get("name") or owner.get("team") or team_id,
+            # ``type`` is required by Entropy CE 2.0.x — older versions
+            # accept and ignore it, so this is safe across versions. Caller
+            # can override via owner["team_type"] when a custom value (e.g.
+            # ``business-unit``) is needed.
+            "type": owner.get("team_type", "internal"),
         }
         if owner.get("email"):
             team["contactEmail"] = owner["email"]

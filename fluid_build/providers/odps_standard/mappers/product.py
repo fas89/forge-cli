@@ -72,14 +72,24 @@ def to_odps(ctx: ExportCtx) -> None:
         if metadata.get(key):
             odps[key] = metadata[key]
 
-    if metadata.get("tags"):
-        odps["tags"] = list(metadata["tags"])
+    # tags: prefer metadata.tags; fall back to top-level fluid.tags (legacy)
+    tags = metadata.get("tags") or fluid.get("tags")
+    if tags:
+        odps["tags"] = list(tags)
 
     if "product_created_ts" in pt:
         odps["productCreatedTs"] = pt["product_created_ts"]
 
+    # customProperties: verbatim pass-through wins; otherwise synthesise the
+    # legacy "type/domain/fluidVersion" trio so callers that imported the
+    # legacy OdpsStandardProvider behaviour keep their expected output.
     if "custom_properties" in pt:
         odps["customProperties"] = list(pt["custom_properties"])
+    else:
+        custom_props = _legacy_custom_properties(fluid)
+        if custom_props:
+            odps["customProperties"] = custom_props
+
     if "authoritative_definitions" in pt:
         odps["authoritativeDefinitions"] = list(pt["authoritative_definitions"])
 
@@ -123,3 +133,25 @@ def to_fluid(ctx: ImportCtx) -> None:
         pt["custom_properties"] = list(odps["customProperties"])
     if odps.get("authoritativeDefinitions"):
         pt["authoritative_definitions"] = list(odps["authoritativeDefinitions"])
+
+
+def _legacy_custom_properties(fluid: Mapping[str, Any]) -> list:
+    """Synthesise a legacy ``customProperties`` entry for the product ``type``.
+
+    The Bitol ODPS v1.0.0 schema has no top-level slot for product type
+    (e.g. ``analytical`` vs ``operational``), so callers that previously
+    relied on the deprecated ``OdpsStandardProvider`` got it as a custom
+    property. We preserve that surface for back-compat, but skip ``domain``
+    and ``fluidVersion`` — the former is already a Bitol top-level field
+    and the latter would pollute the round-trip.
+    """
+    metadata = fluid.get("metadata") or {}
+    product_type = (
+        metadata.get("product_type")
+        or metadata.get("type")
+        or fluid.get("product_type")
+        or fluid.get("type")
+    )
+    if not product_type:
+        return []
+    return [{"property": "type", "value": product_type}]
