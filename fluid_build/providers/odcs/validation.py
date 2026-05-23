@@ -53,6 +53,50 @@ def validate(odcs: Mapping[str, Any], schema: Mapping[str, Any]) -> None:
         raise ProviderError(f"ODCS validation failed: {exc.message}") from exc
 
 
+def validate_via_vowl(odcs: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
+    """Second-pass ODCS validation via the ``vowl`` library (optional).
+
+    Runs on the way out of every export to give us an independent, native
+    ODCS-tooling sanity check that the emitted contract is parseable by a
+    real ODCS consumer — not just spec-shape-valid against the vendored
+    JSON Schema. ``vowl`` is an official Bitol ODCS vendor (UK Government
+    Digital Service) and shipped as an MIT-licensed library, so importing
+    it here doesn't bring forge-cli into competition with another data-
+    contract toolchain — it's pure standards-body validation.
+
+    Behaviour:
+      - Soft-imports ``vowl``. If absent, returns ``None`` so callers can
+        skip the second pass cleanly. The first-pass ``jsonschema``
+        validation still ran.
+      - Builds ``vowl.Contract(odcs_dict)`` which runs vowl's own
+        jsonschema validation against the version-appropriate ODCS schema
+        (supports v2.2.1..v3.1.0; ours only vendors v3.1.0).
+      - Enumerates the resolved check references so any lazy parse errors
+        surface here too.
+      - Returns a small diagnostic dict ``{api_version, schemas, total_checks}``
+        the export path can log/expose.
+      - Re-raises any vowl exception as :class:`ProviderError` with a
+        ``vowl:`` prefix so the source of the failure is obvious.
+    """
+    try:
+        from vowl import Contract  # type: ignore[import-untyped]
+    except ImportError:
+        LOG.debug("vowl not installed, skipping second-pass ODCS validation")
+        return None
+
+    try:
+        contract = Contract(dict(odcs))
+        refs = contract.get_check_references_by_schema()
+    except Exception as exc:
+        raise ProviderError(f"vowl: {type(exc).__name__}: {exc}") from exc
+
+    return {
+        "api_version": contract.get_api_version(),
+        "schemas": list(contract.get_schema_names() or []),
+        "total_checks": sum(len(v) for v in (refs or {}).values()),
+    }
+
+
 def roundtrip_check(odcs: Mapping[str, Any], reconstructed: Mapping[str, Any]) -> Dict[str, Any]:
     """Compare an original ODCS dict to one rebuilt via ``import → export``.
 

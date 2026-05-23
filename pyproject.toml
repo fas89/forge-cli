@@ -48,6 +48,15 @@ sdk = [
   "fluid-provider-sdk>=0.1.0",
 ]
 
+# Optional second-pass ODCS validation via vowl (MIT, Bitol-listed vendor).
+# Enables ``ODCS_VOWL_VALIDATE=true`` (or the Bitol ODPS provider's strict
+# mode) to run vowl's native parser on every emitted ODCS contract — an
+# independent sanity check that the doc is parseable by a real ODCS
+# consumer, not just spec-shape-valid against the vendored JSON Schema.
+odcs-strict = [
+  "vowl>=0.0.2",
+]
+
 # Local provider (DuckDB)
 local = [
   "duckdb>=1.0",

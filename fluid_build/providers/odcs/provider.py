@@ -21,7 +21,7 @@ from fluid_build.providers.base import ApplyResult, BaseProvider, ProviderError
 from .io import read_input, write_output
 from .mappers import EXPORT_PIPELINE, IMPORT_PIPELINE
 from .mappers.base import ExportCtx, ImportCtx, fluid_id
-from .validation import load_schema, roundtrip_check, validate
+from .validation import load_schema, roundtrip_check, validate, validate_via_vowl
 
 
 class OdcsProvider(BaseProvider):
@@ -47,6 +47,13 @@ class OdcsProvider(BaseProvider):
             os.getenv("ODCS_INCLUDE_QUALITY", "true").lower() == "true"
         )
         self.include_sla = os.getenv("ODCS_INCLUDE_SLA", "true").lower() == "true"
+        # Whether ``render()`` runs vowl's parser as a second-pass validator
+        # on the emitted ODCS. Off by default so the vowl dependency stays
+        # opt-in; flipped on by ``BitolOdpsProvider`` when ``strict_validation``
+        # is set so the per-port ODCS contracts go through vowl too.
+        self._vowl_validate_on_export = (
+            os.getenv("ODCS_VOWL_VALIDATE", "false").lower() == "true"
+        )
 
     @property
     def name(self) -> str:
@@ -120,6 +127,23 @@ class OdcsProvider(BaseProvider):
 
         if self.schema and os.getenv("ODCS_VALIDATE", "false").lower() == "true":
             validate(odcs, self.schema)
+
+        # Second-pass validation through ``vowl`` (optional). Off by default
+        # so the dependency is opt-in; flip ``ODCS_VOWL_VALIDATE=true`` (or
+        # pass ``strict_validation=True`` callers that compose providers like
+        # ``BitolOdpsProvider``) to run vowl's parser on the way out.
+        if (
+            self._vowl_validate_on_export
+            or os.getenv("ODCS_VOWL_VALIDATE", "false").lower() == "true"
+        ):
+            diag = validate_via_vowl(odcs)
+            if diag is not None:
+                self.logger.info(
+                    "vowl: ODCS v%s parsed; %d checks across %d schema(s)",
+                    diag["api_version"],
+                    diag["total_checks"],
+                    len(diag["schemas"]),
+                )
 
         if out is not None and out != "-":
             write_output(odcs, out, fmt or "yaml")

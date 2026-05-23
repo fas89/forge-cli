@@ -128,6 +128,11 @@ class BitolOdpsProvider(BaseProvider):
         for mapper in EXPORT_PIPELINE:
             mapper.to_odps(ctx)
 
+        # Propagate strict mode to the per-port OdcsProvider dynamically so
+        # late toggles (``provider.strict_validation = False`` in tests) take
+        # effect for the same render call.
+        self._odcs._vowl_validate_on_export = self.strict_validation
+
         # Emit per-port ODCS contracts, keyed by contractId.
         contracts: Dict[str, Dict[str, Any]] = {}
         seen_port_names: set[str] = set()

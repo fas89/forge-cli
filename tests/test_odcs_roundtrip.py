@@ -179,3 +179,119 @@ def test_required_is_read_not_isnullable() -> None:
     fields = fluid["exposes"][0]["contract"]["schema"]
     order_id = next(f for f in fields if f["name"] == "order_id")
     assert order_id["required"] is True
+
+
+# ---------------------------------------------------------------------------
+# Optional vowl second-pass validation on the way out
+# (regression tests for the standards-body-borrowed validator)
+# ---------------------------------------------------------------------------
+
+
+class TestVowlSecondPassValidation:
+    """When ``vowl`` is installed and enabled, ``OdcsProvider.render`` should
+    run vowl's parser on the emitted ODCS as an independent native sanity
+    check. When vowl isn't installed the render path silently skips it.
+    """
+
+    def test_validate_via_vowl_skips_cleanly_when_not_installed(
+        self, monkeypatch
+    ) -> None:
+        """If vowl can't be imported, ``validate_via_vowl`` returns None and
+        does NOT raise. Lets us keep it as an opt-in extra."""
+        import sys
+        from fluid_build.providers.odcs.validation import validate_via_vowl
+
+        # Force the import to fail by hiding the vowl module
+        monkeypatch.setitem(sys.modules, "vowl", None)
+        result = validate_via_vowl({"id": "x", "apiVersion": "v3.1.0"})
+        assert result is None
+
+    def test_validate_via_vowl_returns_diagnostics_on_valid_odcs(self) -> None:
+        """Hand-built minimal ODCS goes through vowl cleanly and the
+        diagnostic dict carries the expected fields."""
+        pytest.importorskip("vowl")
+
+        from fluid_build.providers.odcs.validation import validate_via_vowl
+
+        odcs = {
+            "version": "1.0.0",
+            "apiVersion": "v3.1.0",
+            "kind": "DataContract",
+            "id": "minimal.vowl-ok",
+            "status": "active",
+            "schema": [
+                {
+                    "name": "events",
+                    "logicalType": "object",
+                    "physicalType": "table",
+                    "properties": [
+                        {"name": "id", "logicalType": "string", "required": True},
+                        {"name": "amount", "logicalType": "number"},
+                    ],
+                }
+            ],
+        }
+        diag = validate_via_vowl(odcs)
+        assert diag is not None
+        assert diag["api_version"] == "v3.1.0"
+        assert diag["schemas"] == ["events"]
+        # column-exists + logical-type + required ⇒ at least 3 derived checks
+        assert diag["total_checks"] >= 3
+
+    def test_validate_via_vowl_raises_on_missing_required_field(self) -> None:
+        """vowl surfaces its own validation errors as a ProviderError with a
+        ``vowl:`` prefix so the source is unambiguous."""
+        pytest.importorskip("vowl")
+
+        from fluid_build.providers.base import ProviderError
+        from fluid_build.providers.odcs.validation import validate_via_vowl
+
+        # Drop the required ``apiVersion`` field — vowl rejects it
+        odcs = OdcsProvider().render(_load("contract-full.yaml"))
+        odcs.pop("apiVersion", None)
+        with pytest.raises(ProviderError, match="vowl"):
+            validate_via_vowl(odcs)
+
+    def test_odcs_provider_runs_vowl_when_env_flag_set(
+        self, monkeypatch, caplog
+    ) -> None:
+        """``ODCS_VOWL_VALIDATE=true`` flips on the second-pass at render-time
+        without needing any code-level opt-in."""
+        pytest.importorskip("vowl")
+
+        import logging
+
+        monkeypatch.setenv("ODCS_VOWL_VALIDATE", "true")
+        provider = OdcsProvider()  # picks up env at __init__
+        with caplog.at_level(logging.INFO):
+            provider.render(_load("contract-full.yaml"))
+        # The export path should have logged the vowl diagnostic line
+        assert any("vowl: ODCS" in r.message for r in caplog.records), (
+            f"expected a 'vowl: ODCS …' log line; got: "
+            f"{[r.message for r in caplog.records]}"
+        )
+
+    def test_bitol_provider_propagates_strict_mode_to_vowl_on_render(self) -> None:
+        """``BitolOdpsProvider.render`` propagates its current
+        ``strict_validation`` to the per-port ``OdcsProvider`` so late toggles
+        in tests take effect."""
+        pytest.importorskip("vowl")
+
+        import yaml
+        from fluid_build.providers.odps_standard import BitolOdpsProvider
+
+        prov = BitolOdpsProvider()  # ODPS_STRICT defaults to 'true'
+        assert prov.strict_validation is True
+        # Toggle off after construction — the per-port OdcsProvider must
+        # see the new value when render() runs (regression for the
+        # construction-time-only set bug).
+        prov.strict_validation = False
+        with open(
+            Path(__file__).parent
+            / "fixtures"
+            / "fluid"
+            / "contract-multi-expose.fluid.yaml"
+        ) as f:
+            fluid = yaml.safe_load(f)
+        prov.render(fluid)
+        assert prov._odcs._vowl_validate_on_export is False
