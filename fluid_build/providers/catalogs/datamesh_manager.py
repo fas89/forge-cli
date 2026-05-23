@@ -53,7 +53,13 @@ class DataMeshManagerCatalogProvider(BaseCatalogProvider):
         """Publish *asset* as a data product to Entropy Data."""
         fluid = self._asset_to_fluid(asset)
         try:
-            result = self._provider.apply(fluid, publish_contract=True)
+            # Bitol DMM publishes ODPS, not the FLUID-flavoured DPS — make that
+            # explicit so the provider doesn't fall back to the
+            # ``dataProductSpecification: "0.0.1"`` default that Entropy CE
+            # instances configured for ODPS-only reject.
+            result = self._provider.apply(
+                fluid, publish_contract=True, provider_hint="odps"
+            )
             return PublishResult(
                 success=True,
                 catalog_id=self.name,

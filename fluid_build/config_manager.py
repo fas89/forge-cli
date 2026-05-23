@@ -124,8 +124,12 @@ class FluidConfig:
         """Load user configuration."""
         home = Path.home()
 
-        # Try multiple locations
+        # Try multiple locations. ``~/.fluid/config.yaml`` is the path that
+        # ``fluid publish --help`` documents and that the snowflake-biz-lab
+        # bootstrap script writes to — kept first so user-friendly setup
+        # flows work out of the box.
         user_configs = [
+            home / ".fluid" / "config.yaml",
             home / ".fluidrc.yaml",
             home / ".fluidrc",
             home / ".config" / "fluid" / "config.yaml",
@@ -152,6 +156,26 @@ class FluidConfig:
             if config_path.exists():
                 self._merge_config_file(config_path, "project")
                 break
+
+    def _expand_env_in_config(self, value: Any) -> Any:
+        """Recursively expand ``${VAR}`` references in string values.
+
+        Mirrors ``os.path.expandvars`` semantics — undefined vars stay literal
+        so misconfiguration is visible.
+        """
+        import re
+
+        if isinstance(value, str):
+            return re.sub(
+                r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}",
+                lambda m: os.environ.get(m.group(1), m.group(0)),
+                value,
+            )
+        if isinstance(value, dict):
+            return {k: self._expand_env_in_config(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [self._expand_env_in_config(v) for v in value]
+        return value
 
     def _load_env_vars(self) -> None:
         """Load configuration from environment variables."""
@@ -209,6 +233,12 @@ class FluidConfig:
         try:
             with open(path) as f:
                 file_config = yaml.safe_load(f) or {}
+
+            # Shell-style ``${VAR}`` references inside string values are
+            # expanded from the current environment. Unset variables are left
+            # as-is so misconfigurations surface as obvious "literal placeholder"
+            # errors rather than empty strings.
+            file_config = self._expand_env_in_config(file_config)
 
             self._deep_merge(self._config, file_config)
             LOGGER.debug(f"Loaded {source} configuration from {path}")

@@ -132,9 +132,14 @@ The publish command enables the full data product lifecycle: develop → deploy 
     catalog_group = p.add_argument_group("Catalog Selection")
     catalog_group.add_argument(
         "--catalog",
+        "--target",
         "-c",
         default="fluid-command-center",
-        help="Target catalog name (default: fluid-command-center)",
+        help=(
+            "Target catalog name (default: fluid-command-center). "
+            "``--target`` is accepted as an alias for ecosystem tooling "
+            "(e.g. snowflake-biz-lab's Taskfile) that uses that flag name."
+        ),
     )
     catalog_group.add_argument(
         "--list-catalogs", action="store_true", help="List configured catalogs and exit"

@@ -515,3 +515,92 @@ class TestGlobalSingleton:
         reset_config()
         b = get_config()
         assert a is not b
+
+
+# =====================================================================
+# USER CONFIG PATH PROBES + ENV VAR EXPANSION
+# (regression tests for bugs surfaced by the snowflake-biz-lab integration)
+# =====================================================================
+
+
+class TestUserConfigPathProbes:
+    """``~/.fluid/config.yaml`` must be on the user-config probe list.
+
+    The publish CLI's ``--help`` text and the snowflake-biz-lab bootstrap
+    script both write user config here; previously the loader only probed
+    ``~/.fluidrc.yaml``, ``~/.fluidrc``, and ``~/.config/fluid/config.yaml``
+    so the catalog config never loaded.
+    """
+
+    def test_loads_from_dot_fluid_directory(self, tmp_path, monkeypatch):
+        from fluid_build.config_manager import FluidConfig
+
+        fake_home = tmp_path
+        cfg_dir = fake_home / ".fluid"
+        cfg_dir.mkdir()
+        (cfg_dir / "config.yaml").write_text(
+            "catalogs:\n  datamesh-manager:\n    endpoint: http://example.test:1234\n"
+        )
+        monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
+
+        cfg = FluidConfig()
+        assert (
+            cfg.get_catalog_config("datamesh-manager").get("endpoint")
+            == "http://example.test:1234"
+        )
+
+
+class TestEnvVarExpansion:
+    """``${VAR}`` placeholders in YAML config values must expand from os.environ.
+
+    The biz-lab bootstrap writes ``api_key: ${DMM_API_KEY}``; without expansion
+    the literal placeholder gets passed to the catalog provider and DMM auth
+    fails silently as "endpoint not accessible".
+    """
+
+    def test_string_value_expanded(self, tmp_path, monkeypatch):
+        from fluid_build.config_manager import FluidConfig
+
+        fake_home = tmp_path
+        (fake_home / ".fluid").mkdir()
+        (fake_home / ".fluid" / "config.yaml").write_text(
+            "catalogs:\n  datamesh-manager:\n"
+            "    endpoint: http://localhost:8095\n"
+            "    auth:\n      type: api_key\n      api_key: ${DMM_API_KEY}\n"
+        )
+        monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
+        monkeypatch.setenv("DMM_API_KEY", "ed_live_orga_TESTKEY")
+
+        cfg = FluidConfig()
+        catalog = cfg.get_catalog_config("datamesh-manager")
+        assert catalog["auth"]["api_key"] == "ed_live_orga_TESTKEY"
+
+    def test_undefined_var_kept_literal(self, tmp_path, monkeypatch):
+        """Misconfigurations must be visible — undefined refs stay as ``${VAR}``."""
+        from fluid_build.config_manager import FluidConfig
+
+        fake_home = tmp_path
+        (fake_home / ".fluid").mkdir()
+        (fake_home / ".fluid" / "config.yaml").write_text(
+            "catalogs:\n  c1:\n    secret: ${THIS_IS_NOT_SET}\n"
+        )
+        monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
+        monkeypatch.delenv("THIS_IS_NOT_SET", raising=False)
+
+        cfg = FluidConfig()
+        assert cfg.get_catalog_config("c1")["secret"] == "${THIS_IS_NOT_SET}"
+
+    def test_expansion_recurses_into_lists(self, tmp_path, monkeypatch):
+        from fluid_build.config_manager import FluidConfig
+
+        fake_home = tmp_path
+        (fake_home / ".fluid").mkdir()
+        (fake_home / ".fluid" / "config.yaml").write_text(
+            "catalogs:\n  c1:\n    allow_hosts:\n      - ${HOST_A}\n      - ${HOST_B}\n"
+        )
+        monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
+        monkeypatch.setenv("HOST_A", "a.example")
+        monkeypatch.setenv("HOST_B", "b.example")
+
+        cfg = FluidConfig()
+        assert cfg.get_catalog_config("c1")["allow_hosts"] == ["a.example", "b.example"]

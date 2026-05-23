@@ -897,3 +897,54 @@ class TestRunAsyncPublishFlow:
 
         assert result.success is False
         assert result.error == "missing required field"
+
+
+# =====================================================================
+# CLI: --target as an alias for --catalog
+# (regression test for snowflake-biz-lab Taskfile compat)
+# =====================================================================
+
+
+class TestCatalogTargetAlias:
+    """``fluid publish ... --target X`` parses as ``--catalog X``.
+
+    The snowflake-biz-lab Taskfile uses ``--target`` in its ``publish:pre``
+    task; we accept it so the lab's task definitions work unmodified.
+    """
+
+    def test_target_flag_parses_as_catalog(self):
+        import argparse
+
+        from fluid_build.cli.publish import register
+
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers()
+        register(subparsers)
+
+        # Use --target (the alias)
+        ns = parser.parse_args(["publish", "/tmp/c.yaml", "--target", "datamesh-manager"])
+        assert ns.catalog == "datamesh-manager"
+
+    def test_target_short_form_dash_c_still_works(self):
+        import argparse
+
+        from fluid_build.cli.publish import register
+
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers()
+        register(subparsers)
+
+        ns = parser.parse_args(["publish", "/tmp/c.yaml", "-c", "fluid-command-center"])
+        assert ns.catalog == "fluid-command-center"
+
+    def test_default_catalog_unchanged(self):
+        import argparse
+
+        from fluid_build.cli.publish import register
+
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers()
+        register(subparsers)
+
+        ns = parser.parse_args(["publish", "/tmp/c.yaml"])
+        assert ns.catalog == "fluid-command-center"
