@@ -136,12 +136,19 @@ def _property_to_field(prop: Mapping[str, Any]) -> Dict[str, Any]:
     if prop.get("tags"):
         fld["tags"] = list(prop["tags"])
 
-    # Property-level quality preserved verbatim so export reproduces it exactly
-    if isinstance(prop.get("quality"), list):
+    # Property-level quality preserved verbatim so export reproduces it exactly.
+    # An empty list is meaningful here: it signals "original had no quality field
+    # — do NOT auto-generate one on re-export".
+    if "quality" in prop and isinstance(prop["quality"], list):
         fld["quality"] = list(prop["quality"])
+    else:
+        # Pass-through marker: "imported with no quality block".
+        fld["quality"] = []
 
-    # Field-level pass-through bucket
+    # Field-level pass-through bucket — also marks the field as ODCS-sourced
+    # so the export side knows to stay loss-less (no auto-defaults).
     pt = field_passthrough(fld)
+    pt["imported"] = True
     if prop.get("primaryKey"):
         pt["primary_key"] = True
     for src, dst in (
@@ -261,18 +268,30 @@ def _field_to_property(fld: Mapping[str, Any], provider: Optional[str]) -> Dict[
     }
 
     pt = get_field_passthrough(fld)
+    is_imported = bool(pt.get("imported"))
 
-    # physicalType: pass-through wins, else compute from provider
+    # physicalType:
+    #   - pass-through wins (verbatim round-trip),
+    #   - fresh-FLUID export synthesises from provider context,
+    #   - imported-without-physicalType skips emission so round-trip is lossless.
     if pt.get("physical_type"):
         prop["physicalType"] = pt["physical_type"]
-    else:
+    elif provider and not is_imported:
         phys = fluid_to_physical(fld.get("type", "string"), provider)
         if phys:
             prop["physicalType"] = phys
 
     if fld.get("description"):
         prop["description"] = fld["description"]
-    prop["required"] = bool(fld.get("required", False))
+
+    # required: ODCS default is False. For round-trip we only emit when the
+    # original had it (or when True). For fresh FLUID exports we keep the
+    # legacy behaviour of always emitting (downstream consumers expect it).
+    if fld.get("required"):
+        prop["required"] = True
+    elif not is_imported:
+        prop["required"] = False
+
     if fld.get("classification"):
         prop["classification"] = fld["classification"]
     if fld.get("tags"):
