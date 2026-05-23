@@ -14,10 +14,15 @@
 
 # fluid_build/providers/odps/odps.py
 """
-ODPS (Open Data Product Specification) Provider
+ODPI v4.1 (Open Data Product Initiative) Provider — Linux Foundation spec.
 
-High-quality implementation of ODPS export functionality for FLUID contracts.
-Provides comprehensive metadata extraction, validation, and standards compliance.
+Export-only. Emits a single ODPS-v4.1 JSON document per FLUID contract.
+
+This is the **Open Data Product Initiative v4.1** spec — a different,
+unrelated standard from Bitol's Open Data Product Standard v1.0.0.
+For the Bitol provider see :mod:`fluid_build.providers.odps_standard`
+(class :class:`BitolOdpsProvider`); ``fluid opds --spec odpi-4.1`` selects
+*this* provider, and ``--spec bitol-1.0.0`` selects the Bitol one.
 
 Official Specification: https://github.com/Open-Data-Product-Initiative/v4.1
 Standard: Linux Foundation / Open Data Product Initiative
@@ -89,20 +94,14 @@ def _generate_uuid_from_id(data_product_id: str) -> str:
 
 
 class OdpsProvider(BaseProvider):
-    """
-    OPDS (Open Data Product Specification) exporter.
+    """ODPI v4.1 (Open Data Product Initiative, Linux Foundation) exporter.
 
-    This provider converts FLUID contracts into OPDS-compliant JSON format,
-    enabling integration with data catalogs, governance platforms, and
-    ecosystem tools that support the OPDS standard.
+    Different from :class:`BitolOdpsProvider` (Bitol Open Data Product
+    Standard v1.0.0). This one emits a single ODPI-v4.1 JSON document; the
+    Bitol provider emits an ODPS doc plus per-port ODCS contracts.
 
-    Features:
-    - Full OPDS v1.0 compliance
-    - Rich metadata extraction from FLUID contracts
-    - Support for batch processing of multiple contracts
-    - Comprehensive governance and lineage information
-    - SLA and quality metrics extraction
-    - Extensible metadata preservation under x-fluid namespace
+    The user-facing ``fluid opds export --spec odpi-4.1`` flag selects this
+    provider; ``--spec bitol-1.0.0`` (the default) selects Bitol's.
     """
 
     def __init__(self):

@@ -483,18 +483,26 @@ def cmd_opds_info(args: argparse.Namespace, logger: logging.Logger) -> int:
 def register(subparsers: argparse._SubParsersAction) -> None:
     """Register ODPS commands with the CLI."""
 
-    # Main ODPS command group
+    # Main ODPS command group. ``opds`` is registered as an alias so users
+    # can spell the command either way; both go through the --spec dispatcher.
     odps = subparsers.add_parser(
         "odps",
-        help="Export and validate ODPS (Open Data Product Specification) format",
+        aliases=["opds"],
+        help="Bitol ODPS v1.0.0 (default) or ODPI v4.1 — export, import, validate",
         description="""
-        Work with ODPS (Open Data Product Specification) format.
-        
-        The Open Data Product Specification is a vendor-neutral, open-source standard
-        for describing data products. This command supports exporting FLUID contracts
-        to ODPS format and validating ODPS files.
-        
-        Official Specification: https://github.com/Open-Data-Product-Initiative
+        Work with the ODPS family of standards.
+
+        Two specifications are supported, dispatched via --spec:
+          bitol-1.0.0  Bitol Open Data Product Standard v1.0.0 (default).
+                       Bidirectional. Emits 1 ODPS doc + N sibling ODCS
+                       contracts. Import accepts a file, a directory, or
+                       a lone ODCS file.
+          odpi-4.1     Open Data Product Initiative v4.1 (Linux Foundation).
+                       Export-only single JSON document.
+
+        Official Specifications:
+          Bitol ODPS: https://github.com/bitol-io/open-data-product-standard
+          ODPI v4.1:  https://github.com/Open-Data-Product-Initiative/v4.1
         """,
     )
 

@@ -78,6 +78,11 @@ def export_command(contract: str, output: Optional[str], format: str, include_cu
     """
     logger = logging.getLogger(__name__)
 
+    click.echo(
+        "⚠ 'fluid odps-bitol' is deprecated; use 'fluid opds export --spec bitol-1.0.0' "
+        "(or the equivalent 'fluid odps export --spec bitol-1.0.0') instead.",
+        err=True,
+    )
     try:
         # Load FLUID contract
         click.echo(f"Loading FLUID contract: {contract}")
