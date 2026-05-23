@@ -497,3 +497,97 @@ def test_publish_odcs_warn_validation_still_puts(monkeypatch):
     assert "validation_error" in results[0]
     assert "schema_objects" in results[0]
     assert "schema_properties" in results[0]
+
+
+# =====================================================================
+# Catalog adapter: raw_contract propagation (bug 6)
+# =====================================================================
+
+
+class TestCatalogAssetRawContractPropagation:
+    """The catalog-provider publish path must thread the full FLUID dict
+    through so multi-port contracts emit one ODCS per output port.
+
+    Regression test for the issue surfaced by running ``task publish:pre``
+    against the local snowflake-biz-lab DMM stack — the lossy
+    ``_asset_to_fluid`` path used to collapse multi-port contracts into a
+    single redundant ``{productId}.{productId}`` wrapper.
+    """
+
+    def test_map_contract_to_asset_stores_full_contract(self):
+        from fluid_build.providers.catalogs import (
+            BaseCatalogProvider,
+            CatalogAsset,
+        )
+
+        class _Stub(BaseCatalogProvider):
+            async def publish(self, asset): ...
+            async def update(self, asset): ...
+            async def verify(self, asset_id): ...
+            async def health_check(self): ...
+
+        provider = _Stub({})
+        contract = {
+            "id": "bronze.test",
+            "name": "Test",
+            "kind": "DataProduct",
+            "exposes": [
+                {"id": "port_a", "binding": {"platform": "snowflake"}},
+                {"id": "port_b", "binding": {"platform": "snowflake"}},
+            ],
+        }
+        asset = provider.map_contract_to_asset(contract)
+        assert asset.raw_contract is not None
+        assert len(asset.raw_contract["exposes"]) == 2
+        # The raw dict is a shallow copy — top-level keys can't bleed back
+        # (legacy callers occasionally mutate contracts post-asset-creation).
+        asset.raw_contract["id"] = "MUTATED"
+        assert contract["id"] == "bronze.test"
+
+    def test_dmm_catalog_provider_uses_raw_contract_for_publish(self):
+        """When ``raw_contract`` is set, the DMM catalog provider passes the
+        full FLUID dict (with all output ports) to the underlying provider —
+        not the lossy minimal dict ``_asset_to_fluid`` would have built.
+        """
+        import asyncio
+
+        from fluid_build.providers.catalogs import CatalogAsset
+        from fluid_build.providers.catalogs.datamesh_manager import (
+            DataMeshManagerCatalogProvider,
+        )
+
+        provider = DataMeshManagerCatalogProvider(
+            {"endpoint": "http://localhost", "auth": {"api_key": "k"}}
+        )
+        captured: dict = {}
+
+        def fake_apply(fluid, **kwargs):
+            captured["fluid"] = fluid
+            captured["kwargs"] = kwargs
+            return {"id": fluid.get("id"), "url": "http://x"}
+
+        provider._provider.apply = fake_apply  # type: ignore[assignment]
+
+        full = {
+            "id": "bronze.test",
+            "name": "Test",
+            "kind": "DataProduct",
+            "exposes": [
+                {"id": "port_a", "binding": {"platform": "snowflake"}},
+                {"id": "port_b", "binding": {"platform": "snowflake"}},
+            ],
+        }
+        asset = CatalogAsset(
+            id="bronze.test", name="Test", description="", type="dataproduct",
+            domain="d", owner="t", owner_email="", layer="Bronze", tags=[],
+            version="1", platform="snowflake", location={},
+            raw_contract=full,
+        )
+
+        result = asyncio.get_event_loop().run_until_complete(provider.publish(asset))
+        assert result.success
+        # The underlying provider must have seen the full multi-port FLUID,
+        # not a single-expose summary collapsed by ``_asset_to_fluid``.
+        assert len(captured["fluid"]["exposes"]) == 2
+        assert captured["kwargs"].get("provider_hint") == "odps"
+        assert captured["kwargs"].get("publish_contract") is True

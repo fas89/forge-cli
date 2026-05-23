@@ -47,6 +47,12 @@ class CatalogAsset:
     schema: Optional[List[Dict[str, Any]]] = None  # From exposes[0].contract.schema
     sensitivity: str = "internal"  # internal, public, confidential
     contract_yaml: Optional[str] = None  # Raw YAML content of the contract file
+    # Full FLUID dict — preserves multi-port detail that the flat asset fields
+    # cannot represent. Catalog providers that care about per-port semantics
+    # (e.g. DMM emitting one ODCS contract per output port) should prefer this
+    # over the asset-level summary. ``None`` for legacy callers that haven't
+    # set it; providers fall back to building a minimal FLUID from the asset.
+    raw_contract: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -184,6 +190,9 @@ class BaseCatalogProvider(ABC):
             location=location,
             schema=schema,
             sensitivity=sensitivity,
+            # Preserve the full FLUID dict so providers that need per-port
+            # detail don't have to reconstruct it from the flat asset fields.
+            raw_contract=dict(contract),
         )
 
     def validate_asset(self, asset: CatalogAsset) -> tuple[bool, Optional[str]]:

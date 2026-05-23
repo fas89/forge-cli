@@ -50,8 +50,14 @@ class DataMeshManagerCatalogProvider(BaseCatalogProvider):
     # -- BaseCatalogProvider interface --------------------------------------
 
     async def publish(self, asset: CatalogAsset) -> PublishResult:
-        """Publish *asset* as a data product to Entropy Data."""
-        fluid = self._asset_to_fluid(asset)
+        """Publish *asset* as a data product to Entropy Data.
+
+        Prefers ``asset.raw_contract`` (the full FLUID dict) over the
+        flat asset-derived summary — that way the underlying provider sees
+        every output port and emits one per-port ODCS contract instead of a
+        single redundant ``{productId}.{productId}`` wrapper.
+        """
+        fluid = asset.raw_contract if asset.raw_contract else self._asset_to_fluid(asset)
         try:
             # Bitol DMM publishes ODPS, not the FLUID-flavoured DPS — make that
             # explicit so the provider doesn't fall back to the
