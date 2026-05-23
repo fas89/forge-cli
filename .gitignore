@@ -152,3 +152,8 @@ package-lock.json.bak
 .mypy_cache/
 .dmypy.json
 dmypy.json
+
+# Repo-root test-run artifacts (some ODCS CLI tests write the default
+# output name to cwd as a side effect — they live in pytest's tmp_path
+# but the executable path resolution may surface them at the repo root)
+/mycontract-fluid.yaml
