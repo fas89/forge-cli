@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- **ODPI v4.1 (Open Data Product Initiative) export path.** The legacy
+  `fluid_build/providers/odps/` provider, the `--spec odpi-4.1` flag, the
+  `fluid export-opds` command, and the `--version 4.1` deprecation alias
+  are all gone. Bitol ODPS v1.0.0 is now the only supported data-product
+  specification. Users who still need ODPI v4.1 output should pin to a
+  release before this change.
+
+### Changed
+- **ODCS schema validation is now default-on with warn-on-fail.** The
+  vendored ODCS v3.1.0 JSON Schema runs on every export by default
+  (`ODCS_VALIDATE=true`); schema failures log a warning rather than raise.
+  Callers wanting hard failure can set `ODCS_VALIDATE_STRICT=true` or call
+  `OdcsProvider.validate_contract()` directly.
+- **DMM publish defaults to ODPS shape.** `fluid datamesh-manager publish`
+  (and `DataMeshManagerProvider.apply()`) now produce an ODPS-v1.0.0 shape
+  payload by default — `apiVersion: v1.0.0` + `kind: DataProduct`, no `info`
+  wrapper. The legacy DPS `0.0.1` shape is rejected by current Entropy Data
+  releases with HTTP 400, so it's now opt-in via explicit
+  `data_product_specification="0.0.1"` or `provider_hint="dps"` (the
+  symmetric inverse of the existing `provider_hint="odps"`). Contracts that
+  set `kind: DataProduct` see no behavioural change.
+- **`fluid datamesh-manager list` reads ODPS top-level fields.** The list
+  command's table renderer previously only read `id`/`name`/`status` from
+  the legacy DPS `info` envelope, leaving every cell as `?` when DMM
+  returned the ODPS shape (the new default). It now reads top-level
+  fields first and falls back to the `info` envelope + `teamId` for
+  backward-compat with older DMM responses.
+
 ### Added
 - **Bitol ODPS v1.0.0 — bidirectional provider** (`BitolOdpsProvider`,
   registered as `odps_bitol`). Export emits the canonical fragments layout:
@@ -20,9 +49,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to ODCS documents through local-file probes and http(s) fetch, with
   caching, JSON Schema validation, HTML-with-200 refusal, and `--no-remote`
   hermetic mode.
-- **`fluid opds export --spec bitol-1.0.0|odpi-4.1`** — `--spec` dispatches
-  between Bitol ODPS v1.0.0 (new default) and the existing ODPI v4.1.
-  `--out-dir`, `--validate-strict`, and `--format` flags added.
+- **`fluid opds export --spec bitol-1.0.0`** — Bitol ODPS v1.0.0 dispatcher
+  with `--out-dir`, `--validate-strict`, and `--format` flags. `--spec`
+  retained on the surface for forward-compatibility with future spec
+  additions.
 - **`fluid forge --seed-from <path>`** — copilot accepts an ODCS contract,
   a Bitol ODPS product file, or a directory bundle as a structural seed.
   The seed's schema/quality/qos are ground truth the LLM must not mutate.

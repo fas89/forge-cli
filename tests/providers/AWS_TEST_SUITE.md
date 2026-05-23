@@ -117,7 +117,7 @@ pytest tests/providers/test_aws_provider_enhanced.py --cov=fluid_build.providers
 
 # Run all provider tests together
 pytest tests/providers/test_odcs_provider.py \
-       tests/providers/test_odps_provider_enhanced.py \
+       tests/test_odps_standard.py \
        tests/providers/test_aws_provider_enhanced.py -v
 ```
 
@@ -397,15 +397,15 @@ After reviewing the AWS provider implementation:
 ```bash
 # Run all three provider test suites
 pytest tests/providers/test_odcs_provider.py \
-       tests/providers/test_odps_provider_enhanced.py \
+       tests/test_odps_standard.py \
        tests/providers/test_aws_provider_enhanced.py -v
 
 # Run with coverage for all providers
 pytest tests/providers/test_odcs_provider.py \
-       tests/providers/test_odps_provider_enhanced.py \
+       tests/test_odps_standard.py \
        tests/providers/test_aws_provider_enhanced.py \
        --cov=fluid_build.providers.odcs \
-       --cov=fluid_build.providers.odps \
+       --cov=fluid_build.providers.odps_standard \
        --cov=fluid_build.providers.aws \
        --cov-report=term-missing
 ```
@@ -431,7 +431,7 @@ Tests are self-contained with fixtures and mocked AWS clients. Update tests when
   - `tests/providers/AWS_TEST_SUITE.md` (this file)
 - **Related Tests**:
   - `tests/providers/test_odcs_provider.py`
-  - `tests/providers/test_odps_provider_enhanced.py`
+  - `tests/test_odps_standard.py`
   - `fluid_build/providers/aws/tests/test_integration.py` (existing integration tests)
 
 ## Success Criteria

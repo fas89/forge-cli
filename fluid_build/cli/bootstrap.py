@@ -508,7 +508,6 @@ def register_core_commands(sp: argparse._SubParsersAction) -> None:
     _try_register(sp, "provider_cmds", "providers")
     _try_register(sp, "provider_init", "provider-init")
     _try_register(sp, "version_cmd", "version")
-    _try_register(sp, "export_opds", "export-opds")
     _try_register(sp, "opds", "opds")
     _try_register(sp, "odps_standard", "odps-standard")
     _try_register(sp, "odcs", "odcs")

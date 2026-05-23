@@ -298,6 +298,24 @@ def _print_publish_result(result):
                 cprint(f"   Error: {odcs['error']}")
 
 
+def _product_row(p):
+    """Extract (id, name, status, team) from a DMM data product payload.
+
+    DMM publish defaults to ODPS shape (Bitol v1.0.0) where ``id``/``name``/
+    ``status`` live at the top level and the team object is under ``team``.
+    Older DPS 0.0.1 responses nest fields under ``info`` with ``teamId`` at
+    the root. Read both — top-level first (current shape), info envelope as
+    backward-compat fallback. Missing → "?".
+    """
+    info = p.get("info") if isinstance(p.get("info"), dict) else {}
+    team_obj = p.get("team") if isinstance(p.get("team"), dict) else {}
+    product_id = p.get("id") or info.get("id") or "?"
+    name = p.get("name") or info.get("name") or "?"
+    status = p.get("status") or info.get("status") or "?"
+    team = (team_obj.get("name") if team_obj else None) or p.get("teamId") or "?"
+    return product_id, name, status, team
+
+
 def _cmd_list(args, logger=None):
     """List all data products."""
     try:
@@ -317,18 +335,12 @@ def _cmd_list(args, logger=None):
             table.add_column("Status")
             table.add_column("Team")
             for p in products:
-                info = p.get("info", {})
-                table.add_row(
-                    info.get("id", "?"),
-                    info.get("name", "?"),
-                    info.get("status", "?"),
-                    p.get("teamId", "?"),
-                )
+                table.add_row(*_product_row(p))
             console.print(table)
         else:
             for p in products:
-                info = p.get("info", {})
-                cprint(f"  {info.get('id', '?'):30s}  {info.get('name', '?')}")
+                product_id, name, _, _ = _product_row(p)
+                cprint(f"  {product_id:30s}  {name}")
         return 0
 
     except ProviderError as exc:

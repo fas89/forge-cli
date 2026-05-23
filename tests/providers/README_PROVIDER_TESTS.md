@@ -123,7 +123,7 @@ All providers tested for production readiness:
 pytest tests/providers/test_odcs_provider.py -v
 
 # ODPS provider tests
-pytest tests/providers/test_odps_provider_enhanced.py -v
+pytest tests/test_odps_standard.py -v
 
 # AWS provider tests
 pytest tests/providers/test_aws_provider_enhanced.py -v
@@ -134,7 +134,7 @@ pytest tests/providers/test_aws_provider_enhanced.py -v
 ```bash
 # Run all three provider test suites
 pytest tests/providers/test_odcs_provider.py \
-       tests/providers/test_odps_provider_enhanced.py \
+       tests/test_odps_standard.py \
        tests/providers/test_aws_provider_enhanced.py -v
 
 # Run all provider tests
@@ -142,10 +142,10 @@ pytest tests/providers/ -v
 
 # Run with coverage
 pytest tests/providers/test_odcs_provider.py \
-       tests/providers/test_odps_provider_enhanced.py \
+       tests/test_odps_standard.py \
        tests/providers/test_aws_provider_enhanced.py \
        --cov=fluid_build.providers.odcs \
-       --cov=fluid_build.providers.odps \
+       --cov=fluid_build.providers.odps_standard \
        --cov=fluid_build.providers.aws \
        --cov-report=term-missing
 ```
@@ -157,7 +157,7 @@ pytest tests/providers/test_odcs_provider.py \
 python3 -c "
 import ast
 
-for file in ['tests/providers/test_odcs_provider.py', 'tests/providers/test_odps_provider_enhanced.py']:
+for file in ['tests/providers/test_odcs_provider.py', 'tests/test_odps_standard.py']:
     with open(file) as f:
         compile(f.read(), file, 'exec')
     print(f'✓ {file} syntax OK')
@@ -251,7 +251,7 @@ jobs:
         run: pytest tests/providers/test_odcs_provider.py -v --cov=fluid_build.providers.odcs
       
       - name: Run ODPS tests
-        run: pytest tests/providers/test_odps_provider_enhanced.py -v --cov=fluid_build.providers.odps
+        run: pytest tests/test_odps_standard.py -v --cov=fluid_build.providers.odps_standard
       
       - name: Run AWS tests
         run: pytest tests/providers/test_aws_provider_enhanced.py -v --cov=fluid_build.providers.aws
@@ -259,10 +259,10 @@ jobs:
       - name: Combined coverage report
         run: |
           pytest tests/providers/test_odcs_provider.py \
-                 tests/providers/test_odps_provider_enhanced.py \
+                 tests/test_odps_standard.py \
                  tests/providers/test_aws_provider_enhanced.py \
                  --cov=fluid_build.providers.odcs \
-                 --cov=fluid_build.providers.odps \
+                 --cov=fluid_build.providers.odps_standard \
                  --cov=fluid_build.providers.aws \
                  --cov-report=xml
       
@@ -278,7 +278,7 @@ test_providers:
   script:
     - pip install pytest pytest-cov
     - pytest tests/providers/test_odcs_provider.py \
-             tests/providers/test_odps_provider_enhanced.py \
+             tests/test_odps_standard.py \
              tests/providers/test_aws_provider_enhanced.py -v
     - pytest tests/providers/ --cov=fluid_build.providers --cov-report=term-missing
   coverage: '/TOTAL.*\s+(\d+%)$/'

@@ -36,7 +36,7 @@ Conventions
 - Duplicate registration: the FIRST one wins (unless override=True).
 - Scans subpackages under fluid_build.providers.*, skipping 'base' and itself.
 - You can constrain discovery with FLUID_PROVIDERS env var
-  (comma-separated module names, e.g. "fluid_build.providers.local,fluid_build.providers.odps").
+  (comma-separated module names, e.g. "fluid_build.providers.local,fluid_build.providers.gcp").
 """
 
 from __future__ import annotations
@@ -315,7 +315,7 @@ _DEFAULT_MODULES = (
     "fluid_build.providers.gcp",
     "fluid_build.providers.aws",
     "fluid_build.providers.snowflake",
-    "fluid_build.providers.odps",
+    "fluid_build.providers.odps_standard",
 )
 
 
@@ -549,9 +549,7 @@ def _auto_register_from_module(mod, logger: Optional[logging.Logger]) -> None:
 
 def _fallback_registers(logger: Optional[logging.Logger]) -> None:
     """Best-effort fallback imports if discovery yielded nothing."""
-    candidates = list(_DEFAULT_MODULES) + [
-        "fluid_build.providers.opds",  # legacy alias if present
-    ]
+    candidates = list(_DEFAULT_MODULES)
     for modname in candidates:
         try:
             mod = importlib.import_module(modname)

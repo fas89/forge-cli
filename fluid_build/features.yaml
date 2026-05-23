@@ -110,28 +110,6 @@ providers:
     resource_types: 9
     architecture: "Full BaseProvider with 5-phase planning"
     
-  # ODPI v4.1 — Open Data Product Initiative (Linux Foundation). Export-only.
-  # Distinct from Bitol Open Data Product Standard v1.0.0 below.
-  odps:
-    # MANUAL CONTROL
-    status: beta
-    note: "Open Data Product Initiative v4.1 (Linux Foundation) exporter"
-    blockers:
-      - "Refactor to use BaseProvider pattern"
-      - "Implement proper plan() and apply() methods"
-      - "Add basic error handling and retry logic"
-    target_release: "1.1.0"
-
-    # AUTO-UPDATED
-    test_coverage: 30
-    code_size: 1351
-    last_tested: "2026-01-20T00:00:00Z"
-
-    # Provider metadata
-    docs_complete: false
-    resource_types: 2
-    architecture: "ODPI v4.1 exporter (FLUID → ODPI JSON)"
-
   # Bitol Open Data Product Standard v1.0.0 — bidirectional provider with
   # contractId resolution to per-port ODCS contracts.
   odps_bitol:

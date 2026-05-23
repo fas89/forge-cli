@@ -7,9 +7,9 @@
 #     http://www.apache.org/licenses/LICENSE-2.0
 """Phase 4 — ``fluid opds`` CLI integration tests.
 
-Covers the ``--spec`` dispatcher (bitol-1.0.0 vs odpi-4.1), ``--out-dir``
-bundle writes, the import dispatch by input type, the legacy ``--version 4.1``
-deprecation alias, and the ``--no-remote`` flag.
+Covers the Bitol ODPS v1.0.0 dispatcher (the only supported spec), the
+``--out-dir`` bundle writes, the import dispatch by input type, and the
+``--no-remote`` flag.
 """
 
 from __future__ import annotations
@@ -23,7 +23,6 @@ import yaml
 
 from fluid_build.cli.opds import (
     SPEC_BITOL_1_0_0,
-    SPEC_ODPI_4_1,
     cmd_opds_export,
     cmd_opds_import,
     resolve_spec,
@@ -43,18 +42,16 @@ BUNDLE_DIR = FIXTURES / "odps" / "product-bitol"
 
 class TestResolveSpec:
     def test_default_is_bitol(self) -> None:
-        args = Namespace(spec=None, version=None)
+        args = Namespace(spec=None)
         assert resolve_spec(args) == SPEC_BITOL_1_0_0
 
-    def test_explicit_spec_wins(self) -> None:
-        args = Namespace(spec=SPEC_ODPI_4_1, version="4.1")
-        assert resolve_spec(args) == SPEC_ODPI_4_1
+    def test_explicit_bitol_spec(self) -> None:
+        args = Namespace(spec=SPEC_BITOL_1_0_0)
+        assert resolve_spec(args) == SPEC_BITOL_1_0_0
 
-    def test_legacy_version_4_1_maps_to_odpi(self, caplog) -> None:
-        args = Namespace(spec=None, version="4.1")
-        with caplog.at_level(logging.WARNING):
-            assert resolve_spec(args) == SPEC_ODPI_4_1
-        assert any("deprecated" in r.message for r in caplog.records)
+    def test_unknown_spec_falls_back_to_default(self) -> None:
+        args = Namespace(spec="something-else")
+        assert resolve_spec(args) == SPEC_BITOL_1_0_0
 
 
 # ---------------------------------------------------------------------------
@@ -67,13 +64,11 @@ class TestExportBitol:
         args = Namespace(
             contract=str(MULTI_EXPOSE_FLUID),
             spec=SPEC_BITOL_1_0_0,
-            version=None,
             out="-",
             out_dir=str(tmp_path),
             format="yaml",
             env=None,
             validate_strict=False,
-            pretty=True,
         )
         rc = cmd_opds_export(args, LOG)
         assert rc == 0
@@ -91,13 +86,11 @@ class TestExportBitol:
         args = Namespace(
             contract=str(MULTI_EXPOSE_FLUID),
             spec=SPEC_BITOL_1_0_0,
-            version=None,
             out="-",
             out_dir=str(tmp_path),
             format="yaml",
             env=None,
             validate_strict=False,
-            pretty=True,
         )
         cmd_opds_export(args, LOG)
 
@@ -116,7 +109,6 @@ def _import_args(path: Path, *, out: Path | None = None, **overrides) -> Namespa
     base = dict(
         path=str(path),
         spec=SPEC_BITOL_1_0_0,
-        version=None,
         out=str(out) if out else None,
         format="yaml",
         no_remote=False,
@@ -152,12 +144,6 @@ class TestImportDispatch:
         with open(out) as f:
             fluid = yaml.safe_load(f)
         assert len(fluid["exposes"]) == 1
-
-    def test_import_odpi_v4_1_rejected_as_export_only(self, tmp_path: Path) -> None:
-        product = next(BUNDLE_DIR.glob("*.odps.yaml"))
-        args = _import_args(product, spec=SPEC_ODPI_4_1)
-        rc = cmd_opds_import(args, LOG)
-        assert rc == 2
 
     def test_import_nonexistent_path_returns_1(self, tmp_path: Path) -> None:
         args = _import_args(tmp_path / "does-not-exist.odps.yaml")
