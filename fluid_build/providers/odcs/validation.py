@@ -97,7 +97,9 @@ def validate_via_vowl(odcs: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
     }
 
 
-def roundtrip_check(odcs: Mapping[str, Any], reconstructed: Mapping[str, Any]) -> Dict[str, Any]:
+def roundtrip_check(
+    odcs: Mapping[str, Any], reconstructed: Mapping[str, Any]
+) -> Dict[str, Any]:
     """Compare an original ODCS dict to one rebuilt via ``import → export``.
 
     Returns a structured diff::
@@ -109,44 +111,44 @@ def roundtrip_check(odcs: Mapping[str, Any], reconstructed: Mapping[str, Any]) -
             "changed": [{"path": ".x", "old": ..., "new": ...}, ...]
         }
 
-    Used by tests and the forge ground-truth guard. Pure; no I/O.
+    Used by tests and the forge ground-truth guard. Pure; no I/O. Backed by
+    :mod:`deepdiff` so list-of-objects ordering, nested-dict comparison, and
+    type coercion are handled consistently.
     """
+    from deepdiff import DeepDiff
+
+    diff = DeepDiff(
+        dict(odcs),
+        dict(reconstructed),
+        ignore_order=False,
+        verbose_level=0,
+        view="tree",
+    )
+
+    def _path(node: Any) -> str:
+        # deepdiff path strings come in like ``root['schema'][0]['name']``.
+        return str(node.path(output_format="list"))
+
     missing: List[str] = []
     extra: List[str] = []
     changed: List[Dict[str, Any]] = []
-    _diff("", odcs, reconstructed, missing, extra, changed)
+
+    for node in diff.get("dictionary_item_removed", []):
+        missing.append(_path(node))
+    for node in diff.get("iterable_item_removed", []):
+        missing.append(_path(node))
+    for node in diff.get("dictionary_item_added", []):
+        extra.append(_path(node))
+    for node in diff.get("iterable_item_added", []):
+        extra.append(_path(node))
+    for node in diff.get("values_changed", []):
+        changed.append({"path": _path(node), "old": node.t1, "new": node.t2})
+    for node in diff.get("type_changes", []):
+        changed.append({"path": _path(node), "old": node.t1, "new": node.t2})
+
     return {
         "equal": not (missing or extra or changed),
         "missing": missing,
         "extra": extra,
         "changed": changed,
     }
-
-
-def _diff(
-    path: str,
-    a: Any,
-    b: Any,
-    missing: List[str],
-    extra: List[str],
-    changed: List[Dict[str, Any]],
-) -> None:
-    if isinstance(a, Mapping) and isinstance(b, Mapping):
-        a_keys = set(a.keys())
-        b_keys = set(b.keys())
-        for k in a_keys - b_keys:
-            missing.append(f"{path}.{k}".lstrip("."))
-        for k in b_keys - a_keys:
-            extra.append(f"{path}.{k}".lstrip("."))
-        for k in a_keys & b_keys:
-            _diff(f"{path}.{k}", a[k], b[k], missing, extra, changed)
-        return
-    if isinstance(a, list) and isinstance(b, list):
-        if len(a) != len(b):
-            changed.append({"path": path, "old": f"len={len(a)}", "new": f"len={len(b)}"})
-            return
-        for i, (x, y) in enumerate(zip(a, b)):
-            _diff(f"{path}[{i}]", x, y, missing, extra, changed)
-        return
-    if a != b:
-        changed.append({"path": path, "old": a, "new": b})

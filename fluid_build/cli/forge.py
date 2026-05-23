@@ -286,18 +286,28 @@ def register(subparsers: argparse._SubParsersAction):
         "--seed-from",
         dest="seed_from",
         help=(
-            "Structural seed for the LLM. Accepts a Bitol ODPS file (*.odps.yaml), "
-            "a directory containing the ODPS doc + sibling ODCS files (or only ODCS "
-            "files), or a lone ODCS file (*.odcs.yaml). The schema/quality/qos from "
-            "the seed are treated as ground truth; the LLM fills in builds, "
-            "execution, and governance."
+            "[experimental — pre-processor only] Structural seed for the LLM. "
+            "Accepts a Bitol ODPS file (*.odps.yaml), a directory containing "
+            "the ODPS doc + sibling ODCS files (or only ODCS files), or a "
+            "lone ODCS file (*.odcs.yaml). The schema/quality/qos from the "
+            "seed are treated as ground truth; the LLM fills in builds, "
+            "execution, and governance. Note: the seed pre-processor "
+            "(`fluid_build.cli.forge_copilot_seed.load_seed`) is callable as "
+            "a library today, but the copilot runtime hand-off + ground-truth "
+            "diff guard are not yet wired into the 3-attempt repair loop. "
+            "Passing the flag stores the seed for future loop integration "
+            "and will not yet affect today's LLM prompts."
         ),
     )
     parser.add_argument(
         "--seed-no-remote",
         dest="seed_no_remote",
         action="store_true",
-        help="When --seed-from has http(s) contractId references, refuse to fetch them.",
+        help=(
+            "[experimental] When --seed-from has http(s) contractId references, "
+            "refuse to fetch them. Honoured by the pre-processor; the copilot "
+            "runtime wiring is in progress."
+        ),
     )
     parser.add_argument(
         "--memory",

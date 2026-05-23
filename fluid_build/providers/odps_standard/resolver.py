@@ -43,8 +43,16 @@ from fluid_build.providers.odcs.provider import OdcsProvider
 LOG = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = 10  # seconds for http(s) fetch
-DEFAULT_SUBDIRS = ("", "contracts", "odcs", "odcs/contracts")
-DEFAULT_EXTENSIONS = (".odcs.yaml", ".odcs.yml", ".odcs.json", ".yaml", ".yml", ".json")
+# Probing matrix sized for the common case (Bitol fragments layout: ODPS doc
+# + sibling ODCS files, optionally nested under contracts/). Previously we
+# probed {"", contracts, odcs, odcs/contracts} × {full-id, last-segment} × 6
+# extensions = 48 candidates, which produced very noisy error messages on
+# misses. Trimmed to the two most-used subdirs and the canonical
+# ``.odcs.{yaml,json}`` extensions — 8 candidates total — which still covers
+# every layout we've seen in the wild without burying the operator in
+# tried-paths output.
+DEFAULT_SUBDIRS = ("", "contracts")
+DEFAULT_EXTENSIONS = (".odcs.yaml", ".odcs.yml", ".odcs.json", ".yaml")
 
 
 class ContractNotFound(ProviderError):

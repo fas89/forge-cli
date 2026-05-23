@@ -26,12 +26,9 @@ from .base import (
     fluid_id,
     get_metadata_passthrough,
     metadata_passthrough,
-    register_section,
 )
 from .types import fluid_to_odcs_status, odcs_to_fluid_status
 
-NAME = "metadata"
-register_section(NAME)
 
 ODCS_API_VERSION = "v3.1.0"
 ODCS_KIND = "DataContract"

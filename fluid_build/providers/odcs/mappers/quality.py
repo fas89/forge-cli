@@ -33,11 +33,7 @@ from .base import (
     ImportCtx,
     get_metadata_passthrough,
     metadata_passthrough,
-    register_section,
 )
-
-NAME = "quality"
-register_section(NAME)
 
 
 # ----- ODCS → FLUID --------------------------------------------------------

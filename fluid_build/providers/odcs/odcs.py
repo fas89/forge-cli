@@ -123,12 +123,25 @@ class OdcsProvider(_OdcsProviderImpl):
     def _odcs_schema_to_expose(
         self, odcs: Mapping[str, Any]
     ) -> Optional[Dict[str, Any]]:
-        """Legacy helper: build a single FLUID expose from an ODCS contract.
+        """DEPRECATED. Legacy helper that flattens every SchemaObject in an
+        ODCS contract into a single FLUID expose. Kept only for back-compat
+        with one specific test in ``tests/test_odcs_mappings.py``; will be
+        removed in the next major release.
 
-        Walks all SchemaObjects and merges their properties into one expose
-        (older behaviour). New code should use :meth:`import_contract` which
-        emits one expose per SchemaObject.
+        New code must call :meth:`import_contract` instead, which correctly
+        emits **one FLUID expose per SchemaObject** — preserving the multi-
+        port shape that the new modular mapper pipeline produces.
         """
+        import warnings
+
+        warnings.warn(
+            "OdcsProvider._odcs_schema_to_expose is deprecated; use "
+            "OdcsProvider.import_contract() instead. This helper collapses "
+            "multi-SchemaObject contracts into a single expose and will be "
+            "removed in the next major release.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         schema = odcs.get("schema") or []
         if not isinstance(schema, list) or not schema:
             return None

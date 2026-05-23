@@ -9,9 +9,8 @@
 
 Every ODCS section maps to one module under :mod:`fluid_build.providers.odcs.mappers`
 exposing a pair of pure functions: :func:`to_fluid` (ODCS → FLUID) and
-:func:`to_odcs` (FLUID → ODCS). They share the same :data:`SECTION_NAMES`
-namespace; pass-through data lives under a single key per level so that the
-round-trip surface is auditable in one place.
+:func:`to_odcs` (FLUID → ODCS). Pass-through data lives under a single key
+per level so the round-trip surface is auditable in one place.
 """
 
 from __future__ import annotations
@@ -19,7 +18,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 
 PASSTHROUGH_KEY = "odcs_passthrough"
@@ -80,16 +79,6 @@ class ExportCtx:
     odcs: MutableMapping[str, Any]
     logger: logging.Logger
     options: Dict[str, Any] = field(default_factory=dict)
-
-
-# Section keys exposed for diagnostics / roundtrip_check. Mapper modules
-# register here so the validator knows what sections exist.
-SECTION_NAMES: List[str] = []
-
-
-def register_section(name: str) -> None:
-    if name not in SECTION_NAMES:
-        SECTION_NAMES.append(name)
 
 
 def fluid_id(fluid: Mapping[str, Any]) -> Optional[str]:

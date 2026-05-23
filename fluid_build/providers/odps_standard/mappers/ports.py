@@ -38,8 +38,6 @@ from .base import (
 )
 from .types import provider_to_port_type
 
-NAME = "ports"
-
 
 # ----- FLUID → ODPS --------------------------------------------------------
 

@@ -37,7 +37,6 @@ from .base import (
     field_passthrough,
     get_expose_passthrough,
     get_field_passthrough,
-    register_section,
 )
 from .types import (
     fluid_to_logical,
@@ -45,9 +44,6 @@ from .types import (
     logical_to_fluid,
     physical_type_to_platform,
 )
-
-NAME = "schema"
-register_section(NAME)
 
 
 # ----- ODCS → FLUID --------------------------------------------------------

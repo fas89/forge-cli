@@ -24,12 +24,8 @@ from .base import (
     ImportCtx,
     get_metadata_passthrough,
     metadata_passthrough,
-    register_section,
 )
 from .types import provider_to_server_type, server_type_to_provider
-
-NAME = "servers"
-register_section(NAME)
 
 
 # ----- ODCS → FLUID --------------------------------------------------------

@@ -24,8 +24,6 @@ from .base import (
     metadata_passthrough,
 )
 
-NAME = "team"
-
 
 def to_odps(ctx: ExportCtx) -> None:
     pt_team = get_metadata_passthrough(ctx.fluid).get("team")
