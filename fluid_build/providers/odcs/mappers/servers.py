@@ -168,31 +168,84 @@ def _expect_to_server(expect: Any) -> Optional[Dict[str, Any]]:
 def _server_details_from_location(
     location: Mapping[str, Any], provider: str
 ) -> Dict[str, Any]:
-    details: Dict[str, Any] = {}
+    """Map FLUID binding/location → ODCS server-type-specific allowed fields.
+
+    ODCS v3.1.0 servers use ``unevaluatedProperties: false`` — emitting any
+    field outside the allowed list for the server's type breaks validation.
+    This table mirrors the ``$defs/ServerSource/<TypeServer>.properties``
+    keys; FLUID fields with no ODCS counterpart are quietly dropped here and
+    surface elsewhere via expose pass-through if needed.
+    """
     p = provider.lower()
+    details: Dict[str, Any] = {}
+
     if p in ("gcp", "bigquery"):
         for key in ("project", "dataset"):
             if key in location:
                 details[key] = location[key]
     elif p == "snowflake":
-        for key in ("account", "database", "schema", "table"):
+        for key in ("host", "port", "account", "database", "schema", "warehouse"):
             if key in location:
                 details[key] = location[key]
     elif p in ("aws", "s3"):
-        if "bucket" in location:
-            details["bucket"] = location["bucket"]
-        if "path" in location or "key" in location:
-            details["path"] = location.get("path") or location.get("key")
-        if "region" in location:
-            details["region"] = location["region"]
+        # ODCS S3Server: location (URI), endpointUrl, format, delimiter
+        loc_val = (
+            location.get("location")
+            or _build_s3_uri(location.get("bucket"), location.get("path") or location.get("key"))
+        )
+        if loc_val:
+            details["location"] = loc_val
+        for key in ("endpointUrl", "format", "delimiter"):
+            if key in location:
+                details[key] = location[key]
     elif p == "kafka":
-        if "host" in location:
-            details["host"] = location["host"]
-        elif "account" in location:
-            details["host"] = location["account"]
+        host = location.get("host") or location.get("account")
+        if host:
+            details["host"] = host
         if "format" in location:
             details["format"] = location["format"]
+    elif p in ("postgres", "postgresql"):
+        for key in ("host", "port", "database", "schema"):
+            if key in location:
+                details[key] = location[key]
+    elif p == "mysql":
+        for key in ("host", "port", "database"):
+            if key in location:
+                details[key] = location[key]
+    elif p == "databricks":
+        for key in ("host", "catalog", "schema"):
+            if key in location:
+                details[key] = location[key]
+    elif p == "redshift":
+        for key in ("host", "database", "schema", "region", "account"):
+            if key in location:
+                details[key] = location[key]
+    elif p == "local":
+        for key in ("path", "format"):
+            if key in location:
+                details[key] = location[key]
+    elif p in ("athena",):
+        for key in ("stagingDir", "schema", "catalog", "regionName"):
+            if key in location:
+                details[key] = location[key]
     else:
-        # Generic: copy everything as-is
-        details.update(location)
+        # Custom / unknown provider → ODCS server.type=custom which accepts
+        # the union of all server-type fields. Copy any that match the union.
+        custom_keys = {
+            "account", "catalog", "database", "dataset", "delimiter",
+            "endpointUrl", "format", "host", "location", "path", "port",
+            "project", "region", "regionName", "schema", "serviceName",
+            "stagingDir", "warehouse", "stream",
+        }
+        for key, value in location.items():
+            if key in custom_keys:
+                details[key] = value
     return details
+
+
+def _build_s3_uri(bucket: Optional[str], path: Optional[str]) -> Optional[str]:
+    if not bucket:
+        return None
+    if path:
+        return f"s3://{bucket.rstrip('/')}/{path.lstrip('/')}"
+    return f"s3://{bucket}"
