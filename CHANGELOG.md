@@ -5,6 +5,68 @@ All notable changes to FLUID Forge CLI will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Bitol ODPS v1.0.0 — bidirectional provider** (`BitolOdpsProvider`,
+  registered as `odps_bitol`). Export emits the canonical fragments layout:
+  1 ODPS doc + N sibling `<contractId>.odcs.yaml` files; the linking
+  invariant `port.contractId == odcs.id` is enforced by construction and
+  asserted in tests.
+- **Three import entry points**, all converging on one validated FLUID
+  contract: single ODPS file, directory (ODPS + sibling ODCS or just ODCS
+  files), or a lone ODCS file. Exposed via `fluid opds import <path>`.
+- **`ContractResolver`** — resolves Bitol ODPS port `contractId` references
+  to ODCS documents through local-file probes and http(s) fetch, with
+  caching, JSON Schema validation, HTML-with-200 refusal, and `--no-remote`
+  hermetic mode.
+- **`fluid opds export --spec bitol-1.0.0|odpi-4.1`** — `--spec` dispatches
+  between Bitol ODPS v1.0.0 (new default) and the existing ODPI v4.1.
+  `--out-dir`, `--validate-strict`, and `--format` flags added.
+- **`fluid forge --seed-from <path>`** — copilot accepts an ODCS contract,
+  a Bitol ODPS product file, or a directory bundle as a structural seed.
+  The seed's schema/quality/qos are ground truth the LLM must not mutate.
+  Pre-processor in `fluid_build.cli.forge_copilot_seed`, with provenance
+  and `diff_against_seed()` guard primitive.
+- **`OdcsProvider.roundtrip_check(odcs)`** — public diff primitive
+  returning `{equal, missing, extra, changed}` for round-trip tests and
+  the forge ground-truth guard.
+- New docs: `docs/BITOL_INTEROP.md` covering canonical-model architecture,
+  the `contractId` convention, resolver behaviour, and the forge
+  `--seed-from` flow.
+
+### Changed
+- **ODCS v3.1.0 import is now lossless.** Two import bugs fixed
+  (`_odcs_team_to_fluid_owner` now accepts the v3.1.0 object form;
+  `_odcs_schema_to_field` now reads `required` instead of the non-existent
+  `isNullable`). New sections preserved end-to-end: `slaProperties`,
+  contract/object/property-level `quality`, `relationships`, `support`,
+  `price`, `customProperties`, `authoritativeDefinitions`, `roles`. ODCS
+  → FLUID → ODCS round-trips zero-diff on the full v3.1.0 fixture.
+- **ODCS provider refactored into modular bidirectional mappers.** The
+  monolithic 1441-line `odcs.py` split into `provider.py`, `validation.py`,
+  `io.py`, and `mappers/{metadata,team,schema,quality,sla,servers,types}.py`.
+  Each section module exposes paired `to_fluid` / `to_odcs` functions. All
+  pass-through values live under a single `odcs_passthrough` namespace at
+  each level (metadata / expose / field) for auditability.
+- **`fluid opds`** now has `opds` as an alias for `odps`; both go through
+  the `--spec` dispatcher. Default spec changed to `bitol-1.0.0`.
+- **Naming disambiguation.** Provider registry now has three clearly
+  distinct names: `odcs` (Open Data Contract Standard v3.1.0), `odps`
+  (ODPI v4.1, Linux Foundation; export-only), `odps_bitol` (Bitol Open
+  Data Product Standard v1.0.0; bidirectional). Docstrings and
+  `features.yaml` updated.
+- **ODCS server export now type-aware.** Each `server.type` only emits
+  the fields its ODCS v3.1.0 `ServerSource` allows (snowflake, bigquery,
+  s3, kafka, postgres, mysql, databricks, redshift, local, athena, plus
+  the `custom` union). The previous behaviour leaked snowflake's `table`
+  (which belongs in `contract.schema`) and tripped strict validation.
+
+### Deprecated
+- `fluid odps export --version 4.1` — use `--spec odpi-4.1` (warning logged).
+- `fluid odps-bitol export` — use `fluid opds export --spec bitol-1.0.0`
+  (warning printed on every invocation). Kept working for one release.
+
 ## [0.7.8] — 2026-04-03
 
 ### Changed
