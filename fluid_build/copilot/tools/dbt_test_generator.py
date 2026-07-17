@@ -46,29 +46,13 @@ from ...engines.dbt import _test_mapping as _tm
 
 _LOG = logging.getLogger(__name__)
 
-# Numeric SQL-type prefixes worth considering for range tests.
-# Kept conservative — we accept the common warehouse type families
-# (Snowflake, BigQuery, Redshift, Athena/Trino, Postgres) and bail
-# out for anything we don't recognise so we never emit a range test
-# on a string column.
-_NUMERIC_TYPE_PREFIXES: tuple[str, ...] = (
-    "INT",  # INT, INTEGER, INT64, INT8, BIGINT, SMALLINT, TINYINT
-    "FLOAT",  # FLOAT, FLOAT64
-    "DOUBLE",  # DOUBLE, DOUBLE PRECISION
-    "DEC",  # DEC, DECIMAL
-    "NUMERIC",  # NUMERIC
-    "NUMBER",  # Snowflake NUMBER(p,s)
-    "REAL",
-    "BIGNUMERIC",
-    "MONEY",
-)
 
-
+# Numeric-type recognition lives in the shared mapping module
+# (_test_mapping.is_numeric_type) so all three generator surfaces agree.
+# The old local prefix table mis-matched BIGINT/SMALLINT/TINYINT
+# ("BIGINT".startswith("INT") is False) and silently dropped their range tests.
 def _is_numeric(sql_type: str | None) -> bool:
-    if not sql_type:
-        return False
-    head = str(sql_type).strip().upper()
-    return any(head.startswith(prefix) for prefix in _NUMERIC_TYPE_PREFIXES)
+    return _tm.is_numeric_type(sql_type)
 
 
 def _column_tests(col: dict[str, Any]) -> list[Any]:
@@ -80,7 +64,8 @@ def _column_tests(col: dict[str, Any]) -> list[Any]:
     2. ``nullable`` false (and not PK) → ``not_null``
     3. ``foreign_key`` set → ``relationships``
     4. ``enum`` set → ``accepted_values``
-    5. ``min`` / ``max`` set on a numeric type →
+    5. ``min`` / ``max`` (or ``minimum`` / ``maximum``) set on a numeric —
+       or untyped — column →
        ``dbt_expectations.expect_column_values_to_be_between``
     """
     tests: list[Any] = []
@@ -105,21 +90,21 @@ def _column_tests(col: dict[str, Any]) -> list[Any]:
         tests.append(_tm.accepted_values_test(enum))
 
     col_type = col.get("type")
-    min_val = col.get("min")
-    max_val = col.get("max")
-    if (min_val is not None or max_val is not None) and _is_numeric(col_type):
-        range_test = _tm.numeric_range_test(min_value=min_val, max_value=max_val)
-        if range_test is not None:
-            tests.append(range_test)
-    elif (min_val is not None or max_val is not None) and not _is_numeric(col_type):
-        # Don't silently emit on string types — surface a WARN so the
-        # BuilderAgent / Validator can decide whether to coerce the
-        # column type or drop the min/max.
-        _LOG.warning(
-            "skipping range test on non-numeric column %r (type=%r)",
-            col.get("name"),
-            col_type,
-        )
+    bounds = _tm.column_range(col)  # accepts min/max AND minimum/maximum
+    if bounds:
+        if col_type is None or _tm.is_numeric_type(col_type):
+            range_test = _tm.numeric_range_test(**bounds)
+            if range_test is not None:
+                tests.append(range_test)
+        else:
+            # Don't silently emit on string types — surface a WARN so the
+            # BuilderAgent / Validator can decide whether to coerce the
+            # column type or drop the min/max.
+            _LOG.warning(
+                "skipping range test on non-numeric column %r (type=%r)",
+                col.get("name"),
+                col_type,
+            )
 
     return tests
 

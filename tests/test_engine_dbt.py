@@ -776,3 +776,65 @@ class TestCustomer360:
         marts = [f for f in files if f.startswith("models/marts/")]
         assert len(staging) >= 1
         assert len(marts) >= 1
+
+
+class TestNumericTypeRecognition:
+    """Regression: the pre-consolidation copilot prefix table mis-matched
+    BIGINT/SMALLINT/TINYINT ("BIGINT".startswith("INT") is False), silently
+    dropping their range tests, and the copilot surface ignored the
+    JSON-Schema ``minimum``/``maximum`` spelling. All surfaces now share
+    ``_test_mapping.is_numeric_type`` + ``column_range``."""
+
+    def test_is_numeric_type_matrix(self):
+        from fluid_build.engines.dbt._test_mapping import is_numeric_type
+
+        for t in [
+            "BIGINT",
+            "bigint",
+            "SMALLINT",
+            "TINYINT",
+            "INT64",
+            "NUMBER(38,0)",
+            "DOUBLE PRECISION",
+            "DECIMAL(10,2)",
+            "float",
+        ]:
+            assert is_numeric_type(t), t
+        for t in ["VARCHAR", "STRING", "TEXT", "BOOLEAN", "TIMESTAMP", "", None]:
+            assert not is_numeric_type(t), repr(t)
+
+    def _range_only(self, tests) -> list:
+        return [
+            t
+            for t in tests
+            if isinstance(t, dict) and "dbt_expectations.expect_column_values_to_be_between" in t
+        ]
+
+    def test_bigint_range_identical_both_spellings_engine_vs_copilot(self):
+        from fluid_build.copilot.tools.dbt_test_generator import _column_tests
+        from fluid_build.engines.dbt.schema_yml import _tests_for_column
+
+        for spelling in ({"min": 0, "max": 100}, {"minimum": 0, "maximum": 100}):
+            col = {"name": "amount", "type": "BIGINT", **spelling}
+            engine_tests = self._range_only(_tests_for_column(dict(col), []))
+            copilot_tests = self._range_only(_column_tests(dict(col)))
+            assert engine_tests == copilot_tests, (spelling, engine_tests, copilot_tests)
+            assert len(engine_tests) == 1, spelling
+            body = engine_tests[0]["dbt_expectations.expect_column_values_to_be_between"]
+            assert body == {"min_value": 0, "max_value": 100}
+
+    def test_declared_non_numeric_type_skips_range_on_both_surfaces(self):
+        from fluid_build.copilot.tools.dbt_test_generator import _column_tests
+        from fluid_build.engines.dbt.schema_yml import _tests_for_column
+
+        col = {"name": "code", "type": "VARCHAR", "min": 1, "max": 10}
+        assert self._range_only(_tests_for_column(dict(col), [])) == []
+        assert self._range_only(_column_tests(dict(col))) == []
+
+    def test_untyped_column_keeps_explicit_range_intent(self):
+        from fluid_build.copilot.tools.dbt_test_generator import _column_tests
+        from fluid_build.engines.dbt.schema_yml import _tests_for_column
+
+        col = {"name": "amount", "minimum": 0, "maximum": 100}
+        assert len(self._range_only(_tests_for_column(dict(col), []))) == 1
+        assert len(self._range_only(_column_tests(dict(col)))) == 1

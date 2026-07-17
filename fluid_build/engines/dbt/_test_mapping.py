@@ -120,6 +120,56 @@ def relationships_test(to: str, field: str) -> dict[str, Any]:
     return {"relationships": {"to": f"ref('{to}')", "field": field}}
 
 
+#: SQL type names (upper-cased, parameters stripped) that carry numeric
+#: semantics. Matched as *whole tokens* after normalising — a prefix match is
+#: NOT enough (``"BIGINT".startswith("INT")`` is false, which is exactly the
+#: bug this replaces: BIGINT / SMALLINT / TINYINT silently lost their range
+#: tests on the copilot path).
+_NUMERIC_TYPE_TOKENS: frozenset[str] = frozenset(
+    {
+        "INT",
+        "INTEGER",
+        "BIGINT",
+        "SMALLINT",
+        "TINYINT",
+        "INT2",
+        "INT4",
+        "INT8",
+        "INT16",
+        "INT32",
+        "INT64",
+        "FLOAT",
+        "FLOAT4",
+        "FLOAT8",
+        "FLOAT64",
+        "DOUBLE",
+        "DEC",
+        "DECIMAL",
+        "NUMERIC",
+        "NUMBER",
+        "REAL",
+        "BIGNUMERIC",
+        "MONEY",
+        "SERIAL",
+        "BIGSERIAL",
+        "SMALLSERIAL",
+    }
+)
+
+
+def is_numeric_type(sql_type: Any) -> bool:
+    """True when ``sql_type`` names a numeric SQL type.
+
+    Normalises case, strips type parameters (``NUMBER(38,0)`` → ``NUMBER``)
+    and modifiers (``DOUBLE PRECISION`` → ``DOUBLE``), then requires an exact
+    token match against :data:`_NUMERIC_TYPE_TOKENS`.
+    """
+    if not sql_type:
+        return False
+    head = str(sql_type).strip().upper().split("(", 1)[0].split(" ", 1)[0].strip()
+    return head in _NUMERIC_TYPE_TOKENS
+
+
 def numeric_range_test(*, min_value: Any = None, max_value: Any = None) -> dict[str, Any] | None:
     """The single numeric range/between dialect (dbt_expectations).
 
@@ -283,9 +333,16 @@ def constraint_tests(col: Mapping[str, Any]) -> list[Any]:
 
     bounds = column_range(col)
     if bounds:
-        range_test = numeric_range_test(**bounds)
-        if range_test is not None:
-            tests.append(range_test)
+        # Emit the range test when the declared type is numeric — or when no
+        # type is declared at all (don't drop explicit min/max intent on a
+        # typeless contract). Skip only a *declared* non-numeric type, where
+        # min/max more plausibly means length bounds and a numeric between
+        # would fail in dbt. All three generator surfaces share this gate.
+        declared_type = col.get("type")
+        if declared_type is None or is_numeric_type(declared_type):
+            range_test = numeric_range_test(**bounds)
+            if range_test is not None:
+                tests.append(range_test)
 
     return tests
 
