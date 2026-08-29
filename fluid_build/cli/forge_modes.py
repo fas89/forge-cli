@@ -71,6 +71,13 @@ def run_ai_copilot_mode(
                 "[dim]I'll help you create the perfect data product by understanding your needs...[/dim]\n"
             )
 
+        # Phase 7 seed hand-off: build SeedOptions once at the CLI boundary
+        # and thread it through the copilot pipeline. ``None`` when the
+        # operator didn't pass ``--seed-from``, in which case the runtime
+        # behaves exactly as it did before Phase 7 landed.
+        from fluid_build.cli.forge_copilot_seed import SeedOptions as _SeedOptions
+        seed_options = _SeedOptions.from_args(args)
+
         context: Dict[str, Any] = {}
         copilot_options = {
             "llm_provider": get_cli_arg_fn(args, "llm_provider"),
@@ -81,6 +88,7 @@ def run_ai_copilot_mode(
             "memory": get_cli_arg_fn(args, "memory", True),
             "save_memory": get_cli_arg_fn(args, "save_memory", False),
             "non_interactive": get_cli_arg_fn(args, "non_interactive", False),
+            "seed_options": seed_options,
         }
 
         context_arg = get_cli_arg_fn(args, "context")
