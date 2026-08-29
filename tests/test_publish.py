@@ -176,10 +176,7 @@ class TestPublishContract:
         contract_path = tmp_path / "c.fluid.yaml"
         contract_path.write_text("id: test")
 
-        asset = MagicMock()
-        asset.id = "asset-123"
         provider = MagicMock()
-        provider.map_contract_to_asset.return_value = asset
         provider.verify = AsyncMock(return_value=True)
 
         config = MagicMock()
@@ -200,6 +197,7 @@ class TestPublishContract:
 
         assert result.success is True
         assert result.details.get("verified") is True
+        provider.verify.assert_awaited_once_with("test")
 
     def test_verify_only_asset_missing(self, tmp_path):
         from fluid_build.cli import publish as pub_mod
@@ -207,10 +205,7 @@ class TestPublishContract:
         contract_path = tmp_path / "c.fluid.yaml"
         contract_path.write_text("id: test")
 
-        asset = MagicMock()
-        asset.id = "asset-123"
         provider = MagicMock()
-        provider.map_contract_to_asset.return_value = asset
         provider.verify = AsyncMock(return_value=False)
 
         config = MagicMock()
@@ -232,17 +227,14 @@ class TestPublishContract:
         assert result.success is False
         assert "not found" in result.error
 
-    def test_dry_run_valid_asset(self, tmp_path):
+    def test_dry_run_valid_target(self, tmp_path):
         from fluid_build.cli import publish as pub_mod
 
         contract_path = tmp_path / "c.fluid.yaml"
         contract_path.write_text("id: test")
 
-        asset = MagicMock()
-        asset.id = "asset-123"
         provider = MagicMock()
-        provider.map_contract_to_asset.return_value = asset
-        provider.validate_asset.return_value = (True, None)
+        provider.validate_target.return_value = (True, None)
 
         config = MagicMock()
         config.get_catalog_config.return_value = {"enabled": True}
@@ -262,6 +254,11 @@ class TestPublishContract:
 
         assert result.success is True
         assert result.details.get("dry_run") is True
+        # validate_target is called with (fluid, target); the target's
+        # contract_id is derived from the FLUID's id field.
+        (fluid_arg, target_arg), _ = provider.validate_target.call_args
+        assert fluid_arg == {"id": "test"}
+        assert target_arg.contract_id == "test"
 
     def test_health_check_failure_returns_error(self, tmp_path):
         from fluid_build.cli import publish as pub_mod
@@ -269,10 +266,7 @@ class TestPublishContract:
         contract_path = tmp_path / "c.fluid.yaml"
         contract_path.write_text("id: test")
 
-        asset = MagicMock()
-        asset.id = "asset-123"
         provider = MagicMock()
-        provider.map_contract_to_asset.return_value = asset
         provider.health_check = AsyncMock(return_value=False)
 
         config = MagicMock()
@@ -297,13 +291,10 @@ class TestPublishContract:
         from fluid_build.cli import publish as pub_mod
 
         contract_path = tmp_path / "c.fluid.yaml"
-        contract_path.write_text("id: test")
+        contract_path.write_text("id: test\nname: Test")
 
-        asset = MagicMock()
-        asset.id = "asset-123"
-        expected = _make_result(success=True, asset_id="asset-123")
+        expected = _make_result(success=True, asset_id="test")
         provider = MagicMock()
-        provider.map_contract_to_asset.return_value = asset
         provider.health_check = AsyncMock(return_value=True)
         provider.publish = AsyncMock(return_value=expected)
 
@@ -311,7 +302,9 @@ class TestPublishContract:
         config.get_catalog_config.return_value = {"enabled": True}
 
         with (
-            patch.object(pub_mod, "load_contract", return_value={"id": "test"}),
+            patch.object(
+                pub_mod, "load_contract", return_value={"id": "test", "name": "Test"}
+            ),
             patch.object(pub_mod, "get_catalog_provider", return_value=provider),
         ):
             result = _run(
@@ -324,24 +317,36 @@ class TestPublishContract:
             )
 
         assert result.success is True
+        # publish() gets the full FLUID dict plus a CatalogTarget carrying
+        # the raw YAML for byte-preserving catalog storage.
+        (fluid_arg, target_arg), _ = provider.publish.call_args
+        assert fluid_arg == {"id": "test", "name": "Test"}
+        assert target_arg.contract_id == "test"
+        assert target_arg.contract_name == "Test"
+        assert target_arg.contract_yaml == "id: test\nname: Test"
 
-    def test_map_contract_failure_returns_error(self, tmp_path):
+    def test_publish_uses_name_fallback_when_id_missing(self, tmp_path):
+        """A FLUID contract without a top-level ``id`` falls back to
+        ``name``; the target still gets a usable identifier.
+        """
         from fluid_build.cli import publish as pub_mod
 
         contract_path = tmp_path / "c.fluid.yaml"
-        contract_path.write_text("id: test")
+        contract_path.write_text("name: SalesProduct")
 
+        expected = _make_result(success=True, asset_id="SalesProduct")
         provider = MagicMock()
-        provider.map_contract_to_asset.side_effect = KeyError("name")
+        provider.health_check = AsyncMock(return_value=True)
+        provider.publish = AsyncMock(return_value=expected)
 
         config = MagicMock()
         config.get_catalog_config.return_value = {"enabled": True}
 
         with (
-            patch.object(pub_mod, "load_contract", return_value={"id": "test"}),
+            patch.object(pub_mod, "load_contract", return_value={"name": "SalesProduct"}),
             patch.object(pub_mod, "get_catalog_provider", return_value=provider),
         ):
-            result = _run(
+            _run(
                 pub_mod.publish_contract(
                     contract_path=contract_path,
                     catalog_name="my-catalog",
@@ -349,8 +354,9 @@ class TestPublishContract:
                 )
             )
 
-        assert result.success is False
-        assert "Failed to map contract to asset" in result.error
+        (_, target_arg), _ = provider.publish.call_args
+        assert target_arg.contract_id == "SalesProduct"
+        assert target_arg.contract_name == "SalesProduct"
 
 
 # ---------------------------------------------------------------------------
@@ -788,19 +794,15 @@ class TestRunAsyncPublishFlow:
         assert "Metrics" in calls or "Total" in calls or "Success" in calls
 
     def test_publish_contract_verbose_logging(self, tmp_path):
-        """Lines 212-213, 268-269: verbose=True triggers extra logger.info calls."""
+        """Verbose=True triggers extra logger.info calls in the publish path."""
         from fluid_build.cli import publish as pub_mod
 
         contract_path = tmp_path / "c.fluid.yaml"
         contract_path.write_text("id: test")
 
-        asset = MagicMock()
-        asset.id = "asset-xyz"
-        asset.name = "Test Asset"
         provider = MagicMock()
-        provider.map_contract_to_asset.return_value = asset
         provider.health_check = AsyncMock(return_value=True)
-        provider.publish = AsyncMock(return_value=_make_result(success=True, asset_id="asset-xyz"))
+        provider.publish = AsyncMock(return_value=_make_result(success=True, asset_id="test"))
 
         config = MagicMock()
         config.get_catalog_config.return_value = {"enabled": True}
@@ -825,19 +827,16 @@ class TestRunAsyncPublishFlow:
         assert result.success is True
 
     def test_publish_skips_health_check_when_flag_set(self, tmp_path):
-        """Lines 293-305: health check is skipped when skip_health_check=True."""
+        """Health check is skipped when skip_health_check=True."""
         from fluid_build.cli import publish as pub_mod
 
         contract_path = tmp_path / "c.fluid.yaml"
         contract_path.write_text("id: test")
 
-        asset = MagicMock()
-        asset.id = "asset-abc"
         provider = MagicMock()
-        provider.map_contract_to_asset.return_value = asset
         # health_check should NOT be called
         provider.health_check = AsyncMock(return_value=False)
-        provider.publish = AsyncMock(return_value=_make_result(success=True, asset_id="asset-abc"))
+        provider.publish = AsyncMock(return_value=_make_result(success=True, asset_id="test"))
 
         config = MagicMock()
         config.get_catalog_config.return_value = {"enabled": True}
@@ -862,18 +861,15 @@ class TestRunAsyncPublishFlow:
         provider.health_check.assert_not_called()
         assert result.success is True
 
-    def test_dry_run_invalid_asset_returns_error(self, tmp_path):
-        """Lines 283-291: dry_run with invalid asset returns error result."""
+    def test_dry_run_invalid_target_returns_error(self, tmp_path):
+        """dry_run with a target that fails validation returns an error."""
         from fluid_build.cli import publish as pub_mod
 
         contract_path = tmp_path / "c.fluid.yaml"
         contract_path.write_text("id: test")
 
-        asset = MagicMock()
-        asset.id = "asset-bad"
         provider = MagicMock()
-        provider.map_contract_to_asset.return_value = asset
-        provider.validate_asset.return_value = (False, "missing required field")
+        provider.validate_target.return_value = (False, "missing required field")
 
         config = MagicMock()
         config.get_catalog_config.return_value = {"enabled": True}
