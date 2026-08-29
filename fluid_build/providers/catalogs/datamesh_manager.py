@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict
 
-from .base import BaseCatalogProvider, CatalogAsset, PublishResult
+from .base import BaseCatalogProvider, CatalogTarget, PublishResult
 
 LOG = logging.getLogger(__name__)
 
@@ -49,27 +49,25 @@ class DataMeshManagerCatalogProvider(BaseCatalogProvider):
 
     # -- BaseCatalogProvider interface --------------------------------------
 
-    async def publish(self, asset: CatalogAsset) -> PublishResult:
-        """Publish *asset* as a data product to Entropy Data.
+    async def publish(
+        self, fluid: Dict[str, Any], target: CatalogTarget
+    ) -> PublishResult:
+        """Publish *fluid* as a data product to Entropy Data.
 
-        Prefers ``asset.raw_contract`` (the full FLUID dict) over the
-        flat asset-derived summary — that way the underlying provider sees
-        every output port and emits one per-port ODCS contract instead of a
-        single redundant ``{productId}.{productId}`` wrapper.
+        The FLUID dict is forwarded to the underlying provider verbatim so
+        every output port is preserved — one per-port ODCS contract is
+        emitted instead of the single redundant wrapper the old flat-asset
+        path used to build.
         """
-        fluid = asset.raw_contract if asset.raw_contract else self._asset_to_fluid(asset)
+        provider_hint = target.catalog_hints.get("provider_hint", "odps")
         try:
-            # Bitol DMM publishes ODPS, not the FLUID-flavoured DPS — make that
-            # explicit so the provider doesn't fall back to the
-            # ``dataProductSpecification: "0.0.1"`` default that Entropy CE
-            # instances configured for ODPS-only reject.
             result = self._provider.apply(
-                fluid, publish_contract=True, provider_hint="odps"
+                fluid, publish_contract=True, provider_hint=provider_hint
             )
             return PublishResult(
                 success=True,
                 catalog_id=self.name,
-                asset_id=asset.id,
+                asset_id=target.contract_id,
                 catalog_url=result.get("url"),
                 details=result,
             )
@@ -77,24 +75,26 @@ class DataMeshManagerCatalogProvider(BaseCatalogProvider):
             return PublishResult(
                 success=False,
                 catalog_id=self.name,
-                asset_id=asset.id,
+                asset_id=target.contract_id,
                 error=str(exc),
             )
 
-    async def update(self, asset: CatalogAsset) -> PublishResult:
+    async def update(
+        self, fluid: Dict[str, Any], target: CatalogTarget
+    ) -> PublishResult:
         # PUT is idempotent — publish == update
-        return await self.publish(asset)
+        return await self.publish(fluid, target)
 
-    async def verify(self, asset_id: str) -> bool:
+    async def verify(self, contract_id: str) -> bool:
         try:
-            self._provider.verify(asset_id)
+            self._provider.verify(contract_id)
             return True
         except Exception:
             return False
 
-    async def delete(self, asset_id: str) -> bool:
+    async def delete(self, contract_id: str) -> bool:
         try:
-            return self._provider.delete(asset_id)
+            return self._provider.delete(contract_id)
         except Exception:
             return False
 
@@ -104,43 +104,3 @@ class DataMeshManagerCatalogProvider(BaseCatalogProvider):
             return True
         except Exception:
             return False
-
-    # -- helpers ------------------------------------------------------------
-
-    @staticmethod
-    def _asset_to_fluid(asset: CatalogAsset) -> Dict[str, Any]:
-        """Convert a CatalogAsset back to a minimal FLUID dict."""
-        fluid: Dict[str, Any] = {
-            "id": asset.id,
-            "name": asset.name,
-            "description": asset.description,
-            "metadata": {
-                "name": asset.name,
-                "description": asset.description,
-                "domain": asset.domain,
-                "version": asset.version,
-                "tags": asset.tags,
-                "layer": asset.layer,
-                "status": "active",
-            },
-            "owner": {
-                "team": asset.owner,
-                "email": asset.owner_email,
-            },
-        }
-
-        # Build a minimal expose from location info
-        if asset.location or asset.platform != "unknown":
-            expose: Dict[str, Any] = {
-                "id": asset.id,
-                "provider": asset.platform,
-            }
-            if asset.location:
-                expose["location"] = (
-                    asset.location if isinstance(asset.location, str) else str(asset.location)
-                )
-            if asset.schema:
-                expose["schema"] = {"fields": asset.schema}
-            fluid["exposes"] = [expose]
-
-        return fluid
