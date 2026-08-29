@@ -500,58 +500,27 @@ def test_publish_odcs_warn_validation_still_puts(monkeypatch):
 
 
 # =====================================================================
-# Catalog adapter: raw_contract propagation (bug 6)
+# Catalog adapter: FLUID dict pass-through (bug 6 — post-redesign)
 # =====================================================================
 
 
-class TestCatalogAssetRawContractPropagation:
-    """The catalog-provider publish path must thread the full FLUID dict
-    through so multi-port contracts emit one ODCS per output port.
+class TestCatalogFluidPassthrough:
+    """The catalog-provider publish path threads the full FLUID dict through
+    so multi-port contracts emit one ODCS per output port.
 
     Regression test for the issue surfaced by running ``task publish:pre``
-    against the local snowflake-biz-lab DMM stack — the lossy
-    ``_asset_to_fluid`` path used to collapse multi-port contracts into a
-    single redundant ``{productId}.{productId}`` wrapper.
+    against the local snowflake-biz-lab DMM stack — the redesign kills the
+    flat CatalogAsset intermediate (``_asset_to_fluid``) that used to
+    collapse multi-port contracts into a single wrapper.
     """
 
-    def test_map_contract_to_asset_stores_full_contract(self):
-        from fluid_build.providers.catalogs import (
-            BaseCatalogProvider,
-            CatalogAsset,
-        )
-
-        class _Stub(BaseCatalogProvider):
-            async def publish(self, asset): ...
-            async def update(self, asset): ...
-            async def verify(self, asset_id): ...
-            async def health_check(self): ...
-
-        provider = _Stub({})
-        contract = {
-            "id": "bronze.test",
-            "name": "Test",
-            "kind": "DataProduct",
-            "exposes": [
-                {"id": "port_a", "binding": {"platform": "snowflake"}},
-                {"id": "port_b", "binding": {"platform": "snowflake"}},
-            ],
-        }
-        asset = provider.map_contract_to_asset(contract)
-        assert asset.raw_contract is not None
-        assert len(asset.raw_contract["exposes"]) == 2
-        # The raw dict is a shallow copy — top-level keys can't bleed back
-        # (legacy callers occasionally mutate contracts post-asset-creation).
-        asset.raw_contract["id"] = "MUTATED"
-        assert contract["id"] == "bronze.test"
-
-    def test_dmm_catalog_provider_uses_raw_contract_for_publish(self):
-        """When ``raw_contract`` is set, the DMM catalog provider passes the
-        full FLUID dict (with all output ports) to the underlying provider —
-        not the lossy minimal dict ``_asset_to_fluid`` would have built.
+    def test_dmm_catalog_provider_forwards_full_fluid(self):
+        """The new ``publish(fluid, target)`` signature hands the underlying
+        DMM provider the raw FLUID dict — every output port is preserved.
         """
         import asyncio
 
-        from fluid_build.providers.catalogs import CatalogAsset
+        from fluid_build.providers.catalogs import CatalogTarget
         from fluid_build.providers.catalogs.datamesh_manager import (
             DataMeshManagerCatalogProvider,
         )
@@ -577,17 +546,80 @@ class TestCatalogAssetRawContractPropagation:
                 {"id": "port_b", "binding": {"platform": "snowflake"}},
             ],
         }
-        asset = CatalogAsset(
-            id="bronze.test", name="Test", description="", type="dataproduct",
-            domain="d", owner="t", owner_email="", layer="Bronze", tags=[],
-            version="1", platform="snowflake", location={},
-            raw_contract=full,
-        )
+        target = CatalogTarget.from_fluid(full)
 
-        result = asyncio.get_event_loop().run_until_complete(provider.publish(asset))
+        loop = asyncio.new_event_loop()
+        try:
+            result = loop.run_until_complete(provider.publish(full, target))
+        finally:
+            loop.close()
         assert result.success
-        # The underlying provider must have seen the full multi-port FLUID,
-        # not a single-expose summary collapsed by ``_asset_to_fluid``.
+        assert result.asset_id == "bronze.test"
+        # The underlying provider must have seen the full multi-port FLUID.
         assert len(captured["fluid"]["exposes"]) == 2
         assert captured["kwargs"].get("provider_hint") == "odps"
         assert captured["kwargs"].get("publish_contract") is True
+
+    def test_dmm_catalog_provider_respects_provider_hint_override(self):
+        """``catalog_hints['provider_hint']`` overrides the odps default."""
+        import asyncio
+
+        from fluid_build.providers.catalogs import CatalogTarget
+        from fluid_build.providers.catalogs.datamesh_manager import (
+            DataMeshManagerCatalogProvider,
+        )
+
+        provider = DataMeshManagerCatalogProvider(
+            {"endpoint": "http://localhost", "auth": {"api_key": "k"}}
+        )
+        captured: dict = {}
+
+        def fake_apply(fluid, **kwargs):
+            captured["kwargs"] = kwargs
+            return {"id": fluid.get("id")}
+
+        provider._provider.apply = fake_apply  # type: ignore[assignment]
+
+        full = {"id": "x", "name": "X", "exposes": []}
+        target = CatalogTarget.from_fluid(
+            full, catalog_hints={"provider_hint": "dps"}
+        )
+
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(provider.publish(full, target))
+        finally:
+            loop.close()
+        assert captured["kwargs"].get("provider_hint") == "dps"
+
+    def test_deprecated_map_contract_to_asset_still_works(self):
+        """The CatalogAsset builder stays available for one release with a
+        DeprecationWarning — external callers that build a CatalogAsset by
+        hand still round-trip through the ``publish_asset`` shim.
+        """
+        import warnings
+
+        from fluid_build.providers.catalogs import BaseCatalogProvider
+
+        class _Stub(BaseCatalogProvider):
+            async def publish(self, fluid, target): ...
+            async def update(self, fluid, target): ...
+            async def verify(self, contract_id): ...
+            async def health_check(self): ...
+
+        provider = _Stub({})
+        contract = {
+            "id": "bronze.test",
+            "name": "Test",
+            "kind": "DataProduct",
+            "exposes": [
+                {"id": "port_a", "binding": {"platform": "snowflake"}},
+                {"id": "port_b", "binding": {"platform": "snowflake"}},
+            ],
+        }
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            asset = provider.map_contract_to_asset(contract)
+        assert any(issubclass(w.category, DeprecationWarning) for w in caught)
+        assert asset.raw_contract is not None
+        assert len(asset.raw_contract["exposes"]) == 2
