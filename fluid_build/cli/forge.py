@@ -173,6 +173,7 @@ class CopilotAgent(CopilotAgentBase):
         discovery_report: Any,
         project_memory: Any,
         capability_matrix: Any,
+        seed_options: Any = None,
     ) -> CopilotGenerationResult:
         return generate_copilot_artifacts(
             context,
@@ -181,6 +182,7 @@ class CopilotAgent(CopilotAgentBase):
             project_memory=project_memory,
             capability_matrix=capability_matrix,
             logger=LOG,
+            seed_options=seed_options,
         )
 
     def _make_memory_store_dependency(self, project_root: Path) -> CopilotMemoryStore:
@@ -286,17 +288,14 @@ def register(subparsers: argparse._SubParsersAction):
         "--seed-from",
         dest="seed_from",
         help=(
-            "[experimental — pre-processor only] Structural seed for the LLM. "
-            "Accepts a Bitol ODPS file (*.odps.yaml), a directory containing "
-            "the ODPS doc + sibling ODCS files (or only ODCS files), or a "
-            "lone ODCS file (*.odcs.yaml). The schema/quality/qos from the "
-            "seed are treated as ground truth; the LLM fills in builds, "
-            "execution, and governance. Note: the seed pre-processor "
-            "(`fluid_build.cli.forge_copilot_seed.load_seed`) is callable as "
-            "a library today, but the copilot runtime hand-off + ground-truth "
-            "diff guard are not yet wired into the 3-attempt repair loop. "
-            "Passing the flag stores the seed for future loop integration "
-            "and will not yet affect today's LLM prompts."
+            "Structural seed for the LLM. Accepts a Bitol ODPS file "
+            "(*.odps.yaml), a directory containing the ODPS doc + sibling "
+            "ODCS files (or only ODCS files), or a lone ODCS file "
+            "(*.odcs.yaml). The schema/quality/qos from the seed are treated "
+            "as ground truth; the LLM fills in builds, execution, and "
+            "governance. The copilot runtime enforces preservation via a "
+            "ground-truth diff after each attempt — any mutation triggers "
+            "the existing 3-attempt repair loop with a mismatch report."
         ),
     )
     parser.add_argument(
@@ -304,9 +303,8 @@ def register(subparsers: argparse._SubParsersAction):
         dest="seed_no_remote",
         action="store_true",
         help=(
-            "[experimental] When --seed-from has http(s) contractId references, "
-            "refuse to fetch them. Honoured by the pre-processor; the copilot "
-            "runtime wiring is in progress."
+            "When --seed-from has http(s) contractId references, refuse to "
+            "fetch them. Honoured end-to-end (pre-processor + runtime)."
         ),
     )
     parser.add_argument(
