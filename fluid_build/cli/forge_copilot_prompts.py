@@ -33,11 +33,33 @@ from .forge_copilot_contract_helpers import _normalize_interview_summary
 
 
 def build_system_prompt(
-    capability_matrix: Mapping[str, Any], known_build_engines: Sequence[str]
+    capability_matrix: Mapping[str, Any],
+    known_build_engines: Sequence[str],
+    *,
+    has_seed_ground_truth: bool = False,
 ) -> str:
-    """System prompt for structured FLUID contract generation."""
+    """System prompt for structured FLUID contract generation.
+
+    When ``has_seed_ground_truth`` is True (``--seed-from`` in play), the
+    prompt gains a ground-truth-preservation clause that tells the LLM which
+    parts of its output must match the seed byte-for-byte.
+    """
     providers = ", ".join(capability_matrix.get("providers") or [])
     engines = ", ".join(capability_matrix.get("build_engines") or list(known_build_engines))
+    seed_clause = (
+        "\nGROUND TRUTH FROM SEED (--seed-from is in play):\n"
+        "The user prompt carries a ``seed_ground_truth`` block with the exposes, "
+        "contract.schema (per property), and qos values pinned by an upstream Bitol "
+        "ODCS/ODPS contract. These fields are AUTHORITATIVE — you MUST preserve them "
+        "VERBATIM in your output. Do not add, remove, rename, retype, or reorder any "
+        "schema property. Do not change qos values. Do not modify relationships. "
+        "You may ONLY fill in `builds`, `execution`, and `governance`. The exposes' "
+        "``id``, ``contract.schema``, and ``qos`` must round-trip identically. If the "
+        "user prompt also includes ``ground_truth_paths``, those are the exact JSON "
+        "paths the runtime will diff against; a mismatch triggers a repair re-prompt.\n"
+        if has_seed_ground_truth
+        else ""
+    )
     return (
         "You are FLUID Forge Copilot. Generate a production-ready FLUID 0.7.2 contract and README "
         "that only use locally supported templates, providers, and build engines.\n"
@@ -86,6 +108,7 @@ def build_system_prompt(
         "Follow the seed_contract structure exactly as a reference for the correct schema shape.\n"
         f"Allowed providers: {providers}.\n"
         "Only use build engines from the provided capability matrix."
+        + seed_clause
     )
 
 
@@ -172,8 +195,15 @@ def build_user_prompt(
     previous_errors: Sequence[str],
     previous_payload: Optional[Mapping[str, Any]],
     project_memory: Optional[CopilotMemorySnapshot] = None,
+    seed_ground_truth: Optional[Mapping[str, Any]] = None,
 ) -> str:
-    """Build the attempt-specific user prompt."""
+    """Build the attempt-specific user prompt.
+
+    ``seed_ground_truth`` (when set) is the pre-formatted block returned by
+    :func:`fluid_build.cli.forge_copilot_seed.format_ground_truth_prompt_block`.
+    It carries the exposes/schema/qos the LLM must preserve verbatim, plus
+    the dotted paths the runtime will diff against.
+    """
     interview_summary = _normalize_interview_summary(context)
     prompt: dict[str, Any] = {
         "attempt": attempt_index,
@@ -190,6 +220,8 @@ def build_user_prompt(
             "prefer_manual_trigger_for_execute_compatibility": True,
         },
     }
+    if seed_ground_truth:
+        prompt["seed_ground_truth"] = dict(seed_ground_truth)
     if project_memory:
         prompt["project_memory"] = project_memory.to_prompt_payload()
     if previous_errors:
