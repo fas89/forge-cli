@@ -54,7 +54,7 @@ except ImportError:
 
 from ..config_manager import FluidConfig
 from ..loader import load_contract
-from ..providers.catalogs import PublishResult, get_catalog_provider
+from ..providers.catalogs import CatalogTarget, PublishResult, get_catalog_provider
 from ..providers.common import metrics_collector
 
 COMMAND = "publish"
@@ -257,40 +257,38 @@ async def publish_contract(
             error=f"Failed to create catalog provider: {e}",
         )
 
-    # Map contract to asset
+    # Build publish target from the FLUID dict — the raw contract stays the
+    # payload, the target just names it and carries the byte-preserving
+    # contract YAML for catalogs that store the original file.
     try:
-        asset = provider.map_contract_to_asset(contract)
-        # Attach raw contract YAML so catalogs can store the full file
-        asset.contract_yaml = contract_path.read_text(encoding="utf-8")
-    except Exception as e:
-        return PublishResult(
-            success=False,
-            catalog_id=catalog_name,
-            asset_id=contract.get("id", str(contract_path)),
-            error=f"Failed to map contract to asset: {e}",
-        )
+        contract_yaml = contract_path.read_text(encoding="utf-8")
+    except Exception:
+        contract_yaml = None
+    target = CatalogTarget.from_fluid(contract, contract_yaml=contract_yaml)
 
     if verbose:
-        logger.info(f"📦 Mapped contract to asset: {asset.name} (ID: {asset.id})")
+        logger.info(
+            f"📦 Publishing contract {target.contract_name} (id: {target.contract_id})"
+        )
 
     # Verify-only mode
     if verify_only:
-        exists = await provider.verify(asset.id)
+        exists = await provider.verify(target.contract_id)
         return PublishResult(
             success=exists,
             catalog_id=catalog_name,
-            asset_id=asset.id,
+            asset_id=target.contract_id,
             error=None if exists else "Asset not found in catalog",
             details={"verified": exists, "operation": "verify"},
         )
 
     # Dry-run mode
     if dry_run:
-        is_valid, error_msg = provider.validate_asset(asset)
+        is_valid, error_msg = provider.validate_target(contract, target)
         return PublishResult(
             success=is_valid,
             catalog_id=catalog_name,
-            asset_id=asset.id,
+            asset_id=target.contract_id,
             error=error_msg,
             details={"dry_run": True, "valid": is_valid},
         )
@@ -305,7 +303,7 @@ async def publish_contract(
             return PublishResult(
                 success=False,
                 catalog_id=catalog_name,
-                asset_id=asset.id,
+                asset_id=target.contract_id,
                 error="Catalog health check failed - endpoint not accessible",
             )
 
@@ -313,7 +311,7 @@ async def publish_contract(
     if verbose:
         logger.info(f"🚀 Publishing to {catalog_name}...")
 
-    result = await provider.publish(asset)
+    result = await provider.publish(contract, target)
     return result
 
 
