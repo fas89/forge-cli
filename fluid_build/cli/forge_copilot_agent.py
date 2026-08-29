@@ -200,6 +200,7 @@ class CopilotAgentBase(CopilotProjectMemoryMixin, CopilotLegacyScaffoldMixin, AI
         discovery_report: Any,
         project_memory: Any,
         capability_matrix: Any,
+        seed_options: Any = None,
     ) -> CopilotGenerationResult:
         return generate_copilot_artifacts(
             context,
@@ -208,6 +209,7 @@ class CopilotAgentBase(CopilotProjectMemoryMixin, CopilotLegacyScaffoldMixin, AI
             project_memory=project_memory,
             capability_matrix=capability_matrix,
             logger=LOG,
+            seed_options=seed_options,
         )
 
     def _make_memory_store_dependency(self, project_root: Path) -> CopilotMemoryStore:
@@ -372,12 +374,14 @@ class CopilotAgentBase(CopilotProjectMemoryMixin, CopilotLegacyScaffoldMixin, AI
         """Generate and validate copilot artifacts via the LLM runtime."""
         context = normalize_copilot_context(context)
         runtime_inputs = self.prepare_runtime_inputs(copilot_options)
+        seed_options = (copilot_options or {}).get("seed_options")
         return self._generate_copilot_artifacts_dependency(
             context,
             llm_config=runtime_inputs["llm_config"],
             discovery_report=runtime_inputs["discovery_report"],
             project_memory=runtime_inputs["project_memory"],
             capability_matrix=runtime_inputs["capability_matrix"],
+            seed_options=seed_options,
         )
 
     def create_project(
