@@ -46,6 +46,83 @@ class SeedResult:
     ground_truth_paths: List[str] = field(default_factory=list)
 
 
+@dataclass
+class SeedOptions:
+    """Runtime options that steer the copilot's seed hand-off.
+
+    Constructed once at the CLI boundary from ``args.seed_from`` /
+    ``args.seed_no_remote`` and threaded through the copilot pipeline into
+    :func:`generate_copilot_artifacts`. ``None`` means "no seed" and the
+    runtime behaves exactly as it did before Phase 7 landed.
+    """
+
+    seed_from: Union[str, Path]
+    allow_remote: bool = True
+
+    @classmethod
+    def from_args(cls, args: Any) -> "Optional[SeedOptions]":
+        """Build ``SeedOptions`` from an argparse ``Namespace``.
+
+        Returns ``None`` when ``--seed-from`` wasn't passed, so callers can
+        thread the result through unconditionally.
+        """
+        seed_from = getattr(args, "seed_from", None)
+        if not seed_from:
+            return None
+        return cls(
+            seed_from=seed_from,
+            allow_remote=not bool(getattr(args, "seed_no_remote", False)),
+        )
+
+
+def format_ground_truth_prompt_block(seed: "SeedResult") -> Dict[str, Any]:
+    """Return the JSON-serialisable block the copilot prompt injects when a
+    seed is present. Trimmed to the fields the LLM should preserve verbatim
+    (drops the verbose ``odcs_passthrough`` block that isn't part of the
+    ground-truth surface)."""
+    ground_truth = {
+        "id": (seed.fluid.get("contract") or {}).get("id"),
+        "metadata": {
+            k: v
+            for k, v in (seed.fluid.get("metadata") or {}).items()
+            if k != "odcs_passthrough" and not k.startswith("odcs_")
+        },
+        "exposes": [
+            {
+                "id": e.get("id"),
+                "contract": {"schema": e.get("contract", {}).get("schema", [])},
+                **({"qos": e["qos"]} if e.get("qos") else {}),
+            }
+            for e in seed.fluid.get("exposes") or []
+        ],
+    }
+    return {
+        "shape": seed.shape,
+        "ground_truth": ground_truth,
+        "ground_truth_paths": list(seed.ground_truth_paths),
+        "provenance": list(seed.provenance),
+    }
+
+
+def format_mismatch_report(mismatches: List[Dict[str, Any]]) -> List[str]:
+    """Render a ``diff_against_seed`` result as human-readable repair
+    feedback strings, one per mismatch. Fed back to the LLM via the existing
+    ``previous_errors`` slot in the repair-loop prompt.
+    """
+    lines: List[str] = []
+    import json as _json
+    for m in mismatches[:10]:  # cap for prompt-size sanity
+        seed_val = _json.dumps(m.get("seed"))[:120]
+        cand_val = _json.dumps(m.get("candidate"))[:120]
+        lines.append(
+            f"ground_truth violation at {m.get('path')}: "
+            f"seed had {seed_val} but you returned {cand_val}"
+        )
+    if len(mismatches) > 10:
+        lines.append(f"... and {len(mismatches) - 10} more mutated paths")
+    return lines
+
+
 SHAPE_ODCS_FILE = "odcs-file"
 SHAPE_ODPS_FILE = "odps-file"
 SHAPE_DIRECTORY = "directory"
