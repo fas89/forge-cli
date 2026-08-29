@@ -46,6 +46,18 @@ from fluid_build.cli.forge_copilot_contract_helpers import (  # noqa: F401
     sanitize_name,
 )
 
+# Optional Phase-7 seed integration — enables --seed-from's ground-truth
+# preservation + repair loop. Import late-bound below so a missing seed
+# module never breaks the runtime.
+from fluid_build.cli.forge_copilot_seed import (  # noqa: F401
+    SeedOptions,
+    SeedResult,
+    diff_against_seed,
+    format_ground_truth_prompt_block,
+    format_mismatch_report,
+    load_seed,
+)
+
 # These need thin wrappers below because they inject dependencies:
 from fluid_build.cli.forge_copilot_contract_helpers import (
     build_seed_contract as _build_seed_contract_raw,
@@ -159,9 +171,20 @@ class CopilotGenerationResult:
 # ---------------------------------------------------------------------------
 
 
-def build_system_prompt(capability_matrix: Mapping[str, Any]) -> str:
-    """Build the system prompt, injecting the known build engines list."""
-    return _build_system_prompt_raw(capability_matrix, sorted(KNOWN_BUILD_ENGINES))
+def build_system_prompt(
+    capability_matrix: Mapping[str, Any], *, has_seed_ground_truth: bool = False
+) -> str:
+    """Build the system prompt, injecting the known build engines list.
+
+    ``has_seed_ground_truth`` forwards to the underlying prompt builder so
+    the Phase-7 preservation clause is included when the operator passed
+    ``--seed-from``.
+    """
+    return _build_system_prompt_raw(
+        capability_matrix,
+        sorted(KNOWN_BUILD_ENGINES),
+        has_seed_ground_truth=has_seed_ground_truth,
+    )
 
 
 def build_seed_contract(
@@ -358,8 +381,22 @@ def generate_copilot_artifacts(
     capability_matrix: Optional[Mapping[str, Any]] = None,
     logger: Optional[logging.Logger] = None,
     max_attempts: int = 3,
+    seed_options: Optional[SeedOptions] = None,
 ) -> CopilotGenerationResult:
-    """Generate and validate copilot artifacts with a repair loop."""
+    """Generate and validate copilot artifacts with a repair loop.
+
+    When ``seed_options`` is set (from ``--seed-from``), the loop:
+      1. Loads the seed once via :func:`load_seed`.
+      2. Injects a ``seed_ground_truth`` block into every attempt's user
+         prompt + a preservation clause into the system prompt.
+      3. After each attempt's normal validation passes, runs
+         :func:`diff_against_seed` on the generated contract. Any mutation
+         to a ground-truth path becomes an additional validation error,
+         which triggers the existing repair-loop re-prompt.
+      4. The final attempt's ground-truth mismatches surface in the
+         :class:`CopilotGenerationError` context so operators see exactly
+         what the LLM refused to preserve.
+    """
     capabilities = dict(capability_matrix or build_capability_matrix())
     provider_adapter = get_llm_provider(llm_config.provider)
     scaffold_decision = _build_scaffold_decision(
@@ -378,12 +415,35 @@ def generate_copilot_artifacts(
         project_memory=project_memory,
     )
 
+    # Phase 7: load the ground-truth seed once, up-front. Failures here are
+    # fatal (unlike per-attempt LLM issues) because the operator explicitly
+    # asked for --seed-from and a broken seed can't be repaired by the LLM.
+    seed_result: Optional[SeedResult] = None
+    seed_ground_truth_prompt: Optional[Dict[str, Any]] = None
+    if seed_options is not None:
+        seed_result = load_seed(
+            seed_options.seed_from, allow_remote=seed_options.allow_remote
+        )
+        seed_ground_truth_prompt = format_ground_truth_prompt_block(seed_result)
+        if logger is not None:
+            logger.info(
+                "forge_copilot_seed_loaded",
+                extra={
+                    "seed_from": str(seed_options.seed_from),
+                    "shape": seed_result.shape,
+                    "exposes": len(seed_result.fluid.get("exposes") or []),
+                    "ground_truth_paths": len(seed_result.ground_truth_paths),
+                },
+            )
+
     attempts: List[GenerationAttemptReport] = []
     previous_errors: List[str] = []
     previous_payload: Optional[Dict[str, Any]] = None
 
     for attempt_index in range(1, max_attempts + 1):
-        system_prompt = build_system_prompt(capabilities)
+        system_prompt = build_system_prompt(
+            capabilities, has_seed_ground_truth=seed_result is not None
+        )
         user_prompt = build_user_prompt(
             context=context,
             discovery_report=discovery_report,
@@ -395,6 +455,7 @@ def generate_copilot_artifacts(
             previous_errors=previous_errors,
             previous_payload=previous_payload,
             project_memory=project_memory,
+            seed_ground_truth=seed_ground_truth_prompt,
         )
 
         report = GenerationAttemptReport(
@@ -428,6 +489,18 @@ def generate_copilot_artifacts(
         )
         report.validation_errors = validation_errors
         report.validation_warnings = validation_warnings
+
+        # Phase 7 ground-truth guard: only run when structural validation
+        # passed AND a seed is in play. Mutations become validation errors so
+        # the existing repair-loop machinery re-prompts with the mismatch
+        # report — no separate control flow needed.
+        gt_mismatches: List[Dict[str, Any]] = []
+        if seed_result is not None and not validation_errors:
+            gt_mismatches = diff_against_seed(seed_result, normalized["contract"])
+            if gt_mismatches:
+                mismatch_errors = format_mismatch_report(gt_mismatches)
+                validation_errors = list(mismatch_errors)
+                report.validation_errors = validation_errors
 
         if not validation_errors:
             return CopilotGenerationResult(
