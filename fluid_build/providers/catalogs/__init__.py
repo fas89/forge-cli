@@ -14,7 +14,7 @@
 
 """Catalog provider registry"""
 
-from .base import BaseCatalogProvider, CatalogAsset, PublishResult
+from .base import BaseCatalogProvider, CatalogAsset, CatalogTarget, PublishResult
 from .fluid_cc import FluidCommandCenterProvider
 
 # Lazy-import optional catalog backends ─ don't crash if deps are missing
@@ -62,6 +62,7 @@ def get_catalog_provider(catalog_type: str, config: dict) -> BaseCatalogProvider
 __all__ = [
     "BaseCatalogProvider",
     "CatalogAsset",
+    "CatalogTarget",
     "PublishResult",
     "FluidCommandCenterProvider",
     "CATALOG_PROVIDERS",
