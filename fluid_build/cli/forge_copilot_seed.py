@@ -75,23 +75,46 @@ class SeedOptions:
         )
 
 
+_PASSTHROUGH_KEYS = frozenset({"odcs_passthrough", "odps_passthrough"})
+_PASSTHROUGH_PREFIXES = ("odcs_", "odps_")
+
+
+def _strip_passthrough(value: Any) -> Any:
+    """Drop round-trip stash buckets (``*_passthrough``) recursively.
+
+    The stash is lossless-export machinery — opaque bytes the LLM should
+    neither see nor be asked to reproduce. Ground truth is the FLUID-native
+    projection only.
+    """
+    if isinstance(value, Mapping):
+        return {
+            k: _strip_passthrough(v) for k, v in value.items() if k not in _PASSTHROUGH_KEYS
+        }
+    if isinstance(value, list):
+        return [_strip_passthrough(v) for v in value]
+    return value
+
+
 def format_ground_truth_prompt_block(seed: "SeedResult") -> Dict[str, Any]:
     """Return the JSON-serialisable block the copilot prompt injects when a
-    seed is present. Trimmed to the fields the LLM should preserve verbatim
-    (drops the verbose ``odcs_passthrough`` block that isn't part of the
-    ground-truth surface)."""
+    seed is present. Trimmed to the FLUID-native fields the LLM should
+    preserve verbatim: ``*_passthrough`` stash buckets and ``odcs_*`` /
+    ``odps_*`` metadata keys are stripped — they are round-trip machinery,
+    not ground truth, and would only inflate the prompt."""
     ground_truth = {
         "id": (seed.fluid.get("contract") or {}).get("id"),
         "metadata": {
-            k: v
+            k: _strip_passthrough(v)
             for k, v in (seed.fluid.get("metadata") or {}).items()
-            if k != "odcs_passthrough" and not k.startswith("odcs_")
+            if k not in _PASSTHROUGH_KEYS and not k.startswith(_PASSTHROUGH_PREFIXES)
         },
         "exposes": [
             {
                 "id": e.get("id"),
-                "contract": {"schema": e.get("contract", {}).get("schema", [])},
-                **({"qos": e["qos"]} if e.get("qos") else {}),
+                "contract": {
+                    "schema": _strip_passthrough(e.get("contract", {}).get("schema", []))
+                },
+                **({"qos": _strip_passthrough(e["qos"])} if e.get("qos") else {}),
             }
             for e in seed.fluid.get("exposes") or []
         ],
@@ -305,11 +328,15 @@ def diff_against_seed(
     Returns a list of ``{"path", "seed", "candidate"}`` entries for paths
     where the candidate's value differs from the seed. The runtime guard
     raises (or triggers a repair loop) when this list is non-empty.
+
+    Compares the FLUID-native projection: ``*_passthrough`` stash buckets
+    are ignored on both sides, so a candidate that faithfully reproduces
+    the schema but omits round-trip bookkeeping is not a violation.
     """
     mismatches: List[Dict[str, Any]] = []
     for path in seed.ground_truth_paths:
-        seed_value = resolve_at_path(seed.fluid, path)
-        cand_value = resolve_at_path(candidate, path)
+        seed_value = _strip_passthrough(resolve_at_path(seed.fluid, path))
+        cand_value = _strip_passthrough(resolve_at_path(candidate, path))
         if seed_value != cand_value:
             mismatches.append(
                 {"path": path, "seed": seed_value, "candidate": cand_value}

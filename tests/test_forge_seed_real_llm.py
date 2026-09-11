@@ -10,6 +10,10 @@
 Skipped unless **all** of these are set in the environment:
   - ``ANTHROPIC_API_KEY`` or ``ANTHROPIC_AUTH_TOKEN``  (auth)
   - ``FLUID_REAL_LLM_TESTS=1``                          (opt-in cost gate)
+  - ``FLUID_REAL_LLM_MODEL``  (optional; default ``claude-haiku-4-5-20251001``.
+    Haiku is the cheap CI adversary; run ``claude-sonnet-5`` for the
+    production-default happy path. Claude 5 responses lead with a
+    ``ThinkingBlock`` — see :func:`_text_of`.)
 
 The default test suite runs none of these — the Anthropic API is real and
 consumes tokens. Engineers wanting to verify the full loop against a live
@@ -32,7 +36,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-from fluid_build.cli.forge_copilot_seed import diff_against_seed, load_seed
+from fluid_build.cli.forge_copilot_seed import (
+    diff_against_seed,
+    format_ground_truth_prompt_block,
+    load_seed,
+)
 from fluid_build.providers.odps_standard import BitolOdpsProvider
 
 logging.getLogger(
@@ -101,23 +109,23 @@ def seed_bundle(tmp_path_factory):
 
 
 def _seed_view(seed) -> dict:
-    """Slim FLUID view for the LLM — drops the verbose passthrough block."""
-    return {
-        "id": seed.fluid.get("contract", {}).get("id"),
-        "metadata": {
-            k: v
-            for k, v in (seed.fluid.get("metadata") or {}).items()
-            if k != "odps_passthrough"
-        },
-        "exposes": [
-            {
-                "id": e["id"],
-                "contract": {"schema": e["contract"]["schema"]},
-                "qos": e.get("qos") or {},
-            }
-            for e in seed.fluid.get("exposes", [])
-        ],
-    }
+    """The exact ground-truth block the production copilot injects — so this
+    E2E measures the real prompt (stash buckets stripped, FLUID-native only)."""
+    return format_ground_truth_prompt_block(seed)["ground_truth"]
+
+
+def _text_of(msg) -> str:
+    """First ``text`` block of a response.
+
+    Claude 5 models emit a ``ThinkingBlock`` before the text, so indexing
+    ``content[0]`` breaks; select by block type instead.
+    """
+    for block in msg.content:
+        if getattr(block, "type", None) == "text":
+            return block.text
+    raise AssertionError(
+        f"no text block in response: {[getattr(b, 'type', None) for b in msg.content]}"
+    )
 
 
 def _parse_json_response(text: str) -> dict:
@@ -161,7 +169,7 @@ def test_seed_to_llm_preserves_ground_truth(anthropic_client, seed_bundle):
         system=SYSTEM_PRESERVE,
         messages=[{"role": "user", "content": user}],
     )
-    llm_fluid = _parse_json_response(msg.content[0].text)
+    llm_fluid = _parse_json_response(_text_of(msg))
     mismatches = diff_against_seed(seed, llm_fluid)
     assert not mismatches, (
         f"Expected the LLM to preserve ground truth verbatim under the "
@@ -201,7 +209,7 @@ def test_guard_catches_mutation_then_repair_reduces_it(anthropic_client, seed_bu
         system=sys_adv,
         messages=[{"role": "user", "content": user_adv}],
     )
-    candidate1 = _parse_json_response(msg1.content[0].text)
+    candidate1 = _parse_json_response(_text_of(msg1))
     mismatches1 = diff_against_seed(seed, candidate1)
     if not mismatches1:
         pytest.skip(
@@ -226,11 +234,11 @@ def test_guard_catches_mutation_then_repair_reduces_it(anthropic_client, seed_bu
         system=SYSTEM_PRESERVE,
         messages=[
             {"role": "user", "content": user_adv},
-            {"role": "assistant", "content": msg1.content[0].text},
+            {"role": "assistant", "content": _text_of(msg1)},
             {"role": "user", "content": repair},
         ],
     )
-    candidate2 = _parse_json_response(msg2.content[0].text)
+    candidate2 = _parse_json_response(_text_of(msg2))
     mismatches2 = diff_against_seed(seed, candidate2)
 
     assert len(mismatches2) <= len(mismatches1), (
