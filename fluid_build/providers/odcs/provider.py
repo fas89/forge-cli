@@ -21,28 +21,44 @@ from fluid_build.providers.base import ApplyResult, BaseProvider, ProviderError
 from .io import read_input, write_output
 from .mappers import EXPORT_PIPELINE, IMPORT_PIPELINE
 from .mappers.base import ExportCtx, ImportCtx, fluid_id
-from .validation import load_schema, roundtrip_check, validate, validate_via_vowl
+from .validation import (
+    DEFAULT_API_VERSION,
+    SUPPORTED_API_VERSIONS,
+    load_schema,
+    normalize_api_version,
+    roundtrip_check,
+    validate,
+    validate_via_vowl,
+)
 
 
 class OdcsProvider(BaseProvider):
-    """ODCS v3.1.0 bidirectional provider.
+    """ODCS bidirectional provider (vendored schemas: v3.2.0, v3.1.0).
 
     Public surface:
       - :meth:`render`            — FLUID → ODCS (one expose or whole contract)
       - :meth:`render_all_ports`  — one ODCS per FLUID expose
       - :meth:`import_contract`   — ODCS → FLUID (lossless when paired with export)
-      - :meth:`validate_contract` — JSON Schema check
+      - :meth:`validate_contract` — JSON Schema check, version-selected from ``apiVersion``
       - :meth:`roundtrip_check`   — diff helper for round-trip tests
+      - :meth:`to_model`          — optional typed view (``open-data-contract-standard``)
+
+    ``api_version`` (or ``ODCS_API_VERSION``) sets the version *fresh* exports
+    declare. Re-exports of imported contracts preserve the document's own
+    ``apiVersion`` unless an explicit version is given.
 
     All real work lives in :mod:`fluid_build.providers.odcs.mappers`.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, api_version: Optional[str] = None) -> None:
         super().__init__()
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
-        self.odcs_version = "v3.1.0"
+        explicit = api_version or os.getenv("ODCS_API_VERSION") or None
+        self._explicit_api_version = normalize_api_version(explicit) if explicit else None
+        self.odcs_version = self._explicit_api_version or DEFAULT_API_VERSION
+        self.supported_versions = SUPPORTED_API_VERSIONS
         self.odcs_spec_url = "https://github.com/bitol-io/open-data-contract-standard"
-        self.schema = load_schema()
+        self.schema = load_schema(self.odcs_version)
         self.include_quality_checks = (
             os.getenv("ODCS_INCLUDE_QUALITY", "true").lower() == "true"
         )
@@ -97,7 +113,7 @@ class OdcsProvider(BaseProvider):
         fmt: Optional[str] = "yaml",
         expose_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Render a FLUID contract to ODCS v3.1.0.
+        """Render a FLUID contract to ODCS.
 
         When ``expose_id`` is provided the rendered ODCS scopes its ``id`` to
         ``{product_id}.{expose_id}`` and reads ``status`` from that expose's
@@ -120,13 +136,16 @@ class OdcsProvider(BaseProvider):
                 "include_sla": self.include_sla,
                 "include_quality_checks": self.include_quality_checks,
                 "expose_id": expose_id,
+                "api_version": self._explicit_api_version,
             },
         )
         for mapper in EXPORT_PIPELINE:
             mapper.to_odcs(ctx)
 
-        if self.schema and os.getenv("ODCS_VALIDATE", "false").lower() == "true":
-            validate(odcs, self.schema)
+        if os.getenv("ODCS_VALIDATE", "false").lower() == "true":
+            # Version-selected from the emitted apiVersion (may be a preserved
+            # older version for re-exports).
+            validate(odcs)
 
         # Second-pass validation through ``vowl`` (optional). Off by default
         # so the dependency is opt-in; flip ``ODCS_VOWL_VALIDATE=true`` (or
@@ -178,15 +197,14 @@ class OdcsProvider(BaseProvider):
         self, odcs: Union[Mapping[str, Any], str, Path]
     ) -> Dict[str, Any]:
         odcs_data = read_input(odcs) if isinstance(odcs, (str, Path)) else dict(odcs)
-        if self.schema:
-            try:
-                self.validate_contract(odcs_data)
-            except ProviderError as exc:
-                # validation failures during import are non-fatal — log and
-                # continue so partially-malformed contracts can still be
-                # inspected. Strict-mode callers should call validate_contract
-                # themselves first.
-                self.logger.warning("ODCS import validation warning: %s", exc)
+        try:
+            self.validate_contract(odcs_data)
+        except ProviderError as exc:
+            # validation failures during import are non-fatal — log and
+            # continue so partially-malformed contracts can still be
+            # inspected. Strict-mode callers should call validate_contract
+            # themselves first.
+            self.logger.warning("ODCS import validation warning: %s", exc)
 
         fluid: Dict[str, Any] = {}
         ctx = ImportCtx(odcs=odcs_data, fluid=fluid, logger=self.logger)
@@ -197,11 +215,32 @@ class OdcsProvider(BaseProvider):
     # ---- validation / round-trip ---------------------------------------
 
     def validate_contract(self, odcs: Mapping[str, Any]) -> None:
-        """Validate an ODCS contract payload against the vendored JSON Schema."""
-        if not self.schema:
-            self.logger.warning("ODCS schema not available, skipping validation")
-            return
-        validate(odcs, self.schema)
+        """Validate against the vendored JSON Schema matching ``odcs["apiVersion"]``.
+
+        A contract declaring ``v3.1.0`` is judged by the v3.1.0 schema, one
+        declaring ``v3.2.0`` by v3.2.0; older-than-vendored and unknown
+        versions fall back to the newest vendored schema.
+        """
+        validate(odcs)
+
+    def to_model(self, odcs: Mapping[str, Any]) -> Any:
+        """Typed view via the optional ``open-data-contract-standard`` package.
+
+        Returns an ``OpenDataContractStandard`` pydantic model — handy for
+        callers that want attribute access and readable field-level
+        validation errors. Requires the ``odcs-strict`` extra; raises
+        :class:`ProviderError` if the package is not installed.
+        """
+        try:
+            from open_data_contract_standard.model import (  # type: ignore[import-not-found]
+                OpenDataContractStandard,
+            )
+        except ImportError as exc:
+            raise ProviderError(
+                "open-data-contract-standard is not installed; "
+                "pip install 'fluid-forge[odcs-strict]'"
+            ) from exc
+        return OpenDataContractStandard.model_validate(dict(odcs))
 
     def roundtrip_check(self, odcs: Mapping[str, Any]) -> Dict[str, Any]:
         """Convert ODCS → FLUID → ODCS and return a structured diff.

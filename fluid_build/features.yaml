@@ -132,12 +132,12 @@ providers:
     resource_types: 2
     architecture: "ODPI v4.1 exporter (FLUID → ODPI JSON)"
 
-  # Bitol Open Data Product Standard v1.0.0 — bidirectional provider with
+  # Bitol Open Data Product Standard v1.0.0 / v1.1.0 — bidirectional provider with
   # contractId resolution to per-port ODCS contracts.
   odps_bitol:
     # MANUAL CONTROL
     status: beta
-    note: "Bitol ODPS v1.0.0 bidirectional provider with contractId resolver"
+    note: "Bitol ODPS v1.0.0 / v1.1.0 bidirectional, lossless provider with contractId resolver; validation is version-selected from apiVersion"
     blockers:
       - "Complete documentation with real-world examples"
       - "Add property-based round-trip tests"
@@ -151,7 +151,7 @@ providers:
     # Provider metadata
     docs_complete: true
     resource_types: 0  # Conversion provider
-    architecture: "Bidirectional (FLUID ↔ Bitol ODPS v1.0.0 + per-port ODCS)"
+    architecture: "Bidirectional (FLUID ↔ Bitol ODPS v1.0.0 / v1.1.0 + per-port ODCS); verbatim stash + native overlay for lossless round-trip"
     features:
       - "Export 1 ODPS doc + N sibling <contractId>.odcs.yaml files"
       - "Linking invariant: port.contractId == odcs.id"
@@ -164,7 +164,7 @@ providers:
   odcs:
     # MANUAL CONTROL
     status: beta
-    note: "ODCS v3.1.0 bidirectional provider - production ready, comprehensive testing"
+    note: "ODCS v3.1.0 / v3.2.0 bidirectional, lossless provider - validated against verbatim upstream Bitol examples; validation is version-selected from apiVersion"
     blockers:
       - "Add more real-world round-trip test cases"
       - "Complete documentation with examples"
@@ -178,7 +178,7 @@ providers:
     # Provider metadata
     docs_complete: true
     resource_types: 0  # Conversion provider
-    architecture: "Bidirectional conversion (FLUID ↔ ODCS v3.1.0)"
+    architecture: "Bidirectional conversion (FLUID ↔ ODCS v3.1.0 / v3.2.0); verbatim stash + native overlay for lossless round-trip"
     features:
       - "Import ODCS contracts to FLUID"
       - "Export FLUID contracts to ODCS"
@@ -374,7 +374,7 @@ release_history:
     profile: beta
     highlights:
       - "ODPS Standard v1.0.0 export provider (100% coverage)"
-      - "ODCS v3.1.0 bidirectional conversion (100% coverage)"
+      - "ODCS v3.1.0 / v3.2.0 bidirectional conversion (100% coverage)"
       - "Data Mesh Manager publisher (100% coverage)"
       - "76 comprehensive tests across all standards providers"
     providers: [local, gcp, odps_bitol, odcs, datamesh_manager]

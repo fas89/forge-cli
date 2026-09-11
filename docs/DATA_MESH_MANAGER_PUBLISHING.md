@@ -76,7 +76,7 @@ fluid datamesh-manager publish contract.fluid.yaml --with-contract
 This is the full publish. It:
 
 1. Registers the data product via `PUT /api/dataproducts/{id}`
-2. For every expose port, generates an ODCS v3.1.0 contract and sends it via
+2. For every expose port, generates an ODCS contract (v3.1.0 by default; set `ODCS_API_VERSION=v3.2.0` to emit v3.2.0) and sends it via
    `PUT /api/datacontracts/{productId}.{exposeId}`
 3. Each output port's `dataContractId` field in the product record already
    points to its contract — Entropy Data automatically links them.
@@ -158,7 +158,7 @@ fluid dmm publish contract.fluid.yaml --dry-run
 
 ### ODCS contract (per expose port)
 
-Each expose in your FLUID contract becomes one ODCS v3.1.0 document. The
+Each expose in your FLUID contract becomes one ODCS document (v3.1.0 by default, v3.2.0 on request). The
 mapping is straightforward:
 
 | FLUID field | ODCS field | Notes |
@@ -208,7 +208,7 @@ different schemas, different SLAs, and potentially different lifecycle states.
 Bundling them all into one contract would mean consumers can't selectively
 subscribe to or enforce contracts on individual ports.
 
-ODCS v3.1.0 is designed as a per-dataset contract. Generating one document per
+ODCS is designed as a per-dataset contract. Generating one document per
 expose port means:
 
 - Consumers can reference exactly the port they depend on

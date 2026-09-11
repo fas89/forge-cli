@@ -23,19 +23,22 @@ from .base import (
     ExportCtx,
     ImportCtx,
     get_metadata_passthrough,
+    get_stash,
     metadata_passthrough,
 )
 from .types import provider_to_server_type, server_type_to_provider
-
 
 # ----- ODCS → FLUID --------------------------------------------------------
 
 
 def to_fluid(ctx: ImportCtx) -> None:
-    servers = ctx.odcs.get("servers") or []
+    if "servers" not in ctx.odcs:
+        return
+    servers = ctx.odcs.get("servers")
     if not isinstance(servers, list):
         return
-    # Verbatim pass-through so re-export reproduces the exact same servers list.
+    # Verbatim pass-through so re-export reproduces the exact same servers
+    # list — including an explicit empty one.
     metadata_passthrough(ctx.fluid)["servers"] = [
         dict(s) for s in servers if isinstance(s, Mapping)
     ]
@@ -74,6 +77,8 @@ def _location_from_server(server: Mapping[str, Any]) -> Dict[str, Any]:
     for key in (
         "project", "dataset", "table", "account", "database", "schema",
         "bucket", "path", "region", "host", "port", "format",
+        # ODCS v3.2.0 IcebergServer
+        "catalog", "catalogUrl", "namespace", "warehouse",
     ):
         if key in server:
             location[key] = server[key]
@@ -84,15 +89,22 @@ def _location_from_server(server: Mapping[str, Any]) -> Dict[str, Any]:
 
 
 def to_odcs(ctx: ExportCtx) -> None:
-    """Always emit ``servers`` (required by the strict ODCS v3.1.0 schema).
+    """Emit ``servers`` from FLUID exposes/expects.
 
-    Verbatim pass-through wins when the FLUID was produced by importing an
-    ODCS contract — keeps the round-trip lossless.
+    ``servers`` is optional in every ODCS version we vendor. Precedence:
+
+    1. Verbatim pass-through (imported doc that had a ``servers`` list) —
+       replayed as-is, empty list included.
+    2. Imported doc that had *no* ``servers`` — emit none, so the round-trip
+       stays lossless and we never synthesise a server that the source
+       platform can't validate (e.g. a ``bigquery`` server lacking ``project``).
+    3. Fresh FLUID — synthesise from bindings.
     """
     pt = get_metadata_passthrough(ctx.fluid)
-    raw = pt.get("servers")
-    if isinstance(raw, list) and raw:
-        ctx.odcs["servers"] = [dict(s) for s in raw if isinstance(s, Mapping)]
+    if "servers" in pt and isinstance(pt["servers"], list):
+        ctx.odcs["servers"] = [dict(s) for s in pt["servers"] if isinstance(s, Mapping)]
+        return
+    if get_stash(pt) is not None:
         return
 
     servers: List[Dict[str, Any]] = []
@@ -166,11 +178,12 @@ def _server_details_from_location(
 ) -> Dict[str, Any]:
     """Map FLUID binding/location → ODCS server-type-specific allowed fields.
 
-    ODCS v3.1.0 servers use ``unevaluatedProperties: false`` — emitting any
-    field outside the allowed list for the server's type breaks validation.
-    This table mirrors the ``$defs/ServerSource/<TypeServer>.properties``
-    keys; FLUID fields with no ODCS counterpart are quietly dropped here and
-    surface elsewhere via expose pass-through if needed.
+    ODCS servers use ``unevaluatedProperties: false`` — emitting any field
+    outside the allowed list for the server's type breaks validation. This
+    table mirrors the ``$defs/ServerSource/<TypeServer>.properties`` keys
+    (v3.1.0 set plus the v3.2.0 engines); FLUID fields with no ODCS
+    counterpart are quietly dropped here and surface elsewhere via expose
+    pass-through if needed.
     """
     p = provider.lower()
     details: Dict[str, Any] = {}
@@ -224,14 +237,40 @@ def _server_details_from_location(
         for key in ("stagingDir", "schema", "catalog", "regionName"):
             if key in location:
                 details[key] = location[key]
+    # ---- ODCS v3.2.0 engines --------------------------------------------
+    elif p == "iceberg":
+        for key in ("catalog", "catalogUrl", "namespace", "warehouse"):
+            if key in location:
+                details[key] = location[key]
+    elif p in ("hana", "sap-hana", "saphana"):
+        for key in ("host", "port", "database", "schema"):
+            if key in location:
+                details[key] = location[key]
+    elif p == "teradata":
+        for key in ("host", "port", "database"):
+            if key in location:
+                details[key] = location[key]
+    elif p == "exasol":
+        for key in ("host", "port", "schema"):
+            if key in location:
+                details[key] = location[key]
+    elif p in (
+        "ingres", "vectorwise", "actian", "versant",
+        "zen", "btrieve", "poet", "fastobjects",
+    ):
+        # Actian family (Ingres / Vectorwise / Versant / Zen) and Poet /
+        # FastObjects all share the {host, port, database} shape.
+        for key in ("host", "port", "database"):
+            if key in location:
+                details[key] = location[key]
     else:
         # Custom / unknown provider → ODCS server.type=custom which accepts
         # the union of all server-type fields. Copy any that match the union.
         custom_keys = {
-            "account", "catalog", "database", "dataset", "delimiter",
-            "endpointUrl", "format", "host", "location", "path", "port",
-            "project", "region", "regionName", "schema", "serviceName",
-            "stagingDir", "warehouse", "stream",
+            "account", "catalog", "catalogUrl", "database", "dataset",
+            "delimiter", "endpointUrl", "format", "host", "location",
+            "namespace", "path", "port", "project", "region", "regionName",
+            "schema", "serviceName", "stagingDir", "warehouse", "stream",
         }
         for key, value in location.items():
             if key in custom_keys:

@@ -8,17 +8,23 @@
 """Input / output port mapping.
 
 Each FLUID expose becomes one ``outputPorts[]`` entry; each FLUID expect
-becomes one ``inputPorts[]`` entry. ``contractId`` follows the convention
-``{productId}.{portName}`` (matches :mod:`fluid_build.providers.datamesh_manager.datamesh_manager`)
-and equals the ``id`` of the per-port ODCS contract the provider emits as a
-sibling file.
+becomes one ``inputPorts[]`` entry. For *fresh* FLUID, ``contractId`` follows
+the convention ``{productId}.{portName}`` (matches
+:mod:`fluid_build.providers.datamesh_manager.datamesh_manager`) and equals the
+``id`` of the per-port ODCS contract the provider emits as a sibling file.
 
-Per-port pass-throughs flow through ``expose.odps_passthrough.*`` /
-``expect.odps_passthrough.*`` for round-trip:
+Lossless by construction: every port is stashed verbatim on import
+(``<port>.odps_passthrough._verbatim``) and used as the export base layer, so
+``contractId``, ``type``, ``sbom``, ``inputContracts``, ``customProperties``,
+``authoritativeDefinitions`` and the v1.1.0 ``id`` / ``deprecated`` /
+``context`` / ``synonyms`` all round-trip untouched. Only ``name``,
+``version``, ``description`` and ``tags`` are FLUID-native and overlaid when
+edited. ``expose.odps_passthrough.contract_id`` is additionally exposed as a
+convenience for callers.
 
-  - ``sbom``, ``input_contracts``  (output-port only)
-  - ``custom_properties``, ``authoritative_definitions``, ``tags``
-  - ``port_type``                  (overrides the provider-derived type)
+ODPS v1.1.0 relaxed ``OutputPort``/``InputPort`` ``required`` to just
+``name`` — ``version`` and ``contractId`` may be absent on import and are
+preserved absent on re-export. Fresh exports always emit both.
 """
 
 from __future__ import annotations
@@ -35,9 +41,11 @@ from .base import (
     fluid_id,
     get_expect_passthrough,
     get_expose_passthrough,
+    get_stash,
+    overlay_native,
+    stash,
 )
 from .types import provider_to_port_type
-
 
 # ----- FLUID → ODPS --------------------------------------------------------
 
@@ -46,25 +54,34 @@ def to_odps(ctx: ExportCtx) -> None:
     fluid = ctx.fluid
     product_id = fluid_id(fluid) or "product"
 
-    output_ports = []
+    output_ports: List[Dict[str, Any]] = []
     for expose in fluid.get("exposes") or []:
-        if not isinstance(expose, Mapping):
-            continue
-        port = _expose_to_output_port(expose, product_id)
-        if port:
-            output_ports.append(port)
+        if isinstance(expose, Mapping):
+            port = _expose_to_output_port(expose, product_id)
+            if port:
+                output_ports.append(port)
     if output_ports:
         ctx.odps["outputPorts"] = output_ports
 
-    input_ports = []
+    input_ports: List[Dict[str, Any]] = []
     for expect in fluid.get("expects") or []:
-        if not isinstance(expect, Mapping):
-            continue
-        port = _expect_to_input_port(expect, product_id)
-        if port:
-            input_ports.append(port)
+        if isinstance(expect, Mapping):
+            port = _expect_to_input_port(expect, product_id)
+            if port:
+                input_ports.append(port)
     if input_ports:
         ctx.odps["inputPorts"] = input_ports
+
+
+def _native_output(expose: Mapping[str, Any]) -> Dict[str, Any]:
+    """Total projection of an expose's FLUID-native fields to port keys."""
+    tags = expose.get("tags")
+    return {
+        "name": expose.get("exposeId") or expose.get("id"),
+        "version": str(expose.get("version", 1)),
+        "description": expose.get("description") or None,
+        "tags": list(tags) if tags else None,
+    }
 
 
 def _expose_to_output_port(
@@ -74,33 +91,35 @@ def _expose_to_output_port(
     if not name:
         return None
 
+    st = get_stash(get_expose_passthrough(expose))
+    now = _native_output(expose)
+    if st is not None:
+        then = _native_output(_project_output_port(st))
+        return overlay_native(st, then, now)
+
+    # ---- fresh FLUID: synthesise ---------------------------------------
     port: Dict[str, Any] = {
         "name": name,
-        "version": str(expose.get("version", 1)),
+        "version": now["version"],
         "contractId": contract_id_for_port(product_id, name),
     }
-    if expose.get("description"):
-        port["description"] = expose["description"]
-
-    pt = get_expose_passthrough(expose)
-    port_type = pt.get("port_type") or _port_type_from_expose(expose)
+    if now["description"]:
+        port["description"] = now["description"]
+    port_type = _port_type_from_expose(expose)
     if port_type:
         port["type"] = port_type
-
-    if "sbom" in pt:
-        port["sbom"] = list(pt["sbom"])
-    if "input_contracts" in pt:
-        port["inputContracts"] = list(pt["input_contracts"])
-
-    if expose.get("tags"):
-        port["tags"] = list(expose["tags"])
-    elif "tags" in pt:
-        port["tags"] = list(pt["tags"])
-    if "custom_properties" in pt:
-        port["customProperties"] = list(pt["custom_properties"])
-    if "authoritative_definitions" in pt:
-        port["authoritativeDefinitions"] = list(pt["authoritative_definitions"])
+    if now["tags"]:
+        port["tags"] = now["tags"]
     return port
+
+
+def _native_input(expect: Mapping[str, Any]) -> Dict[str, Any]:
+    tags = expect.get("tags")
+    return {
+        "name": expect.get("id"),
+        "version": str(expect.get("version", 1)),
+        "tags": list(tags) if tags else None,
+    }
 
 
 def _expect_to_input_port(
@@ -110,30 +129,21 @@ def _expect_to_input_port(
     if not name:
         return None
 
-    pt = get_expect_passthrough(expect)
+    st = get_stash(get_expect_passthrough(expect))
+    now = _native_input(expect)
+    if st is not None:
+        then = _native_input(_project_input_port(st))
+        return overlay_native(st, then, now)
 
-    # Prefer an explicit contractId (set when imported); otherwise mint one
-    # consistent with the product. Bitol input ports must reference an
-    # existing contract — for a fresh FLUID we synthesise a placeholder.
-    contract_id = (
-        expect.get("contractId")
-        or pt.get("contract_id")
-        or contract_id_for_port(product_id, f"input.{name}")
-    )
-
+    # Fresh: prefer an explicit contractId, else mint one consistent with the
+    # product (Bitol input ports must reference *some* contract).
     port: Dict[str, Any] = {
         "name": name,
-        "version": str(expect.get("version", pt.get("version", 1))),
-        "contractId": contract_id,
+        "version": now["version"],
+        "contractId": expect.get("contractId") or contract_id_for_port(product_id, f"input.{name}"),
     }
-    if expect.get("tags"):
-        port["tags"] = list(expect["tags"])
-    elif "tags" in pt:
-        port["tags"] = list(pt["tags"])
-    if "custom_properties" in pt:
-        port["customProperties"] = list(pt["custom_properties"])
-    if "authoritative_definitions" in pt:
-        port["authoritativeDefinitions"] = list(pt["authoritative_definitions"])
+    if now["tags"]:
+        port["tags"] = now["tags"]
     return port
 
 
@@ -149,7 +159,7 @@ def _port_type_from_expose(expose: Mapping[str, Any]) -> Optional[str]:
     return None
 
 
-# ----- ODPS → FLUID (Phase 3) ---------------------------------------------
+# ----- ODPS → FLUID --------------------------------------------------------
 
 
 def to_fluid(ctx: ImportCtx) -> None:
@@ -158,26 +168,25 @@ def to_fluid(ctx: ImportCtx) -> None:
     The full ODCS-resolution step (which actually populates each expose's
     schema/quality/qos) lives in the provider's ``import_contract`` method —
     it needs the :class:`ContractResolver` instance. Here we just stub each
-    port with its identifying fields and pass-through metadata, so the
-    resolver step can fill in the rest.
+    port with its identifying fields and stash it verbatim, so the resolver
+    step can fill in the rest.
     """
     odps = ctx.odps
     fluid = ctx.fluid
 
     exposes = fluid.setdefault("exposes", [])
     for port in odps.get("outputPorts") or []:
-        if not isinstance(port, Mapping):
-            continue
-        exposes.append(_output_port_to_expose_stub(port))
+        if isinstance(port, Mapping):
+            exposes.append(_output_port_to_expose_stub(port))
 
     expects = fluid.setdefault("expects", [])
     for port in odps.get("inputPorts") or []:
-        if not isinstance(port, Mapping):
-            continue
-        expects.append(_input_port_to_expect_stub(port))
+        if isinstance(port, Mapping):
+            expects.append(_input_port_to_expect_stub(port))
 
 
-def _output_port_to_expose_stub(port: Mapping[str, Any]) -> Dict[str, Any]:
+def _project_output_port(port: Mapping[str, Any]) -> Dict[str, Any]:
+    """Pure FLUID projection of an output port (no stash)."""
     name = port.get("name") or "output"
     stub: Dict[str, Any] = {
         "id": name,
@@ -188,34 +197,32 @@ def _output_port_to_expose_stub(port: Mapping[str, Any]) -> Dict[str, Any]:
         stub["description"] = port["description"]
     if port.get("tags"):
         stub["tags"] = list(port["tags"])
-
-    pt = expose_passthrough(stub)
-    pt["contract_id"] = port.get("contractId")
-    if port.get("type"):
-        pt["port_type"] = port["type"]
-    if port.get("sbom"):
-        pt["sbom"] = list(port["sbom"])
-    if port.get("inputContracts"):
-        pt["input_contracts"] = list(port["inputContracts"])
-    if port.get("customProperties"):
-        pt["custom_properties"] = list(port["customProperties"])
-    if port.get("authoritativeDefinitions"):
-        pt["authoritative_definitions"] = list(port["authoritativeDefinitions"])
     return stub
 
 
-def _input_port_to_expect_stub(port: Mapping[str, Any]) -> Dict[str, Any]:
+def _output_port_to_expose_stub(port: Mapping[str, Any]) -> Dict[str, Any]:
+    stub = _project_output_port(port)
+    pt = expose_passthrough(stub)
+    if port.get("contractId"):
+        pt["contract_id"] = port["contractId"]
+    stash(pt, port)
+    return stub
+
+
+def _project_input_port(port: Mapping[str, Any]) -> Dict[str, Any]:
     name = port.get("name") or "input"
     stub: Dict[str, Any] = {
         "id": name,
         "version": str(port.get("version", 1)),
-        "contractId": port.get("contractId"),
     }
+    if port.get("contractId"):
+        stub["contractId"] = port["contractId"]
     if port.get("tags"):
         stub["tags"] = list(port["tags"])
-    pt = expect_passthrough(stub)
-    if port.get("customProperties"):
-        pt["custom_properties"] = list(port["customProperties"])
-    if port.get("authoritativeDefinitions"):
-        pt["authoritative_definitions"] = list(port["authoritativeDefinitions"])
+    return stub
+
+
+def _input_port_to_expect_stub(port: Mapping[str, Any]) -> Dict[str, Any]:
+    stub = _project_input_port(port)
+    stash(expect_passthrough(stub), port)
     return stub

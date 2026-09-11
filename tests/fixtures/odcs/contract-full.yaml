@@ -69,7 +69,7 @@ schema:
             dimension: completeness
     relationships:
       - type: foreignKey
-        from: customer_id
+        from: orders.customer_id
         to: customers.id
     quality:
       - type: library

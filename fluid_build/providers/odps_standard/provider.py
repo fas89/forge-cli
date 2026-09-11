@@ -30,17 +30,29 @@ from .io import read_input, write_output
 from .mappers import EXPORT_PIPELINE, IMPORT_PIPELINE
 from .mappers.base import ExportCtx, ImportCtx
 from .resolver import ContractNotFound, ContractResolver, ResolvedContract
-from .validation import load_schema, validate
+from .validation import (
+    DEFAULT_API_VERSION,
+    SUPPORTED_API_VERSIONS,
+    load_schema,
+    normalize_api_version,
+    validate,
+)
 
 
 class BitolOdpsProvider(BaseProvider):
-    """Bitol Open Data Product Standard v1.0.0 — bidirectional provider.
+    """Bitol Open Data Product Standard — bidirectional provider
+    (vendored schemas: v1.1.0, v1.0.0).
 
-    Phase 2 surface:
+    Surface:
       - :meth:`render` — FLUID → ODPS product + per-port ODCS contracts.
-      - :meth:`validate_product` — JSON Schema validation.
+      - :meth:`import_contract` / :meth:`import_directory` — ODPS → FLUID.
+      - :meth:`validate_product` — JSON Schema validation, version-selected
+        from the document's ``apiVersion``.
 
-    Phase 3 will add ``import_contract`` and ``import_directory``.
+    ``api_version`` (or ``ODPS_API_VERSION``) sets the version *fresh* exports
+    declare. Re-exports of imported products preserve the document's own
+    ``apiVersion`` unless an explicit version is given. The per-port ODCS
+    version is an independent axis (see :class:`OdcsProvider`).
 
     Per-port ODCS rendering is delegated to :class:`OdcsProvider` (calling
     ``render(fluid, expose_id=...)``); the per-expose scoped id it produces
@@ -48,12 +60,15 @@ class BitolOdpsProvider(BaseProvider):
     by construction.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, api_version: Optional[str] = None) -> None:
         super().__init__()
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
-        self.api_version = "v1.0.0"
+        explicit = api_version or os.getenv("ODPS_API_VERSION") or None
+        self._explicit_api_version = normalize_api_version(explicit) if explicit else None
+        self.api_version = self._explicit_api_version or DEFAULT_API_VERSION
+        self.supported_versions = SUPPORTED_API_VERSIONS
         self.spec_url = "https://github.com/bitol-io/open-data-product-standard"
-        self.schema = load_schema()
+        self.schema = load_schema(self.api_version)
         self.include_custom_properties = (
             os.getenv("ODPS_INCLUDE_CUSTOM", "true").lower() == "true"
         )
@@ -123,6 +138,7 @@ class BitolOdpsProvider(BaseProvider):
             logger=self.logger,
             options={
                 "include_custom_properties": self.include_custom_properties,
+                "api_version": self._explicit_api_version,
             },
         )
         for mapper in EXPORT_PIPELINE:
@@ -154,11 +170,11 @@ class BitolOdpsProvider(BaseProvider):
                 )
             contracts[contract_id] = odcs
 
-        # Strict-mode validation (fail-loud)
-        if self.strict_validation and self.schema:
-            validate(product, self.schema)
-        for contract_id, odcs in contracts.items():
-            if self.strict_validation and self._odcs.schema:
+        # Strict-mode validation (fail-loud), version-selected from each
+        # emitted document's own apiVersion.
+        if self.strict_validation:
+            validate(product)
+            for odcs in contracts.values():
                 self._odcs.validate_contract(odcs)
 
         # Write artefacts
@@ -248,8 +264,8 @@ class BitolOdpsProvider(BaseProvider):
         Layout cases handled:
 
         - **Standard**: exactly one ``*.odps.yaml`` / ``*.odps.yml`` /
-          ``*.odps.json`` (or any file with ``kind: DataProduct`` and
-          ``apiVersion: v1.0.0``) plus N sibling ODCS files. The resolver
+          ``*.odps.json`` (or any file with ``kind: DataProduct``) plus N
+          sibling ODCS files. The resolver
           gets the directory's file index, so per-port contracts always
           hit local first.
         - **ODCS-only**: no ODPS doc, just one or more ODCS files. We
@@ -470,10 +486,8 @@ class BitolOdpsProvider(BaseProvider):
     # ---- validation -----------------------------------------------------
 
     def validate_product(self, odps: Mapping[str, Any]) -> None:
-        if not self.schema:
-            self.logger.warning("ODPS schema not available, skipping validation")
-            return
-        validate(odps, self.schema)
+        """Validate against the vendored JSON Schema matching ``odps["apiVersion"]``."""
+        validate(odps)
 
 
 def _sniff_kind(path: Path) -> Optional[str]:

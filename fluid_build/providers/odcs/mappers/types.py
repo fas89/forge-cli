@@ -11,9 +11,9 @@ from __future__ import annotations
 
 from typing import Dict, Mapping, Optional, Tuple
 
-
-# FLUID source type → ODCS v3.1.0 logicalType (enum: string,date,timestamp,time,
-# number,integer,object,array,boolean)
+# FLUID source type → ODCS logicalType. v3.1.0 enum: string,date,timestamp,
+# time,number,integer,object,array,boolean; v3.2.0 adds map (RFC 0030) and
+# vector (RFC 0042).
 _FLUID_TO_LOGICAL: Dict[str, str] = {
     "string": "string", "text": "string", "varchar": "string", "char": "string",
     "int": "integer", "integer": "integer", "bigint": "integer", "long": "integer",
@@ -24,12 +24,14 @@ _FLUID_TO_LOGICAL: Dict[str, str] = {
     "time": "time",
     "json": "object", "object": "object",
     "array": "array",
+    "map": "map",
+    "vector": "vector",
     # ODCS has no binary logical type; store as string and preserve physical
     "binary": "string", "bytes": "string",
 }
 
-# ODCS logicalType → FLUID type (lossy; physicalType pass-through preserves
-# the original source-system flavour)
+# ODCS logicalType → FLUID type (lossy; the verbatim stash preserves the
+# original on round-trip)
 _LOGICAL_TO_FLUID: Dict[str, str] = {
     "string": "string",
     "integer": "int",
@@ -44,6 +46,8 @@ _LOGICAL_TO_FLUID: Dict[str, str] = {
     "time": "time",
     "object": "object",
     "array": "array",
+    "map": "map",
+    "vector": "vector",
     "binary": "binary",
 }
 
@@ -111,6 +115,21 @@ _PROVIDER_TO_SERVER_TYPE: Dict[str, str] = {
     "mongodb": "mongodb",
     "elasticsearch": "elasticsearch",
     "local": "local",
+    # ODCS v3.2.0 additions
+    "iceberg": "iceberg",
+    "hana": "hana",
+    "sap-hana": "hana",
+    "saphana": "hana",
+    "teradata": "teradata",
+    "exasol": "exasol",
+    "ingres": "ingres",
+    "vectorwise": "vectorwise",
+    "actian": "vectorwise",
+    "versant": "versant",
+    "zen": "zen",
+    "btrieve": "btrieve",
+    "poet": "poet",
+    "fastobjects": "fastobjects",
 }
 
 _SERVER_TYPE_TO_PROVIDER: Dict[str, str] = {
@@ -127,6 +146,19 @@ _SERVER_TYPE_TO_PROVIDER: Dict[str, str] = {
     "mongodb": "mongodb",
     "elasticsearch": "elasticsearch",
     "local": "local",
+    # ODCS v3.2.0 additions — identity so ``expects[].provider`` round-trips
+    # the exact engine name (servers themselves pass through verbatim).
+    "iceberg": "iceberg",
+    "hana": "hana",
+    "teradata": "teradata",
+    "exasol": "exasol",
+    "ingres": "ingres",
+    "vectorwise": "vectorwise",
+    "versant": "versant",
+    "zen": "zen",
+    "btrieve": "btrieve",
+    "poet": "poet",
+    "fastobjects": "fastobjects",
 }
 
 

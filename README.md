@@ -337,14 +337,14 @@ Providers are the bridge between your declarative contract and your target execu
 | 🌩️ **aws** | Amazon Web Services | S3, Glue, Athena, Redshift, MWAA, IAM. |
 | ❄️ **snowflake** | Snowflake | Databases, schemas, streams, tasks, RBAC, sharing. |
 
-> Open-standard providers: **odcs** (Open Data Contract Standard v3.1.0, bidirectional), **odps_bitol** (Bitol Open Data Product Standard v1.0.0, bidirectional), **odps** (ODPI v4.1, export-only), **datamesh-manager**.
+> Open-standard providers: **odcs** (Open Data Contract Standard v3.1.0 / v3.2.0, bidirectional), **odps_bitol** (Bitol Open Data Product Standard v1.0.0 / v1.1.0, bidirectional), **odps** (ODPI v4.1, export-only), **datamesh-manager**.
 
 ### Which ODPS? — disambiguation
 
 | Standard | Provider | CLI | What it is |
 |---|---|---|---|
-| **ODCS v3.1.0** | `odcs` | `fluid odcs ...` | Per-dataset contract (schema/quality/SLA). Bidirectional. Bitol.io. |
-| **Bitol ODPS v1.0.0** | `odps_bitol` | `fluid opds --spec bitol-1.0.0` (default) | Data product wrapper referencing ODCS by `contractId`. Bidirectional. |
+| **ODCS v3.1.0 / v3.2.0** | `odcs` | `fluid odcs ...` | Per-dataset contract (schema/quality/SLA). Bidirectional, lossless. Imports validate against the version the document declares; exports default to v3.1.0 (`ODCS_API_VERSION=v3.2.0` to opt in). Bitol.io. |
+| **Bitol ODPS v1.0.0 / v1.1.0** | `odps_bitol` | `fluid opds --spec bitol-1.0.0` (default) / `bitol-1.1.0` | Data product wrapper referencing ODCS by `contractId`. Bidirectional, lossless. Imports accept either version. |
 | **ODPI v4.1** | `odps` | `fluid opds --spec odpi-4.1` | Open Data Product Initiative v4.1 (Linux Foundation). Export-only single JSON. |
 
 ```bash

@@ -8,7 +8,9 @@
 """Section mapper protocol + pass-through namespace for the Bitol ODPS provider.
 
 Mirrors the design of :mod:`fluid_build.providers.odcs.mappers.base` so the
-two providers share the same modular vocabulary. Per-level pass-through
+two providers share the same modular vocabulary — including the verbatim
+stash + native overlay round-trip pattern (:func:`stash`, :func:`get_stash`,
+:func:`overlay_native` are re-exported from there). Per-level pass-through
 namespaces:
 
 - contract-level → ``metadata.odps_passthrough.*``
@@ -23,6 +25,12 @@ from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
+from fluid_build.providers.odcs.mappers.base import (  # noqa: F401
+    STASH_KEY,
+    get_stash,
+    overlay_native,
+    stash,
+)
 
 PASSTHROUGH_KEY = "odps_passthrough"
 

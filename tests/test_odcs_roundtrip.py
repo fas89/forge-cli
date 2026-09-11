@@ -122,7 +122,7 @@ class TestObjectLevelRoundTrip:
     def test_relationships_pass_through(self, reexported: dict) -> None:
         rels = reexported["schema"][0]["relationships"]
         assert len(rels) == 1
-        assert rels[0]["from"] == "customer_id"
+        assert rels[0]["from"] == "orders.customer_id"
         assert rels[0]["to"] == "customers.id"
 
     def test_object_quality_pass_through(self, reexported: dict) -> None:

@@ -15,8 +15,8 @@ Three levels of quality survive round-trip:
    imported from ODCS, ``field.quality`` carries the verbatim list and is
    replayed as-is — no auto-checks added — so the round-trip stays lossless.
 
-2. **Object-level** — ``schemaObject.quality[]``. Pure pass-through via
-   ``expose.odcs_passthrough.object_quality`` (handled in :mod:`.schema`).
+2. **Object-level** — ``schemaObject.quality[]``. Pure pass-through via the
+   schema object's verbatim stash (handled in :mod:`.schema`).
 
 3. **Contract-level** — top-level ``odcs["quality"]`` (non-spec extension
    emitted by FLUID). Read into ``fluid.quality`` / pass-through and replayed
@@ -34,7 +34,6 @@ from .base import (
     get_metadata_passthrough,
     metadata_passthrough,
 )
-
 
 # ----- ODCS → FLUID --------------------------------------------------------
 

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from typing import Dict
 
-
 _FLUID_TO_BITOL_STATUS: Dict[str, str] = {
     "draft": "draft",
     "active": "active",
@@ -53,6 +52,22 @@ _PROVIDER_TO_PORT_TYPE: Dict[str, str] = {
     "mysql": "mysql",
     "kafka": "kafka",
     "local": "local",
+    # Engines introduced as ODCS v3.2.0 server types; ODPS port ``type`` is a
+    # free string so we mirror the ODCS vocabulary for consistency.
+    "iceberg": "iceberg",
+    "hana": "hana",
+    "sap-hana": "hana",
+    "saphana": "hana",
+    "teradata": "teradata",
+    "exasol": "exasol",
+    "ingres": "ingres",
+    "vectorwise": "vectorwise",
+    "actian": "vectorwise",
+    "versant": "versant",
+    "zen": "zen",
+    "btrieve": "btrieve",
+    "poet": "poet",
+    "fastobjects": "fastobjects",
 }
 
 

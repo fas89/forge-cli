@@ -6,8 +6,8 @@ FLUID plugs into the wider Bitol data ecosystem through two open standards.
 
 | Standard | What it describes | Authority | FLUID provider | CLI selector |
 |---|---|---|---|---|
-| **ODCS v3.1.0** | Per-dataset contract (schema, quality, SLA, governance) | [bitol-io/open-data-contract-standard](https://github.com/bitol-io/open-data-contract-standard) | `odcs` | `fluid odcs ...` |
-| **Bitol ODPS v1.0.0** | Data product wrapper referencing ODCS contracts via `contractId` | [bitol-io/open-data-product-standard](https://github.com/bitol-io/open-data-product-standard) | `odps_bitol` | `fluid opds --spec bitol-1.0.0` (default) |
+| **ODCS v3.1.0 / v3.2.0** | Per-dataset contract (schema, quality, SLA, governance) | [bitol-io/open-data-contract-standard](https://github.com/bitol-io/open-data-contract-standard) | `odcs` | `fluid odcs ...` |
+| **Bitol ODPS v1.0.0 / v1.1.0** | Data product wrapper referencing ODCS contracts via `contractId` | [bitol-io/open-data-product-standard](https://github.com/bitol-io/open-data-product-standard) | `odps_bitol` | `fluid opds --spec bitol-1.0.0` (default) / `bitol-1.1.0` |
 | **ODPI v4.1** | Open Data Product Initiative v4.1 (Linux Foundation) — single JSON document | [Open-Data-Product-Initiative/v4.1](https://github.com/Open-Data-Product-Initiative/v4.1) | `odps` | `fluid opds --spec odpi-4.1` |
 
 **Bitol ODPS** and **ODPI v4.1** are unrelated despite sharing the "ODPS" three-letter slug. Phase 5 of this work made the disambiguation explicit in every layer (provider names, CLI flag, docstrings, features.yaml).
@@ -79,7 +79,7 @@ Flags:
 3. **Local file probes** — across the cross-product of `{<base>, contracts/, odcs/, odcs/contracts/}` × `{<full-id>, <last-segment>}` × `{.odcs.yaml, .odcs.yml, .odcs.json, .yaml, .yml, .json}`.
 4. **HTTP(S) URL** — when the `contractId` itself is a URL and `allow_remote=True`. Refuses HTML-with-200 responses and non-http(s) schemes.
 
-Every resolved document is validated against the vendored ODCS v3.1.0 JSON Schema; `ContractValidationError` raises with the offending field name.
+Every resolved document is validated against the vendored ODCS JSON Schema matching its own `apiVersion` (v3.2.0 and v3.1.0 are vendored; older versions are checked against the newest, which is a strict superset); `ContractValidationError` raises with the offending field name.
 
 ## Round-trip guarantees
 
@@ -120,7 +120,9 @@ The LLM fills in builds, executes, and governance — the things the standards d
 | ODCS validation + round-trip diff | `fluid_build/providers/odcs/validation.py` |
 | Bitol ODPS provider orchestrator | `fluid_build/providers/odps_standard/provider.py` |
 | Bitol ODPS section mappers | `fluid_build/providers/odps_standard/mappers/*.py` |
-| Bitol ODPS schema | `fluid_build/providers/odps_standard/schemas/odps-product-v1.0.0.json` |
+| Bitol ODPS schemas | `fluid_build/providers/odps_standard/schemas/odps-product-v1.1.0.json`, `…-v1.0.0.json` |
+| ODCS schemas | `fluid_build/providers/odcs/odcs-schema-v3.2.0.json`, `…-v3.1.0.json` |
+| Upstream example fixtures (gold standard) | `tests/fixtures/upstream/{odcs,odps}/` — verbatim Bitol examples, exercised by `tests/test_spec_version_matrix.py` |
 | `contractId` resolver | `fluid_build/providers/odps_standard/resolver.py` |
 | CLI dispatcher | `fluid_build/cli/opds.py` |
 | Forge `--seed-from` pre-processor | `fluid_build/cli/forge_copilot_seed.py` |

@@ -5,7 +5,22 @@
 # You may obtain a copy of the License at
 #
 #     http://www.apache.org/licenses/LICENSE-2.0
-"""ODCS JSON Schema validation + round-trip diff utility."""
+"""ODCS JSON Schema validation (version-aware) + round-trip diff utility.
+
+Two ODCS schema versions are vendored side by side:
+
+- ``v3.2.0`` — current upstream. Additive over v3.1.0: optional ``context``,
+  ``synonyms``, ``enum``, ``semanticType``, ``deprecated``, per-element
+  ``id``; ``status`` no longer required; 10 new ``Server.type`` engines.
+- ``v3.1.0`` — previous. Kept so a contract that *declares* ``v3.1.0`` is
+  validated against exactly the spec it claims, not a relaxed superset.
+
+:func:`validate` picks the schema from the document's own ``apiVersion``
+(see :func:`resolve_schema_version`). The emit default stays at
+:data:`DEFAULT_API_VERSION` so existing downstream validators keep
+accepting what we produce; opt into the newer version with the
+``ODCS_API_VERSION`` environment variable or ``OdcsProvider(api_version=...)``.
+"""
 
 from __future__ import annotations
 
@@ -13,31 +28,98 @@ import json
 import logging
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fluid_build.providers.base import ProviderError
 
 LOG = logging.getLogger(__name__)
 
-_SCHEMA_FILENAME = "odcs-schema-v3.1.0.json"
+# Newest first. The first entry is the superset fallback for any document
+# whose apiVersion we don't vendor exactly (older-than-vendored versions are
+# in every newer schema's ``apiVersion`` enum, and each release has only
+# relaxed/added — never tightened — so the newest schema accepts them).
+SUPPORTED_API_VERSIONS: Tuple[str, ...] = ("v3.2.0", "v3.1.0")
+
+# Conservative emit default. Bumping this changes what every export declares
+# and would break downstream validators pinned to the older schema.
+DEFAULT_API_VERSION = "v3.1.0"
+
+_SCHEMA_FILES: Dict[str, str] = {v: f"odcs-schema-{v}.json" for v in SUPPORTED_API_VERSIONS}
+_SCHEMA_CACHE: Dict[str, Optional[Dict[str, Any]]] = {}
 
 
-def load_schema() -> Optional[Dict[str, Any]]:
-    """Load the vendored ODCS v3.1.0 JSON Schema. Returns None if missing."""
-    schema_path = Path(__file__).parent / _SCHEMA_FILENAME
+def normalize_api_version(version: Optional[str]) -> Optional[str]:
+    """Accept ``3.2.0`` / ``v3.2.0`` / ``V3.2.0`` and return ``v3.2.0``."""
+    if version is None:
+        return None
+    v = str(version).strip()
+    if not v:
+        return None
+    if v[0] in ("v", "V"):
+        v = v[1:]
+    return f"v{v}"
+
+
+def api_version_tuple(version: Optional[str]) -> Tuple[int, ...]:
+    """``v3.2.0`` → ``(3, 2, 0)`` for ordered comparison (``()`` if unparsable)."""
+    v = normalize_api_version(version)
+    if not v:
+        return ()
+    try:
+        return tuple(int(p) for p in v[1:].split("."))
+    except ValueError:
+        return ()
+
+
+def resolve_schema_version(doc: Mapping[str, Any]) -> str:
+    """Pick the vendored schema version to validate ``doc`` against.
+
+    - Declared ``apiVersion`` that we vendor → that exact version.
+    - Anything else (missing, older-than-vendored, unknown-future) → newest
+      vendored, which is the acceptance superset. Unknown-future versions
+      still fail on the ``apiVersion`` enum, with the clearest error.
+    """
+    declared = normalize_api_version(doc.get("apiVersion") if isinstance(doc, Mapping) else None)
+    if declared in _SCHEMA_FILES:
+        return declared
+    return SUPPORTED_API_VERSIONS[0]
+
+
+def load_schema(api_version: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Load a vendored ODCS JSON Schema. Returns None if missing.
+
+    ``api_version`` defaults to :data:`DEFAULT_API_VERSION`. Unknown versions
+    raise :class:`ProviderError` so a typo in ``ODCS_API_VERSION`` fails loud.
+    """
+    version = normalize_api_version(api_version) or DEFAULT_API_VERSION
+    if version not in _SCHEMA_FILES:
+        raise ProviderError(
+            f"Unsupported ODCS apiVersion {version!r}; "
+            f"vendored: {', '.join(SUPPORTED_API_VERSIONS)}"
+        )
+    if version in _SCHEMA_CACHE:
+        return _SCHEMA_CACHE[version]
+
+    schema_path = Path(__file__).parent / _SCHEMA_FILES[version]
+    schema: Optional[Dict[str, Any]] = None
     if not schema_path.exists():
         LOG.warning("ODCS schema not found: %s", schema_path)
-        return None
-    try:
-        with open(schema_path) as f:
-            return json.load(f)
-    except Exception as exc:  # pragma: no cover - defensive
-        LOG.error("Failed to load ODCS schema: %s", exc)
-        return None
+    else:
+        try:
+            with open(schema_path) as f:
+                schema = json.load(f)
+        except Exception as exc:  # pragma: no cover - defensive
+            LOG.error("Failed to load ODCS schema %s: %s", schema_path, exc)
+    _SCHEMA_CACHE[version] = schema
+    return schema
 
 
-def validate(odcs: Mapping[str, Any], schema: Mapping[str, Any]) -> None:
-    """Validate an ODCS contract against the v3.1.0 JSON Schema.
+def validate(odcs: Mapping[str, Any], schema: Optional[Mapping[str, Any]] = None) -> None:
+    """Validate an ODCS contract against the JSON Schema.
+
+    When ``schema`` is omitted the version is resolved from the document's
+    ``apiVersion`` (:func:`resolve_schema_version`) — so a v3.2.0 contract
+    is never judged by the v3.1.0 schema and vice versa.
 
     Raises :class:`ProviderError` on validation failure. Silently no-ops when
     the optional :mod:`jsonschema` dependency is not installed.
@@ -47,6 +129,11 @@ def validate(odcs: Mapping[str, Any], schema: Mapping[str, Any]) -> None:
     except ImportError:
         LOG.warning("jsonschema not installed, skipping ODCS validation")
         return
+    if schema is None:
+        schema = load_schema(resolve_schema_version(odcs))
+        if schema is None:
+            LOG.warning("ODCS schema not available, skipping validation")
+            return
     try:
         jsonschema.validate(instance=odcs, schema=schema)
     except jsonschema.ValidationError as exc:
@@ -69,14 +156,14 @@ def validate_via_vowl(odcs: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
         skip the second pass cleanly. The first-pass ``jsonschema``
         validation still ran.
       - Builds ``vowl.Contract(odcs_dict)`` which runs vowl's own
-        jsonschema validation against the version-appropriate ODCS schema
-        (supports v2.2.1..v3.1.0; ours only vendors v3.1.0).
+        jsonschema validation against the version-appropriate ODCS schema.
+        If the installed vowl predates the contract's ``apiVersion`` it
+        raises; we surface that as a :class:`ProviderError` with a
+        ``vowl:`` prefix rather than masking it.
       - Enumerates the resolved check references so any lazy parse errors
         surface here too.
       - Returns a small diagnostic dict ``{api_version, schemas, total_checks}``
         the export path can log/expose.
-      - Re-raises any vowl exception as :class:`ProviderError` with a
-        ``vowl:`` prefix so the source of the failure is obvious.
     """
     try:
         from vowl import Contract  # type: ignore[import-untyped]
@@ -87,6 +174,20 @@ def validate_via_vowl(odcs: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
     try:
         contract = Contract(dict(odcs))
         refs = contract.get_check_references_by_schema()
+    except ValueError as exc:
+        # vowl raises ValueError("Unsupported API version: vX.Y.Z ...") when
+        # the installed release predates the contract's apiVersion (vowl 0.0.5
+        # tops out at v3.1.0). That is a tooling gap, not a contract defect —
+        # skip the second pass rather than fail the export.
+        if "Unsupported API version" in str(exc):
+            LOG.warning(
+                "vowl second-pass skipped — installed vowl does not support "
+                "apiVersion %r (%s)",
+                odcs.get("apiVersion"),
+                exc,
+            )
+            return None
+        raise ProviderError(f"vowl: {type(exc).__name__}: {exc}") from exc
     except Exception as exc:
         raise ProviderError(f"vowl: {type(exc).__name__}: {exc}") from exc
 

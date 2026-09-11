@@ -16,3 +16,4 @@ servers:
   - server: local
     type: local
     path: /tmp/minimal
+    format: parquet

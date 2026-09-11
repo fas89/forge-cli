@@ -8,6 +8,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **ODCS v3.2.0 and Bitol ODPS v1.1.0** vendored alongside v3.1.0 / v1.0.0.
+  Validation is now *version-selected* from the document's own `apiVersion`
+  (`resolve_schema_version`): a v3.2.0 / v1.1.0 document is judged by its
+  own schema instead of failing the older schema's `apiVersion` enum;
+  older-than-vendored versions (e.g. v3.0.0) validate against the newest
+  vendored schema, which is a strict superset. Emit defaults are unchanged
+  (v3.1.0 / v1.0.0); opt into the newer version with
+  `OdcsProvider(api_version=…)` / `BitolOdpsProvider(api_version=…)`, the
+  `ODCS_API_VERSION` / `ODPS_API_VERSION` env vars, or
+  `fluid opds export --spec bitol-1.1.0`. Re-exports of imported documents
+  preserve the source's `apiVersion`.
+- ODCS v3.2.0 content: `map` / `vector` logical types; `context`, `synonyms`,
+  `enum`, `semanticType`, `deprecated`, stable `id`s; ten new
+  `Server.type` engines (iceberg, hana, teradata, exasol, ingres, vectorwise,
+  versant, zen, btrieve, poet/fastobjects) with the allowed-field tables the
+  schema's `unevaluatedProperties: false` requires.
+- ODPS v1.1.0 content: first-class product `type` (fresh ≥ v1.1.0 exports
+  emit it natively; v1.0.0 exports keep the legacy `customProperties`
+  encoding), `deprecated`, `context`, `synonyms`; relaxed `status` /
+  port `version` / `contractId` requirements honoured on import.
+- `OdcsProvider.to_model()` — typed view via the `open-data-contract-standard`
+  pydantic model (now part of the `odcs-strict` extra) for attribute access
+  and readable field-level errors.
+- `tests/fixtures/upstream/` — verbatim Bitol example documents (Apache-2.0)
+  used as gold-standard fixtures, and `tests/test_spec_version_matrix.py`
+  (46 cases) asserting lossless round-trip, version fidelity and correct
+  schema selection across every fixture.
 - **Bitol ODPS v1.0.0 — bidirectional provider** (`BitolOdpsProvider`,
   registered as `odps_bitol`). Export emits the canonical fragments layout:
   1 ODPS doc + N sibling `<contractId>.odcs.yaml` files; the linking
@@ -36,6 +63,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--seed-from` flow.
 
 ### Changed
+- **Mapper round-trip architecture: verbatim stash + native overlay.** On
+  import every ODCS/ODPS section (document, schema object, property, port)
+  is stashed verbatim; on export the stash is the base layer and only the
+  FLUID-native fields that actually changed are overlaid (three-way merge,
+  `overlay_native`). This replaces the hand-maintained per-field
+  pass-through tuples — 104 lines of per-field copy code removed — and
+  means fields added by future spec versions round-trip with no code.
+  Validated lossless against verbatim upstream Bitol examples, including
+  the 192 KB v3.0.0 AdventureWorks contract.
+- `OdcsProvider.validate_contract` / `BitolOdpsProvider.validate_product`
+  select the JSON Schema from the document's `apiVersion` rather than the
+  provider's configured emit version.
+- `validate_via_vowl` now skips with a warning (instead of failing the
+  export) when the installed `vowl` predates the document's `apiVersion`
+  (`vowl` 0.0.5 supports up to v3.1.0).
+- The `odcs-strict` extra now also installs `open-data-contract-standard`.
 - **ODCS v3.1.0 import is now lossless.** Two import bugs fixed
   (`_odcs_team_to_fluid_owner` now accepts the v3.1.0 object form;
   `_odcs_schema_to_field` now reads `required` instead of the non-existent
@@ -66,6 +109,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `fluid odps export --version 4.1` — use `--spec odpi-4.1` (warning logged).
 - `fluid odps-bitol export` — use `fluid opds export --spec bitol-1.0.0`
   (warning printed on every invocation). Kept working for one release.
+
+### Fixed
+- ODCS/ODPS round-trip lossiness surfaced by real upstream documents:
+  explicit `required: false` / `primaryKey: false` and empty `tags: []`
+  were dropped (truthiness checks; 800+ diffs on AdventureWorks);
+  property-level `relationships` and `transformSourceObjects` /
+  `transformLogic` / `transformDescription` were never passed through;
+  `logicalType: map` was coerced to `string`; re-export synthesised
+  `schema[].logicalType`, a top-level `name`, and a `servers[]` block for
+  imported documents that had none (the synthesised server could itself be
+  schema-invalid — `servers` is not required in any vendored version);
+  ODPS output-port `contractId` was overwritten with the
+  `{productId}.{port}` convention even when the import captured the
+  original; `apiVersion` was not preserved on re-export.
+- `tests/fixtures/odcs/contract-full.yaml` (relationship `from` must be
+  `table.column`) and `contract-minimal.yaml` (a `local` server requires
+  `format`) were invalid against the version they declare; import
+  validation is warn-only so this went unnoticed.
+- `fluid forge --seed-from`: the ground-truth block sent to the LLM and
+  the `diff_against_seed` guard included the `*_passthrough` round-trip
+  stash (and never filtered `odps_passthrough`, which holds the whole
+  source ODPS document for bundle seeds). Both now operate on the
+  FLUID-native projection only — leaner prompt, and a model that omits
+  round-trip bookkeeping is no longer flagged as mutating ground truth.
+- `tests/test_forge_seed_real_llm.py` indexed `content[0].text`; Claude 5
+  models lead with a `ThinkingBlock`, so it now selects the first text
+  block and dogfoods the production prompt block. Set
+  `FLUID_REAL_LLM_MODEL` to choose the model.
 
 ## [0.7.8] — 2026-04-03
 
