@@ -71,17 +71,49 @@ fluid dmm publish contract.yaml --api-key "your-key"
 
 ## FLUID → Entropy Data Mapping
 
-| FLUID Field | Entropy Data Field |
+### Default: Bitol ODPS
+
+Data products are sent as **Bitol Open Data Product Standard (ODPS)**
+documents (`apiVersion: v1.0.0`, `kind: DataProduct`) by default — current
+Entropy Data / Entropy CE organisations accept only this type.
+
+| FLUID Field | Entropy Data (ODPS) Field |
 |---|---|
-| `id` / `metadata.id` | `info.id` |
-| `metadata.name` | `info.name` |
+| `id` / `metadata.id` | `id` |
+| `name` / `metadata.name` | `name` |
+| `description` | `description.purpose` |
+| `metadata.status` | `status` |
+| `domain` | `domain` |
+| `metadata.owner` / `owner.team` | `team.name` + `team.members[]` (`--team-id` overrides `team.name`) |
+| `expects[]` | `inputPorts[]` |
+| `exposes[]` | `outputPorts[]` (each with `contractId` = `{productId}.{exposeId}`) |
+| `metadata.tags` / `tags` | `tags[]` |
+
+### Legacy: Data Product Specification 0.0.1 (opt-out)
+
+Organisations that still expect the legacy DPS 0.0.1 shape can opt out of ODPS
+with `--data-product-spec 0.0.1`, `DMM_DATA_PRODUCT_SPEC=0.0.1`, or (for
+`fluid publish --catalog datamesh-manager`) `data_product_spec: "0.0.1"` /
+`provider_hint: dps` in the catalog config. Resolution order: explicit spec →
+provider hint (`odps`/`opds` → ODPS, `dps` → 0.0.1) → `DMM_DATA_PRODUCT_SPEC`
+→ ODPS.
+
+```bash
+fluid dmm publish contract.fluid.yaml --data-product-spec 0.0.1
+```
+
+| FLUID Field | Entropy Data (DPS 0.0.1) Field |
+|---|---|
+| — | `dataProductSpecification: "0.0.1"` |
+| `id` / `metadata.id` | `id` |
+| `metadata.name` | `info.title` |
 | `metadata.description` | `info.description` |
 | `metadata.status` (production→active) | `info.status` |
-| `owner.team` | `teamId` + `info.owner` |
+| `owner.team` | `teamId` + `info.owner` (`--team-id` overrides `teamId`) |
 | `metadata.archetype` | `info.archetype` |
 | `metadata.maturity` | `info.maturity` |
 | `expects[]` | `inputPorts[]` |
-| `exposes[]` | `outputPorts[]` |
+| `exposes[]` | `outputPorts[]` (each with `dataContractId`) |
 | `metadata.tags` | `tags[]` |
 | `metadata.domain`, `.version`, etc. | `custom{}` |
 
@@ -105,6 +137,7 @@ catalogs:
     auth:
       api_key: ${DMM_API_KEY}
     enabled: true
+    # data_product_spec: "0.0.1"   # optional: legacy DPS instead of ODPS
 
 # Then publish
 fluid publish contract.fluid.yaml --catalog datamesh-manager

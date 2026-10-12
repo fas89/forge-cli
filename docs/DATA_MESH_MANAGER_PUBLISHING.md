@@ -62,8 +62,9 @@ fluid datamesh-manager publish contract.fluid.yaml
 
 Registers (or updates) the data product in Entropy Data.  Output ports are
 included in the registration but **no data contracts are created yet** — the
-ports show a `dataContractId` field so they're ready to be linked once contracts
-are published.
+ports carry a `contractId` field (`dataContractId` in the
+[legacy DPS shape](#legacy-data-product-specification-001)) so they're ready to
+be linked once contracts are published.
 
 ---
 
@@ -78,7 +79,7 @@ This is the full publish. It:
 1. Registers the data product via `PUT /api/dataproducts/{id}`
 2. For every expose port, generates an ODCS contract (v3.1.0 by default; set `ODCS_API_VERSION=v3.2.0` to emit v3.2.0) and sends it via
    `PUT /api/datacontracts/{productId}.{exposeId}`
-3. Each output port's `dataContractId` field in the product record already
+3. Each output port's `contractId` field in the product record already
    points to its contract — Entropy Data automatically links them.
 
 ---
@@ -179,24 +180,62 @@ independently at its own URL:
 https://api.entropy-data.com/api/datacontracts/{productId}.{exposeId}
 ```
 
-### ODPS data product record
+### ODPS data product record (default)
 
-The top-level FLUID contract maps to Entropy Data's ODPS-aligned data product
-shape:
+By default the top-level FLUID contract is sent as a **Bitol Open Data Product
+Standard (ODPS)** document — the only data product type current Entropy Data /
+Entropy CE organisations accept:
 
 | FLUID field | ODPS / Entropy Data field |
 |---|---|
-| `id` | `info.id` |
-| `name` | `info.name` |
-| `description` | `info.description` |
-| `domain` | `info.domain` |
-| `metadata.owner` | `teamId` |
-| `exposes[]` | `outputPorts[]` (each with `dataContractId`) |
+| — | `apiVersion: v1.0.0`, `kind: DataProduct` |
+| `id` | `id` |
+| `name` | `name` |
+| `description` | `description.purpose` |
+| `domain` | `domain` |
+| `metadata.owner` | `team` (`name` + `members[]`); `--team-id` overrides `team.name` |
+| `exposes[]` | `outputPorts[]` (each with `contractId`) |
 | `expects[]` | `inputPorts[]` |
 
-The `dataContractId` on every output port follows the pattern
+The `contractId` on every output port follows the pattern
 `{productId}.{exposeId}`, which is exactly the URL path used when the ODCS
 contracts are PUT — so the link is automatic.
+
+### Legacy Data Product Specification (0.0.1)
+
+Older Entropy Data / Data Mesh Manager organisations that still expect the
+legacy **Data Product Specification 0.0.1** shape can opt out of ODPS. The
+legacy payload uses `dataProductSpecification: "0.0.1"`, a root `id`,
+`info.title` / `info.owner`, `teamId`, and `outputPorts[].dataContractId`
+(same `{productId}.{exposeId}` pattern).
+
+Opt out with any of:
+
+```bash
+# per command
+fluid dmm publish contract.fluid.yaml --data-product-spec 0.0.1
+
+# for every publish in this shell / CI job (both fluid dmm publish and
+# fluid publish --catalog datamesh-manager)
+export DMM_DATA_PRODUCT_SPEC=0.0.1
+```
+
+or, for `fluid publish --catalog datamesh-manager`, in the catalog config:
+
+```yaml
+catalogs:
+  datamesh-manager:
+    endpoint: https://api.entropy-data.com
+    data_product_spec: "0.0.1"   # or: provider_hint: dps
+```
+
+The specification is resolved in this order (first match wins):
+
+1. explicit `--data-product-spec` (or the catalog's `data_product_spec`)
+2. provider hint: `odps` / `opds` → ODPS, `dps` → DPS 0.0.1
+   (catalog `provider_hint`)
+3. the `DMM_DATA_PRODUCT_SPEC` environment variable
+4. default: ODPS
 
 ---
 
@@ -263,5 +302,5 @@ fluid dmm publish contract.fluid.yaml --overlay overlays/$ENV.yaml \
 
 After step 3, Entropy Data shows:
 - One data product entry with two output ports
-- Two ODCS contracts, each linked to its port via `dataContractId`
+- Two ODCS contracts, each linked to its port via `contractId`
 - The correct staging or production BigQuery locations in each `servers[]` block
