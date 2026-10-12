@@ -22,7 +22,7 @@ so that ``from forge_copilot_runtime import X`` keeps working everywhere.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from fluid_build.cli._common import redact_secrets, resolve_provider_from_contract
@@ -114,6 +114,7 @@ from fluid_build.cli.forge_copilot_seed import (  # noqa: F401
     diff_against_seed,
     format_ground_truth_prompt_block,
     format_mismatch_report,
+    is_ground_truth_error,
     load_seed,
 )
 from fluid_build.schema_manager import FluidSchemaManager
@@ -524,7 +525,7 @@ def generate_copilot_artifacts(
         elif report.validation_errors:
             joined = "; ".join(report.validation_errors[:4])
             attempt_summaries.append(f"Attempt {report.attempt}: validation failed - {joined}")
-    failure_class = classify_generation_failure(attempts)
+    failure_class = _classify_attempt_failures(attempts)
     raise CopilotGenerationError(
         "copilot_generation_failed",
         "Forge copilot could not produce a valid contract after 3 attempts.",
@@ -536,6 +537,31 @@ def generate_copilot_artifacts(
         ],
         context={"failure_class": failure_class, "attempt_summaries": attempt_summaries[:3]},
     )
+
+
+SEED_MISMATCH_FAILURE_CLASS = "seed_mismatch"
+
+
+def _classify_attempt_failures(attempts: Sequence[GenerationAttemptReport]) -> str:
+    """Classify a failed run, keeping ``--seed-from`` guard failures apart.
+
+    Ground-truth violation strings embed seed JSON (column descriptions,
+    quality ``dimension``/``metric`` keys, ...), which would otherwise trip the
+    keyword classifier into ``ambiguous_intent`` and start a semantic
+    clarification round that cannot fix a seed mismatch. They are left out of
+    the keyword scan; a run that failed only on the guard is
+    ``seed_mismatch``.
+    """
+    filtered: List[GenerationAttemptReport] = []
+    saw_seed_mismatch = False
+    for report in attempts:
+        errors = [e for e in report.validation_errors if not is_ground_truth_error(e)]
+        if len(errors) != len(report.validation_errors):
+            saw_seed_mismatch = True
+        filtered.append(replace(report, validation_errors=errors))
+    if saw_seed_mismatch and not any(r.parse_error or r.validation_errors for r in filtered):
+        return SEED_MISMATCH_FAILURE_CLASS
+    return classify_generation_failure(filtered)
 
 
 def suggest_scaffold(
