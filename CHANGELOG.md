@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `scripts/dmm_live_e2e.sh` — opt-in, manual end-to-end check against a
+  real Entropy Data CE (Data Mesh Manager) instance: brings the CE compose
+  stack up, publishes the multi-port fixture through both
+  `fluid publish --catalog datamesh-manager` and `fluid dmm publish
+  --with-contract`, at ODCS v3.1.0 and v3.2.0, and asserts via the REST
+  API that the product and one contract per port landed with the expected
+  `apiVersion`. Not run by CI (needs Docker and a DMM API key).
 - **ODCS v3.2.0 and Bitol ODPS v1.1.0** vendored alongside v3.1.0 / v1.0.0.
   Validation is now *version-selected* from the document's own `apiVersion`
   (`resolve_schema_version`): a v3.2.0 / v1.1.0 document is judged by its
@@ -63,6 +70,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--seed-from` flow.
 
 ### Changed
+- **`fluid dmm publish` now sends Bitol ODPS by default** (previously the
+  legacy Data Product Specification 0.0.1). Current Entropy Data / Entropy
+  CE organisations accept only `odps` and reject DPS with HTTP 400
+  (`Specification type 'dps' is not supported`), so the old default was a
+  guaranteed failure; `fluid publish --catalog datamesh-manager` already
+  defaulted to ODPS. Opt back into DPS with `--data-product-spec 0.0.1`,
+  `provider_hint="dps"`, or the new `DMM_DATA_PRODUCT_SPEC` env var.
+  Resolution order: explicit flag → provider hint → `kind: DataProduct` →
+  env var → ODPS. Verified live against Entropy CE 2.1.x on both publish
+  paths at ODCS v3.1.0 and v3.2.0 (`scripts/dmm_live_e2e.sh`).
 - **Mapper round-trip architecture: verbatim stash + native overlay.** On
   import every ODCS/ODPS section (document, schema object, property, port)
   is stashed verbatim; on export the stash is the base layer and only the

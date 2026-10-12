@@ -87,8 +87,10 @@ def add_parser(subparsers):
     pub.add_argument(
         "--data-product-spec",
         help=(
-            "Override dataProductSpecification value sent to Entropy Data "
-            "(e.g. 'odps' or '0.0.1')."
+            "Data product specification sent to Entropy Data. Default 'odps' "
+            "(Bitol Open Data Product Standard — the only type current Entropy "
+            "CE organisations accept); pass '0.0.1' for the legacy Data Product "
+            "Specification. Also settable via DMM_DATA_PRODUCT_SPEC."
         ),
     )
     pub.add_argument(

@@ -101,12 +101,57 @@ def _sample_odps_binding_platform_contract():
     }
 
 
-def test_apply_dry_run_defaults_to_dps_spec():
+def test_apply_dry_run_defaults_to_odps_spec(monkeypatch):
+    """ODPS is the default: current Entropy CE organisations reject the
+    legacy DPS shape with HTTP 400 ("Specification type 'dps' is not
+    supported ... Supported types: odps"). Verified against a live
+    Entropy CE 2.1.x via scripts/dmm_live_e2e.sh.
+    """
+    monkeypatch.delenv("DMM_DATA_PRODUCT_SPEC", raising=False)
     provider = DataMeshManagerProvider(api_key="dummy", api_url="https://api.entropy-data.com")
 
     result = provider.apply(_sample_contract(), dry_run=True)
 
+    payload = result["payload"]
+    assert payload["kind"] == "DataProduct"
+    assert "apiVersion" in payload
+    assert "dataProductSpecification" not in payload
+
+
+def test_apply_dry_run_explicit_dps_spec_keeps_legacy_shape():
+    """``--data-product-spec 0.0.1`` is the opt-out back to the legacy DPS."""
+    provider = DataMeshManagerProvider(api_key="dummy", api_url="https://api.entropy-data.com")
+
+    result = provider.apply(_sample_contract(), dry_run=True, data_product_specification="0.0.1")
+
     assert result["payload"]["dataProductSpecification"] == "0.0.1"
+    assert "info" in result["payload"]
+
+
+def test_apply_dry_run_dps_provider_hint_keeps_legacy_shape():
+    """``provider_hint="dps"`` (the catalog adapter's override path) also
+    selects the legacy DPS shape."""
+    provider = DataMeshManagerProvider(api_key="dummy", api_url="https://api.entropy-data.com")
+
+    result = provider.apply(_sample_contract(), dry_run=True, provider_hint="dps")
+
+    assert result["payload"]["dataProductSpecification"] == "0.0.1"
+
+
+def test_apply_dry_run_env_var_sets_default_spec(monkeypatch):
+    """``DMM_DATA_PRODUCT_SPEC`` changes the default without touching the
+    contract or the CLI invocation; explicit values still win over it."""
+    monkeypatch.setenv("DMM_DATA_PRODUCT_SPEC", "0.0.1")
+    provider = DataMeshManagerProvider(api_key="dummy", api_url="https://api.entropy-data.com")
+
+    result = provider.apply(_sample_contract(), dry_run=True)
+    assert result["payload"]["dataProductSpecification"] == "0.0.1"
+
+    result = provider.apply(_sample_contract(), dry_run=True, provider_hint="odps")
+    assert result["payload"]["kind"] == "DataProduct"
+
+    result = provider.apply(_sample_contract(), dry_run=True, data_product_specification="4.1.0")
+    assert result["payload"]["dataProductSpecification"] == "4.1.0"
 
 
 def test_apply_dry_run_uses_odps_spec_when_provider_hint_is_odps():
@@ -138,14 +183,16 @@ def test_apply_dry_run_uses_odps_spec_when_contract_kind_is_dataproduct():
     assert "apiVersion" in payload
 
 
-def test_apply_dry_run_dps_spec_unchanged_for_legacy_contract():
-    """A FLUID contract without ``kind: DataProduct`` and no ODPS hint still
-    falls back to the legacy DPS specification."""
+def test_plan_uses_same_default_spec_as_apply(monkeypatch):
+    """``plan()`` previews exactly what ``apply()`` would send — ODPS by
+    default — so ``fluid dmm publish --dry-run`` is a faithful preview."""
+    monkeypatch.delenv("DMM_DATA_PRODUCT_SPEC", raising=False)
     provider = DataMeshManagerProvider(api_key="dummy", api_url="https://api.entropy-data.com")
 
-    result = provider.apply(_sample_contract(), dry_run=True)
+    actions = provider.plan(_sample_contract())
 
-    assert result["payload"]["dataProductSpecification"] == "0.0.1"
+    assert actions[0]["payload"]["kind"] == "DataProduct"
+    assert "apiVersion" in actions[0]["payload"]
 
 
 def test_ensure_team_payload_includes_type_field():
@@ -230,7 +277,12 @@ def test_apply_dry_run_allows_explicit_spec_override():
 def test_apply_dry_run_keeps_per_expose_data_contract_ids_for_dps():
     provider = DataMeshManagerProvider(api_key="dummy", api_url="https://api.entropy-data.com")
 
-    result = provider.apply(_sample_contract_with_exposes(), dry_run=True, publish_contract=True)
+    result = provider.apply(
+        _sample_contract_with_exposes(),
+        dry_run=True,
+        publish_contract=True,
+        data_product_specification="0.0.1",
+    )
 
     output_ports = result["payload"].get("outputPorts", [])
     data_contract_ids = [port.get("dataContractId") for port in output_ports]

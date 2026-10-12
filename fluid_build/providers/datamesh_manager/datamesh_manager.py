@@ -28,8 +28,12 @@ Generate one at: Profile → Organization → Settings → API Keys.
 
 Environment Variables
 ---------------------
-DMM_API_KEY   (required)  API key for Entropy Data.
-DMM_API_URL   (optional)  Base URL, default ``https://api.entropy-data.com``.
+DMM_API_KEY            (required)  API key for Entropy Data.
+DMM_API_URL            (optional)  Base URL, default ``https://api.entropy-data.com``.
+DMM_DATA_PRODUCT_SPEC  (optional)  Default data product specification when
+                                   neither ``--data-product-spec`` nor a
+                                   provider hint is given: ``odps`` (default)
+                                   or ``0.0.1`` for the legacy DPS shape.
 """
 
 from __future__ import annotations
@@ -674,14 +678,17 @@ class DataMeshManagerProvider(BaseProvider):
     ) -> Dict[str, Any]:
         """Map a FLUID contract to the Entropy Data *DataProduct* shape.
 
-        Conforms to Data Product Specification v0.0.1 by default.
+        ``data_product_specification`` is the value already resolved by
+        :meth:`_resolve_data_product_specification` (ODPS unless overridden).
+        ODPS delegates to :meth:`_to_data_product_odps`; anything else is
+        emitted as the legacy Data Product Specification v0.0.1 shape.
         Reference: ``PUT /api/dataproducts/{id}``
 
-        Schema requires:
+        DPS schema requires:
         - ``id`` at root level
         - ``info.title`` (not ``info.name``)
         - ``info.owner`` (team id)
-        - ``dataProductSpecification`` at root (defaults to ``"0.0.1"``)
+        - ``dataProductSpecification`` at root (``"0.0.1"`` when unset)
         """
         if self._is_odps_spec(data_product_specification):
             return self._to_data_product_odps(fluid)
@@ -823,11 +830,17 @@ class DataMeshManagerProvider(BaseProvider):
         """Resolve outgoing dataProductSpecification.
 
         Resolution order:
-        1) explicit value
-        2) ODPS provider hint (``odps``/``opds``)
-        3) Bitol DataProduct convention: ``fluid["kind"] == "DataProduct"``
-           (set by Bitol-style contracts; Entropy CE infers ``odps`` from this)
-        4) default DPS specification
+        1) explicit value (``--data-product-spec`` / ``data_product_specification=``)
+        2) provider hint: ``odps``/``opds`` → ODPS, ``dps`` → legacy DPS 0.0.1
+        3) Bitol DataProduct convention: ``fluid["kind"] == "DataProduct"`` → ODPS
+        4) ``DMM_DATA_PRODUCT_SPEC`` environment variable
+        5) default: ODPS
+
+        ODPS is the default because current Entropy Data / Entropy CE
+        organisations accept only ``odps`` and reject the legacy DPS shape
+        with HTTP 400 ("Specification type 'dps' is not supported"). Pass
+        ``--data-product-spec 0.0.1`` (or ``provider_hint="dps"``) to keep
+        sending the legacy Data Product Specification.
         """
         if value:
             return str(value).strip()
@@ -835,15 +848,17 @@ class DataMeshManagerProvider(BaseProvider):
         hint = str(provider_hint or "").strip().lower()
         if hint in {"odps", "opds"}:
             return self.DATA_PRODUCT_SPEC_ODPS
+        if hint == "dps":
+            return self.DATA_PRODUCT_SPEC_DPS
 
         if isinstance(fluid, Mapping) and str(fluid.get("kind", "")).lower() == "dataproduct":
-            # Bitol Open Data Product Standard convention — `kind: DataProduct`
-            # at the top of the FLUID file signals that downstream consumers
-            # (Entropy CE, DMM) should treat it as ODPS, not the older
-            # FLUID-flavoured Data Product Specification ("0.0.1").
             return self.DATA_PRODUCT_SPEC_ODPS
 
-        return self.DATA_PRODUCT_SPEC_DPS
+        env_value = os.getenv("DMM_DATA_PRODUCT_SPEC", "").strip()
+        if env_value:
+            return env_value
+
+        return self.DATA_PRODUCT_SPEC_ODPS
 
     # ---- port mapping -----------------------------------------------------
 
