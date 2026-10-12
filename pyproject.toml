@@ -51,13 +51,16 @@ sdk = [
 # Optional ODCS tooling borrowed from the ecosystem:
 #  - vowl (MIT, Bitol-listed vendor): second-pass native parser on every
 #    emitted ODCS contract via ``ODCS_VOWL_VALIDATE=true`` / ODPS strict mode.
-#    Skipped with a warning for apiVersions newer than the installed vowl.
+#    Skipped with a warning for apiVersions newer than the installed vowl
+#    (vowl>=0.0.6 supports ODCS v3.2.0).
 #  - open-data-contract-standard (innoq / datacontract.com): pydantic model of
 #    the full ODCS surface, tracking the spec version; powers
 #    ``OdcsProvider.to_model()`` for typed access + readable field errors.
+#  - deepdiff: backend for ``OdcsProvider.roundtrip_check()``.
 odcs-strict = [
   "vowl>=0.0.2",
   "open-data-contract-standard>=3.2.0,<4",
+  "deepdiff>=6",
 ]
 
 # Local provider (DuckDB)
@@ -123,6 +126,7 @@ dev = [
   "types-PyYAML>=6.0.12",
   "black==25.11.0",
   "requests>=2.32.5",
+  "deepdiff>=6",                 # roundtrip_check() backend (ODCS/ODPS tests)
 ]
 
 # One-shot install for contributors

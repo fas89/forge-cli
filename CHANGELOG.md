@@ -77,8 +77,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   provider's configured emit version.
 - `validate_via_vowl` now skips with a warning (instead of failing the
   export) when the installed `vowl` predates the document's `apiVersion`
-  (`vowl` 0.0.5 supports up to v3.1.0).
-- The `odcs-strict` extra now also installs `open-data-contract-standard`.
+  (`vowl` 0.0.5 supports up to v3.1.0; 0.0.6 adds v3.2.0).
+- The `odcs-strict` extra now also installs `open-data-contract-standard`
+  and `deepdiff`; `deepdiff` is also declared in the `dev` extra — it backs
+  `roundtrip_check()` and was previously an undeclared import, so a fresh
+  `pip install -e .[dev]` could not run the ODCS/ODPS round-trip tests.
 - **ODCS v3.1.0 import is now lossless.** Two import bugs fixed
   (`_odcs_team_to_fluid_owner` now accepts the v3.1.0 object form;
   `_odcs_schema_to_field` now reads `required` instead of the non-existent

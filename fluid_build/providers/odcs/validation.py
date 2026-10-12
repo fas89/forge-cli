@@ -177,12 +177,11 @@ def validate_via_vowl(odcs: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
     except ValueError as exc:
         # vowl raises ValueError("Unsupported API version: vX.Y.Z ...") when
         # the installed release predates the contract's apiVersion (vowl 0.0.5
-        # tops out at v3.1.0). That is a tooling gap, not a contract defect —
-        # skip the second pass rather than fail the export.
+        # tops out at v3.1.0; 0.0.6 adds v3.2.0). That is a tooling gap, not a
+        # contract defect — skip the second pass rather than fail the export.
         if "Unsupported API version" in str(exc):
             LOG.warning(
-                "vowl second-pass skipped — installed vowl does not support "
-                "apiVersion %r (%s)",
+                "vowl second-pass skipped — installed vowl does not support " "apiVersion %r (%s)",
                 odcs.get("apiVersion"),
                 exc,
             )
@@ -198,9 +197,7 @@ def validate_via_vowl(odcs: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
     }
 
 
-def roundtrip_check(
-    odcs: Mapping[str, Any], reconstructed: Mapping[str, Any]
-) -> Dict[str, Any]:
+def roundtrip_check(odcs: Mapping[str, Any], reconstructed: Mapping[str, Any]) -> Dict[str, Any]:
     """Compare an original ODCS dict to one rebuilt via ``import → export``.
 
     Returns a structured diff::
