@@ -162,9 +162,7 @@ def _extract_schema(fluid: Mapping[str, Any]) -> List[Dict[str, Any]]:
 
         provider = _expose_provider(expose)
         properties = [
-            _field_to_property(fld, provider)
-            for fld in contract_schema
-            if isinstance(fld, Mapping)
+            _field_to_property(fld, provider) for fld in contract_schema if isinstance(fld, Mapping)
         ]
         if not properties:
             continue

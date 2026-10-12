@@ -84,9 +84,7 @@ def _native_output(expose: Mapping[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _expose_to_output_port(
-    expose: Mapping[str, Any], product_id: str
-) -> Optional[Dict[str, Any]]:
+def _expose_to_output_port(expose: Mapping[str, Any], product_id: str) -> Optional[Dict[str, Any]]:
     name = expose.get("exposeId") or expose.get("id")
     if not name:
         return None
@@ -122,9 +120,7 @@ def _native_input(expect: Mapping[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _expect_to_input_port(
-    expect: Mapping[str, Any], product_id: str
-) -> Optional[Dict[str, Any]]:
+def _expect_to_input_port(expect: Mapping[str, Any], product_id: str) -> Optional[Dict[str, Any]]:
     name = expect.get("id")
     if not name:
         return None

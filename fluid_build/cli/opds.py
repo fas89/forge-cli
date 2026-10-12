@@ -270,9 +270,7 @@ def cmd_opds_import(args: argparse.Namespace, logger: logging.Logger) -> int:
     return 0
 
 
-def _dispatch_import(
-    path: Path, *, allow_remote: bool, lenient: bool
-) -> Dict[str, Any]:
+def _dispatch_import(path: Path, *, allow_remote: bool, lenient: bool) -> Dict[str, Any]:
     """Choose the right import method based on the input path's shape/content."""
     if path.is_dir():
         from fluid_build.providers.odps_standard import BitolOdpsProvider
@@ -293,9 +291,7 @@ def _dispatch_import(
     if ".odps" in suffixes or name_lower.endswith((".odps.yaml", ".odps.yml", ".odps.json")):
         from fluid_build.providers.odps_standard import BitolOdpsProvider
 
-        return BitolOdpsProvider().import_contract(
-            path, allow_remote=allow_remote, lenient=lenient
-        )
+        return BitolOdpsProvider().import_contract(path, allow_remote=allow_remote, lenient=lenient)
 
     # Last resort: sniff the file's ``kind`` field
     from fluid_build.providers.odcs.io import read_input
@@ -305,9 +301,7 @@ def _dispatch_import(
     if kind == "DataProduct":
         from fluid_build.providers.odps_standard import BitolOdpsProvider
 
-        return BitolOdpsProvider().import_contract(
-            path, allow_remote=allow_remote, lenient=lenient
-        )
+        return BitolOdpsProvider().import_contract(path, allow_remote=allow_remote, lenient=lenient)
     if kind == "DataContract":
         from fluid_build.providers.odcs import OdcsProvider
 

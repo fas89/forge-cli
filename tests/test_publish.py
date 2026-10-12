@@ -302,9 +302,7 @@ class TestPublishContract:
         config.get_catalog_config.return_value = {"enabled": True}
 
         with (
-            patch.object(
-                pub_mod, "load_contract", return_value={"id": "test", "name": "Test"}
-            ),
+            patch.object(pub_mod, "load_contract", return_value={"id": "test", "name": "Test"}),
             patch.object(pub_mod, "get_catalog_provider", return_value=provider),
         ):
             result = _run(

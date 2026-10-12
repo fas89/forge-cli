@@ -76,6 +76,7 @@ def run_ai_copilot_mode(
         # operator didn't pass ``--seed-from``, in which case the runtime
         # behaves exactly as it did before Phase 7 landed.
         from fluid_build.cli.forge_copilot_seed import SeedOptions as _SeedOptions
+
         seed_options = _SeedOptions.from_args(args)
 
         context: Dict[str, Any] = {}

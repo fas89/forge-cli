@@ -581,9 +581,7 @@ class TestCatalogFluidPassthrough:
         provider._provider.apply = fake_apply  # type: ignore[assignment]
 
         full = {"id": "x", "name": "X", "exposes": []}
-        target = CatalogTarget.from_fluid(
-            full, catalog_hints={"provider_hint": "dps"}
-        )
+        target = CatalogTarget.from_fluid(full, catalog_hints={"provider_hint": "dps"})
 
         loop = asyncio.new_event_loop()
         try:

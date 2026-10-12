@@ -58,9 +58,7 @@ class TestLocalResolution:
     def test_cache_hit_avoids_re_read(self) -> None:
         resolver = ContractResolver(base_path=FIXTURE_DIR, allow_remote=False)
         first = resolver.resolve(_first_odcs_id())
-        with patch(
-            "fluid_build.providers.odps_standard.resolver.read_input"
-        ) as mock_read:
+        with patch("fluid_build.providers.odps_standard.resolver.read_input") as mock_read:
             second = resolver.resolve(_first_odcs_id())
             mock_read.assert_not_called()
         assert first is second
@@ -97,9 +95,7 @@ class TestErrors:
         assert "missing.contract" in msg
         assert "Tried:" in msg
 
-    def test_remote_fetch_disabled_raises_on_url_contract_id(
-        self, tmp_path: Path
-    ) -> None:
+    def test_remote_fetch_disabled_raises_on_url_contract_id(self, tmp_path: Path) -> None:
         resolver = ContractResolver(base_path=tmp_path, allow_remote=False)
         with pytest.raises(RemoteFetchDisabled):
             resolver.resolve("https://example.com/contract.odcs.yaml")

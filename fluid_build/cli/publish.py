@@ -267,9 +267,7 @@ async def publish_contract(
     target = CatalogTarget.from_fluid(contract, contract_yaml=contract_yaml)
 
     if verbose:
-        logger.info(
-            f"📦 Publishing contract {target.contract_name} (id: {target.contract_id})"
-        )
+        logger.info(f"📦 Publishing contract {target.contract_name} (id: {target.contract_id})")
 
     # Verify-only mode
     if verify_only:

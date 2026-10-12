@@ -140,7 +140,9 @@ def to_odcs(ctx: ExportCtx) -> None:
     now = _native_metadata(metadata, contract_id, raw_status)
 
     if st is not None:
-        then = _native_metadata(_project_metadata(st), st.get("id"), _project_metadata(st)["status"])
+        then = _native_metadata(
+            _project_metadata(st), st.get("id"), _project_metadata(st)["status"]
+        )
         merged = overlay_native(st, then, now)
         # ``description`` is an object in ODCS but a string in FLUID: an edit
         # to the purpose must not discard the stashed limitations/usage.

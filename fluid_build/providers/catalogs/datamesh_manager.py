@@ -49,9 +49,7 @@ class DataMeshManagerCatalogProvider(BaseCatalogProvider):
 
     # -- BaseCatalogProvider interface --------------------------------------
 
-    async def publish(
-        self, fluid: Dict[str, Any], target: CatalogTarget
-    ) -> PublishResult:
+    async def publish(self, fluid: Dict[str, Any], target: CatalogTarget) -> PublishResult:
         """Publish *fluid* as a data product to Entropy Data.
 
         The FLUID dict is forwarded to the underlying provider verbatim so
@@ -61,9 +59,7 @@ class DataMeshManagerCatalogProvider(BaseCatalogProvider):
         """
         provider_hint = target.catalog_hints.get("provider_hint", "odps")
         try:
-            result = self._provider.apply(
-                fluid, publish_contract=True, provider_hint=provider_hint
-            )
+            result = self._provider.apply(fluid, publish_contract=True, provider_hint=provider_hint)
             return PublishResult(
                 success=True,
                 catalog_id=self.name,
@@ -79,9 +75,7 @@ class DataMeshManagerCatalogProvider(BaseCatalogProvider):
                 error=str(exc),
             )
 
-    async def update(
-        self, fluid: Dict[str, Any], target: CatalogTarget
-    ) -> PublishResult:
+    async def update(self, fluid: Dict[str, Any], target: CatalogTarget) -> PublishResult:
         # PUT is idempotent — publish == update
         return await self.publish(fluid, target)
 

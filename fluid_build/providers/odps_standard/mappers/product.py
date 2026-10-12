@@ -170,7 +170,9 @@ def to_odps(ctx: ExportCtx) -> None:
 
     if st is not None:
         then_meta = _project_product(st)
-        then = _native_product({"metadata": then_meta}, then_meta, st.get("id"), native_type=native_type)
+        then = _native_product(
+            {"metadata": then_meta}, then_meta, st.get("id"), native_type=native_type
+        )
         merged = overlay_native(st, then, now)
         if (
             now["description"] != then["description"]

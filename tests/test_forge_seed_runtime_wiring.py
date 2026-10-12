@@ -34,12 +34,7 @@ from fluid_build.cli.forge_copilot_runtime import (
 from fluid_build.cli.forge_copilot_seed import SeedOptions, load_seed
 from fluid_build.providers.odps_standard import BitolOdpsProvider
 
-FLUID_FIXTURE = (
-    Path(__file__).parent
-    / "fixtures"
-    / "fluid"
-    / "contract-multi-expose.fluid.yaml"
-)
+FLUID_FIXTURE = Path(__file__).parent / "fixtures" / "fluid" / "contract-multi-expose.fluid.yaml"
 
 
 # ---------------------------------------------------------------------------
@@ -112,6 +107,7 @@ def _patched_seams(script: _LlmScript, preserving_contract: Dict[str, Any]):
     test — call_llm, normalize, validate — so the tests exercise only the
     seed loading, prompt injection, and ground-truth diff loop.
     """
+
     def fake_normalize(payload, **_):
         return {
             "suggestions": payload.get("suggestions") or {},
@@ -301,9 +297,7 @@ def test_seed_options_from_args_none_when_flag_absent():
 def test_seed_options_from_args_builds_dataclass():
     from types import SimpleNamespace
 
-    opts = SeedOptions.from_args(
-        SimpleNamespace(seed_from="/tmp/x.odps.yaml", seed_no_remote=True)
-    )
+    opts = SeedOptions.from_args(SimpleNamespace(seed_from="/tmp/x.odps.yaml", seed_no_remote=True))
     assert opts is not None
     assert str(opts.seed_from) == "/tmp/x.odps.yaml"
     assert opts.allow_remote is False

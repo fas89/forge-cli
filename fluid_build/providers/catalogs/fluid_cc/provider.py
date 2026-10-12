@@ -50,9 +50,7 @@ class FluidCommandCenterProvider(BaseCatalogProvider):
             expected_exception=httpx.HTTPError,
         )
 
-    async def publish(
-        self, fluid: Dict[str, Any], target: CatalogTarget
-    ) -> PublishResult:
+    async def publish(self, fluid: Dict[str, Any], target: CatalogTarget) -> PublishResult:
         """Publish a FLUID contract with retry logic and upsert."""
         start_time = time.time()
         metrics_collector.record_publish_request(self.name)
@@ -78,9 +76,7 @@ class FluidCommandCenterProvider(BaseCatalogProvider):
 
         for attempt in range(self.max_retries):
             try:
-                result = await self.circuit_breaker.call(
-                    self._publish_impl, fluid, target
-                )
+                result = await self.circuit_breaker.call(self._publish_impl, fluid, target)
                 latency = time.time() - start_time
                 metrics_collector.record_publish_success(self.name, latency)
 
@@ -122,9 +118,7 @@ class FluidCommandCenterProvider(BaseCatalogProvider):
                     self.logger.error(
                         f"❌ Publish failed after {self.max_retries} attempts: {error_msg}"
                     )
-                    metrics_collector.record_publish_failure(
-                        self.name, str(type(e).__name__)
-                    )
+                    metrics_collector.record_publish_failure(self.name, str(type(e).__name__))
                     return PublishResult(
                         success=False,
                         catalog_id=self.name,
@@ -132,9 +126,7 @@ class FluidCommandCenterProvider(BaseCatalogProvider):
                         error=error_msg,
                     )
 
-    async def _publish_impl(
-        self, fluid: Dict[str, Any], target: CatalogTarget
-    ) -> PublishResult:
+    async def _publish_impl(self, fluid: Dict[str, Any], target: CatalogTarget) -> PublishResult:
         """Internal publish implementation (wrapped by circuit breaker)."""
         asset_data = _build_cc_asset_payload(fluid, target)
 
@@ -153,14 +145,10 @@ class FluidCommandCenterProvider(BaseCatalogProvider):
         self.logger.info(
             f"Sending asset_data with {len(asset_data.get('metadata', {}))} metadata keys"
         )
-        self.logger.debug(
-            f"Full asset_data: {json_lib.dumps(asset_data, indent=2, default=str)}"
-        )
+        self.logger.debug(f"Full asset_data: {json_lib.dumps(asset_data, indent=2, default=str)}")
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            existing = await self._find_by_contract_id(
-                client, headers, target.contract_id
-            )
+            existing = await self._find_by_contract_id(client, headers, target.contract_id)
 
             if existing:
                 self.logger.info(
@@ -172,9 +160,7 @@ class FluidCommandCenterProvider(BaseCatalogProvider):
                     headers=headers,
                 )
             else:
-                self.logger.info(
-                    f"Creating new asset for contract: {target.contract_id}"
-                )
+                self.logger.info(f"Creating new asset for contract: {target.contract_id}")
                 response = await client.post(
                     f"{self.endpoint}/api/v1/assets",
                     json=asset_data,
@@ -236,9 +222,7 @@ class FluidCommandCenterProvider(BaseCatalogProvider):
             self.logger.warning(f"Error searching for existing asset: {e}")
             return None
 
-    async def update(
-        self, fluid: Dict[str, Any], target: CatalogTarget
-    ) -> PublishResult:
+    async def update(self, fluid: Dict[str, Any], target: CatalogTarget) -> PublishResult:
         """Update existing asset (delegates to publish for upsert logic)."""
         return await self.publish(fluid, target)
 
@@ -275,9 +259,7 @@ class FluidCommandCenterProvider(BaseCatalogProvider):
 # ---------------------------------------------------------------------------
 
 
-def _build_cc_asset_payload(
-    fluid: Dict[str, Any], target: CatalogTarget
-) -> Dict[str, Any]:
+def _build_cc_asset_payload(fluid: Dict[str, Any], target: CatalogTarget) -> Dict[str, Any]:
     """Flatten a FLUID contract into the Command Center asset payload.
 
     Multi-port contracts survive as ``metadata.exposes`` (a compact

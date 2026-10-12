@@ -131,11 +131,25 @@ def test_odcs_explicit_false_and_empty_list_survive() -> None:
     """Regression: ``required: false`` / ``primaryKey: false`` / ``tags: []``
     were dropped by truthiness checks (800+ diffs on adventureworks)."""
     odcs = {
-        "version": "1.0.0", "apiVersion": "v3.1.0", "kind": "DataContract",
-        "id": "t", "status": "active",
-        "schema": [{"name": "t", "properties": [
-            {"name": "a", "logicalType": "string", "required": False, "primaryKey": False, "tags": []},
-        ]}],
+        "version": "1.0.0",
+        "apiVersion": "v3.1.0",
+        "kind": "DataContract",
+        "id": "t",
+        "status": "active",
+        "schema": [
+            {
+                "name": "t",
+                "properties": [
+                    {
+                        "name": "a",
+                        "logicalType": "string",
+                        "required": False,
+                        "primaryKey": False,
+                        "tags": [],
+                    },
+                ],
+            }
+        ],
     }
     prov = OdcsProvider()
     out = prov.render(prov.import_contract(odcs))
@@ -144,10 +158,18 @@ def test_odcs_explicit_false_and_empty_list_survive() -> None:
 
 def test_odcs_imported_doc_without_servers_does_not_synthesize_one() -> None:
     odcs = {
-        "version": "1.0.0", "apiVersion": "v3.1.0", "kind": "DataContract",
-        "id": "t", "status": "active",
-        "schema": [{"name": "t", "physicalType": "table",
-                    "properties": [{"name": "a", "logicalType": "string"}]}],
+        "version": "1.0.0",
+        "apiVersion": "v3.1.0",
+        "kind": "DataContract",
+        "id": "t",
+        "status": "active",
+        "schema": [
+            {
+                "name": "t",
+                "physicalType": "table",
+                "properties": [{"name": "a", "logicalType": "string"}],
+            }
+        ],
     }
     prov = OdcsProvider()
     out = prov.render(prov.import_contract(odcs))
@@ -181,9 +203,9 @@ def test_odcs_fluid_edit_wins_over_stash() -> None:
     [
         ("v3.2.0", "v3.2.0"),
         ("v3.1.0", "v3.1.0"),
-        ("3.1.0", "v3.1.0"),      # bare
-        ("v3.0.0", "v3.2.0"),     # older-than-vendored → newest superset
-        ("v9.9.9", "v3.2.0"),     # unknown-future → newest (still fails on enum)
+        ("3.1.0", "v3.1.0"),  # bare
+        ("v3.0.0", "v3.2.0"),  # older-than-vendored → newest superset
+        ("v9.9.9", "v3.2.0"),  # unknown-future → newest (still fails on enum)
         (None, "v3.2.0"),
     ],
 )
@@ -306,13 +328,30 @@ def test_explicit_version_overrides_preserved_on_reexport() -> None:
 
 def test_map_and_vector_logical_types_round_trip() -> None:
     odcs = {
-        "version": "1.0.0", "apiVersion": "v3.2.0", "kind": "DataContract", "id": "t",
-        "schema": [{"name": "t", "properties": [
-            {"name": "attrs", "logicalType": "map",
-             "map": {"key": {"logicalType": "string"}, "value": {"logicalType": "integer"}}},
-            {"name": "emb", "logicalType": "vector",
-             "logicalTypeOptions": {"dimensions": 384, "elementType": "float32"}},
-        ]}],
+        "version": "1.0.0",
+        "apiVersion": "v3.2.0",
+        "kind": "DataContract",
+        "id": "t",
+        "schema": [
+            {
+                "name": "t",
+                "properties": [
+                    {
+                        "name": "attrs",
+                        "logicalType": "map",
+                        "map": {
+                            "key": {"logicalType": "string"},
+                            "value": {"logicalType": "integer"},
+                        },
+                    },
+                    {
+                        "name": "emb",
+                        "logicalType": "vector",
+                        "logicalTypeOptions": {"dimensions": 384, "elementType": "float32"},
+                    },
+                ],
+            }
+        ],
     }
     prov = OdcsProvider()
     fluid = prov.import_contract(odcs)
@@ -327,14 +366,32 @@ def test_map_and_vector_logical_types_round_trip() -> None:
 @pytest.mark.parametrize(
     "platform, location, expected_keys",
     [
-        ("iceberg", {"catalog": "c", "catalogUrl": "https://x/v1", "namespace": "db.s", "warehouse": "w", "junk": 1},
-         {"catalog", "catalogUrl", "namespace", "warehouse"}),
-        ("hana", {"host": "h", "port": 30015, "database": "d", "schema": "s", "junk": 1},
-         {"host", "port", "database", "schema"}),
-        ("teradata", {"host": "h", "port": 1025, "database": "d", "schema": "dropped"},
-         {"host", "port", "database"}),
-        ("exasol", {"host": "h", "port": 8563, "schema": "s", "database": "dropped"},
-         {"host", "port", "schema"}),
+        (
+            "iceberg",
+            {
+                "catalog": "c",
+                "catalogUrl": "https://x/v1",
+                "namespace": "db.s",
+                "warehouse": "w",
+                "junk": 1,
+            },
+            {"catalog", "catalogUrl", "namespace", "warehouse"},
+        ),
+        (
+            "hana",
+            {"host": "h", "port": 30015, "database": "d", "schema": "s", "junk": 1},
+            {"host", "port", "database", "schema"},
+        ),
+        (
+            "teradata",
+            {"host": "h", "port": 1025, "database": "d", "schema": "dropped"},
+            {"host", "port", "database"},
+        ),
+        (
+            "exasol",
+            {"host": "h", "port": 8563, "schema": "s", "database": "dropped"},
+            {"host", "port", "schema"},
+        ),
         ("actian", {"host": "h", "port": 1, "database": "d"}, {"host", "port", "database"}),
     ],
 )
@@ -342,9 +399,15 @@ def test_new_server_engines_emit_only_allowed_fields_and_validate(
     platform, location, expected_keys
 ) -> None:
     fluid = {
-        "id": "p", "metadata": {"name": "p", "version": "1.0.0", "status": "active"},
-        "exposes": [{"id": "e", "binding": {"platform": platform, "location": location},
-                     "contract": {"schema": [{"name": "a", "type": "string"}]}}],
+        "id": "p",
+        "metadata": {"name": "p", "version": "1.0.0", "status": "active"},
+        "exposes": [
+            {
+                "id": "e",
+                "binding": {"platform": platform, "location": location},
+                "contract": {"schema": [{"name": "a", "type": "string"}]},
+            }
+        ],
     }
     out = OdcsProvider(api_version="v3.2.0").render(fluid)
     server = out["servers"][0]
@@ -394,8 +457,14 @@ def test_cli_spec_bitol_1_1_0_exports_v110(tmp_path: Path) -> None:
 
     args = Namespace(
         contract=str(FIXTURES / "fluid" / "contract-multi-expose.fluid.yaml"),
-        spec=SPEC_BITOL_1_1_0, version=None, out="-", out_dir=str(tmp_path),
-        format="yaml", env=None, validate_strict=True, pretty=True,
+        spec=SPEC_BITOL_1_1_0,
+        version=None,
+        out="-",
+        out_dir=str(tmp_path),
+        format="yaml",
+        env=None,
+        validate_strict=True,
+        pretty=True,
     )
     assert resolve_spec(args) == SPEC_BITOL_1_1_0
     assert cmd_opds_export(args, LOG) == 0

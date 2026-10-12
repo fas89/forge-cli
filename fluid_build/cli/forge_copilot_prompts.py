@@ -107,8 +107,7 @@ def build_system_prompt(
         "The semantics block enables AI agents and BI tools to generate correct queries without hallucination.\n\n"
         "Follow the seed_contract structure exactly as a reference for the correct schema shape.\n"
         f"Allowed providers: {providers}.\n"
-        "Only use build engines from the provided capability matrix."
-        + seed_clause
+        "Only use build engines from the provided capability matrix." + seed_clause
     )
 
 

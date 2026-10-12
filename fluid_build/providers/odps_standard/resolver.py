@@ -293,9 +293,7 @@ class ContractResolver:
             contract_id=contract_id,
         )
 
-    def _validate(
-        self, contract_id: str, data: Mapping[str, Any], *, origin: str
-    ) -> None:
+    def _validate(self, contract_id: str, data: Mapping[str, Any], *, origin: str) -> None:
         if self.odcs_provider is None or not self.odcs_provider.schema:
             return
         try:
@@ -306,9 +304,7 @@ class ContractResolver:
                 f"failed ODCS validation: {exc}"
             ) from exc
 
-    def _cache_and_return(
-        self, contract_id: str, resolved: ResolvedContract
-    ) -> ResolvedContract:
+    def _cache_and_return(self, contract_id: str, resolved: ResolvedContract) -> ResolvedContract:
         self._cache[contract_id] = resolved
         return resolved
 

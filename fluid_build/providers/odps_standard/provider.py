@@ -69,9 +69,7 @@ class BitolOdpsProvider(BaseProvider):
         self.supported_versions = SUPPORTED_API_VERSIONS
         self.spec_url = "https://github.com/bitol-io/open-data-product-standard"
         self.schema = load_schema(self.api_version)
-        self.include_custom_properties = (
-            os.getenv("ODPS_INCLUDE_CUSTOM", "true").lower() == "true"
-        )
+        self.include_custom_properties = os.getenv("ODPS_INCLUDE_CUSTOM", "true").lower() == "true"
         # Strict by default — a contract that fails the schema is a bug.
         self.strict_validation = os.getenv("ODPS_STRICT", "true").lower() == "true"
         self._odcs = OdcsProvider()
@@ -97,9 +95,7 @@ class BitolOdpsProvider(BaseProvider):
     # ---- unsupported lifecycle hooks ------------------------------------
 
     def plan(self, contract: Mapping[str, Any]) -> List[Dict[str, Any]]:
-        raise ProviderError(
-            "Bitol ODPS provider does not support plan(). Use render() for export."
-        )
+        raise ProviderError("Bitol ODPS provider does not support plan(). Use render() for export.")
 
     def apply(self, actions: Iterable[Mapping[str, Any]]) -> ApplyResult:
         raise ProviderError(
@@ -403,9 +399,7 @@ class BitolOdpsProvider(BaseProvider):
                 return None
             raise
 
-    def _merge_odcs_into_expose(
-        self, stub: Dict[str, Any], resolved: ResolvedContract
-    ) -> None:
+    def _merge_odcs_into_expose(self, stub: Dict[str, Any], resolved: ResolvedContract) -> None:
         """Run the ODCS importer to get FLUID fields, then merge into the stub.
 
         The OdcsProvider returns a FLUID skeleton with one expose per
@@ -428,9 +422,7 @@ class BitolOdpsProvider(BaseProvider):
         if primary.get("description") and "description" not in stub:
             stub["description"] = primary["description"]
 
-    def _merge_odcs_into_expect(
-        self, stub: Dict[str, Any], resolved: ResolvedContract
-    ) -> None:
+    def _merge_odcs_into_expect(self, stub: Dict[str, Any], resolved: ResolvedContract) -> None:
         sub_fluid = self._odcs.import_contract(resolved.odcs)
         sub_exposes = sub_fluid.get("exposes") or []
         if not sub_exposes:
@@ -441,18 +433,14 @@ class BitolOdpsProvider(BaseProvider):
         if primary.get("binding") and "binding" not in stub:
             stub["binding"] = primary["binding"]
 
-    def _import_odcs_only(
-        self, root: Path, odcs_files: List[Path]
-    ) -> Dict[str, Any]:
+    def _import_odcs_only(self, root: Path, odcs_files: List[Path]) -> Dict[str, Any]:
         """Build a wrapper-less FLUID contract from a directory of ODCS files.
 
         Each ODCS file becomes one expose under a synthetic product. Useful
         when a team publishes raw ODCS contracts without an ODPS wrapper.
         """
         if not odcs_files:
-            raise ProviderError(
-                f"import_directory: {root} contains no ODPS doc and no ODCS files"
-            )
+            raise ProviderError(f"import_directory: {root} contains no ODPS doc and no ODCS files")
 
         fluid: Dict[str, Any] = {
             "metadata": {

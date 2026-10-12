@@ -60,18 +60,8 @@ class CatalogTarget:
         legal) still produces a usable descriptor.
         """
         metadata = fluid.get("metadata") or {}
-        contract_id = (
-            fluid.get("id")
-            or fluid.get("name")
-            or metadata.get("name")
-            or "unknown"
-        )
-        contract_name = (
-            fluid.get("name")
-            or metadata.get("name")
-            or fluid.get("id")
-            or "unknown"
-        )
+        contract_id = fluid.get("id") or fluid.get("name") or metadata.get("name") or "unknown"
+        contract_name = fluid.get("name") or metadata.get("name") or fluid.get("id") or "unknown"
         return cls(
             contract_id=str(contract_id),
             contract_name=str(contract_name),
@@ -146,9 +136,7 @@ class BaseCatalogProvider(ABC):
     # -- primary API --------------------------------------------------------
 
     @abstractmethod
-    async def publish(
-        self, fluid: Dict[str, Any], target: CatalogTarget
-    ) -> PublishResult:
+    async def publish(self, fluid: Dict[str, Any], target: CatalogTarget) -> PublishResult:
         """Publish a FLUID contract to the catalog.
 
         Args:
@@ -163,9 +151,7 @@ class BaseCatalogProvider(ABC):
         ...
 
     @abstractmethod
-    async def update(
-        self, fluid: Dict[str, Any], target: CatalogTarget
-    ) -> PublishResult:
+    async def update(self, fluid: Dict[str, Any], target: CatalogTarget) -> PublishResult:
         """Update an existing asset in the catalog.
 
         Same contract as :meth:`publish`; most providers treat PUT as
@@ -226,9 +212,7 @@ class BaseCatalogProvider(ABC):
         )
         return _build_catalog_asset_from_fluid(contract)
 
-    def validate_asset(
-        self, asset: CatalogAsset
-    ) -> Tuple[bool, Optional[str]]:
+    def validate_asset(self, asset: CatalogAsset) -> Tuple[bool, Optional[str]]:
         """DEPRECATED: validate a flat CatalogAsset."""
         if not asset.name:
             return False, "Asset name is required"

@@ -87,9 +87,7 @@ def _strip_passthrough(value: Any) -> Any:
     projection only.
     """
     if isinstance(value, Mapping):
-        return {
-            k: _strip_passthrough(v) for k, v in value.items() if k not in _PASSTHROUGH_KEYS
-        }
+        return {k: _strip_passthrough(v) for k, v in value.items() if k not in _PASSTHROUGH_KEYS}
     if isinstance(value, list):
         return [_strip_passthrough(v) for v in value]
     return value
@@ -111,9 +109,7 @@ def format_ground_truth_prompt_block(seed: "SeedResult") -> Dict[str, Any]:
         "exposes": [
             {
                 "id": e.get("id"),
-                "contract": {
-                    "schema": _strip_passthrough(e.get("contract", {}).get("schema", []))
-                },
+                "contract": {"schema": _strip_passthrough(e.get("contract", {}).get("schema", []))},
                 **({"qos": _strip_passthrough(e["qos"])} if e.get("qos") else {}),
             }
             for e in seed.fluid.get("exposes") or []
@@ -134,6 +130,7 @@ def format_mismatch_report(mismatches: List[Dict[str, Any]]) -> List[str]:
     """
     lines: List[str] = []
     import json as _json
+
     for m in mismatches[:10]:  # cap for prompt-size sanity
         seed_val = _json.dumps(m.get("seed"))[:120]
         cand_val = _json.dumps(m.get("candidate"))[:120]
@@ -152,9 +149,7 @@ SHAPE_DIRECTORY = "directory"
 SHAPE_ODCS_ONLY_DIRECTORY = "odcs-only-directory"
 
 
-def load_seed(
-    seed_from: Union[str, Path], *, allow_remote: bool = True
-) -> SeedResult:
+def load_seed(seed_from: Union[str, Path], *, allow_remote: bool = True) -> SeedResult:
     """Detect the input shape and run the matching importer.
 
     Detection order:
@@ -243,11 +238,7 @@ def _load_directory(path: Path, *, allow_remote: bool) -> SeedResult:
     provider.strict_validation = False
     fluid = provider.import_directory(path, allow_remote=allow_remote, lenient=True)
     pt = (fluid.get("metadata") or {}).get("odps_passthrough") or {}
-    shape = (
-        SHAPE_ODCS_ONLY_DIRECTORY
-        if pt.get("odcs_only_directory")
-        else SHAPE_DIRECTORY
-    )
+    shape = SHAPE_ODCS_ONLY_DIRECTORY if pt.get("odcs_only_directory") else SHAPE_DIRECTORY
     provenance: List[Dict[str, Any]] = [
         {"shape": shape, "source": "local", "origin": str(path)},
     ]
@@ -320,9 +311,7 @@ def resolve_at_path(fluid: Mapping[str, Any], path: str) -> Any:
     return cursor
 
 
-def diff_against_seed(
-    seed: SeedResult, candidate: Mapping[str, Any]
-) -> List[Dict[str, Any]]:
+def diff_against_seed(seed: SeedResult, candidate: Mapping[str, Any]) -> List[Dict[str, Any]]:
     """Compare ground-truth values in ``candidate`` against the seed.
 
     Returns a list of ``{"path", "seed", "candidate"}`` entries for paths
@@ -338,7 +327,5 @@ def diff_against_seed(
         seed_value = _strip_passthrough(resolve_at_path(seed.fluid, path))
         cand_value = _strip_passthrough(resolve_at_path(candidate, path))
         if seed_value != cand_value:
-            mismatches.append(
-                {"path": path, "seed": seed_value, "candidate": cand_value}
-            )
+            mismatches.append({"path": path, "seed": seed_value, "candidate": cand_value})
     return mismatches

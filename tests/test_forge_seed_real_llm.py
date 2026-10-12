@@ -43,9 +43,9 @@ from fluid_build.cli.forge_copilot_seed import (
 )
 from fluid_build.providers.odps_standard import BitolOdpsProvider
 
-logging.getLogger(
-    "fluid_build.providers.odps_standard.provider.BitolOdpsProvider"
-).setLevel(logging.ERROR)
+logging.getLogger("fluid_build.providers.odps_standard.provider.BitolOdpsProvider").setLevel(
+    logging.ERROR
+)
 
 
 # ---------------------------------------------------------------------------
@@ -59,10 +59,7 @@ pytestmark = [
         reason="Real-LLM tests are opt-in; set FLUID_REAL_LLM_TESTS=1 to enable",
     ),
     pytest.mark.skipif(
-        not (
-            os.environ.get("ANTHROPIC_API_KEY")
-            or os.environ.get("ANTHROPIC_AUTH_TOKEN")
-        ),
+        not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")),
         reason="Need ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN to call the API",
     ),
 ]
@@ -94,12 +91,7 @@ def seed_bundle(tmp_path_factory):
     """Render a multi-port Bitol bundle from the in-tree multi-expose
     fixture so the test is hermetic (no biz-lab dependency)."""
     bundle_dir = tmp_path_factory.mktemp("seed_bundle")
-    fluid_path = (
-        Path(__file__).parent
-        / "fixtures"
-        / "fluid"
-        / "contract-multi-expose.fluid.yaml"
-    )
+    fluid_path = Path(__file__).parent / "fixtures" / "fluid" / "contract-multi-expose.fluid.yaml"
     with open(fluid_path) as f:
         fluid = yaml.safe_load(f)
     prov = BitolOdpsProvider()
@@ -220,10 +212,7 @@ def test_guard_catches_mutation_then_repair_reduces_it(anthropic_client, seed_bu
     # Repair turn under the production preserve-verbatim system prompt
     repair = (
         "Your previous response mutated ground-truth paths. Restore them:\n\n"
-        + "\n".join(
-            f"  • {m['path']}"
-            for m in mismatches1[:8]
-        )
+        + "\n".join(f"  • {m['path']}" for m in mismatches1[:8])
         + f"\n\nSeed for reference:\n```json\n{json.dumps(seed_view, indent=2)}\n```\n\n"
         "Return the corrected JSON object with the seed's schema and qos "
         "preserved exactly."

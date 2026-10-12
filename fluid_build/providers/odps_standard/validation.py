@@ -47,9 +47,7 @@ SUPPORTED_API_VERSIONS: Tuple[str, ...] = ("v1.1.0", "v1.0.0")  # newest first
 DEFAULT_API_VERSION = "v1.0.0"  # conservative emit default
 
 _SCHEMA_DIR = Path(__file__).parent / "schemas"
-_SCHEMA_FILES: Dict[str, str] = {
-    v: f"odps-product-{v}.json" for v in SUPPORTED_API_VERSIONS
-}
+_SCHEMA_FILES: Dict[str, str] = {v: f"odps-product-{v}.json" for v in SUPPORTED_API_VERSIONS}
 _SCHEMA_CACHE: Dict[str, Optional[Dict[str, Any]]] = {}
 
 

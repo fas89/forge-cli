@@ -46,18 +46,6 @@ from fluid_build.cli.forge_copilot_contract_helpers import (  # noqa: F401
     sanitize_name,
 )
 
-# Optional Phase-7 seed integration — enables --seed-from's ground-truth
-# preservation + repair loop. Import late-bound below so a missing seed
-# module never breaks the runtime.
-from fluid_build.cli.forge_copilot_seed import (  # noqa: F401
-    SeedOptions,
-    SeedResult,
-    diff_against_seed,
-    format_ground_truth_prompt_block,
-    format_mismatch_report,
-    load_seed,
-)
-
 # These need thin wrappers below because they inject dependencies:
 from fluid_build.cli.forge_copilot_contract_helpers import (
     build_seed_contract as _build_seed_contract_raw,
@@ -115,6 +103,18 @@ from fluid_build.cli.forge_copilot_prompts import (
 )
 from fluid_build.cli.forge_copilot_schema_inference import (
     map_inferred_type_to_contract_type as _map_inferred_type_to_contract_type,
+)
+
+# Optional Phase-7 seed integration — enables --seed-from's ground-truth
+# preservation + repair loop. Import late-bound below so a missing seed
+# module never breaks the runtime.
+from fluid_build.cli.forge_copilot_seed import (  # noqa: F401
+    SeedOptions,
+    SeedResult,
+    diff_against_seed,
+    format_ground_truth_prompt_block,
+    format_mismatch_report,
+    load_seed,
 )
 from fluid_build.schema_manager import FluidSchemaManager
 from fluid_build.util.contract import get_builds
@@ -421,9 +421,7 @@ def generate_copilot_artifacts(
     seed_result: Optional[SeedResult] = None
     seed_ground_truth_prompt: Optional[Dict[str, Any]] = None
     if seed_options is not None:
-        seed_result = load_seed(
-            seed_options.seed_from, allow_remote=seed_options.allow_remote
-        )
+        seed_result = load_seed(seed_options.seed_from, allow_remote=seed_options.allow_remote)
         seed_ground_truth_prompt = format_ground_truth_prompt_block(seed_result)
         if logger is not None:
             logger.info(

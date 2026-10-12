@@ -545,8 +545,7 @@ class TestUserConfigPathProbes:
 
         cfg = FluidConfig()
         assert (
-            cfg.get_catalog_config("datamesh-manager").get("endpoint")
-            == "http://example.test:1234"
+            cfg.get_catalog_config("datamesh-manager").get("endpoint") == "http://example.test:1234"
         )
 
 
