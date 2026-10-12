@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 from fluid_build.providers.odcs.mappers.base import (  # noqa: F401
     STASH_KEY,
@@ -95,6 +95,54 @@ def fluid_id(fluid: Mapping[str, Any]) -> Optional[str]:
     if isinstance(metadata, Mapping) and metadata.get("id"):
         return metadata["id"]
     return None
+
+
+def downgrade_v110_keys(
+    doc: MutableMapping[str, Any],
+    keys: Iterable[str],
+    logger: logging.Logger,
+    *,
+    where: str,
+) -> None:
+    """Make ``doc`` (a product or port) valid for an ODPS version below v1.1.0.
+
+    Each v1.1.0-only key in ``keys`` is moved into the v1.0.0-compatible
+    ``customProperties`` list as ``{property: <key>, value: <value>}`` (the
+    legacy encoding of the product ``type``) unless an entry with that
+    property already exists. The v1.1.0-only ``id``/``vendor`` keys of
+    custom-property entries are dropped. Every change is logged as a warning.
+    """
+    moved: List[str] = []
+    custom = doc.get("customProperties")
+    custom_list: List[Any] = list(custom) if isinstance(custom, list) else []
+    present = {c.get("property") for c in custom_list if isinstance(c, Mapping)}
+    for key in keys:
+        if key not in doc:
+            continue
+        value = doc.pop(key)
+        moved.append(key)
+        if key not in present and value is not None:
+            custom_list.append({"property": key, "value": value})
+            present.add(key)
+    stripped = False
+    cleaned: List[Any] = []
+    for entry in custom_list:
+        if isinstance(entry, Mapping) and ("id" in entry or "vendor" in entry):
+            entry = {k: v for k, v in entry.items() if k not in ("id", "vendor")}
+            stripped = True
+        cleaned.append(entry)
+    if (moved or stripped) and (cleaned or "customProperties" in doc):
+        doc["customProperties"] = cleaned
+    if moved:
+        logger.warning(
+            "ODPS < v1.1.0 has no %s on %s; moved to customProperties",
+            ", ".join(moved),
+            where,
+        )
+    if stripped:
+        logger.warning(
+            "ODPS < v1.1.0 custom properties have no id/vendor; dropped them on %s", where
+        )
 
 
 def contract_id_for_port(product_id: str, port_name: str) -> str:

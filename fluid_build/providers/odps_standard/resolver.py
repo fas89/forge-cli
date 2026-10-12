@@ -14,9 +14,21 @@ Resolution order (per the Phase 3 plan):
   2. **http(s) URL** — only when the ``contractId`` is itself a URL (or a
      ``hint`` URL is given) and ``allow_remote=True``.
 
-Every resolved document is validated against the ODCS v3.1.0 schema before
-it is returned. The resolver caches by ``contractId`` so repeated lookups
-inside one import pass cost nothing.
+Every resolved document is validated against the ODCS schema matching its
+``apiVersion`` before it is returned. The resolver caches by ``contractId``
+so repeated lookups inside one import pass cost nothing.
+
+Safety rules (a ``contractId`` comes from a document the user may not trust):
+
+- A local probe only accepts a file whose ODCS ``id`` equals the requested
+  ``contractId`` (the last-segment fallback must not pick up an unrelated
+  contract). Explicit hints and URLs are exempt.
+- A ``contractId`` that is absolute or contains a path separator or ``..`` is
+  never used as a local file stem, and every probed / indexed file must stay
+  inside ``base_path`` once symlinks are resolved.
+- Remote fetches follow redirects only to http(s), read at most
+  :data:`DEFAULT_MAX_BYTES`, and give up after :data:`DEFAULT_TOTAL_TIMEOUT`
+  seconds in total (``timeout`` still bounds each socket operation).
 
 Errors raised:
   - :class:`ContractNotFound`        — no candidate path matched.
@@ -26,15 +38,18 @@ Errors raised:
 
 from __future__ import annotations
 
+import http.client
 import json
 import logging
+import os
+import time
+import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
-from urllib.error import URLError
-from urllib.parse import urlparse
-from urllib.request import urlopen
+from typing import Any, Dict, List, Optional, Tuple, Union
+from urllib.error import HTTPError, URLError
+from urllib.parse import urljoin, urlparse
 
 from fluid_build.providers.base import ProviderError
 from fluid_build.providers.odcs.io import read_input
@@ -42,7 +57,10 @@ from fluid_build.providers.odcs.provider import OdcsProvider
 
 LOG = logging.getLogger(__name__)
 
-DEFAULT_TIMEOUT = 10  # seconds for http(s) fetch
+DEFAULT_TIMEOUT = 10  # seconds per socket operation for http(s) fetch
+DEFAULT_TOTAL_TIMEOUT = 30.0  # seconds for a whole http(s) fetch
+DEFAULT_MAX_BYTES = 10 * 1024 * 1024  # largest remote contract body accepted
+_READ_CHUNK = 64 * 1024
 # Probing matrix sized for the common case (Bitol fragments layout: ODPS doc
 # + sibling ODCS files, optionally nested under contracts/). Previously we
 # probed {"", contracts, odcs, odcs/contracts} × {full-id, last-segment} × 6
@@ -111,7 +129,7 @@ class ContractResolver:
         If ``False``, raise :class:`RemoteFetchDisabled` whenever a URL is the
         only viable candidate. Default ``True``.
     timeout:
-        Socket timeout for http(s) fetches.
+        Socket timeout for http(s) fetches (per socket operation).
     odcs_provider:
         Optional :class:`OdcsProvider` to use for validation. A shared
         instance avoids reloading the JSON Schema for every resolve.
@@ -121,6 +139,9 @@ class ContractResolver:
         Extra absolute paths to consider before the default probes — used by
         :meth:`BitolOdpsProvider.import_directory` so files discovered by
         directory scan get tried first.
+    max_bytes / total_timeout:
+        Remote fetch limits: the largest body accepted and the deadline for
+        a whole fetch (connect + redirects + body).
     """
 
     base_path: Optional[Path] = None
@@ -130,6 +151,8 @@ class ContractResolver:
     candidate_extensions: tuple = DEFAULT_EXTENSIONS
     candidate_subdirs: tuple = DEFAULT_SUBDIRS
     additional_files: List[Path] = field(default_factory=list)
+    max_bytes: int = DEFAULT_MAX_BYTES
+    total_timeout: float = DEFAULT_TOTAL_TIMEOUT
 
     _cache: Dict[str, ResolvedContract] = field(default_factory=dict, init=False)
     _index: Dict[str, Path] = field(default_factory=dict, init=False)
@@ -154,7 +177,11 @@ class ContractResolver:
         if not root.is_dir():
             return
         for child in root.rglob("*"):
-            if child.is_file() and child.suffix.lower() in (".yaml", ".yml", ".json"):
+            if (
+                child.is_file()
+                and child.suffix.lower() in (".yaml", ".yml", ".json")
+                and _is_within(child, root)
+            ):
                 self._index_file(child)
 
     def resolve(
@@ -179,12 +206,14 @@ class ContractResolver:
             if resolved is not None:
                 return self._cache_and_return(contract_id, resolved)
 
-        # 2. Local file probes
+        # 2. Local file probes — only a document whose ``id`` is the
+        # requested contractId counts (the last-segment fallback would
+        # otherwise pick up an unrelated contract of the same port name).
         if self.base_path is not None:
             for candidate in self._local_candidates(contract_id):
                 tried.append(str(candidate))
                 if candidate.exists():
-                    resolved = self._load_local(contract_id, candidate)
+                    resolved = self._load_local(contract_id, candidate, require_id_match=True)
                     if resolved is not None:
                         return self._cache_and_return(contract_id, resolved)
 
@@ -206,6 +235,11 @@ class ContractResolver:
     def _local_candidates(self, contract_id: str) -> List[Path]:
         if self.base_path is None:
             return []
+        if not _is_safe_stem(contract_id):
+            # An absolute path or one with separators / ".." would escape
+            # base_path (pathlib drops base_path for an absolute stem).
+            LOG.debug("contractId %r is not a plain file stem; no local probe", contract_id)
+            return []
         # The contractId may itself contain dots (e.g. "product.daily_orders").
         # We probe both the full id and the last segment (port name) to be lenient.
         stems = [contract_id]
@@ -216,7 +250,9 @@ class ContractResolver:
             sub_dir = self.base_path / sub if sub else self.base_path
             for stem in stems:
                 for ext in self.candidate_extensions:
-                    candidates.append(sub_dir / f"{stem}{ext}")
+                    candidate = sub_dir / f"{stem}{ext}"
+                    if _is_within(candidate, self.base_path):
+                        candidates.append(candidate)
         return candidates
 
     def _try_hint(
@@ -248,13 +284,18 @@ class ContractResolver:
         if isinstance(odcs_id, str):
             self._index.setdefault(odcs_id, path)
 
-    def _load_local(self, contract_id: str, path: Path) -> Optional[ResolvedContract]:
+    def _load_local(
+        self, contract_id: str, path: Path, *, require_id_match: bool = False
+    ) -> Optional[ResolvedContract]:
         try:
             data = read_input(path)
         except Exception as exc:
             LOG.warning("Failed to read %s: %s", path, exc)
             return None
         if not isinstance(data, Mapping):
+            return None
+        if require_id_match and data.get("id") != contract_id:
+            LOG.debug("Skipping %s: id %r != contractId %r", path, data.get("id"), contract_id)
             return None
         self._validate(contract_id, data, origin=str(path))
         return ResolvedContract(
@@ -265,24 +306,22 @@ class ContractResolver:
         )
 
     def _load_remote(self, contract_id: str, url: str) -> Optional[ResolvedContract]:
-        try:
-            with urlopen(url, timeout=self.timeout) as response:
-                content_type = response.headers.get("Content-Type", "")
-                body = response.read()
-        except URLError as exc:
-            raise ContractNotFound(contract_id, [url]) from exc
+        import yaml
+
+        content_type, body = self._fetch(contract_id, url)
 
         # Refuse HTML-with-200 — common when the URL is wrong or it returned a portal page
         if "text/html" in content_type.lower() or body.lstrip().startswith(b"<"):
             raise ContractNotFound(contract_id, [url])
 
-        text = body.decode("utf-8", errors="strict")
         try:
-            data = json.loads(text)
-        except json.JSONDecodeError:
-            import yaml
-
-            data = yaml.safe_load(text)
+            text = body.decode("utf-8", errors="strict")
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError:
+                data = yaml.safe_load(text)
+        except (UnicodeDecodeError, yaml.YAMLError) as exc:
+            raise ContractNotFound(contract_id, [url]) from exc
         if not isinstance(data, Mapping):
             raise ContractNotFound(contract_id, [url])
         self._validate(contract_id, data, origin=url)
@@ -292,6 +331,49 @@ class ContractResolver:
             origin=url,
             contract_id=contract_id,
         )
+
+    def _fetch(self, contract_id: str, url: str) -> Tuple[str, bytes]:
+        """GET ``url`` within the size and time limits; ``(content_type, body)``.
+
+        The deadline is checked between reads, so a fetch ends at most one
+        socket ``timeout`` after ``total_timeout``.
+        """
+        deadline = time.monotonic() + self.total_timeout
+        try:
+            with urlopen(url, timeout=self.timeout) as response:
+                if time.monotonic() > deadline:
+                    raise ContractNotFound(contract_id, [url])
+                final_url = response.geturl() if hasattr(response, "geturl") else url
+                if not _looks_like_url(str(final_url or url)):
+                    raise ContractNotFound(contract_id, [url])
+                content_type = response.headers.get("Content-Type", "") or ""
+                length = response.headers.get("Content-Length")
+                if length and length.isdigit() and int(length) > self.max_bytes:
+                    raise ContractNotFound(contract_id, [url])
+                chunks: List[bytes] = []
+                total = 0
+                while True:
+                    if time.monotonic() > deadline:
+                        LOG.warning("Fetching %s exceeded %gs; giving up", url, self.total_timeout)
+                        raise ContractNotFound(contract_id, [url])
+                    want = min(_READ_CHUNK, self.max_bytes + 1 - total)
+                    # ``read1`` returns after one socket read, so a slow
+                    # server cannot hold a single call past the deadline.
+                    chunk = response.read1(want) if hasattr(response, "read1") else None
+                    if chunk is None:
+                        chunk = response.read(want)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    total += len(chunk)
+                    if total > self.max_bytes:
+                        LOG.warning("%s is larger than %d bytes; refusing it", url, self.max_bytes)
+                        raise ContractNotFound(contract_id, [url])
+        except (URLError, OSError, http.client.HTTPException, ValueError) as exc:
+            # URLError covers HTTP errors and refused redirects; OSError covers
+            # socket timeouts / resets; ValueError a malformed URL.
+            raise ContractNotFound(contract_id, [url]) from exc
+        return content_type, b"".join(chunks)
 
     def _validate(self, contract_id: str, data: Mapping[str, Any], *, origin: str) -> None:
         if self.odcs_provider is None or not self.odcs_provider.schema:
@@ -307,6 +389,47 @@ class ContractResolver:
     def _cache_and_return(self, contract_id: str, resolved: ResolvedContract) -> ResolvedContract:
         self._cache[contract_id] = resolved
         return resolved
+
+
+def urlopen(url: str, *, timeout: float) -> Any:
+    """``urllib.request.urlopen`` whose redirects may only lead to http(s)."""
+    opener = urllib.request.build_opener(_HttpOnlyRedirectHandler())
+    return opener.open(url, timeout=timeout)
+
+
+class _HttpOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Follow redirects only to http(s) (urllib's default also allows ftp)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+        target = urljoin(req.full_url, newurl)
+        if urlparse(target).scheme.lower() not in ("http", "https"):
+            raise HTTPError(
+                req.full_url,
+                code,
+                f"refusing redirect to non-http(s) URL {target!r}",
+                headers,
+                fp,
+            )
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _is_safe_stem(contract_id: str) -> bool:
+    """A contractId usable as a local file stem: relative, no separators, no ``..``."""
+    if not contract_id or ".." in contract_id:
+        return False
+    if "/" in contract_id or "\\" in contract_id or os.sep in contract_id:
+        return False
+    if os.altsep is not None and os.altsep in contract_id:
+        return False
+    return not (os.path.isabs(contract_id) or Path(contract_id).drive)
+
+
+def _is_within(path: Path, root: Path) -> bool:
+    """True when ``path`` (symlinks resolved) stays inside ``root``."""
+    try:
+        return path.resolve().is_relative_to(Path(root).resolve())
+    except (OSError, RuntimeError):
+        return False
 
 
 def _looks_like_url(value: str) -> bool:

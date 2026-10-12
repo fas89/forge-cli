@@ -138,8 +138,10 @@ class _FakeResponse:
         self._body = body
         self.headers = {"Content-Type": content_type}
 
-    def read(self) -> bytes:
-        return self._body
+    def read(self, amt: int = -1) -> bytes:
+        # The resolver reads in bounded chunks; serve the body once.
+        body, self._body = self._body, b""
+        return body
 
     def __enter__(self):
         return self

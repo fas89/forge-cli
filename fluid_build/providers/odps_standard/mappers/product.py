@@ -24,7 +24,10 @@ Product ``type`` (``sourceAligned`` / ``aggregate`` / ``consumerAligned`` …)
 is a first-class field from v1.1.0. Fresh exports targeting ≥ v1.1.0 emit it
 natively from ``metadata.product_type``; fresh v1.0.0 exports keep the legacy
 ``customProperties: [{property: type, value: …}]`` encoding so existing
-consumers see no change.
+consumers see no change. Any product rendered below v1.1.0 (including an
+imported v1.1.0 product re-exported at an explicit v1.0.0) never carries the
+v1.1.0-only ``type``/``deprecated``/``context``/``synonyms`` keys: they move to
+``customProperties`` with a warning.
 """
 
 from __future__ import annotations
@@ -38,6 +41,7 @@ from ..validation import DEFAULT_API_VERSION, api_version_tuple, normalize_api_v
 from .base import (
     ExportCtx,
     ImportCtx,
+    downgrade_v110_keys,
     fluid_id,
     get_metadata_passthrough,
     get_stash,
@@ -53,6 +57,11 @@ KIND = "DataProduct"
 SECTION_KEYS = frozenset({"outputPorts", "inputPorts", "team", "support", "managementPorts"})
 
 _NATIVE_TYPE_MIN = (1, 1, 0)
+
+# Top-level keys that only exist from ODPS v1.1.0. A product rendered at an
+# older version moves them to ``customProperties`` (the legacy encoding of
+# ``type``) so the document stays valid against the version it declares.
+_V110_PRODUCT_KEYS = ("type", "deprecated", "context", "synonyms")
 
 
 # ----- ODPS → FLUID --------------------------------------------------------
@@ -180,6 +189,8 @@ def to_odps(ctx: ExportCtx) -> None:
             and isinstance(st.get("description"), Mapping)
         ):
             merged["description"] = {**st["description"], **now["description"]}
+        if not native_type:
+            downgrade_v110_keys(merged, _V110_PRODUCT_KEYS, ctx.logger, where="the product")
     else:
         merged = {k: v for k, v in now.items() if v is not None}
         if not native_type:
@@ -187,6 +198,7 @@ def to_odps(ctx: ExportCtx) -> None:
             product_type = _product_type(fluid)
             if product_type:
                 merged["customProperties"] = [{"property": "type", "value": product_type}]
+            downgrade_v110_keys(merged, _V110_PRODUCT_KEYS, ctx.logger, where="the product")
         if ctx.options.get("include_custom_properties", True) is False:
             merged.pop("customProperties", None)
 

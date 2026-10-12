@@ -20,7 +20,7 @@ from fluid_build.providers.base import ApplyResult, BaseProvider, ProviderError
 
 from .io import read_input, write_output
 from .mappers import EXPORT_PIPELINE, IMPORT_PIPELINE
-from .mappers.base import ExportCtx, ImportCtx, fluid_id
+from .mappers.base import ExportCtx, ImportCtx, fluid_id, get_expose_passthrough, get_stash
 from .validation import (
     DEFAULT_API_VERSION,
     SUPPORTED_API_VERSIONS,
@@ -108,13 +108,22 @@ class OdcsProvider(BaseProvider):
         out: Optional[Union[Path, str]] = None,
         fmt: Optional[str] = "yaml",
         expose_id: Optional[str] = None,
+        contract_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Render a FLUID contract to ODCS.
 
         When ``expose_id`` is provided the rendered ODCS scopes its ``id`` to
-        ``{product_id}.{expose_id}`` and reads ``status`` from that expose's
-        lifecycle — exactly what the Bitol ODPS provider needs when emitting
-        per-port contracts.
+        ``contract_id`` (default ``{product_id}.{expose_id}``) and reads
+        ``status`` from that expose's lifecycle — exactly what the Bitol ODPS
+        provider needs when emitting per-port contracts. ``contract_id`` lets
+        the caller keep an imported port's real ``contractId`` (a UUID, say)
+        as the emitted ODCS ``id`` instead of minting the convention id.
+
+        An expose imported from an ODPS bundle carries its per-port ODCS
+        document state (``expose.odcs_passthrough._document``); the scoped
+        render then starts from that document so the re-emitted contract
+        reproduces the source (servers, team, SLA, apiVersion, top-level
+        fields) and only the expose's own edits are overlaid.
         """
         if isinstance(src, list):
             raise ProviderError(
@@ -122,7 +131,7 @@ class OdcsProvider(BaseProvider):
                 "Each contract should be exported separately."
             )
 
-        fluid = self._scope_to_expose(src, expose_id) if expose_id else src
+        fluid = self._scope_to_expose(src, expose_id, contract_id=contract_id) if expose_id else src
         odcs: Dict[str, Any] = {}
         ctx = ExportCtx(
             fluid=fluid,
@@ -189,15 +198,26 @@ class OdcsProvider(BaseProvider):
 
     # ---- import ---------------------------------------------------------
 
-    def import_contract(self, odcs: Union[Mapping[str, Any], str, Path]) -> Dict[str, Any]:
+    def import_contract(
+        self,
+        odcs: Union[Mapping[str, Any], str, Path],
+        *,
+        lenient: bool = False,
+    ) -> Dict[str, Any]:
+        """ODCS (file or dict) → FLUID.
+
+        The document is validated against the vendored JSON Schema matching
+        its ``apiVersion`` first; a schema-invalid contract raises
+        :class:`ProviderError` (the historical behaviour). ``lenient=True``
+        downgrades that failure to a warning so partially-malformed
+        contracts can still be inspected.
+        """
         odcs_data = read_input(odcs) if isinstance(odcs, (str, Path)) else dict(odcs)
         try:
             self.validate_contract(odcs_data)
         except ProviderError as exc:
-            # validation failures during import are non-fatal — log and
-            # continue so partially-malformed contracts can still be
-            # inspected. Strict-mode callers should call validate_contract
-            # themselves first.
+            if not lenient:
+                raise
             self.logger.warning("ODCS import validation warning: %s", exc)
 
         fluid: Dict[str, Any] = {}
@@ -222,7 +242,8 @@ class OdcsProvider(BaseProvider):
 
         Returns an ``OpenDataContractStandard`` pydantic model — handy for
         callers that want attribute access and readable field-level
-        validation errors. Requires the ``odcs-strict`` extra; raises
+        validation errors. Requires the ``odcs-strict`` extra (Python 3.10+:
+        ``open-data-contract-standard`` does not support 3.9); raises
         :class:`ProviderError` if the package is not installed.
         """
         try:
@@ -231,8 +252,8 @@ class OdcsProvider(BaseProvider):
             )
         except ImportError as exc:
             raise ProviderError(
-                "open-data-contract-standard is not installed; "
-                "pip install 'fluid-forge[odcs-strict]'"
+                "open-data-contract-standard is not installed (it requires "
+                "Python >= 3.10); pip install 'fluid-forge[odcs-strict]'"
             ) from exc
         return OpenDataContractStandard.model_validate(dict(odcs))
 
@@ -242,33 +263,91 @@ class OdcsProvider(BaseProvider):
         Returns ``{"equal": bool, "missing": [...], "extra": [...],
         "changed": [...]}``. Pure; no I/O.
         """
-        fluid = self.import_contract(odcs)
+        fluid = self.import_contract(odcs, lenient=True)
         reconstructed = self.render(fluid)
         return roundtrip_check(odcs, reconstructed)
 
     # ---- internal helpers ----------------------------------------------
 
-    def _scope_to_expose(self, fluid: Mapping[str, Any], expose_id: str) -> Dict[str, Any]:
-        """Filter a FLUID contract to a single output port for per-port export."""
-        scoped = copy.deepcopy(dict(fluid))
+    def _scope_to_expose(
+        self,
+        fluid: Mapping[str, Any],
+        expose_id: str,
+        contract_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Filter a FLUID contract to a single output port for per-port export.
+
+        ``contract_id`` (when given) becomes the scoped ODCS ``id``; otherwise
+        the ``{product_id}.{expose_id}`` convention is minted.
+        """
         exposes = [
             e
-            for e in scoped.get("exposes", [])
-            if isinstance(e, dict) and (e.get("exposeId") == expose_id or e.get("id") == expose_id)
+            for e in fluid.get("exposes", [])
+            if isinstance(e, Mapping)
+            and (e.get("exposeId") == expose_id or e.get("id") == expose_id)
         ]
         if not exposes:
             available = [
                 e.get("exposeId") or e.get("id")
                 for e in fluid.get("exposes", [])
-                if isinstance(e, dict)
+                if isinstance(e, Mapping)
             ]
             raise ProviderError(
                 f"Expose '{expose_id}' not found in contract. " f"Available exposeIds: {available}"
             )
-        scoped["exposes"] = exposes
+        document = get_expose_passthrough(exposes[0]).get(DOCUMENT_KEY)
+        if isinstance(document, Mapping):
+            scoped = _port_document_view(document, exposes[0])
+        else:
+            scoped = copy.deepcopy(dict(fluid))
+            scoped["exposes"] = [copy.deepcopy(dict(e)) for e in exposes]
+            lifecycle = exposes[0].get("lifecycle") or {}
+            scoped["_scoped_status"] = lifecycle.get("state", "active")
         product_id = fluid_id(fluid)
-        if product_id:
+        if contract_id:
+            scoped["_scoped_id"] = contract_id
+        elif product_id:
             scoped["_scoped_id"] = f"{product_id}.{expose_id}"
-        lifecycle = exposes[0].get("lifecycle") or {}
-        scoped["_scoped_status"] = lifecycle.get("state", "active")
         return scoped
+
+
+# Key (inside ``expose.odcs_passthrough``) holding the per-port ODCS document
+# state captured when an ODPS bundle is imported; see
+# :meth:`BitolOdpsProvider._merge_odcs_into_expose`.
+DOCUMENT_KEY = "_document"
+
+
+def _port_document_view(document: Mapping[str, Any], expose: Mapping[str, Any]) -> Dict[str, Any]:
+    """Rebuild the FLUID view a per-port ODCS document was imported from.
+
+    ``document`` holds the sub-import's document-level FLUID (``metadata``
+    with its ``odcs_passthrough`` stash of top-level fields, servers, team,
+    SLA and quality; ``owner``; ``contract``), any extra SchemaObjects, and
+    the expose's FLUID-native ``name``/``description`` at import time. The
+    current ``expose`` supplies the schema (and every edit made since).
+    Because the expose is shared with the ODPS port, its native name and
+    description are mapped back to the SchemaObject's own values unless the
+    user changed them after import.
+    """
+    doc = copy.deepcopy(dict(document))
+    extra = doc.pop("extra_exposes", None) or []
+    imported = doc.pop("expose_native", None) or {}
+    view_expose = copy.deepcopy(dict(expose))
+    st = get_stash(get_expose_passthrough(view_expose))
+    if st is not None:
+        name_now = view_expose.get("exposeId") or view_expose.get("id")
+        if name_now == imported.get("name") and st.get("name"):
+            view_expose["id"] = view_expose["exposeId"] = st["name"]
+        if (view_expose.get("description") or None) == (imported.get("description") or None):
+            if st.get("description"):
+                view_expose["description"] = st["description"]
+            else:
+                view_expose.pop("description", None)
+    doc["exposes"] = [view_expose] + [copy.deepcopy(e) for e in extra if isinstance(e, Mapping)]
+    doc.setdefault("expects", [])
+    lifecycle = view_expose.get("lifecycle")
+    if isinstance(lifecycle, Mapping) and lifecycle.get("state"):
+        doc["_scoped_status"] = lifecycle["state"]
+    else:
+        doc["_scoped_status"] = (doc.get("metadata") or {}).get("status", "active")
+    return doc

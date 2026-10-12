@@ -46,7 +46,6 @@ class OdpsStandardProvider(_BitolOdpsProvider):
         # Legacy attribute names — tests reference these directly.
         self.odps_version = self.api_version
         self.odps_spec_url = self.spec_url
-        self.default_port_version = "1"
         # Legacy callers (e.g. DataMeshManagerProvider's publish path) feed
         # partially-populated contracts to this back-compat alias and expect
         # the render call to succeed even when the per-port ODCS misses
