@@ -23,7 +23,7 @@ Wraps :class:`DataMeshManagerProvider` behind the
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from .base import BaseCatalogProvider, CatalogTarget, PublishResult
 
@@ -49,17 +49,46 @@ class DataMeshManagerCatalogProvider(BaseCatalogProvider):
 
     # -- BaseCatalogProvider interface --------------------------------------
 
-    async def publish(self, fluid: Dict[str, Any], target: CatalogTarget) -> PublishResult:
+    def _spec_selection(self, target: CatalogTarget) -> Dict[str, Optional[str]]:
+        """Collect the data-product-spec opt-outs for this publish call.
+
+        Per-call ``target.catalog_hints`` win over the catalog config
+        (``catalogs.datamesh-manager.data_product_spec`` / ``provider_hint``).
+        When neither is set both values stay ``None`` so
+        :meth:`DataMeshManagerProvider._resolve_data_product_specification`
+        applies the same order as ``fluid dmm publish``: explicit spec →
+        provider hint → ``DMM_DATA_PRODUCT_SPEC`` → ODPS default.
+        """
+        hints = target.catalog_hints or {}
+        spec = (
+            hints.get("data_product_specification")
+            or hints.get("data_product_spec")
+            or self.config.get("data_product_specification")
+            or self.config.get("data_product_spec")
+        )
+        hint = hints.get("provider_hint") or self.config.get("provider_hint")
+        return {
+            "data_product_specification": str(spec) if spec else None,
+            "provider_hint": str(hint) if hint else None,
+        }
+
+    async def publish(self, fluid: Any, target: Optional[CatalogTarget] = None) -> PublishResult:
         """Publish *fluid* as a data product to Entropy Data.
 
         The FLUID dict is forwarded to the underlying provider verbatim so
         every output port is preserved — one per-port ODCS contract is
         emitted instead of the single redundant wrapper the old flat-asset
         path used to build.
+
+        Passing a deprecated :class:`CatalogAsset` as the only argument
+        (the pre-0.7.9 ``publish(asset)`` API) still works for one release
+        and emits a :class:`DeprecationWarning`.
         """
-        provider_hint = target.catalog_hints.get("provider_hint", "odps")
+        fluid, target = self._coerce_publish_args(fluid, target, "publish")
         try:
-            result = self._provider.apply(fluid, publish_contract=True, provider_hint=provider_hint)
+            result = self._provider.apply(
+                fluid, publish_contract=True, **self._spec_selection(target)
+            )
             return PublishResult(
                 success=True,
                 catalog_id=self.name,
@@ -75,8 +104,9 @@ class DataMeshManagerCatalogProvider(BaseCatalogProvider):
                 error=str(exc),
             )
 
-    async def update(self, fluid: Dict[str, Any], target: CatalogTarget) -> PublishResult:
+    async def update(self, fluid: Any, target: Optional[CatalogTarget] = None) -> PublishResult:
         # PUT is idempotent — publish == update
+        fluid, target = self._coerce_publish_args(fluid, target, "update")
         return await self.publish(fluid, target)
 
     async def verify(self, contract_id: str) -> bool:

@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import warnings
 from pathlib import Path
 from typing import List, Optional
 
@@ -54,7 +55,12 @@ except ImportError:
 
 from ..config_manager import FluidConfig
 from ..loader import load_contract
-from ..providers.catalogs import CatalogTarget, PublishResult, get_catalog_provider
+from ..providers.catalogs import (
+    BaseCatalogProvider,
+    CatalogTarget,
+    PublishResult,
+    get_catalog_provider,
+)
 from ..providers.common import metrics_collector
 
 COMMAND = "publish"
@@ -266,6 +272,22 @@ async def publish_contract(
         contract_yaml = None
     target = CatalogTarget.from_fluid(contract, contract_yaml=contract_yaml)
 
+    # Third-party catalog plugins written against the pre-0.7.9 API
+    # (``publish(asset)`` / ``update(asset)`` / ``validate_asset(asset)``)
+    # keep working for one release through the old CatalogAsset flow.
+    if _uses_legacy_asset_api(provider):
+        return await _publish_contract_legacy(
+            provider,
+            contract,
+            contract_path=contract_path,
+            contract_yaml=contract_yaml,
+            catalog_name=catalog_name,
+            dry_run=dry_run,
+            verify_only=verify_only,
+            skip_health_check=skip_health_check,
+            verbose=verbose,
+        )
+
     if verbose:
         logger.info(f"📦 Publishing contract {target.contract_name} (id: {target.contract_id})")
 
@@ -311,6 +333,92 @@ async def publish_contract(
 
     result = await provider.publish(contract, target)
     return result
+
+
+def _uses_legacy_asset_api(provider: object) -> bool:
+    """True for a catalog provider still implementing ``publish(asset)``."""
+    if not isinstance(provider, BaseCatalogProvider):
+        return False
+    return type(provider)._uses_legacy_asset_api()
+
+
+async def _publish_contract_legacy(
+    provider: BaseCatalogProvider,
+    contract: dict,
+    *,
+    contract_path: Path,
+    contract_yaml: Optional[str],
+    catalog_name: str,
+    dry_run: bool,
+    verify_only: bool,
+    skip_health_check: bool,
+    verbose: bool,
+) -> PublishResult:
+    """Run the pre-0.7.9 CatalogAsset publish flow for a legacy plugin.
+
+    Mirrors the old ``publish_contract`` exactly: ``map_contract_to_asset``
+    (the plugin's override when present) → ``validate_asset`` for
+    ``--dry-run`` → health check → ``publish(asset)``.
+    """
+    warnings.warn(
+        f"Catalog provider {type(provider).__name__} implements the deprecated "
+        "publish(asset) API; implement publish(fluid, target) instead. "
+        "Legacy CatalogAsset providers will stop working in a future release.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    try:
+        with warnings.catch_warnings():
+            # The single deprecation notice above is enough.
+            warnings.simplefilter("ignore", DeprecationWarning)
+            asset = provider.map_contract_to_asset(contract)
+        asset.contract_yaml = contract_yaml
+    except Exception as e:
+        return PublishResult(
+            success=False,
+            catalog_id=catalog_name,
+            asset_id=contract.get("id", str(contract_path)),
+            error=f"Failed to map contract to asset: {e}",
+        )
+
+    if verbose:
+        logger.info(f"📦 Mapped contract to asset: {asset.name} (ID: {asset.id})")
+
+    if verify_only:
+        exists = await provider.verify(asset.id)
+        return PublishResult(
+            success=exists,
+            catalog_id=catalog_name,
+            asset_id=asset.id,
+            error=None if exists else "Asset not found in catalog",
+            details={"verified": exists, "operation": "verify"},
+        )
+
+    if dry_run:
+        is_valid, error_msg = provider.validate_asset(asset)
+        return PublishResult(
+            success=is_valid,
+            catalog_id=catalog_name,
+            asset_id=asset.id,
+            error=error_msg,
+            details={"dry_run": True, "valid": is_valid},
+        )
+
+    if not skip_health_check:
+        if verbose:
+            logger.info("🏥 Checking catalog health...")
+        if not await provider.health_check():
+            return PublishResult(
+                success=False,
+                catalog_id=catalog_name,
+                asset_id=asset.id,
+                error="Catalog health check failed - endpoint not accessible",
+            )
+
+    if verbose:
+        logger.info(f"🚀 Publishing to {catalog_name}...")
+
+    return await provider.publish(asset)  # type: ignore[call-arg]
 
 
 def format_results(

@@ -398,7 +398,13 @@ class DataMeshManagerProvider(BaseProvider):
             team_obj = dp.get("team")
             if not isinstance(team_obj, dict):
                 team_obj = {}
-            team_obj.setdefault("name", tid)
+            if team_id_override:
+                # ``--team-id`` must win over the team the ODPS mapper derived
+                # from ``metadata.owner`` — otherwise the product is assigned
+                # to a different team than the one ``_ensure_team`` creates.
+                team_obj["name"] = tid
+            else:
+                team_obj.setdefault("name", tid)
             dp["team"] = team_obj
         else:
             dp["teamId"] = tid
@@ -832,15 +838,20 @@ class DataMeshManagerProvider(BaseProvider):
         Resolution order:
         1) explicit value (``--data-product-spec`` / ``data_product_specification=``)
         2) provider hint: ``odps``/``opds`` → ODPS, ``dps`` → legacy DPS 0.0.1
-        3) Bitol DataProduct convention: ``fluid["kind"] == "DataProduct"`` → ODPS
-        4) ``DMM_DATA_PRODUCT_SPEC`` environment variable
-        5) default: ODPS
+        3) ``DMM_DATA_PRODUCT_SPEC`` environment variable
+        4) default: ODPS
 
         ODPS is the default because current Entropy Data / Entropy CE
         organisations accept only ``odps`` and reject the legacy DPS shape
         with HTTP 400 ("Specification type 'dps' is not supported"). Pass
-        ``--data-product-spec 0.0.1`` (or ``provider_hint="dps"``) to keep
-        sending the legacy Data Product Specification.
+        ``--data-product-spec 0.0.1`` (or ``provider_hint="dps"``, or set
+        ``DMM_DATA_PRODUCT_SPEC=0.0.1``) to keep sending the legacy Data
+        Product Specification.
+
+        ``fluid`` is accepted for call-site compatibility and is not used:
+        the contract's ``kind`` does not influence the outgoing spec (every
+        schema-valid FLUID data product declares ``kind: DataProduct``, so a
+        ``kind`` heuristic would make the env-var opt-out unreachable).
         """
         if value:
             return str(value).strip()
@@ -850,9 +861,6 @@ class DataMeshManagerProvider(BaseProvider):
             return self.DATA_PRODUCT_SPEC_ODPS
         if hint == "dps":
             return self.DATA_PRODUCT_SPEC_DPS
-
-        if isinstance(fluid, Mapping) and str(fluid.get("kind", "")).lower() == "dataproduct":
-            return self.DATA_PRODUCT_SPEC_ODPS
 
         env_value = os.getenv("DMM_DATA_PRODUCT_SPEC", "").strip()
         if env_value:

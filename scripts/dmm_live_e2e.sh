@@ -40,6 +40,12 @@
 #   FLUID_CHECKOUT     forge-cli checkout (default: git toplevel of this script)
 #   DMM_PRODUCT_SPEC   if set, passed as --data-product-spec on path 2
 #                      (default: unset, i.e. exercise fluid's own default — ODPS)
+#
+# Side effects: none on your home directory. The fluid commands run with HOME
+# pointed at a private temp dir that holds the generated
+# ~/.fluid/config.yaml, so your real ~/.fluid/config.yaml / ~/.fluidrc.yaml
+# are never read or modified. The API key is passed to curl through a 0600
+# header file, never on the command line.
 set -euo pipefail
 
 CE_REPO=https://github.com/entropy-data/entropy-data-ce.git
@@ -49,21 +55,37 @@ FLUID_CHECKOUT="${FLUID_CHECKOUT:-$(git -C "$(dirname "$0")" rev-parse --show-to
 FIXTURE="$FLUID_CHECKOUT/tests/fixtures/fluid/contract-multi-expose.fluid.yaml"
 PRODUCT_ID="commerce.orders-product"
 PORTS=(daily_orders hourly_orders)
-FLUID_CFG="$HOME/.fluid/config.yaml"
-WORK="${TMPDIR:-/tmp}/dmm_live_e2e.$$"
-mkdir -p "$WORK"
+# Private, unpredictable work dir (mktemp -d creates it 0700 and fails if it
+# already exists — no symlink games in a shared /tmp).
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/dmm_live_e2e.XXXXXXXX")
 trap 'rm -rf "$WORK"' EXIT
+# Isolated HOME for the fluid commands; the generated config lives here.
+FLUID_HOME="$WORK/home"
+FLUID_CFG="$FLUID_HOME/.fluid/config.yaml"
+HDR_FILE="$WORK/api-key.header"
+# Keep `pip install --user` installs importable under the isolated HOME.
+PY_USER_BASE="${PYTHONUSERBASE:-$(python3 -m site --user-base 2>/dev/null || true)}"
 
 log()  { printf '\n\033[1;34m== %s\033[0m\n' "$*"; }
 ok()   { printf '   \033[1;32m✓\033[0m %s\n' "$*"; }
 fail() { printf '   \033[1;31m✗ %s\033[0m\n' "$*"; FAILED=1; }
 FAILED=0
 
+write_api_key_header() { # header file read by `curl -H @file` (0600, printf is a builtin)
+  : "${DMM_API_KEY:?export DMM_API_KEY first}"
+  (umask 077; printf 'x-api-key: %s\n' "$DMM_API_KEY" > "$HDR_FILE")
+}
+
 api() { # api <METHOD> <path>  → prints HTTP code; body in $WORK/body.json
   local m=$1 p=$2
+  [ -f "$HDR_FILE" ] || write_api_key_header
   curl -sS -o "$WORK/body.json" -w '%{http_code}' -X "$m" \
-       -H "x-api-key: ${DMM_API_KEY:?export DMM_API_KEY first}" \
+       -H @"$HDR_FILE" \
        -H 'Accept: application/json' "$DMM_API_URL$p"
+}
+
+fluid_isolated() { # run fluid with HOME pointed at the private config dir
+  HOME="$FLUID_HOME" PYTHONUSERBASE="$PY_USER_BASE" fluid "$@"
 }
 
 cmd_up() {
@@ -89,8 +111,7 @@ EOF
 
 write_fluid_config() {
   mkdir -p "$(dirname "$FLUID_CFG")"
-  [ -f "$FLUID_CFG" ] && cp "$FLUID_CFG" "$FLUID_CFG.bak.$(date +%s)" && ok "backed up existing $FLUID_CFG"
-  cat > "$FLUID_CFG" <<EOF
+  (umask 077; cat > "$FLUID_CFG") <<EOF
 catalogs:
   datamesh-manager:
     endpoint: $DMM_API_URL
@@ -99,7 +120,7 @@ catalogs:
       api_key: \${DMM_API_KEY}
     enabled: true
 EOF
-  ok "wrote $FLUID_CFG (api_key via \${DMM_API_KEY} expansion)"
+  ok "wrote $FLUID_CFG under the isolated HOME (api_key via \${DMM_API_KEY} expansion)"
 }
 
 assert_landed() { # assert_landed <label> <expected_api_version>
@@ -125,7 +146,7 @@ cmd_run() {
   [ -f "$FIXTURE" ] || { echo "fixture not found: $FIXTURE (set FLUID_CHECKOUT)"; exit 1; }
   log "Sanity: DMM API reachable with this key"
   code=$(api GET /api/dataproducts); [ "$code" = 200 ] && ok "GET /api/dataproducts → 200" || { fail "GET /api/dataproducts → $code: $(head -c 300 "$WORK/body.json")"; exit 1; }
-  log "fluid version"; fluid --version | head -1
+  log "fluid version"; fluid_isolated --version | head -1
   write_fluid_config
 
   # Path 2 exercises fluid's own default spec (ODPS) unless DMM_PRODUCT_SPEC pins one.
@@ -137,14 +158,14 @@ cmd_run() {
 
     log "[$label] path 1: fluid publish --catalog datamesh-manager"
     cleanup_product
-    if fluid publish "$FIXTURE" --catalog datamesh-manager --format json | tee "$WORK/publish.json" \
+    if fluid_isolated publish "$FIXTURE" --catalog datamesh-manager --format json | tee "$WORK/publish.json" \
          | python3 -c "import json,sys;r=json.load(sys.stdin);sys.exit(0 if all(x['success'] for x in r) else 1)"; then
       ok "$label: fluid publish reported success"; else fail "$label: fluid publish reported failure — see $WORK/publish.json"; fi
     assert_landed "$label / catalog" "$want"
 
     log "[$label] path 2: fluid dmm publish --with-contract (strict, fail-on-error)"
     cleanup_product
-    if fluid dmm publish "$FIXTURE" --api-url "$DMM_API_URL" --with-contract --contract-format odcs \
+    if fluid_isolated dmm publish "$FIXTURE" --api-url "$DMM_API_URL" --with-contract --contract-format odcs \
          --validate-generated-contracts --validation-mode strict --fail-on-contract-error "${SPEC_FLAG[@]}"; then
       ok "$label: fluid dmm publish exit 0"; else fail "$label: fluid dmm publish non-zero exit"; fi
     assert_landed "$label / dmm" "$want"
@@ -154,10 +175,12 @@ cmd_run() {
   if [ "$FAILED" = 0 ]; then
     echo "ALL CHECKS PASSED — Entropy CE accepted both paths at v3.1.0 and v3.2.0."
   else
-    echo "SOME CHECKS FAILED (see ✗ lines)."; trap - EXIT; echo "Bodies kept in $WORK"; exit 1
+    echo "SOME CHECKS FAILED (see ✗ lines)."
+    # Keep the response bodies for debugging, but never the API key.
+    rm -f "$HDR_FILE"; trap - EXIT; echo "Bodies kept in $WORK"; exit 1
   fi
 }
 
 cmd_down() { docker compose -f "$CE_DIR/docker-compose.yaml" down; }
 
-case "${1:-}" in up) cmd_up ;; run) cmd_run ;; down) cmd_down ;; *) sed -n '16,44p' "$0"; exit 2 ;; esac
+case "${1:-}" in up) cmd_up ;; run) cmd_run ;; down) cmd_down ;; *) sed -n '16,48p' "$0"; exit 2 ;; esac

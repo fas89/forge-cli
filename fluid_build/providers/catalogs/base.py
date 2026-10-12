@@ -20,6 +20,7 @@ FLUID contract dict plus a thin :class:`CatalogTarget` descriptor. The old
 still construct one by hand.
 """
 
+import inspect
 import logging
 import warnings
 from abc import ABC, abstractmethod
@@ -136,7 +137,9 @@ class BaseCatalogProvider(ABC):
     # -- primary API --------------------------------------------------------
 
     @abstractmethod
-    async def publish(self, fluid: Dict[str, Any], target: CatalogTarget) -> PublishResult:
+    async def publish(
+        self, fluid: Dict[str, Any], target: Optional[CatalogTarget] = None
+    ) -> PublishResult:
         """Publish a FLUID contract to the catalog.
 
         Args:
@@ -144,14 +147,22 @@ class BaseCatalogProvider(ABC):
                 as the source of truth for schema, output ports, metadata,
                 owner, etc.
             target: Identity + per-catalog hints for this publish call.
+                Defaults to :meth:`CatalogTarget.from_fluid`.
 
         Returns:
             PublishResult with success/failure details.
+
+        Implementations should start with
+        ``fluid, target = self._coerce_publish_args(fluid, target, "publish")``
+        so callers still using the deprecated ``publish(asset)`` form (a
+        single :class:`CatalogAsset`) keep working for one release.
         """
         ...
 
     @abstractmethod
-    async def update(self, fluid: Dict[str, Any], target: CatalogTarget) -> PublishResult:
+    async def update(
+        self, fluid: Dict[str, Any], target: Optional[CatalogTarget] = None
+    ) -> PublishResult:
         """Update an existing asset in the catalog.
 
         Same contract as :meth:`publish`; most providers treat PUT as
@@ -172,19 +183,95 @@ class BaseCatalogProvider(ABC):
     def validate_target(
         self, fluid: Dict[str, Any], target: CatalogTarget
     ) -> Tuple[bool, Optional[str]]:
-        """Validate a (fluid, target) pair before publishing."""
+        """Validate a (fluid, target) pair before publishing.
+
+        Only the identity (id + name) is required. A missing ``domain`` or
+        owner is *not* an error — the payload builders fall back to
+        ``"general"`` / ``"unknown"`` exactly as the pre-0.7.9
+        ``map_contract_to_asset`` + ``validate_asset`` flow did, so
+        schema-valid contracts that omit them still publish.
+
+        A subclass that still overrides the deprecated :meth:`validate_asset`
+        hook keeps gating publishes: its override is consulted with the
+        flattened asset.
+        """
         if not target.contract_id:
             return False, "contract id is required"
         if not target.contract_name:
             return False, "contract name is required"
-        metadata = fluid.get("metadata") or {}
-        owner = metadata.get("owner") or fluid.get("owner") or {}
-        if not (owner.get("team") or owner.get("name")):
-            return False, "contract owner is required"
-        domain = fluid.get("domain") or metadata.get("domain")
-        if not domain:
-            return False, "contract domain is required"
+        if type(self).validate_asset is not BaseCatalogProvider.validate_asset:
+            asset = self._legacy_asset_from_fluid(fluid, target)
+            return self.validate_asset(asset)
         return True, None
+
+    # -- deprecated-API compatibility helpers -------------------------------
+
+    @classmethod
+    def _uses_legacy_asset_api(cls) -> bool:
+        """True when ``cls.publish`` still has the pre-0.7.9 ``publish(asset)``
+        signature (exactly one positional parameter besides ``self``).
+
+        Third-party catalog plugins written against that API are routed by
+        ``fluid publish`` through ``map_contract_to_asset`` →
+        ``validate_asset`` → ``publish(asset)``.
+        """
+        publish = getattr(cls, "publish", None)
+        if publish is None or getattr(publish, "__isabstractmethod__", False):
+            return False
+        try:
+            params = list(inspect.signature(publish).parameters.values())
+        except (TypeError, ValueError):
+            return False
+        params = params[1:]  # drop ``self``
+        if any(p.kind is inspect.Parameter.VAR_POSITIONAL for p in params):
+            return False
+        positional = [
+            p
+            for p in params
+            if p.kind
+            in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        ]
+        return len(positional) == 1
+
+    def _legacy_asset_from_fluid(
+        self, fluid: Dict[str, Any], target: Optional[CatalogTarget] = None
+    ) -> CatalogAsset:
+        """Build the flat asset a legacy hook expects, honouring a subclass's
+        own :meth:`map_contract_to_asset` override (without re-emitting the
+        base deprecation warning)."""
+        if type(self).map_contract_to_asset is not BaseCatalogProvider.map_contract_to_asset:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                asset = self.map_contract_to_asset(fluid)
+        else:
+            asset = _build_catalog_asset_from_fluid(fluid)
+        if target is not None and target.contract_yaml and not asset.contract_yaml:
+            asset.contract_yaml = target.contract_yaml
+        return asset
+
+    def _coerce_publish_args(
+        self, fluid: Any, target: Optional[CatalogTarget], method: str = "publish"
+    ) -> Tuple[Dict[str, Any], CatalogTarget]:
+        """Normalise ``publish``/``update`` arguments.
+
+        Accepts the current ``(fluid, target)`` form (``target`` defaults to
+        :meth:`CatalogTarget.from_fluid`) and the deprecated single-argument
+        ``(asset)`` form, which emits a :class:`DeprecationWarning` and is
+        converted to the equivalent ``(fluid, target)`` pair.
+        """
+        if isinstance(fluid, CatalogAsset):
+            warnings.warn(
+                f"{method}(CatalogAsset) is deprecated; call "
+                f"{method}(fluid, CatalogTarget.from_fluid(fluid)) with the raw "
+                "FLUID dict instead. The CatalogAsset form will be removed in a "
+                "future release.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+            return _fluid_target_from_asset(fluid)
+        if target is None:
+            target = CatalogTarget.from_fluid(fluid)
+        return fluid, target
 
     async def health_check(self) -> bool:
         """Check whether the catalog endpoint is reachable."""
@@ -236,12 +323,10 @@ class BaseCatalogProvider(ABC):
             DeprecationWarning,
             stacklevel=2,
         )
-        fluid = asset.raw_contract if asset.raw_contract else _minimal_fluid_from_asset(asset)
-        target = CatalogTarget(
-            contract_id=asset.id,
-            contract_name=asset.name,
-            contract_yaml=asset.contract_yaml,
-        )
+        if self._uses_legacy_asset_api():
+            # Provider still implements the old ``publish(asset)`` signature.
+            return await self.publish(asset)  # type: ignore[call-arg]
+        fluid, target = _fluid_target_from_asset(asset)
         return await self.publish(fluid, target)
 
     async def update_asset(self, asset: CatalogAsset) -> PublishResult:
@@ -252,12 +337,9 @@ class BaseCatalogProvider(ABC):
             DeprecationWarning,
             stacklevel=2,
         )
-        fluid = asset.raw_contract if asset.raw_contract else _minimal_fluid_from_asset(asset)
-        target = CatalogTarget(
-            contract_id=asset.id,
-            contract_name=asset.name,
-            contract_yaml=asset.contract_yaml,
-        )
+        if self._uses_legacy_asset_api():
+            return await self.update(asset)  # type: ignore[call-arg]
+        fluid, target = _fluid_target_from_asset(asset)
         return await self.update(fluid, target)
 
 
@@ -308,6 +390,17 @@ def _build_catalog_asset_from_fluid(contract: Dict[str, Any]) -> CatalogAsset:
         sensitivity=sensitivity,
         raw_contract=dict(contract),
     )
+
+
+def _fluid_target_from_asset(asset: CatalogAsset) -> Tuple[Dict[str, Any], CatalogTarget]:
+    """Convert a deprecated :class:`CatalogAsset` to a ``(fluid, target)`` pair."""
+    fluid = asset.raw_contract if asset.raw_contract else _minimal_fluid_from_asset(asset)
+    target = CatalogTarget(
+        contract_id=asset.id,
+        contract_name=asset.name,
+        contract_yaml=asset.contract_yaml,
+    )
+    return fluid, target
 
 
 def _minimal_fluid_from_asset(asset: CatalogAsset) -> Dict[str, Any]:

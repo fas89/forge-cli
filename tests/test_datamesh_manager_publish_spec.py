@@ -143,14 +143,19 @@ def test_apply_dry_run_env_var_sets_default_spec(monkeypatch):
     contract or the CLI invocation; explicit values still win over it."""
     monkeypatch.setenv("DMM_DATA_PRODUCT_SPEC", "0.0.1")
     provider = DataMeshManagerProvider(api_key="dummy", api_url="https://api.entropy-data.com")
+    # Schema-valid FLUID data products always declare ``kind: DataProduct``;
+    # the env-var opt-out must still apply to them.
+    contract = _sample_contract()
+    contract["kind"] = "DataProduct"
 
-    result = provider.apply(_sample_contract(), dry_run=True)
+    result = provider.apply(contract, dry_run=True)
     assert result["payload"]["dataProductSpecification"] == "0.0.1"
+    assert provider.plan(contract)[0]["payload"]["dataProductSpecification"] == "0.0.1"
 
-    result = provider.apply(_sample_contract(), dry_run=True, provider_hint="odps")
+    result = provider.apply(contract, dry_run=True, provider_hint="odps")
     assert result["payload"]["kind"] == "DataProduct"
 
-    result = provider.apply(_sample_contract(), dry_run=True, data_product_specification="4.1.0")
+    result = provider.apply(contract, dry_run=True, data_product_specification="4.1.0")
     assert result["payload"]["dataProductSpecification"] == "4.1.0"
 
 
@@ -165,12 +170,13 @@ def test_apply_dry_run_uses_odps_spec_when_provider_hint_is_odps():
     assert "info" not in payload
 
 
-def test_apply_dry_run_uses_odps_spec_when_contract_kind_is_dataproduct():
+def test_apply_dry_run_uses_odps_spec_when_contract_kind_is_dataproduct(monkeypatch):
     """Bitol-style FLUID contracts declare ``kind: DataProduct``; the publish
     payload must therefore default to ODPS so Entropy CE (configured for
     ``odps`` only) accepts it. Regression test for the issue surfaced by
     running ``publish:pre`` against the snowflake-biz-lab repo.
     """
+    monkeypatch.delenv("DMM_DATA_PRODUCT_SPEC", raising=False)
     provider = DataMeshManagerProvider(api_key="dummy", api_url="https://api.entropy-data.com")
     contract = _sample_contract()
     contract["kind"] = "DataProduct"
@@ -566,7 +572,7 @@ class TestCatalogFluidPassthrough:
     collapse multi-port contracts into a single wrapper.
     """
 
-    def test_dmm_catalog_provider_forwards_full_fluid(self):
+    def test_dmm_catalog_provider_forwards_full_fluid(self, monkeypatch):
         """The new ``publish(fluid, target)`` signature hands the underlying
         DMM provider the raw FLUID dict — every output port is preserved.
         """
@@ -609,7 +615,16 @@ class TestCatalogFluidPassthrough:
         assert result.asset_id == "bronze.test"
         # The underlying provider must have seen the full multi-port FLUID.
         assert len(captured["fluid"]["exposes"]) == 2
-        assert captured["kwargs"].get("provider_hint") == "odps"
+        # No hard-coded hint: the adapter defers to the provider's resolver
+        # (explicit spec → hint → DMM_DATA_PRODUCT_SPEC → ODPS default) so the
+        # env-var / catalog-config opt-outs keep working on this path.
+        assert captured["kwargs"].get("provider_hint") is None
+        assert captured["kwargs"].get("data_product_specification") is None
+        monkeypatch.delenv("DMM_DATA_PRODUCT_SPEC", raising=False)
+        assert (
+            provider._provider._resolve_data_product_specification(None)
+            == provider._provider.DATA_PRODUCT_SPEC_ODPS
+        )
         assert captured["kwargs"].get("publish_contract") is True
 
     def test_dmm_catalog_provider_respects_provider_hint_override(self):
@@ -673,3 +688,23 @@ class TestCatalogFluidPassthrough:
         assert any(issubclass(w.category, DeprecationWarning) for w in caught)
         assert asset.raw_contract is not None
         assert len(asset.raw_contract["exposes"]) == 2
+
+        # ...and the publish_asset shim really forwards the full FLUID dict.
+        import asyncio
+
+        seen: dict = {}
+
+        async def _record(fluid, target=None):
+            seen["fluid"], seen["target"] = fluid, target
+
+        provider.publish = _record  # type: ignore[assignment]
+        loop = asyncio.new_event_loop()
+        try:
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                loop.run_until_complete(provider.publish_asset(asset))
+        finally:
+            loop.close()
+        assert any(issubclass(w.category, DeprecationWarning) for w in caught)
+        assert len(seen["fluid"]["exposes"]) == 2
+        assert seen["target"].contract_id == "bronze.test"

@@ -50,8 +50,16 @@ class FluidCommandCenterProvider(BaseCatalogProvider):
             expected_exception=httpx.HTTPError,
         )
 
-    async def publish(self, fluid: Dict[str, Any], target: CatalogTarget) -> PublishResult:
-        """Publish a FLUID contract with retry logic and upsert."""
+    async def publish(
+        self, fluid: Dict[str, Any], target: Optional[CatalogTarget] = None
+    ) -> PublishResult:
+        """Publish a FLUID contract with retry logic and upsert.
+
+        The deprecated ``publish(asset)`` form (a single
+        :class:`~fluid_build.providers.catalogs.base.CatalogAsset`) still
+        works for one release and emits a :class:`DeprecationWarning`.
+        """
+        fluid, target = self._coerce_publish_args(fluid, target, "publish")
         start_time = time.time()
         metrics_collector.record_publish_request(self.name)
 
@@ -222,8 +230,11 @@ class FluidCommandCenterProvider(BaseCatalogProvider):
             self.logger.warning(f"Error searching for existing asset: {e}")
             return None
 
-    async def update(self, fluid: Dict[str, Any], target: CatalogTarget) -> PublishResult:
+    async def update(
+        self, fluid: Dict[str, Any], target: Optional[CatalogTarget] = None
+    ) -> PublishResult:
         """Update existing asset (delegates to publish for upsert logic)."""
+        fluid, target = self._coerce_publish_args(fluid, target, "update")
         return await self.publish(fluid, target)
 
     async def verify(self, contract_id: str) -> bool:

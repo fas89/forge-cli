@@ -18,16 +18,25 @@ Configuration Management for FLUID CLI
 Provides hierarchical configuration loading from multiple sources:
 1. Default configuration (built-in)
 2. System-wide configuration (/etc/fluid/config.yaml or C:\\ProgramData\\fluid\\config.yaml)
-3. User configuration (~/.fluidrc.yaml or ~/.config/fluid/config.yaml)
+3. User configuration: ~/.fluid/config.yaml (lowest-priority user layer),
+   then the first found of ~/.fluidrc.yaml, ~/.fluidrc or
+   ~/.config/fluid/config.yaml merged on top of it
 4. Project configuration (.fluidrc.yaml or fluid.config.yaml in current directory)
 5. Environment variables (FLUID_*)
 6. Command-line arguments (highest priority)
+
+String values may reference environment variables as ``${VAR}``. The
+placeholders are stored as written and expanded when a value is read
+(``get``/``get_section``/``get_catalog_config``/``to_dict``), so
+``save_user_config()`` never writes resolved secrets back to disk.
 """
 
 from __future__ import annotations
 
+import copy
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -36,6 +45,20 @@ import yaml
 from .errors import ConfigurationError, FileSystemError
 
 LOGGER = logging.getLogger("fluid.config")
+
+# ``${VAR}`` references inside config string values.
+_ENV_REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def _has_env_ref(value: Any) -> bool:
+    """True when *value* (recursively) contains a ``${VAR}`` reference."""
+    if isinstance(value, str):
+        return _ENV_REF_RE.search(value) is not None
+    if isinstance(value, dict):
+        return any(_has_env_ref(v) for v in value.values())
+    if isinstance(value, list):
+        return any(_has_env_ref(v) for v in value)
+    return False
 
 
 # Default configuration
@@ -104,7 +127,10 @@ class FluidConfig:
 
     def _load_defaults(self) -> None:
         """Load default configuration."""
-        self._config = DEFAULT_CONFIG.copy()
+        # Deep copy: ``_deep_merge`` mutates nested dicts in place, and a
+        # shallow copy would leak file config into the module-level defaults
+        # (and from there into every later FluidConfig in the process).
+        self._config = copy.deepcopy(DEFAULT_CONFIG)
         LOGGER.debug("Loaded default configuration")
 
     def _load_system_config(self) -> None:
@@ -124,12 +150,14 @@ class FluidConfig:
         """Load user configuration."""
         home = Path.home()
 
-        # Try multiple locations. ``~/.fluid/config.yaml`` is the path that
-        # ``fluid publish --help`` documents and that the snowflake-biz-lab
-        # bootstrap script writes to — kept first so user-friendly setup
-        # flows work out of the box.
+        # ``~/.fluid/config.yaml`` (the path ``fluid publish --help`` documents
+        # and the snowflake-biz-lab bootstrap writes) is an additional,
+        # lowest-priority user layer. It is merged first so it never hides
+        # the legacy user files below, which keep their original first-found
+        # order and are deep-merged on top of it.
+        self._merge_config_file(home / ".fluid" / "config.yaml", "user")
+
         user_configs = [
-            home / ".fluid" / "config.yaml",
             home / ".fluidrc.yaml",
             home / ".fluidrc",
             home / ".config" / "fluid" / "config.yaml",
@@ -161,13 +189,11 @@ class FluidConfig:
         """Recursively expand ``${VAR}`` references in string values.
 
         Mirrors ``os.path.expandvars`` semantics — undefined vars stay literal
-        so misconfiguration is visible.
+        so misconfiguration is visible. Returns new containers; the input is
+        never modified.
         """
-        import re
-
         if isinstance(value, str):
-            return re.sub(
-                r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}",
+            return _ENV_REF_RE.sub(
                 lambda m: os.environ.get(m.group(1), m.group(0)),
                 value,
             )
@@ -234,12 +260,9 @@ class FluidConfig:
             with open(path) as f:
                 file_config = yaml.safe_load(f) or {}
 
-            # Shell-style ``${VAR}`` references inside string values are
-            # expanded from the current environment. Unset variables are left
-            # as-is so misconfigurations surface as obvious "literal placeholder"
-            # errors rather than empty strings.
-            file_config = self._expand_env_in_config(file_config)
-
+            # Shell-style ``${VAR}`` references are kept verbatim here and
+            # expanded on read (see ``get``), so ``save_user_config`` writes the
+            # placeholders back instead of the resolved secrets.
             self._deep_merge(self._config, file_config)
             LOGGER.debug(f"Loaded {source} configuration from {path}")
 
@@ -317,6 +340,11 @@ class FluidConfig:
             else:
                 return default
 
+        # ``${VAR}`` placeholders are expanded on read (into a copy) so the
+        # stored config — and anything ``save_user_config`` writes — keeps
+        # the placeholder rather than the resolved secret.
+        if _has_env_ref(value):
+            return self._expand_env_in_config(value)
         return value
 
     def set(self, path: str, value: Any) -> None:
@@ -361,7 +389,10 @@ class FluidConfig:
         catalogs = self.get_section("catalogs")
 
         if catalog_name:
-            catalog_config = catalogs.get(catalog_name, {})
+            # Work on a copy so the env-var overrides below (which can carry
+            # secrets such as FLUID_API_KEY) never leak into the stored
+            # config that ``save_user_config`` writes.
+            catalog_config = copy.deepcopy(catalogs.get(catalog_name, {}))
 
             # Apply environment variable overrides
             if catalog_name == "fluid-command-center":
@@ -384,9 +415,9 @@ class FluidConfig:
         Get the complete configuration as a dictionary.
 
         Returns:
-            Complete configuration dictionary
+            Complete configuration dictionary (``${VAR}`` references expanded)
         """
-        return self._config.copy()
+        return self._expand_env_in_config(self._config)
 
     def update_from_args(self, **kwargs) -> None:
         """
