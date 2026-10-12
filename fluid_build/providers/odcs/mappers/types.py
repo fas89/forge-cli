@@ -9,7 +9,22 @@
 
 from __future__ import annotations
 
-from typing import Dict, Mapping, Optional, Tuple
+from typing import Dict, FrozenSet, Mapping, Optional, Tuple
+
+from ..validation import DEFAULT_API_VERSION, api_version_tuple
+
+# First ODCS version with the ``map``/``vector`` logical types and the
+# Iceberg / HANA / Teradata / Exasol / Actian / Poet server engines.
+_V320 = (3, 2, 0)
+
+
+def supports_v320(api_version: Optional[str]) -> bool:
+    """True when the target ODCS ``apiVersion`` is v3.2.0 or newer.
+
+    ``None`` means "the emit default" (:data:`DEFAULT_API_VERSION`).
+    """
+    return api_version_tuple(api_version or DEFAULT_API_VERSION) >= _V320
+
 
 # FLUID source type → ODCS logicalType. v3.1.0 enum: string,date,timestamp,
 # time,number,integer,object,array,boolean; v3.2.0 adds map (RFC 0030) and
@@ -23,15 +38,30 @@ _FLUID_TO_LOGICAL: Dict[str, str] = {
     "integer": "integer",
     "bigint": "integer",
     "long": "integer",
+    "int8": "integer",
+    "int16": "integer",
+    "int32": "integer",
+    "int64": "integer",
+    "smallint": "integer",
+    "tinyint": "integer",
+    "byteint": "integer",
     "float": "number",
     "double": "number",
     "decimal": "number",
     "numeric": "number",
+    "number": "number",
+    "float32": "number",
+    "float64": "number",
+    "real": "number",
+    "bignumeric": "number",
     "bool": "boolean",
     "boolean": "boolean",
     "date": "date",
     "datetime": "timestamp",
     "timestamp": "timestamp",
+    "timestamp_ntz": "timestamp",
+    "timestamp_tz": "timestamp",
+    "timestamp_ltz": "timestamp",
     "time": "time",
     "json": "object",
     "object": "object",
@@ -65,9 +95,21 @@ _LOGICAL_TO_FLUID: Dict[str, str] = {
 }
 
 
-def fluid_to_logical(fluid_type: str) -> str:
-    """FLUID type → ODCS logicalType (best-effort, defaults to ``string``)."""
-    return _FLUID_TO_LOGICAL.get(str(fluid_type).lower(), "string")
+# v3.2.0-only logical types → the closest v3.1.0 logical type.
+_PRE_V320_LOGICAL_FALLBACK: Dict[str, str] = {"map": "object", "vector": "array"}
+
+
+def fluid_to_logical(fluid_type: str, api_version: Optional[str] = None) -> str:
+    """FLUID type → ODCS logicalType (best-effort, defaults to ``string``).
+
+    ``map`` / ``vector`` exist only from ODCS v3.2.0; for an older target
+    (including the v3.1.0 emit default when ``api_version`` is ``None``) they
+    fall back to ``object`` / ``array`` so the output stays schema-valid.
+    """
+    logical = _FLUID_TO_LOGICAL.get(str(fluid_type).lower(), "string")
+    if logical in _PRE_V320_LOGICAL_FALLBACK and not supports_v320(api_version):
+        return _PRE_V320_LOGICAL_FALLBACK[logical]
+    return logical
 
 
 def logical_to_fluid(logical_type: str) -> str:
@@ -83,15 +125,30 @@ _PHYSICAL_BY_PROVIDER: Dict[Tuple[str, ...], Dict[str, str]] = {
         "integer": "INT64",
         "bigint": "INT64",
         "long": "INT64",
+        "int8": "INT64",
+        "int16": "INT64",
+        "int32": "INT64",
+        "int64": "INT64",
+        "smallint": "INT64",
+        "tinyint": "INT64",
+        "byteint": "INT64",
         "float": "FLOAT64",
         "double": "FLOAT64",
+        "number": "FLOAT64",
+        "float32": "FLOAT64",
+        "float64": "FLOAT64",
+        "real": "FLOAT64",
         "decimal": "NUMERIC",
         "numeric": "NUMERIC",
+        "bignumeric": "BIGNUMERIC",
         "bool": "BOOL",
         "boolean": "BOOL",
         "date": "DATE",
         "datetime": "DATETIME",
         "timestamp": "TIMESTAMP",
+        "timestamp_ntz": "DATETIME",
+        "timestamp_tz": "TIMESTAMP",
+        "timestamp_ltz": "TIMESTAMP",
         "time": "TIME",
         "json": "JSON",
         "object": "STRUCT",
@@ -106,8 +163,19 @@ _PHYSICAL_BY_PROVIDER: Dict[Tuple[str, ...], Dict[str, str]] = {
         "integer": "NUMBER",
         "bigint": "NUMBER",
         "long": "NUMBER",
+        "int8": "NUMBER",
+        "int16": "NUMBER",
+        "int32": "NUMBER",
+        "int64": "NUMBER",
+        "smallint": "NUMBER",
+        "tinyint": "NUMBER",
+        "byteint": "NUMBER",
         "float": "FLOAT",
         "double": "DOUBLE",
+        "number": "NUMBER",
+        "float32": "FLOAT",
+        "float64": "FLOAT",
+        "real": "FLOAT",
         "decimal": "DECIMAL",
         "numeric": "DECIMAL",
         "bool": "BOOLEAN",
@@ -115,6 +183,9 @@ _PHYSICAL_BY_PROVIDER: Dict[Tuple[str, ...], Dict[str, str]] = {
         "date": "DATE",
         "datetime": "TIMESTAMP_NTZ",
         "timestamp": "TIMESTAMP_NTZ",
+        "timestamp_ntz": "TIMESTAMP_NTZ",
+        "timestamp_tz": "TIMESTAMP_TZ",
+        "timestamp_ltz": "TIMESTAMP_LTZ",
         "time": "TIME",
         "json": "VARIANT",
         "object": "OBJECT",
@@ -125,15 +196,17 @@ _PHYSICAL_BY_PROVIDER: Dict[Tuple[str, ...], Dict[str, str]] = {
 }
 
 
-def fluid_to_physical(fluid_type: str, provider: Optional[str]) -> Optional[str]:
+def fluid_to_physical(
+    fluid_type: str, provider: Optional[str], api_version: Optional[str] = None
+) -> Optional[str]:
     """FLUID type → provider-specific physical type. Falls back to logicalType."""
     if not provider:
-        return fluid_to_logical(fluid_type)
+        return fluid_to_logical(fluid_type, api_version)
     prov = provider.lower()
     for keys, table in _PHYSICAL_BY_PROVIDER.items():
         if prov in keys:
             return table.get(str(fluid_type).lower())
-    return fluid_to_logical(fluid_type)
+    return fluid_to_logical(fluid_type, api_version)
 
 
 # ODCS server.type ↔ FLUID provider
@@ -201,8 +274,34 @@ _SERVER_TYPE_TO_PROVIDER: Dict[str, str] = {
 }
 
 
-def provider_to_server_type(provider: str) -> str:
-    return _PROVIDER_TO_SERVER_TYPE.get(provider.lower(), "custom")
+# ``Server.type`` values that only exist from ODCS v3.2.0 (``zen`` is
+# already in v3.1.0).
+V320_ONLY_SERVER_TYPES: FrozenSet[str] = frozenset(
+    {
+        "btrieve",
+        "exasol",
+        "fastobjects",
+        "hana",
+        "iceberg",
+        "ingres",
+        "poet",
+        "teradata",
+        "vectorwise",
+        "versant",
+    }
+)
+
+
+def provider_to_server_type(provider: str, api_version: Optional[str] = None) -> str:
+    """FLUID provider → ODCS ``Server.type``.
+
+    Engines added in v3.2.0 map to ``custom`` for an older target (including
+    the v3.1.0 emit default when ``api_version`` is ``None``).
+    """
+    server_type = _PROVIDER_TO_SERVER_TYPE.get(provider.lower(), "custom")
+    if server_type in V320_ONLY_SERVER_TYPES and not supports_v320(api_version):
+        return "custom"
+    return server_type
 
 
 def server_type_to_provider(server_type: str) -> str:
@@ -219,6 +318,12 @@ _PHYSICAL_TYPE_TO_PLATFORM: Mapping[str, str] = {
 
 
 def physical_type_to_platform(physical_type: str) -> str:
+    """Legacy guess, kept for API compatibility only.
+
+    The ODCS importer no longer uses it: ``physicalType`` names the object
+    kind, not its platform, so ``binding.platform`` is derived from the
+    document's ``servers`` instead (see ``servers.binding_for_object``).
+    """
     return _PHYSICAL_TYPE_TO_PLATFORM.get(str(physical_type).lower(), "custom")
 
 

@@ -25,6 +25,8 @@ type table, ``quality`` auto-checks via :mod:`.quality`.
 
 from __future__ import annotations
 
+import copy
+import logging
 from collections.abc import Mapping
 from typing import Any, Dict, List, Optional
 
@@ -38,13 +40,12 @@ from .base import (
     get_stash,
     overlay_native,
     stash,
+    target_api_version,
 )
-from .types import (
-    fluid_to_logical,
-    fluid_to_physical,
-    logical_to_fluid,
-    physical_type_to_platform,
-)
+from .servers import binding_for_object
+from .types import fluid_to_logical, fluid_to_physical, logical_to_fluid
+
+LOG = logging.getLogger(__name__)
 
 _PK_TAGS = ("primary-key", "primaryKey")
 
@@ -71,13 +72,12 @@ def _project_object(schema_object: Mapping[str, Any], odcs: Mapping[str, Any]) -
         "version": odcs.get("version", "1.0.0"),
     }
     if schema_object.get("description"):
-        expose["description"] = schema_object["description"]
-    if schema_object.get("physicalType"):
-        binding: Dict[str, Any] = {
-            "platform": physical_type_to_platform(schema_object["physicalType"]),
-        }
-        if schema_object.get("physicalName"):
-            binding["physical_name"] = schema_object["physicalName"]
+        expose["description"] = copy.deepcopy(schema_object["description"])
+    # ``physicalType`` (table/view/topic) says what the object is, not which
+    # platform hosts it — the binding comes from the servers, and only when
+    # they identify one unambiguously.
+    binding = binding_for_object(schema_object, odcs.get("servers") or [])
+    if binding:
         expose["binding"] = binding
     return expose
 
@@ -91,10 +91,16 @@ def _object_to_expose(schema_object: Mapping[str, Any], odcs: Mapping[str, Any])
             if isinstance(p, Mapping)
         ]
     }
-    # Properties are stashed per-field; keep the object stash free of them.
+    # Properties are stashed per-field; keep the object stash free of them,
+    # but record that the key was present (as ``properties: []``) so an
+    # object with an explicit empty list round-trips exactly.
     stash(
         expose_passthrough(expose),
-        {k: v for k, v in schema_object.items() if k != "properties"},
+        {
+            k: ([] if k == "properties" else v)
+            for k, v in schema_object.items()
+            if k != "properties" or isinstance(v, list)
+        },
     )
     return expose
 
@@ -106,9 +112,9 @@ def _project_property(prop: Mapping[str, Any]) -> Dict[str, Any]:
         "type": logical_to_fluid(prop.get("logicalType", "string")),
     }
     if prop.get("description"):
-        fld["description"] = prop["description"]
+        fld["description"] = copy.deepcopy(prop["description"])
     if prop.get("classification"):
-        fld["classification"] = prop["classification"]
+        fld["classification"] = copy.deepcopy(prop["classification"])
 
     # required (v3.x); legacy isNullable accepted
     if "required" in prop:
@@ -119,12 +125,12 @@ def _project_property(prop: Mapping[str, Any]) -> Dict[str, Any]:
         fld["required"] = False
 
     if "tags" in prop:
-        fld["tags"] = list(prop["tags"] or [])
+        fld["tags"] = copy.deepcopy(list(prop["tags"] or []))
 
     # ``quality`` is always present on an imported field: the verbatim list,
     # or ``[]`` meaning "the source had none — don't synthesise on export".
     quality = prop.get("quality")
-    fld["quality"] = list(quality) if isinstance(quality, list) else []
+    fld["quality"] = copy.deepcopy(list(quality)) if isinstance(quality, list) else []
     return fld
 
 
@@ -139,10 +145,20 @@ def _property_to_field(prop: Mapping[str, Any]) -> Dict[str, Any]:
 
 def to_odcs(ctx: ExportCtx) -> None:
     """Emit ``odcs.schema`` from FLUID exposes (always an array)."""
-    ctx.odcs["schema"] = list(_extract_schema(ctx.fluid))
+    ctx.odcs["schema"] = list(
+        _extract_schema(
+            ctx.fluid,
+            include_quality=ctx.options.get("include_quality_checks", True),
+            api_version=target_api_version(ctx),
+        )
+    )
 
 
-def _extract_schema(fluid: Mapping[str, Any]) -> List[Dict[str, Any]]:
+def _extract_schema(
+    fluid: Mapping[str, Any],
+    include_quality: bool = True,
+    api_version: Optional[str] = None,
+) -> List[Dict[str, Any]]:
     odcs_schema: List[Dict[str, Any]] = []
     for expose in fluid.get("exposes") or []:
         if not isinstance(expose, Mapping):
@@ -157,23 +173,34 @@ def _extract_schema(fluid: Mapping[str, Any]) -> List[Dict[str, Any]]:
             schema_obj = expose.get("schema")
             if isinstance(schema_obj, Mapping) and isinstance(schema_obj.get("fields"), list):
                 contract_schema = schema_obj["fields"]
-        if not contract_schema:
+
+        # An imported SchemaObject is re-emitted even without properties
+        # (they are optional in ODCS); fresh exposes without fields are
+        # skipped as before.
+        st = get_stash(get_expose_passthrough(expose))
+        if not contract_schema and st is None:
             continue
 
         provider = _expose_provider(expose)
         properties = [
-            _field_to_property(fld, provider) for fld in contract_schema if isinstance(fld, Mapping)
+            _field_to_property(
+                fld, provider, include_quality=include_quality, api_version=api_version
+            )
+            for fld in contract_schema
+            if isinstance(fld, Mapping)
         ]
-        if not properties:
+        if not properties and st is None:
             continue
 
         expose_id = expose.get("exposeId") or expose.get("id") or "dataset"
-        st = get_stash(get_expose_passthrough(expose))
         if st is not None:
             then = _native_object(_project_object(st, {"id": expose_id}))
             now = _native_object(expose)
             schema_object = overlay_native(st, then, now)
-            schema_object["properties"] = properties
+            if properties or "properties" in st:
+                schema_object["properties"] = properties
+            else:
+                schema_object.pop("properties", None)
         else:
             schema_object = {
                 "name": expose_id,
@@ -182,7 +209,7 @@ def _extract_schema(fluid: Mapping[str, Any]) -> List[Dict[str, Any]]:
                 "properties": properties,
             }
             if expose.get("description"):
-                schema_object["description"] = expose["description"]
+                schema_object["description"] = copy.deepcopy(expose["description"])
         odcs_schema.append(schema_object)
     return odcs_schema
 
@@ -195,13 +222,13 @@ def _native_object(expose: Mapping[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _native_property(fld: Mapping[str, Any]) -> Dict[str, Any]:
+def _native_property(fld: Mapping[str, Any], api_version: Optional[str] = None) -> Dict[str, Any]:
     """Total projection of a field's FLUID-native fields to ODCS keys."""
     tags = fld.get("tags")
     quality = fld.get("quality")
     return {
         "name": fld.get("name", "unknown"),
-        "logicalType": fluid_to_logical(fld.get("type", "string")),
+        "logicalType": fluid_to_logical(fld.get("type", "string"), api_version),
         "description": fld.get("description") or None,
         "classification": fld.get("classification") or None,
         "required": bool(fld.get("required")),
@@ -211,40 +238,97 @@ def _native_property(fld: Mapping[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _field_to_property(fld: Mapping[str, Any], provider: Optional[str]) -> Dict[str, Any]:
+# Property keys that are only valid alongside one particular logicalType.
+_TYPE_BOUND_KEYS = {"items": "array", "properties": "object", "map": "map"}
+
+# Most general ODCS v3.2.0 ``map`` shape — FLUID has no way to say more.
+_DEFAULT_MAP_SHAPE = {"key": {"logicalType": "string"}, "value": {"logicalType": "string"}}
+
+
+def _field_to_property(
+    fld: Mapping[str, Any],
+    provider: Optional[str],
+    include_quality: bool = True,
+    api_version: Optional[str] = None,
+) -> Dict[str, Any]:
     st = get_stash(get_field_passthrough(fld))
     if st is not None:
-        then = _native_property(_project_property(st))
-        now = _native_property(fld)
-        return overlay_native(st, then, now)
+        then = _native_property(_project_property(st), api_version)
+        now = _native_property(fld, api_version)
+        prop = overlay_native(st, then, now)
+        if now["logicalType"] != then["logicalType"]:
+            _drop_stale_type_details(prop, fld, provider, api_version)
+        if not include_quality:
+            prop.pop("quality", None)
+        return prop
 
     # ---- fresh FLUID: synthesise ---------------------------------------
-    prop: Dict[str, Any] = {
+    prop = {
         "name": fld.get("name", "unknown"),
-        "logicalType": fluid_to_logical(fld.get("type", "string")),
+        "logicalType": fluid_to_logical(fld.get("type", "string"), api_version),
     }
+    if prop["logicalType"] == "map":
+        # ODCS v3.2.0 requires the key/value shape alongside ``map``.
+        prop["map"] = copy.deepcopy(_DEFAULT_MAP_SHAPE)
     if provider:
-        phys = fluid_to_physical(fld.get("type", "string"), provider)
+        phys = fluid_to_physical(fld.get("type", "string"), provider, api_version)
         if phys:
             prop["physicalType"] = phys
     if fld.get("description"):
-        prop["description"] = fld["description"]
+        prop["description"] = copy.deepcopy(fld["description"])
     # Downstream consumers of fresh exports expect an explicit ``required``.
     prop["required"] = bool(fld.get("required"))
     if fld.get("classification"):
-        prop["classification"] = fld["classification"]
+        prop["classification"] = copy.deepcopy(fld["classification"])
     if fld.get("tags"):
         prop["tags"] = list(fld["tags"])
 
-    from . import quality as quality_mapper  # local import to avoid cycle
+    if include_quality:
+        from . import quality as quality_mapper  # local import to avoid cycle
 
-    qchecks = quality_mapper.to_odcs_property(fld)
-    if qchecks:
-        prop["quality"] = qchecks
+        qchecks = quality_mapper.to_odcs_property(fld)
+        if qchecks:
+            prop["quality"] = qchecks
 
     if fld.get("tags") and any(t in _PK_TAGS for t in fld["tags"]):
         prop["primaryKey"] = True
     return prop
+
+
+def _drop_stale_type_details(
+    prop: Dict[str, Any],
+    fld: Mapping[str, Any],
+    provider: Optional[str],
+    api_version: Optional[str],
+) -> None:
+    """The FLUID type of an imported field changed: drop stashed type details.
+
+    ``physicalType`` and ``logicalTypeOptions`` describe the *old* type (the
+    schema rejects options that don't fit the new one), so they are removed
+    — ``physicalType`` is re-synthesised when the platform is known —
+    together with any ``items`` / ``properties`` / ``map`` block the new
+    logicalType does not allow.
+    """
+    dropped = [k for k in ("physicalType", "logicalTypeOptions") if k in prop]
+    prop.pop("physicalType", None)
+    prop.pop("logicalTypeOptions", None)
+    for key, logical in _TYPE_BOUND_KEYS.items():
+        if key in prop and prop.get("logicalType") != logical:
+            prop.pop(key)
+            dropped.append(key)
+    if provider:
+        phys = fluid_to_physical(fld.get("type", "string"), provider, api_version)
+        if phys:
+            prop["physicalType"] = phys
+    if prop.get("logicalType") == "map" and "map" not in prop:
+        prop["map"] = copy.deepcopy(_DEFAULT_MAP_SHAPE)
+    if dropped:
+        LOG.warning(
+            "ODCS export: type of field %r changed to %r; dropped stale %s",
+            fld.get("name"),
+            prop.get("logicalType"),
+            ", ".join(dropped),
+        )
 
 
 def _expose_provider(expose: Mapping[str, Any]) -> Optional[str]:

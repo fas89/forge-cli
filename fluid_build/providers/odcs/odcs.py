@@ -55,10 +55,10 @@ class OdcsProvider(_OdcsProviderImpl):
 
     # --- type mapping ---------------------------------------------------
     def _map_type_to_logical(self, fluid_type: str) -> str:
-        return fluid_to_logical(fluid_type)
+        return fluid_to_logical(fluid_type, getattr(self, "odcs_version", None))
 
     def _map_type_to_physical(self, fluid_type: str, provider: Optional[str]) -> Optional[str]:
-        return fluid_to_physical(fluid_type, provider)
+        return fluid_to_physical(fluid_type, provider, getattr(self, "odcs_version", None))
 
     # --- team / owner ---------------------------------------------------
     def _extract_team(self, fluid: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
@@ -85,7 +85,12 @@ class OdcsProvider(_OdcsProviderImpl):
             provider = binding.get("platform") or binding.get("provider")
         if not provider and isinstance(expose, Mapping):
             provider = expose.get("provider")
-        prop = _schema_mapper._field_to_property(field, provider)
+        prop = _schema_mapper._field_to_property(
+            field,
+            provider,
+            include_quality=getattr(self, "include_quality_checks", True),
+            api_version=getattr(self, "odcs_version", None),
+        )
         prop.pop("odcs_passthrough", None)
         if get_field_passthrough(field):
             pass  # _field_to_property already merged pass-through
@@ -165,7 +170,7 @@ class OdcsProvider(_OdcsProviderImpl):
         return _servers_mapper._server_to_expect(server)
 
     def _map_provider_to_server_type(self, provider: str) -> str:
-        return provider_to_server_type(provider)
+        return provider_to_server_type(provider, getattr(self, "odcs_version", None))
 
     def _map_server_type_to_provider(self, server_type: str) -> str:
         return server_type_to_provider(server_type)
@@ -179,10 +184,9 @@ class OdcsProvider(_OdcsProviderImpl):
 
     # --- validation -----------------------------------------------------
     def _validate_odcs(self, odcs: Mapping[str, Any]) -> None:
-        if not getattr(self, "schema", None):
-            self.logger.warning("ODCS schema not available, skipping validation")
-            return
-        _validate(odcs, self.schema)
+        # Version-selected from the document's own ``apiVersion`` (a v3.2.0
+        # contract is judged by the v3.2.0 schema), like ``validate_contract``.
+        _validate(odcs)
 
 
 __all__ = ["OdcsProvider"]

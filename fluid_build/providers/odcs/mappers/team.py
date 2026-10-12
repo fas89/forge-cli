@@ -13,14 +13,18 @@ Each ``members[]`` entry has a required ``username`` (often an email) plus
 optional ``name``, ``role``, ``dateIn``, ``dateOut``, ``replacedByUsername``,
 ``description``, ``tags``, ``customProperties``, ``authoritativeDefinitions``.
 
-A legacy string form is accepted on import (best-effort).
+The v3.0.x array-of-members form (deprecated, still accepted by v3.1.0) is
+read the same way; a legacy string form is accepted on import (best-effort).
 
-For lossless round-trip the verbatim team object is preserved under
-``metadata.odcs_passthrough.team``.
+For lossless round-trip the verbatim team (object or array) is preserved
+under ``metadata.odcs_passthrough.team`` and replayed unless the FLUID
+``owner`` changed since import; an edit is merged onto it, keeping every
+member key FLUID does not model.
 """
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Mapping
 from typing import Any, Dict, List, Optional
 
@@ -36,18 +40,30 @@ from .base import (
 
 def to_fluid(ctx: ImportCtx) -> None:
     team = ctx.odcs.get("team")
-    if not team:
+    if team is None:
         return
-    owner = _team_to_owner(team)
+    owner = _import_owner(team)
     if owner:
         ctx.fluid["owner"] = owner
-    if isinstance(team, Mapping):
-        metadata_passthrough(ctx.fluid)["team"] = dict(team)
+    if isinstance(team, (Mapping, list)):
+        # Verbatim, whatever its shape — including the deprecated v3.0.x
+        # array-of-members form and an explicit empty ``{}`` / ``[]``.
+        metadata_passthrough(ctx.fluid)["team"] = copy.deepcopy(team)
+
+
+def _import_owner(team: Any) -> Optional[Dict[str, Any]]:
+    """The FLUID ``owner`` an import projects from ``team`` (``None`` if empty)."""
+    if not team:
+        return None
+    return _team_to_owner(team)
 
 
 def _team_to_owner(team: Any) -> Optional[Dict[str, Any]]:
     if isinstance(team, str):
         return {"team": team, "name": team}
+    if isinstance(team, list):
+        # ODCS v3.0.x ``team`` is an array of members (deprecated in v3.1.0).
+        team = {"members": team}
     if not isinstance(team, Mapping):
         return None
 
@@ -95,16 +111,103 @@ def _team_to_owner(team: Any) -> Optional[Dict[str, Any]]:
 # ----- FLUID → ODCS --------------------------------------------------------
 
 
+def _current_owner(fluid: Mapping[str, Any]) -> Any:
+    return fluid.get("owner") or (fluid.get("metadata") or {}).get("owner") or None
+
+
 def to_odcs(ctx: ExportCtx) -> None:
-    # Verbatim pass-through wins when the contract came from an ODCS import
-    pt_team = get_metadata_passthrough(ctx.fluid).get("team")
-    if isinstance(pt_team, Mapping) and pt_team:
-        ctx.odcs["team"] = dict(pt_team)
+    pt = get_metadata_passthrough(ctx.fluid)
+    pt_team = pt.get("team")
+    if isinstance(pt_team, (Mapping, list)):
+        # Imported contract: three-way merge, like metadata and schema. The
+        # stashed team is replayed verbatim unless the FLUID owner changed.
+        then = _import_owner(pt_team)
+        now = _current_owner(ctx.fluid)
+        if now == then:
+            ctx.odcs["team"] = copy.deepcopy(pt_team)
+            return
+        merged = _merge_team(pt_team, then or {}, ctx.fluid)
+        if merged is not None:
+            ctx.odcs["team"] = merged
         return
 
     team = _owner_to_team(ctx.fluid)
     if team:
         ctx.odcs["team"] = team
+
+
+# TeamMember keys FLUID models (owner/contacts name, email, role).
+_MEMBER_NATIVE_KEYS = ("name", "username", "role")
+
+
+def _merge_team(stashed: Any, then: Mapping[str, Any], fluid: Mapping[str, Any]) -> Any:
+    """Apply a FLUID owner edit to the stashed team, keeping unmodelled keys."""
+    fresh = _owner_to_team(fluid)
+    if fresh is None:
+        return None  # owner removed (or no longer names a team)
+    now = _current_owner(fluid)
+    now = now if isinstance(now, Mapping) else {}
+
+    stashed_members = stashed.get("members") if isinstance(stashed, Mapping) else stashed
+    stashed_members = [m for m in stashed_members or [] if isinstance(m, Mapping)]
+    member_keys = ("name", "email", "role", "contacts")
+    if any(now.get(k) != then.get(k) for k in member_keys):
+        members = _merge_members(stashed_members, fresh.get("members") or [])
+    else:
+        members = copy.deepcopy(stashed_members)
+
+    if isinstance(stashed, list) and now.get("team") == then.get("team"):
+        return members  # keep the array form when only members changed
+
+    out = copy.deepcopy(dict(stashed)) if isinstance(stashed, Mapping) else {}
+    if now.get("team") != then.get("team") or "name" not in out:
+        out["name"] = fresh["name"]
+    if members:
+        out["members"] = members
+    else:
+        out.pop("members", None)
+    return out
+
+
+def _merge_members(
+    stashed: List[Mapping[str, Any]], fresh: List[Mapping[str, Any]]
+) -> List[Dict[str, Any]]:
+    """Fresh members, each keeping the stashed extras (dateIn, tags, ...) of
+    the stashed member with the same ``username`` (or ``name``) — or, when
+    none matches, of the stashed member at the same position whose own key
+    no longer appears (its username was edited)."""
+
+    def key_of(m: Mapping[str, Any]) -> Any:
+        return m.get("username") or m.get("name")
+
+    fresh_keys = {key_of(m) for m in fresh}
+    out: List[Dict[str, Any]] = []
+    used = set()
+    for pos, member in enumerate(fresh):
+        key = key_of(member)
+        match = None
+        for i, candidate in enumerate(stashed):
+            if i not in used and key and key_of(candidate) == key:
+                match = i
+                break
+        if (
+            match is None
+            and pos < len(stashed)
+            and pos not in used
+            and key_of(stashed[pos]) not in fresh_keys
+        ):
+            match = pos
+        merged: Dict[str, Any] = {}
+        if match is not None:
+            used.add(match)
+            merged = {
+                k: copy.deepcopy(v)
+                for k, v in stashed[match].items()
+                if k not in _MEMBER_NATIVE_KEYS
+            }
+        merged.update(copy.deepcopy(dict(member)))
+        out.append(merged)
+    return out
 
 
 def _owner_to_team(fluid: Mapping[str, Any]) -> Optional[Dict[str, Any]]:

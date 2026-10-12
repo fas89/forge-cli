@@ -26,6 +26,7 @@ verbatim stash.
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Mapping
 from typing import Any, Dict, Optional
 
@@ -79,7 +80,7 @@ def to_fluid(ctx: ImportCtx) -> None:
     fluid = ctx.fluid
 
     metadata = fluid.setdefault("metadata", {})
-    metadata.update(_project_metadata(odcs))
+    metadata.update(copy.deepcopy(_project_metadata(odcs)))
 
     fluid.setdefault("contract", {})["id"] = odcs.get("id")
     fluid.setdefault("exposes", [])
@@ -95,22 +96,42 @@ def to_fluid(ctx: ImportCtx) -> None:
 
 
 def _native_metadata(
-    metadata: Mapping[str, Any], contract_id: Optional[str], raw_status: Any
+    metadata: Mapping[str, Any],
+    contract_id: Optional[str],
+    raw_status: Any,
+    root: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Total projection of FLUID-native top-level fields to ODCS keys."""
-    tags = metadata.get("tags")
+    """Total projection of FLUID-native top-level fields to ODCS keys.
+
+    ``metadata.*`` wins; ``root`` (the FLUID document) is the fallback for
+    ``name`` / ``description`` / ``tags`` / ``domain``, which schema-valid
+    FLUID 0.7.x keeps at the top level (its ``metadata`` block does not
+    allow them).
+    """
+    root = root or {}
+
+    def pick(key: str) -> Any:
+        value = metadata.get(key)
+        if value:
+            return value
+        # FLUID declares these as a string (``tags``: a list) at the root;
+        # anything else there is not the FLUID field.
+        fallback = root.get(key)
+        expected = list if key == "tags" else str
+        return fallback if isinstance(fallback, expected) else None
+
+    tags = pick("tags")
+    description = pick("description")
     return {
         "version": metadata.get("version", "1.0.0"),
         "id": contract_id,
         "status": fluid_to_odcs_status(raw_status),
-        "name": metadata.get("name") or None,
-        "description": (
-            {"purpose": metadata["description"]} if metadata.get("description") else None
-        ),
+        "name": pick("name") or None,
+        "description": ({"purpose": copy.deepcopy(description)} if description else None),
         "tags": list(tags) if tags else None,
-        "domain": metadata.get("domain") or None,
-        "tenant": metadata.get("tenant") or None,
-        "dataProduct": metadata.get("dataProduct") or None,
+        "domain": copy.deepcopy(pick("domain")) or None,
+        "tenant": copy.deepcopy(metadata.get("tenant")) or None,
+        "dataProduct": copy.deepcopy(metadata.get("dataProduct")) or None,
     }
 
 
@@ -121,6 +142,17 @@ def _resolve_api_version(ctx: ExportCtx, st: Optional[Mapping[str, Any]]) -> str
     if st and st.get("apiVersion"):
         return str(st["apiVersion"])
     return DEFAULT_API_VERSION
+
+
+def _raw_status(fluid: Mapping[str, Any], metadata: Mapping[str, Any]) -> Any:
+    if fluid.get("_scoped_status"):
+        return fluid["_scoped_status"]
+    if metadata.get("status"):
+        return metadata["status"]
+    lifecycle = fluid.get("lifecycle")
+    if isinstance(lifecycle, Mapping) and lifecycle.get("state"):
+        return lifecycle["state"]
+    return "active"
 
 
 def to_odcs(ctx: ExportCtx) -> None:
@@ -134,24 +166,32 @@ def to_odcs(ctx: ExportCtx) -> None:
             "Contract missing required 'id' field. "
             "Expected one of: fluid['id'], fluid['contract']['id'], or fluid['metadata']['id']"
         )
-    raw_status = fluid.get("_scoped_status") or metadata.get("status", "active")
+    raw_status = _raw_status(fluid, metadata)
 
     st = get_stash(get_metadata_passthrough(fluid))
-    now = _native_metadata(metadata, contract_id, raw_status)
+    now = _native_metadata(metadata, contract_id, raw_status, fluid)
 
     if st is not None:
         then = _native_metadata(
             _project_metadata(st), st.get("id"), _project_metadata(st)["status"]
         )
         merged = overlay_native(st, then, now)
-        # ``description`` is an object in ODCS but a string in FLUID: an edit
-        # to the purpose must not discard the stashed limitations/usage.
-        if (
-            now["description"] != then["description"]
-            and now["description"] is not None
-            and isinstance(st.get("description"), Mapping)
-        ):
-            merged["description"] = {**st["description"], **now["description"]}
+        # ``description`` is an object in ODCS but a string in FLUID (its
+        # ``purpose``): an edit or removal of the purpose must not discard
+        # the stashed limitations/usage/authoritativeDefinitions.
+        stashed_desc = st.get("description")
+        if now["description"] != then["description"] and isinstance(stashed_desc, Mapping):
+            if now["description"] is not None:
+                merged["description"] = {
+                    **copy.deepcopy(dict(stashed_desc)),
+                    **now["description"],
+                }
+            else:
+                rest = {k: copy.deepcopy(v) for k, v in stashed_desc.items() if k != "purpose"}
+                if rest:
+                    merged["description"] = rest
+                else:
+                    merged.pop("description", None)
     else:
         merged = {k: v for k, v in now.items() if v is not None}
 

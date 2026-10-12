@@ -411,7 +411,8 @@ def test_new_server_engines_emit_only_allowed_fields_and_validate(
     }
     out = OdcsProvider(api_version="v3.2.0").render(fluid)
     server = out["servers"][0]
-    assert set(server) - {"server", "type"} == expected_keys
+    # ``id`` is the sanitised StableId emitted on fresh exports (as on main).
+    assert set(server) - {"id", "server", "type"} == expected_keys
     odcs_validation.validate(out)  # unevaluatedProperties: false would catch leaks
 
 

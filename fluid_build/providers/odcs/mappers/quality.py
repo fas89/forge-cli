@@ -10,10 +10,13 @@
 Three levels of quality survive round-trip:
 
 1. **Property-level** — emitted under ``schemaObject.properties[i].quality[]``.
-   Generated from FLUID ``field.required``, primary-key tags, ``field.validations``,
-   and any user-provided ``field.quality``. When the FLUID field was itself
-   imported from ODCS, ``field.quality`` carries the verbatim list and is
-   replayed as-is — no auto-checks added — so the round-trip stays lossless.
+   For fresh FLUID, generated from ``field.required``, primary-key tags and
+   ``field.validations``, followed by any user-provided ``field.quality``
+   items normalised to ODCS. When the FLUID field was itself imported from
+   ODCS it carries a verbatim stash and the schema mapper replays its
+   original ``quality`` list as-is — no auto-checks added — so the
+   round-trip stays lossless. ``include_quality_checks=False``
+   (``--no-quality`` / ``ODCS_INCLUDE_QUALITY=false``) suppresses all of it.
 
 2. **Object-level** — ``schemaObject.quality[]``. Pure pass-through via the
    schema object's verbatim stash (handled in :mod:`.schema`).
@@ -25,6 +28,7 @@ Three levels of quality survive round-trip:
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Mapping
 from typing import Any, Dict, List, Optional
 
@@ -44,9 +48,9 @@ def to_fluid(ctx: ImportCtx) -> None:
     if contract_quality is None:
         return
     if isinstance(contract_quality, Mapping):
-        ctx.fluid["quality"] = dict(contract_quality)
+        ctx.fluid["quality"] = copy.deepcopy(dict(contract_quality))
     else:
-        metadata_passthrough(ctx.fluid)["contract_quality_raw"] = contract_quality
+        metadata_passthrough(ctx.fluid)["contract_quality_raw"] = copy.deepcopy(contract_quality)
 
 
 # ----- FLUID → ODCS (contract level) --------------------------------------
@@ -58,7 +62,7 @@ def to_odcs(ctx: ExportCtx) -> None:
 
     pt = get_metadata_passthrough(ctx.fluid)
     if "contract_quality_raw" in pt:
-        ctx.odcs["quality"] = pt["contract_quality_raw"]
+        ctx.odcs["quality"] = copy.deepcopy(pt["contract_quality_raw"])
         return
 
     spec = ctx.fluid.get("quality")
@@ -75,17 +79,16 @@ def to_odcs(ctx: ExportCtx) -> None:
 
 
 def to_odcs_property(fld: Mapping[str, Any]) -> Optional[List[Dict[str, Any]]]:
-    """Return the ``quality[]`` array for an ODCS SchemaProperty.
+    """Return the ``quality[]`` array for a *fresh* ODCS SchemaProperty.
 
-    If ``field.quality`` is set (a list), it is replayed **verbatim** — this is
-    the round-trip pass-through path. Otherwise auto-checks are synthesised
-    from ``required``, primary-key tags, and ``field.validations``.
+    Auto-checks are synthesised from ``required``, primary-key tags and
+    ``field.validations``; any user-provided ``field.quality`` items are
+    appended after them, normalised to ODCS (see :func:`_normalise_custom`).
+
+    Imported fields never reach this function: they carry a verbatim stash
+    and are re-emitted by the schema mapper's overlay, which replays the
+    original ``quality`` list untouched.
     """
-    # Pass-through wins
-    custom_quality = fld.get("quality")
-    if isinstance(custom_quality, list):
-        return list(custom_quality)
-
     quality_checks: List[Dict[str, Any]] = []
     name = fld.get("name", "unknown")
     tags = fld.get("tags") or []
@@ -136,7 +139,35 @@ def to_odcs_property(fld: Mapping[str, Any]) -> Optional[List[Dict[str, Any]]]:
         if check is not None:
             quality_checks.append(check)
 
+    custom_quality = fld.get("quality")
+    if isinstance(custom_quality, list):
+        for item in custom_quality:
+            normalised = _normalise_custom(item)
+            if normalised is not None:
+                quality_checks.append(normalised)
+
     return quality_checks or None
+
+
+# ODCS ``DataQuality.type`` values.
+_ODCS_QUALITY_TYPES = frozenset({"library", "text", "sql", "custom"})
+
+
+def _normalise_custom(item: Any) -> Optional[Dict[str, Any]]:
+    """A user-supplied ``field.quality`` item as an ODCS quality check.
+
+    ODCS-shaped items (a known ``type``, or any ``type`` + ``metric``) are
+    kept; a bare ``{description}`` becomes a ``text`` check; anything else
+    has no ODCS meaning and is dropped.
+    """
+    if not isinstance(item, Mapping):
+        return None
+    qtype = item.get("type")
+    if qtype in _ODCS_QUALITY_TYPES or ("type" in item and "metric" in item):
+        return copy.deepcopy(dict(item))
+    if "description" in item:
+        return {"type": "text", "description": copy.deepcopy(item["description"])}
+    return None
 
 
 def _validation_to_quality(

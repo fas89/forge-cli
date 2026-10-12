@@ -30,10 +30,13 @@ surface is auditable in one place.
 
 from __future__ import annotations
 
+import copy
 import logging
 from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, Optional
+
+from ..validation import DEFAULT_API_VERSION, normalize_api_version
 
 PASSTHROUGH_KEY = "odcs_passthrough"
 STASH_KEY = "_verbatim"
@@ -80,8 +83,14 @@ def get_field_passthrough(fld: Mapping[str, Any]) -> Mapping[str, Any]:
 
 
 def stash(bucket: MutableMapping[str, Any], section: Mapping[str, Any]) -> None:
-    """Record ``section`` verbatim in ``bucket`` for lossless re-export."""
-    bucket[STASH_KEY] = dict(section)
+    """Record ``section`` verbatim in ``bucket`` for lossless re-export.
+
+    The stash is a deep copy: it must never share nested objects with the
+    caller's input or with the FLUID-native projection, otherwise a YAML
+    dump of the imported FLUID emits anchors/aliases and an edit to one
+    side silently rewrites the other.
+    """
+    bucket[STASH_KEY] = copy.deepcopy(dict(section))
 
 
 def get_stash(bucket: Mapping[str, Any]) -> Optional[Mapping[str, Any]]:
@@ -108,8 +117,11 @@ def overlay_native(
 
     Both projections must be *total* (always emit every native key, using
     ``None`` for "not set") so the comparison is meaningful.
+
+    The result is a deep copy, so mutating a rendered document never
+    reaches back into the stash (or the FLUID it came from).
     """
-    out = dict(base)
+    out = copy.deepcopy(dict(base))
     for k in keys if keys is not None else (set(native_then) | set(native_now)):
         then_v = native_then.get(k)
         now_v = native_now.get(k)
@@ -118,7 +130,7 @@ def overlay_native(
         if now_v is None:
             out.pop(k, None)
         else:
-            out[k] = now_v
+            out[k] = copy.deepcopy(now_v)
     return out
 
 
@@ -146,6 +158,26 @@ class ExportCtx:
     odcs: MutableMapping[str, Any]
     logger: logging.Logger
     options: Dict[str, Any] = field(default_factory=dict)
+
+
+def target_api_version(ctx: ExportCtx) -> str:
+    """The ODCS ``apiVersion`` this export targets.
+
+    Same precedence as the metadata mapper: an explicit
+    ``options["api_version"]``, else the imported document's own
+    ``apiVersion`` (verbatim stash), else :data:`DEFAULT_API_VERSION`. Once
+    the metadata mapper has run, the value it emitted wins.
+    """
+    emitted = ctx.odcs.get("apiVersion") if isinstance(ctx.odcs, Mapping) else None
+    if emitted:
+        return str(emitted)
+    explicit = ctx.options.get("api_version")
+    if explicit:
+        return normalize_api_version(explicit) or DEFAULT_API_VERSION
+    st = get_stash(get_metadata_passthrough(ctx.fluid))
+    if st and st.get("apiVersion"):
+        return str(st["apiVersion"])
+    return DEFAULT_API_VERSION
 
 
 def fluid_id(fluid: Mapping[str, Any]) -> Optional[str]:
