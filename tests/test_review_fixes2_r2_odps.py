@@ -23,6 +23,7 @@ deadline, malformed contractIds and YAML alias bombs.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import datetime
 import http.server
@@ -32,7 +33,7 @@ import threading
 import time
 import tracemalloc
 from pathlib import Path
-from typing import Any, Dict, Iterator
+from typing import Any, Dict, Iterator, List
 
 import pytest
 import yaml
@@ -75,6 +76,29 @@ def _strict_provider(api_version: Any = None) -> BitolOdpsProvider:
     prov = BitolOdpsProvider(api_version=api_version)
     prov.strict_validation = True
     return prov
+
+
+@contextlib.contextmanager
+def _captured(logger: logging.Logger) -> Iterator[List[str]]:
+    """Warnings logged on ``logger`` itself (independent of propagation,
+    which other tests' logging setup may turn off)."""
+    messages: List[str] = []
+
+    class _Handler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            messages.append(record.getMessage())
+
+    handler = _Handler(level=logging.WARNING)
+    old_level, old_disabled = logger.level, logger.disabled
+    logger.addHandler(handler)
+    logger.setLevel(logging.WARNING)
+    logger.disabled = False
+    try:
+        yield messages
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(old_level)
+        logger.disabled = old_disabled
 
 
 def _server(odcs: Dict[str, Any], name: str) -> Dict[str, Any]:
@@ -317,32 +341,32 @@ class TestNestedDowngradeToV100:
         validate_odps(product)  # judged by the v1.0.0 schema it declares
         validate_odps(product, load_schema("v1.0.0"))
 
-    def test_nested_keys_move_to_custom_properties_or_are_dropped(self, caplog) -> None:
+    def test_nested_keys_move_to_custom_properties_or_are_dropped(self) -> None:
         path = FIXTURES / "upstream" / "odps" / "deprecated-data-product.v1.1.0.odps.yaml"
         fluid = BitolOdpsProvider().import_contract(path, allow_remote=False, lenient=True)
-        caplog.set_level(logging.WARNING)
         prov = BitolOdpsProvider(api_version="v1.0.0")
         prov.strict_validation = False
-        product = prov.render(fluid)["product"]
+        with _captured(prov.logger) as logs:
+            product = prov.render(fluid)["product"]
         source = _load(path)
         mgmt_src = source["managementPorts"][0]
         mgmt = product["managementPorts"][0]
         assert "deprecated" not in mgmt
         custom = {c["property"]: c["value"] for c in mgmt.get("customProperties") or []}
         assert custom["deprecated"] == mgmt_src["deprecated"]
-        assert "managementPorts[0]" in caplog.text
+        assert "managementPorts[0]" in "\n".join(logs)
 
-    def test_sbom_extras_are_dropped_with_a_warning(self, caplog) -> None:
+    def test_sbom_extras_are_dropped_with_a_warning(self) -> None:
         path = FIXTURES / "upstream" / "odps" / "customer-data-product.v1.1.0.odps.yaml"
         fluid = BitolOdpsProvider().import_contract(path, allow_remote=False, lenient=True)
-        caplog.set_level(logging.WARNING)
         prov = BitolOdpsProvider(api_version="v1.0.0")
         prov.strict_validation = False
-        product = prov.render(fluid)["product"]
+        with _captured(prov.logger) as logs:
+            product = prov.render(fluid)["product"]
         for port in product["outputPorts"]:
             for sbom in port.get("sbom") or []:
                 assert set(sbom) <= {"type", "url"}
-        assert "sbom[0]" in caplog.text
+        assert "sbom[0]" in "\n".join(logs)
 
     def test_v110_export_of_the_same_product_is_untouched(self) -> None:
         path = FIXTURES / "upstream" / "odps" / "customer-data-product.v1.1.0.odps.yaml"
@@ -487,11 +511,12 @@ def _nul_bundle(root: Path, *, on: str) -> Path:
 
 
 class TestMalformedContractIds:
-    def test_input_port_nul_is_a_warning(self, tmp_path: Path, caplog) -> None:
-        caplog.set_level(logging.WARNING)
-        fluid = BitolOdpsProvider().import_directory(_nul_bundle(tmp_path, on="input"))
+    def test_input_port_nul_is_a_warning(self, tmp_path: Path) -> None:
+        prov = BitolOdpsProvider()
+        with _captured(prov.logger) as logs:
+            fluid = prov.import_directory(_nul_bundle(tmp_path, on="input"))
         assert [e["id"] for e in fluid["expects"]] == ["customers_raw"]
-        assert "Skipping unresolved contract" in caplog.text
+        assert "Skipping unresolved contract" in "\n".join(logs)
 
     def test_output_port_nul_is_a_warning_when_lenient(self, tmp_path: Path) -> None:
         fluid = BitolOdpsProvider().import_directory(
