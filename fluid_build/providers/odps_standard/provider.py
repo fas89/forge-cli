@@ -507,11 +507,21 @@ class BitolOdpsProvider(BaseProvider):
         # the stub would add a description to the ODPS port on re-export.
 
         document = {k: copy.deepcopy(v) for k, v in sub_fluid.items() if k not in _SUB_SKIP_KEYS}
+        # The sub-import's expects are the FLUID projection of this document's
+        # ``servers``; the ODCS servers mapper three-way-merges against them,
+        # so they must travel with the snapshot or every server reads as
+        # "removed in FLUID".
+        document["expects"] = copy.deepcopy(sub_expects)
         if len(sub_exposes) > 1:
             document["extra_exposes"] = copy.deepcopy(sub_exposes[1:])
         document["expose_native"] = {
             "name": stub.get("exposeId") or stub.get("id"),
             "description": stub.get("description") or None,
+            # The binding the port got here vs. the one the ODCS importer
+            # derived from ``servers``: an unedited port binding is mapped back
+            # to the latter on render so the per-port servers replay verbatim.
+            "binding": copy.deepcopy(stub.get("binding")),
+            "odcs_binding": copy.deepcopy(primary.get("binding")),
         }
         odcs_pt = stub.setdefault(ODCS_PASSTHROUGH_KEY, {})
         odcs_pt.update(copy.deepcopy(dict(primary.get(ODCS_PASSTHROUGH_KEY) or {})))

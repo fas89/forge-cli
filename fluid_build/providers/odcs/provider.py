@@ -343,6 +343,14 @@ def _port_document_view(document: Mapping[str, Any], expose: Mapping[str, Any]) 
                 view_expose["description"] = st["description"]
             else:
                 view_expose.pop("description", None)
+    if "binding" in imported and view_expose.get("binding") == imported.get("binding"):
+        # Unedited since import: hand the servers mapper the binding the ODCS
+        # importer derived, so it sees no binding edit and replays ``servers``.
+        odcs_binding = imported.get("odcs_binding")
+        if isinstance(odcs_binding, Mapping):
+            view_expose["binding"] = copy.deepcopy(dict(odcs_binding))
+        else:
+            view_expose.pop("binding", None)
     doc["exposes"] = [view_expose] + [copy.deepcopy(e) for e in extra if isinstance(e, Mapping)]
     doc.setdefault("expects", [])
     lifecycle = view_expose.get("lifecycle")

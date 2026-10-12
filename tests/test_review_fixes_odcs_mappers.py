@@ -275,9 +275,18 @@ def test_import_without_servers_has_no_binding() -> None:
 
 def test_import_with_ambiguous_servers_has_no_binding() -> None:
     odcs = _postgres_odcs()
+    # Two schema-valid servers, neither named after the SchemaObject: which
+    # one backs it is ambiguous, so no binding may be guessed.
     odcs["servers"] = [
-        {"server": "a", "type": "postgres", "host": "h"},
-        {"server": "b", "type": "snowflake", "account": "x"},
+        {
+            "server": "a",
+            "type": "postgres",
+            "host": "h",
+            "port": 5432,
+            "database": "crm",
+            "schema": "public",
+        },
+        {"server": "b", "type": "snowflake", "account": "x", "database": "d", "schema": "s"},
     ]
     fluid = OdcsProvider().import_contract(odcs)
     assert "binding" not in fluid["exposes"][0]
@@ -802,3 +811,19 @@ def test_fresh_servers_carry_a_stable_id() -> None:
             ("raw_events", "raw_events"),
         ]
         odcs_validation.validate(out)
+
+
+def test_validation_accepts_yaml_dates_as_iso_strings() -> None:
+    import datetime
+
+    from fluid_build.providers.odps_standard import validation as odps_validation
+
+    doc = yaml.safe_load(
+        (Path(__file__).parent / "fixtures" / "odcs" / "contract-minimal.yaml").read_text()
+    )
+    doc["slaProperties"] = [{"property": "effectiveFrom", "value": datetime.date(2024, 1, 1)}]
+    before = copy.deepcopy(doc)
+    odcs_validation.validate(doc)  # does not raise
+    assert doc == before  # never mutates the caller's document
+    assert odcs_validation.json_instance(doc)["slaProperties"][0]["value"] == "2024-01-01"
+    assert odps_validation.json_instance is odcs_validation.json_instance

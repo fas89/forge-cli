@@ -37,6 +37,7 @@ from fluid_build.providers.base import ProviderError
 # equality" and the same ``vX.Y.Z`` spelling rules.
 from fluid_build.providers.odcs.validation import (  # noqa: F401
     api_version_tuple,
+    json_instance,
     normalize_api_version,
     roundtrip_check,
 )
@@ -101,6 +102,7 @@ def validate(odps: Mapping[str, Any], schema: Optional[Mapping[str, Any]] = None
             LOG.warning("ODPS schema not available, skipping validation")
             return
     try:
-        jsonschema.validate(instance=odps, schema=schema)
+        # YAML dates are validated as the ISO strings JSON would carry.
+        jsonschema.validate(instance=json_instance(odps), schema=schema)
     except jsonschema.ValidationError as exc:
         raise ProviderError(f"ODPS validation failed: {exc.message}") from exc

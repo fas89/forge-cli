@@ -24,6 +24,7 @@ accepting what we produce; opt into the newer version with the
 
 from __future__ import annotations
 
+import datetime
 import json
 import logging
 from collections.abc import Mapping
@@ -114,12 +115,32 @@ def load_schema(api_version: Optional[str] = None) -> Optional[Dict[str, Any]]:
     return schema
 
 
+def json_instance(doc: Any) -> Any:
+    """``doc`` as JSON would carry it, for JSON-Schema validation.
+
+    Bitol schemas are JSON Schemas, but contracts are usually YAML, where an
+    unquoted ``2024-01-01`` loads as a :class:`datetime.date`. JSON has no
+    date type, so such values are rendered as ISO-8601 strings (what the
+    author wrote) instead of failing every ``type: string`` check. Other
+    values are returned unchanged; the input is never mutated.
+    """
+    if isinstance(doc, (datetime.datetime, datetime.date, datetime.time)):
+        return doc.isoformat()
+    if isinstance(doc, Mapping):
+        return {k: json_instance(v) for k, v in doc.items()}
+    if isinstance(doc, (list, tuple)):
+        return [json_instance(v) for v in doc]
+    return doc
+
+
 def validate(odcs: Mapping[str, Any], schema: Optional[Mapping[str, Any]] = None) -> None:
     """Validate an ODCS contract against the JSON Schema.
 
     When ``schema`` is omitted the version is resolved from the document's
     ``apiVersion`` (:func:`resolve_schema_version`) — so a v3.2.0 contract
-    is never judged by the v3.1.0 schema and vice versa.
+    is never judged by the v3.1.0 schema and vice versa. YAML date/time
+    values are validated as the ISO strings JSON would carry
+    (:func:`json_instance`).
 
     Raises :class:`ProviderError` on validation failure. Silently no-ops when
     the optional :mod:`jsonschema` dependency is not installed.
@@ -135,7 +156,7 @@ def validate(odcs: Mapping[str, Any], schema: Optional[Mapping[str, Any]] = None
             LOG.warning("ODCS schema not available, skipping validation")
             return
     try:
-        jsonschema.validate(instance=odcs, schema=schema)
+        jsonschema.validate(instance=json_instance(odcs), schema=schema)
     except jsonschema.ValidationError as exc:
         raise ProviderError(f"ODCS validation failed: {exc.message}") from exc
 

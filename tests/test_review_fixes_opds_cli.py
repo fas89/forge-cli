@@ -20,6 +20,7 @@ Each test class names the review finding it pins down.
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import logging
 import warnings
@@ -572,3 +573,56 @@ class TestDocsMatchCode:
         importp = sub._subparsers._group_actions[0].choices["import"]
         assert "validated FLUID contract" not in importp.description
         assert "skeleton" in importp.description
+
+
+# ---------------------------------------------------------------------------
+# Integration seams (found when merging the review-fix workstreams)
+# ---------------------------------------------------------------------------
+
+_MINIMAL_ODCS = Path(__file__).parent / "fixtures" / "odcs" / "contract-minimal.yaml"
+
+
+class TestImportSeams:
+    def _invalid_odcs(self, tmp_path: Path) -> Path:
+        doc = yaml.safe_load(_MINIMAL_ODCS.read_text())
+        doc["schema"][0]["properties"][0]["logicalType"] = "not-a-type"
+        target = tmp_path / "broken.odcs.yaml"
+        target.write_text(yaml.safe_dump(doc, sort_keys=False))
+        return target
+
+    def test_lone_invalid_odcs_fails_without_lenient(self, tmp_path: Path) -> None:
+        # ODCS import is strict again (origin/main behaviour).
+        assert cmd_opds_import(_import_args(self._invalid_odcs(tmp_path)), LOG) == 1
+
+    def test_lone_invalid_odcs_imports_with_lenient(self, tmp_path: Path) -> None:
+        out_file = tmp_path / "out.fluid.yaml"
+        args = _import_args(self._invalid_odcs(tmp_path), lenient=True, out=str(out_file))
+        assert cmd_opds_import(args, LOG) == 0
+        assert yaml.safe_load(out_file.read_text())["exposes"]
+
+    def test_kind_sniffed_invalid_odcs_honours_lenient(self, tmp_path: Path) -> None:
+        # No .odcs suffix: routed by ``kind: DataContract``.
+        src = self._invalid_odcs(tmp_path)
+        plain = tmp_path / "broken.yaml"
+        plain.write_text(src.read_text())
+        assert cmd_opds_import(_import_args(plain), LOG) == 1
+        assert cmd_opds_import(_import_args(plain, lenient=True), LOG) == 0
+
+    def test_fluid_contract_is_rejected_not_imported_as_odps(self, tmp_path: Path) -> None:
+        fluid = tmp_path / "contract.yaml"
+        fluid.write_text(
+            yaml.safe_dump({"fluidVersion": "0.7.2", "kind": "DataProduct", "id": "x", "name": "x"})
+        )
+        with patch("fluid_build.cli.opds.console_error") as err:
+            assert cmd_opds_import(_import_args(fluid), LOG) == 1
+        assert "is a FLUID contract" in err.call_args[0][0]
+
+    def test_odcs_with_unquoted_yaml_date_validates_and_imports(self, tmp_path: Path) -> None:
+        doc = yaml.safe_load(_MINIMAL_ODCS.read_text())
+        target = tmp_path / "dated.odcs.yaml"
+        text = yaml.safe_dump(doc, sort_keys=False)
+        # An unquoted date loads as datetime.date; JSON Schema sees its ISO string.
+        text += "slaProperties:\n  - property: effectiveFrom\n    value: 2024-01-01\n"
+        target.write_text(text)
+        assert isinstance(yaml.safe_load(text)["slaProperties"][0]["value"], datetime.date)
+        assert cmd_opds_import(_import_args(target), LOG) == 0

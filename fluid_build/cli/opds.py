@@ -465,7 +465,7 @@ def _dispatch_import(path: Path, *, allow_remote: bool, lenient: bool) -> Dict[s
     if ".odcs" in suffixes or name_lower.endswith((".odcs.yaml", ".odcs.yml", ".odcs.json")):
         from fluid_build.providers.odcs import OdcsProvider
 
-        return OdcsProvider().import_contract(path)
+        return OdcsProvider().import_contract(path, lenient=lenient)
 
     if ".odps" in suffixes or name_lower.endswith((".odps.yaml", ".odps.yml", ".odps.json")):
         from fluid_build.providers.odps_standard import BitolOdpsProvider
@@ -476,6 +476,12 @@ def _dispatch_import(path: Path, *, allow_remote: bool, lenient: bool) -> Dict[s
     from fluid_build.providers.odcs.io import read_input
 
     data = read_input(path)
+    if isinstance(data, dict) and "fluidVersion" in data:
+        # FLUID contracts also declare ``kind: DataProduct``.
+        raise ValueError(
+            f"{path} is a FLUID contract, not a Bitol ODPS/ODCS document; "
+            "use `fluid opds export` to turn it into ODPS."
+        )
     kind = data.get("kind") if isinstance(data, dict) else None
     if kind == "DataProduct":
         from fluid_build.providers.odps_standard import BitolOdpsProvider
@@ -484,7 +490,7 @@ def _dispatch_import(path: Path, *, allow_remote: bool, lenient: bool) -> Dict[s
     if kind == "DataContract":
         from fluid_build.providers.odcs import OdcsProvider
 
-        return OdcsProvider().import_contract(path)
+        return OdcsProvider().import_contract(path, lenient=lenient)
 
     raise ValueError(
         f"Cannot determine input type for {path}: "
@@ -953,7 +959,10 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     importp.add_argument(
         "--lenient",
         action="store_true",
-        help="Downgrade output-port resolution failures to warnings (input ports are always lenient).",
+        help=(
+            "Downgrade output-port resolution failures, and schema-invalid ODCS "
+            "inputs, to warnings (input ports are always lenient)."
+        ),
     )
     importp.set_defaults(func=cmd_opds_import)
 
