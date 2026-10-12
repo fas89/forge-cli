@@ -140,7 +140,7 @@ class TestPublishContract:
         config = MagicMock()
         config.get_catalog_config.return_value = None
 
-        with patch.object(pub_mod, "load_contract", return_value={"id": "test"}):
+        with patch.object(pub_mod, "load_contract", return_value={"id": "test", "name": "Test"}):
             result = _run(
                 pub_mod.publish_contract(
                     contract_path=contract_path,
@@ -161,7 +161,7 @@ class TestPublishContract:
         config = MagicMock()
         config.get_catalog_config.return_value = {"enabled": False}
 
-        with patch.object(pub_mod, "load_contract", return_value={"id": "test"}):
+        with patch.object(pub_mod, "load_contract", return_value={"id": "test", "name": "Test"}):
             result = _run(
                 pub_mod.publish_contract(
                     contract_path=contract_path,
@@ -183,7 +183,7 @@ class TestPublishContract:
         config.get_catalog_config.return_value = {"enabled": True}
 
         with (
-            patch.object(pub_mod, "load_contract", return_value={"id": "test"}),
+            patch.object(pub_mod, "load_contract", return_value={"id": "test", "name": "Test"}),
             patch.object(pub_mod, "get_catalog_provider", side_effect=RuntimeError("no driver")),
         ):
             result = _run(
@@ -210,7 +210,7 @@ class TestPublishContract:
         config.get_catalog_config.return_value = {"enabled": True}
 
         with (
-            patch.object(pub_mod, "load_contract", return_value={"id": "test"}),
+            patch.object(pub_mod, "load_contract", return_value={"id": "test", "name": "Test"}),
             patch.object(pub_mod, "get_catalog_provider", return_value=provider),
         ):
             result = _run(
@@ -239,7 +239,7 @@ class TestPublishContract:
         config.get_catalog_config.return_value = {"enabled": True}
 
         with (
-            patch.object(pub_mod, "load_contract", return_value={"id": "test"}),
+            patch.object(pub_mod, "load_contract", return_value={"id": "test", "name": "Test"}),
             patch.object(pub_mod, "get_catalog_provider", return_value=provider),
         ):
             result = _run(
@@ -267,7 +267,7 @@ class TestPublishContract:
         config.get_catalog_config.return_value = {"enabled": True}
 
         with (
-            patch.object(pub_mod, "load_contract", return_value={"id": "test"}),
+            patch.object(pub_mod, "load_contract", return_value={"id": "test", "name": "Test"}),
             patch.object(pub_mod, "get_catalog_provider", return_value=provider),
         ):
             result = _run(
@@ -284,7 +284,7 @@ class TestPublishContract:
         # validate_target is called with (fluid, target); the target's
         # contract_id is derived from the FLUID's id field.
         (fluid_arg, target_arg), _ = provider.validate_target.call_args
-        assert fluid_arg == {"id": "test"}
+        assert fluid_arg == {"id": "test", "name": "Test"}
         assert target_arg.contract_id == "test"
 
     def test_health_check_failure_returns_error(self, tmp_path):
@@ -300,7 +300,7 @@ class TestPublishContract:
         config.get_catalog_config.return_value = {"enabled": True}
 
         with (
-            patch.object(pub_mod, "load_contract", return_value={"id": "test"}),
+            patch.object(pub_mod, "load_contract", return_value={"id": "test", "name": "Test"}),
             patch.object(pub_mod, "get_catalog_provider", return_value=provider),
         ):
             result = _run(
@@ -396,7 +396,7 @@ class TestPublishContractLegacyMockProvider:
         contract_path.write_text("id: test")
         config = MagicMock()
         config.get_catalog_config.return_value = {"enabled": True}
-        with patch.object(pub_mod, "load_contract", return_value={"id": "test"}):
+        with patch.object(pub_mod, "load_contract", return_value={"id": "test", "name": "Test"}):
             with patch.object(pub_mod, "get_catalog_provider", return_value=provider):
                 return _run(
                     pub_mod.publish_contract(
@@ -917,7 +917,7 @@ class TestRunAsyncPublishFlow:
         config.get_catalog_config.return_value = {"enabled": True}
 
         with (
-            patch.object(pub_mod, "load_contract", return_value={"id": "test"}),
+            patch.object(pub_mod, "load_contract", return_value={"id": "test", "name": "Test"}),
             patch.object(pub_mod, "get_catalog_provider", return_value=provider),
         ):
             loop = asyncio.new_event_loop()
@@ -951,7 +951,7 @@ class TestRunAsyncPublishFlow:
         config.get_catalog_config.return_value = {"enabled": True}
 
         with (
-            patch.object(pub_mod, "load_contract", return_value={"id": "test"}),
+            patch.object(pub_mod, "load_contract", return_value={"id": "test", "name": "Test"}),
             patch.object(pub_mod, "get_catalog_provider", return_value=provider),
         ):
             loop = asyncio.new_event_loop()
@@ -984,7 +984,7 @@ class TestRunAsyncPublishFlow:
         config.get_catalog_config.return_value = {"enabled": True}
 
         with (
-            patch.object(pub_mod, "load_contract", return_value={"id": "test"}),
+            patch.object(pub_mod, "load_contract", return_value={"id": "test", "name": "Test"}),
             patch.object(pub_mod, "get_catalog_provider", return_value=provider),
         ):
             loop = asyncio.new_event_loop()

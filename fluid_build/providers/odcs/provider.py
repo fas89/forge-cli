@@ -394,21 +394,33 @@ def product_owner(fluid: Mapping[str, Any]) -> Any:
 
 
 def _merge_product_owner(doc: Dict[str, Any], then: Any, now: Any) -> None:
-    """Overlay the product's owner edit (``now`` − ``then``) on ``doc["owner"]``."""
+    """Overlay the product's owner edit (``now`` − ``then``) on ``doc["owner"]``.
+
+    A per-port contract may have its own team, distinct from the product's.
+    A changed key is applied only where the port inherited the product's
+    import-time value for it; a port whose owner never matched the product
+    owner keeps its own identity.
+    """
     if now == then:
         return
+    current = doc.get("owner")
     if not isinstance(now, Mapping) or not isinstance(then, (Mapping, type(None))):
+        # Whole-owner replacement/removal: only for a port that carried the
+        # product's owner (or none at all).
+        if current is not None and current != then:
+            return
         if now is None:
             doc.pop("owner", None)
         else:
             doc["owner"] = copy.deepcopy(now)
         return
     then_map: Mapping[str, Any] = then or {}
-    current = doc.get("owner")
-    owner: Dict[str, Any] = dict(current) if isinstance(current, Mapping) else {}
+    owner: Dict[str, Any] = copy.deepcopy(dict(current)) if isinstance(current, Mapping) else {}
     for key in set(then_map) | set(now):
         if then_map.get(key) == now.get(key):
             continue
+        if owner.get(key) != then_map.get(key):
+            continue  # the port's own value, not inherited from the product
         if now.get(key) is None:
             owner.pop(key, None)
         else:

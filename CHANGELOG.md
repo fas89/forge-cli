@@ -49,7 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   annotated `CatalogTarget`); every other provider, including duck-typed
   plugins, takes the 0.7.8 `map_contract_to_asset` → `validate_asset` →
   `publish(asset)` route. Missing `domain` / owner still fall back to
-  `general` / `unknown`; files that are not FLUID contracts (no `id`,
+  `general` / `unknown`; files that are not FLUID contracts (no
   `name` or `metadata.name`, e.g. fragments, overlays, config files) are
   rejected with a clear error.
 - **Mapper round-trip architecture: verbatim stash + native overlay.** On

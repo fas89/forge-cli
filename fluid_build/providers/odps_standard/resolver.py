@@ -407,19 +407,21 @@ class ContractResolver:
         return resolved
 
 
-def urlopen(url: str, *, timeout: float, deadline: Optional[float] = None) -> Any:
+def urlopen(url: str, *, timeout: Optional[float], deadline: Optional[float] = None) -> Any:
     """``urllib.request.urlopen`` whose redirects may only lead to http(s).
 
     With ``deadline`` (a :func:`time.monotonic` value), every socket
     operation of every connection the fetch opens (redirects included)
-    times out at ``min(timeout, deadline - now)``.
+    times out at ``min(timeout, deadline - now)``; a ``None`` per-operation
+    ``timeout`` leaves only the deadline.
     """
     handlers: List[Any] = [_HttpOnlyRedirectHandler()]
     if deadline is not None:
         handlers.append(_DeadlineHTTPHandler(deadline))
         if _DeadlineHTTPSHandler is not None:
             handlers.append(_DeadlineHTTPSHandler(deadline))
-        timeout = min(timeout, max(deadline - time.monotonic(), 0.001))
+        remaining = max(deadline - time.monotonic(), 0.001)
+        timeout = remaining if timeout is None else min(timeout, remaining)
     opener = urllib.request.build_opener(*handlers)
     return opener.open(url, timeout=timeout)
 

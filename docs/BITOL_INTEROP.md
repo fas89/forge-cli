@@ -60,7 +60,7 @@ fluid opds export contract.fluid.yaml > product.json
 
 With `--spec` omitted the emitted `apiVersion` follows `ODPS_API_VERSION`, else the imported document's own `apiVersion` (re-exports of imports), else `v1.0.0`; an explicit `--spec bitol-1.0.0` / `bitol-1.1.0` pins it. Exports are validated against the vendored schemas; `--no-validate-strict` still validates but reports problems as warnings on stderr instead of failing.
 
-`--out-dir` and `-f/--format` apply to the Bitol specs only; `--spec odpi-4.1` always writes a single JSON document to `--out` (or stdout) and rejects them with an error.
+`--out-dir` and `-f yaml` apply to the Bitol specs only; `--spec odpi-4.1` always writes a single JSON document to `--out` (or stdout) and rejects `--out-dir` and `-f yaml` with an error (`-f json` is accepted).
 
 No inline-embedding mode. The fragments layout is the only export pattern — it matches Bitol convention and `datacontract-cli` expectations.
 

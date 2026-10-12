@@ -231,7 +231,13 @@ class BaseCatalogProvider(ABC):
         if self._overrides_legacy_mapper() or (
             type(self).validate_asset is not BaseCatalogProvider.validate_asset
         ):
-            asset = self._legacy_asset_from_fluid(fluid, target)
+            # A (possibly overridden) 0.7.8 mapper may raise on contracts it
+            # cannot map; report that per contract, as 0.7.8 and the real
+            # publish path do, instead of aborting a whole --dry-run batch.
+            try:
+                asset = self._legacy_asset_from_fluid(fluid, target)
+            except Exception as exc:
+                return False, f"Failed to map contract to asset: {exc}"
             return self.validate_asset(asset)
         return True, None
 
@@ -464,11 +470,11 @@ def _coerce_contract_id(contract_id: Optional[str], asset_id: Optional[str], met
 def _fluid_identity_error(fluid: Any) -> Optional[str]:
     """Return an error when *fluid* is not a FLUID contract, else ``None``.
 
-    A contract must be a mapping with an ``id``, a ``name`` or a
-    ``metadata.name``. Contract fragments, overlays and config files have
-    none of them; 0.7.8 rejected them (``Failed to map contract to asset:
-    'name'``) and publishing them would upsert an asset called
-    ``unknown``.
+    A contract must be a mapping with a ``name`` (top level, as the FLUID
+    schema requires, or ``metadata.name``). Contract fragments, overlays and
+    config files lack one — even a fragment that carries its own ``id``;
+    0.7.8 rejected them (``Failed to map contract to asset: 'name'``) and
+    publishing them would upsert a stray catalog asset.
     """
     if not isinstance(fluid, dict):
         return (
@@ -477,9 +483,9 @@ def _fluid_identity_error(fluid: Any) -> Optional[str]:
         )
     metadata = fluid.get("metadata")
     meta_name = metadata.get("name") if isinstance(metadata, dict) else None
-    if not (fluid.get("id") or fluid.get("name") or meta_name):
+    if not (fluid.get("name") or meta_name):
         return (
-            "not a FLUID contract: 'id' is required (or 'name' / 'metadata.name'); "
+            "not a FLUID contract: 'name' is required (or 'metadata.name'); "
             "contract fragments, overlays and config files cannot be published"
         )
     return None

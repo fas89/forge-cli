@@ -525,7 +525,7 @@ class TestNonContractRejected:
         fluid = {"fluidVersion": "0.7.2", "builds": []}
         ok, err = provider.validate_target(fluid, CatalogTarget.from_fluid(fluid))
         assert ok is False
-        assert "id" in err and "FLUID contract" in err
+        assert "name" in err and "FLUID contract" in err
 
     @pytest.mark.parametrize("dry_run", [False, True])
     def test_cc_cli_rejects_market_config(self, fake_cc, dry_run):
@@ -577,7 +577,7 @@ class TestNonContractRejected:
     @pytest.mark.parametrize(
         "contract",
         [
-            {"id": "a.b"},
+            {"id": "a.b", "name": "A B"},
             {"name": "Only name"},
             {"metadata": {"name": "Only metadata name"}},
         ],
@@ -588,6 +588,15 @@ class TestNonContractRejected:
             True,
             None,
         )
+
+    def test_fragment_with_only_an_id_is_rejected(self):
+        # e.g. examples/0.7.1/bitcoin-multifile/fragments/builds/ingestion.yaml:
+        # 0.7.8 rejected it ("Failed to map contract to asset: 'name'").
+        provider = _cc()
+        fragment = {"id": "bitcoin_price_ingestion", "pattern": "embedded-logic"}
+        ok, err = provider.validate_target(fragment, CatalogTarget.from_fluid(fragment))
+        assert ok is False
+        assert "'name' is required" in err
 
 
 # ---------------------------------------------------------------------------
