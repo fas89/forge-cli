@@ -398,13 +398,12 @@ class DataMeshManagerProvider(BaseProvider):
             team_obj = dp.get("team")
             if not isinstance(team_obj, dict):
                 team_obj = {}
-            if team_id_override:
-                # ``--team-id`` must win over the team the ODPS mapper derived
-                # from ``metadata.owner`` — otherwise the product is assigned
-                # to a different team than the one ``_ensure_team`` creates.
-                team_obj["name"] = tid
-            else:
-                team_obj.setdefault("name", tid)
+            # ``team.name`` must be the team id ``_ensure_team`` creates —
+            # ``--team-id`` or the slug derived from the owner (as 0.7.8
+            # sent). The ODPS mapper fills ``team.name`` with the owner's
+            # display name (e.g. "Customer Platform"), which would assign
+            # the product to a team that was never created.
+            team_obj["name"] = tid
             dp["team"] = team_obj
         else:
             dp["teamId"] = tid
@@ -841,6 +840,10 @@ class DataMeshManagerProvider(BaseProvider):
         3) ``DMM_DATA_PRODUCT_SPEC`` environment variable
         4) default: ODPS
 
+        The token ``dps`` (any case) means DPS 0.0.1 wherever a value is
+        accepted — explicit value, catalog config, provider hint or env var
+        — since ``"dps"`` itself is not a valid ``dataProductSpecification``.
+
         ODPS is the default because current Entropy Data / Entropy CE
         organisations accept only ``odps`` and reject the legacy DPS shape
         with HTTP 400 ("Specification type 'dps' is not supported"). Pass
@@ -853,8 +856,9 @@ class DataMeshManagerProvider(BaseProvider):
         schema-valid FLUID data product declares ``kind: DataProduct``, so a
         ``kind`` heuristic would make the env-var opt-out unreachable).
         """
-        if value:
-            return str(value).strip()
+        explicit = str(value or "").strip()
+        if explicit:
+            return self._normalize_spec_token(explicit)
 
         hint = str(provider_hint or "").strip().lower()
         if hint in {"odps", "opds"}:
@@ -864,9 +868,16 @@ class DataMeshManagerProvider(BaseProvider):
 
         env_value = os.getenv("DMM_DATA_PRODUCT_SPEC", "").strip()
         if env_value:
-            return env_value
+            return self._normalize_spec_token(env_value)
 
         return self.DATA_PRODUCT_SPEC_ODPS
+
+    @classmethod
+    def _normalize_spec_token(cls, value: str) -> str:
+        """Map the ``dps`` token to the DPS version it stands for."""
+        if value.lower() == "dps":
+            return cls.DATA_PRODUCT_SPEC_DPS
+        return value
 
     # ---- port mapping -----------------------------------------------------
 

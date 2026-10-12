@@ -84,7 +84,7 @@ Entropy Data / Entropy CE organisations accept only this type.
 | `description` | `description.purpose` |
 | `metadata.status` | `status` |
 | `domain` | `domain` |
-| `metadata.owner` / `owner.team` | `team.name` + `team.members[]` (`--team-id` overrides `team.name`) |
+| `metadata.owner` / `owner.team` | `team.name` (the team id, slugged from the owner team — e.g. `Customer Platform` → `customer-platform` — the same id the auto-created team gets; `--team-id` overrides it) + `team.members[]` |
 | `expects[]` | `inputPorts[]` |
 | `exposes[]` | `outputPorts[]` (each with `contractId` = `{productId}.{exposeId}`) |
 | `metadata.tags` / `tags` | `tags[]` |
@@ -96,7 +96,8 @@ with `--data-product-spec 0.0.1`, `DMM_DATA_PRODUCT_SPEC=0.0.1`, or (for
 `fluid publish --catalog datamesh-manager`) `data_product_spec: "0.0.1"` /
 `provider_hint: dps` in the catalog config. Resolution order: explicit spec →
 provider hint (`odps`/`opds` → ODPS, `dps` → 0.0.1) → `DMM_DATA_PRODUCT_SPEC`
-→ ODPS.
+→ ODPS. The token `dps` means `0.0.1` wherever a spec value is accepted
+(`--data-product-spec dps`, `DMM_DATA_PRODUCT_SPEC=dps`, `data_product_spec: dps`).
 
 ```bash
 fluid dmm publish contract.fluid.yaml --data-product-spec 0.0.1
@@ -142,6 +143,11 @@ catalogs:
 # Then publish
 fluid publish contract.fluid.yaml --catalog datamesh-manager
 ```
+
+As in 0.7.8, the catalog path publishes a contract without `metadata.status`
+as `active`, and takes a missing `metadata.domain` / `metadata.version` from the
+top-level `domain` / `version` (defaulting to `general` / `1.0.0`). Values the
+contract declares under `metadata` win.
 
 ## API Reference
 
