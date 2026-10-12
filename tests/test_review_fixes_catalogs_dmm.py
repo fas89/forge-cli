@@ -371,10 +371,20 @@ class TestBuiltinProvidersAcceptLegacyAsset:
     def test_target_defaults_from_fluid(self):
         provider = DataMeshManagerCatalogProvider({"endpoint": "http://dmm.example"})
         provider._provider.apply = lambda fluid, **kw: {}  # type: ignore[assignment]
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", DeprecationWarning)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", DeprecationWarning)
             result = _run(provider.publish(_schema_valid_contract()))
         assert result.asset_id == "sales.orders"
+        # The new (fluid, target) API must not trip the catalog's own
+        # deprecation shims. Unrelated DeprecationWarnings (e.g. Python
+        # 3.12's datetime.utcnow) are not this test's concern.
+        catalog_deprecations = [
+            str(w.message)
+            for w in caught
+            if issubclass(w.category, DeprecationWarning)
+            and ("CatalogAsset" in str(w.message) or "deprecated publish" in str(w.message))
+        ]
+        assert catalog_deprecations == []
 
     @pytest.mark.parametrize("method", ["publish_asset", "update_asset"])
     def test_publish_asset_shims_forward_full_fluid(self, method):
