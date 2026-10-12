@@ -27,15 +27,22 @@ from typing import Any, Dict, List, Optional, Union
 from fluid_build.providers.base import ApplyResult, BaseProvider, ProviderError
 from fluid_build.providers.odcs.mappers.base import PASSTHROUGH_KEY as ODCS_PASSTHROUGH_KEY
 from fluid_build.providers.odcs.provider import DOCUMENT_KEY as ODCS_DOCUMENT_KEY
-from fluid_build.providers.odcs.provider import OdcsProvider
+from fluid_build.providers.odcs.provider import (
+    EXPECT_SERVER_KEYS,
+    PRODUCT_EXPECTS_KEY,
+    PRODUCT_OWNER_KEY,
+    OdcsProvider,
+    product_owner,
+)
 
 from .io import read_input, write_output
 from .mappers import EXPORT_PIPELINE, IMPORT_PIPELINE
-from .mappers.base import ExportCtx, ImportCtx
+from .mappers.base import ExportCtx, ImportCtx, conform_to_schema
 from .resolver import ContractResolver, ResolvedContract
 from .validation import (
     DEFAULT_API_VERSION,
     SUPPORTED_API_VERSIONS,
+    api_version_tuple,
     load_schema,
     normalize_api_version,
     validate,
@@ -48,6 +55,11 @@ _SUB_SKIP_KEYS = frozenset({"exposes", "expects"})
 # Key of the product file in :meth:`BitolOdpsProvider._bundle_paths` (cannot
 # collide with a contractId, which is never empty).
 _PRODUCT_PATH_KEY = ""
+
+
+def _below_v110(api_version: Any) -> bool:
+    version = api_version_tuple(str(api_version)) if api_version else ()
+    return bool(version) and version < (1, 1, 0)
 
 
 class BitolOdpsProvider(BaseProvider):
@@ -198,6 +210,16 @@ class BitolOdpsProvider(BaseProvider):
                 )
             contracts[contract_id] = odcs
 
+        # A product rendered below v1.1.0 (an imported v1.1.0 product exported
+        # with --spec bitol-1.0.0, say) must fit the schema it declares, down
+        # to nested objects (management ports, SBOM entries, ...). The mappers
+        # already moved the top-level/port keys with their legacy encodings;
+        # this pass derives the rest from the vendored v1.0.0 schema.
+        if _below_v110(product.get("apiVersion")):
+            v100_schema = load_schema("v1.0.0")
+            if v100_schema:
+                conform_to_schema(product, v100_schema, self.logger)
+
         # Strict-mode validation (fail-loud), version-selected from each
         # emitted document's own apiVersion.
         if self.strict_validation:
@@ -301,11 +323,14 @@ class BitolOdpsProvider(BaseProvider):
 
         # Resolve every port's contract and merge it into the stub
         self._resolve_and_merge_ports(fluid, odps_data, resolver, lenient=lenient)
+        _record_product_state(fluid)
 
-        # Preserve the original ODPS doc verbatim for round-trip
+        # Preserve the original ODPS doc verbatim for round-trip (a deep copy:
+        # sharing objects with the stashes would make the YAML dump of the
+        # imported FLUID emit anchors/aliases).
         from .mappers.base import metadata_passthrough
 
-        metadata_passthrough(fluid)["source"] = dict(odps_data)
+        metadata_passthrough(fluid)["source"] = copy.deepcopy(dict(odps_data))
         return fluid
 
     def import_directory(
@@ -484,6 +509,10 @@ class BitolOdpsProvider(BaseProvider):
           quality; ``owner``; ``contract``), extra SchemaObjects, and the
           stub's FLUID-native name/description at import time.
 
+        The snapshot is kept even for an ODCS document without SchemaObjects
+        (``schema`` is optional): the port then has no schema to merge, but
+        its document-level fields still have to round-trip.
+
         Returns the expects the ODCS importer derived from ``servers`` so the
         caller can backfill matching input ports.
         """
@@ -491,41 +520,20 @@ class BitolOdpsProvider(BaseProvider):
         sub_fluid = self._odcs.import_contract(resolved.odcs, lenient=True)
         sub_exposes = [e for e in sub_fluid.get("exposes") or [] if isinstance(e, Mapping)]
         sub_expects = [e for e in sub_fluid.get("expects") or [] if isinstance(e, Mapping)]
-        if not sub_exposes:
-            return sub_expects
-        primary = sub_exposes[0]
-        # Carry over the contract block (schema, quality, relationships, etc.)
-        if primary.get("contract"):
-            stub["contract"] = primary["contract"]
-        if "binding" not in stub:
-            binding = self._binding_from_servers(sub_expects, stub, primary, port_name)
-            if binding:
-                stub["binding"] = binding
-        if primary.get("qos") and "qos" not in stub:
-            stub["qos"] = primary["qos"]
-        # The SchemaObject description stays in the stash: copying it onto
-        # the stub would add a description to the ODPS port on re-export.
-
-        document = {k: copy.deepcopy(v) for k, v in sub_fluid.items() if k not in _SUB_SKIP_KEYS}
-        # The sub-import's expects are the FLUID projection of this document's
-        # ``servers``; the ODCS servers mapper three-way-merges against them,
-        # so they must travel with the snapshot or every server reads as
-        # "removed in FLUID".
-        document["expects"] = copy.deepcopy(sub_expects)
-        if len(sub_exposes) > 1:
-            document["extra_exposes"] = copy.deepcopy(sub_exposes[1:])
-        document["expose_native"] = {
-            "name": stub.get("exposeId") or stub.get("id"),
-            "description": stub.get("description") or None,
-            # The binding the port got here vs. the one the ODCS importer
-            # derived from ``servers``: an unedited port binding is mapped back
-            # to the latter on render so the per-port servers replay verbatim.
-            "binding": copy.deepcopy(stub.get("binding")),
-            "odcs_binding": copy.deepcopy(primary.get("binding")),
-        }
-        odcs_pt = stub.setdefault(ODCS_PASSTHROUGH_KEY, {})
-        odcs_pt.update(copy.deepcopy(dict(primary.get(ODCS_PASSTHROUGH_KEY) or {})))
-        odcs_pt[ODCS_DOCUMENT_KEY] = document
+        primary: Mapping[str, Any] = sub_exposes[0] if sub_exposes else {}
+        if sub_exposes:
+            # Carry over the contract block (schema, quality, relationships, etc.)
+            if primary.get("contract"):
+                stub["contract"] = copy.deepcopy(primary["contract"])
+            if "binding" not in stub:
+                binding = self._binding_from_servers(sub_expects, stub, primary, port_name)
+                if binding:
+                    stub["binding"] = binding
+            if primary.get("qos") and "qos" not in stub:
+                stub["qos"] = copy.deepcopy(primary["qos"])
+            # The SchemaObject description stays in the stash: copying it onto
+            # the stub would add a description to the ODPS port on re-export.
+        _attach_document(stub, sub_fluid, sub_exposes, sub_expects)
         return sub_expects
 
     @staticmethod
@@ -565,17 +573,27 @@ class BitolOdpsProvider(BaseProvider):
             return
         primary = sub_exposes[0]
         if primary.get("contract"):
-            stub["contract"] = primary["contract"]
+            stub["contract"] = copy.deepcopy(primary["contract"])
         if primary.get("binding") and "binding" not in stub:
-            stub["binding"] = primary["binding"]
+            stub["binding"] = copy.deepcopy(primary["binding"])
 
     def _import_odcs_only(
         self, root: Path, odcs_files: List[Path], *, lenient: bool = False
     ) -> Dict[str, Any]:
         """Build a wrapper-less FLUID contract from a directory of ODCS files.
 
-        Each ODCS file becomes one expose under a synthetic product. Useful
-        when a team publishes raw ODCS contracts without an ODPS wrapper.
+        Each SchemaObject of each ODCS file becomes one expose under a
+        synthetic product. Useful when a team publishes raw ODCS contracts
+        without an ODPS wrapper.
+
+        Like a bundle port, the first expose of each file carries that
+        file's ODCS document state (``expose.odcs_passthrough._document``)
+        and keeps the ODCS ``id`` as its contract id
+        (``expose.odps_passthrough.contract_id``), so a re-export reproduces
+        the document's id, name, description, domain, team, servers and SLA
+        instead of minting new ones. Further SchemaObjects of a file stay
+        exposes of their own (each carrying the document's top-level fields
+        under a minted id).
         """
         if not odcs_files:
             raise ProviderError(f"import_directory: {root} contains no ODPS doc and no ODCS files")
@@ -592,12 +610,26 @@ class BitolOdpsProvider(BaseProvider):
             "exposes": [],
             "expects": [],
         }
+        from .mappers.base import expose_passthrough, fluid_id, metadata_passthrough
+
+        seen_ids: set = set()
         for odcs_file in odcs_files:
             sub = self._odcs.import_contract(odcs_file, lenient=lenient)
-            for expose in sub.get("exposes") or []:
+            sub_exposes = [e for e in sub.get("exposes") or [] if isinstance(e, Mapping)]
+            sub_expects = [e for e in sub.get("expects") or [] if isinstance(e, Mapping)]
+            odcs_id = fluid_id(sub)
+            if not isinstance(odcs_id, str) or not odcs_id or odcs_id in seen_ids:
+                odcs_id = None  # two files sharing an id: the later ones get minted ids
+            else:
+                seen_ids.add(odcs_id)
+            for index, expose in enumerate(sub_exposes):
+                # Every SchemaObject is an expose of its own here, so none of
+                # them rides along as an extra object of another's document.
+                _attach_document(expose, sub, [expose], sub_expects)
+                if index == 0 and odcs_id:
+                    expose_passthrough(expose)["contract_id"] = odcs_id
                 fluid["exposes"].append(expose)
-
-        from .mappers.base import metadata_passthrough
+        _record_product_state(fluid)
 
         metadata_passthrough(fluid)["odcs_only_directory"] = True
         metadata_passthrough(fluid)["odcs_only_warning"] = (
@@ -616,6 +648,69 @@ class BitolOdpsProvider(BaseProvider):
     def validate_product(self, odps: Mapping[str, Any]) -> None:
         """Validate against the vendored JSON Schema matching ``odps["apiVersion"]``."""
         validate(odps)
+
+
+def _attach_document(
+    stub: Dict[str, Any],
+    sub_fluid: Mapping[str, Any],
+    sub_exposes: List[Mapping[str, Any]],
+    sub_expects: List[Mapping[str, Any]],
+) -> None:
+    """Store an ODCS sub-import's document state on ``stub`` (the port's expose).
+
+    ``sub_exposes[0]`` is the SchemaObject the stub stands for (absent for a
+    schema-less ODCS document); any further ones travel as
+    ``extra_exposes``. See :meth:`BitolOdpsProvider._merge_odcs_into_expose`.
+    """
+    primary: Mapping[str, Any] = sub_exposes[0] if sub_exposes else {}
+    document = {k: copy.deepcopy(v) for k, v in sub_fluid.items() if k not in _SUB_SKIP_KEYS}
+    # The sub-import's expects are the FLUID projection of this document's
+    # ``servers``; the ODCS servers mapper three-way-merges against them,
+    # so they must travel with the snapshot or every server reads as
+    # "removed in FLUID".
+    document["expects"] = copy.deepcopy(list(sub_expects))
+    if len(sub_exposes) > 1:
+        document["extra_exposes"] = copy.deepcopy(list(sub_exposes[1:]))
+    document["expose_native"] = {
+        "name": stub.get("exposeId") or stub.get("id"),
+        "description": stub.get("description") or None,
+        # The binding the port got here vs. the one the ODCS importer
+        # derived from ``servers``: an unedited port binding is mapped back
+        # to the latter on render so the per-port servers replay verbatim.
+        "binding": copy.deepcopy(stub.get("binding")),
+        "odcs_binding": copy.deepcopy(primary.get("binding")),
+    }
+    odcs_pt = stub.setdefault(ODCS_PASSTHROUGH_KEY, {})
+    if primary is not stub:
+        odcs_pt.update(copy.deepcopy(dict(primary.get(ODCS_PASSTHROUGH_KEY) or {})))
+    odcs_pt[ODCS_DOCUMENT_KEY] = document
+
+
+def _record_product_state(fluid: Dict[str, Any]) -> None:
+    """Record the product-level ``owner`` / ``expects`` at import time in
+    every port's ODCS document snapshot.
+
+    The per-port ODCS view three-way-merges them against the product's
+    current ones, so a FLUID owner or expects edit made after import reaches
+    the per-port ``team`` / ``servers`` while an unedited contract replays
+    verbatim (see :func:`fluid_build.providers.odcs.provider._port_document_view`).
+    """
+    owner = copy.deepcopy(product_owner(fluid))
+    # Only the keys the per-port merge compares (an input port's resolved
+    # contract would otherwise be copied into every port's snapshot).
+    expects = [
+        {k: copy.deepcopy(e[k]) for k in ("id",) + EXPECT_SERVER_KEYS if k in e}
+        for e in fluid.get("expects") or []
+        if isinstance(e, Mapping)
+    ]
+    for expose in fluid.get("exposes") or []:
+        if not isinstance(expose, Mapping):
+            continue
+        odcs_pt = expose.get(ODCS_PASSTHROUGH_KEY)
+        document = odcs_pt.get(ODCS_DOCUMENT_KEY) if isinstance(odcs_pt, Mapping) else None
+        if isinstance(document, dict):
+            document[PRODUCT_OWNER_KEY] = copy.deepcopy(owner)
+            document[PRODUCT_EXPECTS_KEY] = copy.deepcopy(expects)
 
 
 def _sniff_kind(path: Path) -> Optional[str]:
@@ -639,7 +734,8 @@ def _is_within(path: Path, root: Path) -> bool:
     """True when ``path`` (symlinks resolved) stays inside ``root``."""
     try:
         return path.resolve().is_relative_to(root.resolve())
-    except (OSError, RuntimeError):
+    except (OSError, RuntimeError, ValueError):
+        # ValueError: an embedded NUL byte.
         return False
 
 

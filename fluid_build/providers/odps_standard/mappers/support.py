@@ -14,6 +14,8 @@ verbatim.
 
 from __future__ import annotations
 
+import copy
+
 from .base import (
     ExportCtx,
     ImportCtx,
@@ -21,18 +23,22 @@ from .base import (
     metadata_passthrough,
 )
 
+# Deep copies throughout: a stash sharing objects with the source document
+# (also stashed) would make the YAML dump of the imported FLUID emit
+# anchors/aliases, and a rendered document must never alias the FLUID.
+
 
 def to_odps(ctx: ExportCtx) -> None:
     pt = get_metadata_passthrough(ctx.fluid)
     if "support" in pt:
-        ctx.odps["support"] = list(pt["support"])
+        ctx.odps["support"] = copy.deepcopy(list(pt["support"]))
     if "management_ports" in pt:
-        ctx.odps["managementPorts"] = list(pt["management_ports"])
+        ctx.odps["managementPorts"] = copy.deepcopy(list(pt["management_ports"]))
 
 
 def to_fluid(ctx: ImportCtx) -> None:
     pt = metadata_passthrough(ctx.fluid)
     if ctx.odps.get("support"):
-        pt["support"] = list(ctx.odps["support"])
+        pt["support"] = copy.deepcopy(list(ctx.odps["support"]))
     if ctx.odps.get("managementPorts"):
-        pt["management_ports"] = list(ctx.odps["managementPorts"])
+        pt["management_ports"] = copy.deepcopy(list(ctx.odps["managementPorts"]))

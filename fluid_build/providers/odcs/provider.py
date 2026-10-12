@@ -297,7 +297,7 @@ class OdcsProvider(BaseProvider):
             )
         document = get_expose_passthrough(exposes[0]).get(DOCUMENT_KEY)
         if isinstance(document, Mapping):
-            scoped = _port_document_view(document, exposes[0])
+            scoped = _port_document_view(document, exposes[0], fluid)
         else:
             scoped = copy.deepcopy(dict(fluid))
             scoped["exposes"] = [copy.deepcopy(dict(e)) for e in exposes]
@@ -315,9 +315,21 @@ class OdcsProvider(BaseProvider):
 # state captured when an ODPS bundle is imported; see
 # :meth:`BitolOdpsProvider._merge_odcs_into_expose`.
 DOCUMENT_KEY = "_document"
+# Keys (inside a ``_document`` snapshot) holding the importing product's
+# FLUID ``owner`` / ``expects`` at import time; the per-port view merges the
+# product's edits since then into the document's own.
+PRODUCT_OWNER_KEY = "product_owner"
+PRODUCT_EXPECTS_KEY = "product_expects"
+
+# FLUID ``expects`` keys the ODCS servers mapper reads.
+EXPECT_SERVER_KEYS = ("provider", "location", "binding")
 
 
-def _port_document_view(document: Mapping[str, Any], expose: Mapping[str, Any]) -> Dict[str, Any]:
+def _port_document_view(
+    document: Mapping[str, Any],
+    expose: Mapping[str, Any],
+    fluid: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
     """Rebuild the FLUID view a per-port ODCS document was imported from.
 
     ``document`` holds the sub-import's document-level FLUID (``metadata``
@@ -328,10 +340,22 @@ def _port_document_view(document: Mapping[str, Any], expose: Mapping[str, Any]) 
     Because the expose is shared with the ODPS port, its native name and
     description are mapped back to the SchemaObject's own values unless the
     user changed them after import.
+
+    The product (``fluid``) owns ``owner`` and ``expects``: edits made to
+    them since import (against the snapshot's ``product_owner`` /
+    ``product_expects``) are merged into the document's own owner and
+    expects, so they reach the per-port ``team`` and ``servers``. An
+    unedited product leaves the document untouched.
     """
     doc = copy.deepcopy(dict(document))
     extra = doc.pop("extra_exposes", None) or []
     imported = doc.pop("expose_native", None) or {}
+    has_product_state = PRODUCT_OWNER_KEY in doc or PRODUCT_EXPECTS_KEY in doc
+    owner_then = doc.pop(PRODUCT_OWNER_KEY, None)
+    expects_then = doc.pop(PRODUCT_EXPECTS_KEY, None)
+    if has_product_state and fluid is not None:
+        _merge_product_owner(doc, owner_then, product_owner(fluid))
+        _merge_product_expects(doc, expects_then or [], fluid.get("expects") or [])
     view_expose = copy.deepcopy(dict(expose))
     st = get_stash(get_expose_passthrough(view_expose))
     if st is not None:
@@ -359,3 +383,85 @@ def _port_document_view(document: Mapping[str, Any], expose: Mapping[str, Any]) 
     else:
         doc["_scoped_status"] = (doc.get("metadata") or {}).get("status", "active")
     return doc
+
+
+def product_owner(fluid: Mapping[str, Any]) -> Any:
+    """A FLUID contract's ``owner`` (root, else ``metadata.owner``), as the
+    ODCS team mapper reads it."""
+    metadata = fluid.get("metadata")
+    nested = metadata.get("owner") if isinstance(metadata, Mapping) else None
+    return fluid.get("owner") or nested or None
+
+
+def _merge_product_owner(doc: Dict[str, Any], then: Any, now: Any) -> None:
+    """Overlay the product's owner edit (``now`` − ``then``) on ``doc["owner"]``."""
+    if now == then:
+        return
+    if not isinstance(now, Mapping) or not isinstance(then, (Mapping, type(None))):
+        if now is None:
+            doc.pop("owner", None)
+        else:
+            doc["owner"] = copy.deepcopy(now)
+        return
+    then_map: Mapping[str, Any] = then or {}
+    current = doc.get("owner")
+    owner: Dict[str, Any] = dict(current) if isinstance(current, Mapping) else {}
+    for key in set(then_map) | set(now):
+        if then_map.get(key) == now.get(key):
+            continue
+        if now.get(key) is None:
+            owner.pop(key, None)
+        else:
+            owner[key] = copy.deepcopy(now[key])
+    if owner:
+        doc["owner"] = owner
+    else:
+        doc.pop("owner", None)
+
+
+def _merge_product_expects(doc: Dict[str, Any], then: List[Any], now: List[Any]) -> None:
+    """Merge the product's expects edits since import into ``doc["expects"]``.
+
+    Expects pair up by ``id``. A product expect whose server-relevant keys
+    (provider / location / binding) changed updates the document's expect of
+    the same id; a removed one removes it; a new one is added. Untouched
+    expects leave the document (and so its verbatim ``servers``) as it was.
+    """
+
+    def by_id(items: List[Any]) -> Dict[str, Mapping[str, Any]]:
+        out: Dict[str, Mapping[str, Any]] = {}
+        for item in items:
+            if isinstance(item, Mapping):
+                out.setdefault(str(item.get("id")), item)
+        return out
+
+    then_by, now_by = by_id(then), by_id(now)
+    expects = [dict(e) for e in doc.get("expects") or [] if isinstance(e, Mapping)]
+    changed = False
+    for eid, then_e in then_by.items():
+        now_e = now_by.get(eid)
+        if now_e is None:
+            kept = [e for e in expects if str(e.get("id")) != eid]
+            changed = changed or len(kept) != len(expects)
+            expects = kept
+            continue
+        delta = [k for k in EXPECT_SERVER_KEYS if then_e.get(k) != now_e.get(k)]
+        if not delta:
+            continue
+        for expect in expects:
+            if str(expect.get("id")) != eid:
+                continue
+            changed = True
+            for key in delta:
+                if now_e.get(key) is None:
+                    expect.pop(key, None)
+                else:
+                    expect[key] = copy.deepcopy(now_e[key])
+    for eid, now_e in now_by.items():
+        if eid in then_by or any(str(e.get("id")) == eid for e in expects):
+            continue
+        added = {k: copy.deepcopy(now_e[k]) for k in ("id",) + EXPECT_SERVER_KEYS if k in now_e}
+        expects.append(added)
+        changed = True
+    if changed:
+        doc["expects"] = expects

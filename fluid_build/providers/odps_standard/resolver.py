@@ -28,7 +28,14 @@ Safety rules (a ``contractId`` comes from a document the user may not trust):
   inside ``base_path`` once symlinks are resolved.
 - Remote fetches follow redirects only to http(s), read at most
   :data:`DEFAULT_MAX_BYTES`, and give up after :data:`DEFAULT_TOTAL_TIMEOUT`
-  seconds in total (``timeout`` still bounds each socket operation).
+  seconds in total: every socket operation (connect, request, status line,
+  headers, chunk-size lines, body) runs with a timeout of
+  ``min(timeout, time left)``, so a server dripping its headers cannot hold
+  a fetch past the deadline.
+- YAML is loaded with the alias-bomb guard of
+  :func:`fluid_build.providers.odcs.io.load_yaml`.
+- A malformed ``contractId`` (not a string, or one with a NUL byte) is
+  :class:`ContractNotFound`, never a crash, so lenient imports warn.
 
 Errors raised:
   - :class:`ContractNotFound`        — no candidate path matched.
@@ -39,9 +46,11 @@ Errors raised:
 from __future__ import annotations
 
 import http.client
+import io
 import json
 import logging
 import os
+import socket
 import time
 import urllib.request
 from collections.abc import Mapping
@@ -52,7 +61,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse
 
 from fluid_build.providers.base import ProviderError
-from fluid_build.providers.odcs.io import read_input
+from fluid_build.providers.odcs.io import load_yaml, read_input
 from fluid_build.providers.odcs.provider import OdcsProvider
 
 LOG = logging.getLogger(__name__)
@@ -141,7 +150,7 @@ class ContractResolver:
         directory scan get tried first.
     max_bytes / total_timeout:
         Remote fetch limits: the largest body accepted and the deadline for
-        a whole fetch (connect + redirects + body).
+        a whole fetch (connect + redirects + headers + body).
     """
 
     base_path: Optional[Path] = None
@@ -187,6 +196,10 @@ class ContractResolver:
     def resolve(
         self, contract_id: str, *, hint: Optional[Union[str, Path]] = None
     ) -> ResolvedContract:
+        if not isinstance(contract_id, str) or "\x00" in contract_id:
+            # Not usable as a file stem, a URL or an index key; a document
+            # can carry anything here, so this is "not found", not a crash.
+            raise ContractNotFound(str(contract_id), [])
         if contract_id in self._cache:
             return self._cache[contract_id]
 
@@ -319,8 +332,9 @@ class ContractResolver:
             try:
                 data = json.loads(text)
             except json.JSONDecodeError:
-                data = yaml.safe_load(text)
-        except (UnicodeDecodeError, yaml.YAMLError) as exc:
+                data = load_yaml(text, source=url)
+        except (UnicodeDecodeError, yaml.YAMLError, ProviderError) as exc:
+            LOG.warning("Could not parse %s: %s", url, exc)
             raise ContractNotFound(contract_id, [url]) from exc
         if not isinstance(data, Mapping):
             raise ContractNotFound(contract_id, [url])
@@ -335,12 +349,14 @@ class ContractResolver:
     def _fetch(self, contract_id: str, url: str) -> Tuple[str, bytes]:
         """GET ``url`` within the size and time limits; ``(content_type, body)``.
 
-        The deadline is checked between reads, so a fetch ends at most one
-        socket ``timeout`` after ``total_timeout``.
+        Every socket operation is armed with ``min(timeout, time left)``
+        (see :class:`_DeadlineSocket`), so the whole fetch (connect,
+        redirects, headers, chunk-size lines and body) ends by
+        ``total_timeout``.
         """
         deadline = time.monotonic() + self.total_timeout
         try:
-            with urlopen(url, timeout=self.timeout) as response:
+            with urlopen(url, timeout=self.timeout, deadline=deadline) as response:
                 if time.monotonic() > deadline:
                     raise ContractNotFound(contract_id, [url])
                 final_url = response.geturl() if hasattr(response, "geturl") else url
@@ -391,10 +407,149 @@ class ContractResolver:
         return resolved
 
 
-def urlopen(url: str, *, timeout: float) -> Any:
-    """``urllib.request.urlopen`` whose redirects may only lead to http(s)."""
-    opener = urllib.request.build_opener(_HttpOnlyRedirectHandler())
+def urlopen(url: str, *, timeout: float, deadline: Optional[float] = None) -> Any:
+    """``urllib.request.urlopen`` whose redirects may only lead to http(s).
+
+    With ``deadline`` (a :func:`time.monotonic` value), every socket
+    operation of every connection the fetch opens (redirects included)
+    times out at ``min(timeout, deadline - now)``.
+    """
+    handlers: List[Any] = [_HttpOnlyRedirectHandler()]
+    if deadline is not None:
+        handlers.append(_DeadlineHTTPHandler(deadline))
+        if _DeadlineHTTPSHandler is not None:
+            handlers.append(_DeadlineHTTPSHandler(deadline))
+        timeout = min(timeout, max(deadline - time.monotonic(), 0.001))
+    opener = urllib.request.build_opener(*handlers)
     return opener.open(url, timeout=timeout)
+
+
+def _time_left(deadline: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise socket.timeout("remote contract fetch exceeded its total deadline")
+    return remaining
+
+
+class _DeadlineSocket:
+    """Socket proxy that arms each operation with ``min(timeout, time left)``.
+
+    ``http.client`` reads the status line, headers and chunk-size lines
+    through ``sock.makefile("rb")``; the reader returned here goes through
+    :meth:`recv_into`, so those reads are bounded by the deadline as well.
+    """
+
+    def __init__(self, sock: Any, deadline: float, timeout: Optional[float]) -> None:
+        self._sock = sock
+        self._deadline = deadline
+        self._timeout = timeout
+        self._readers = 0
+        self._closed = False
+
+    def _arm(self) -> None:
+        remaining = _time_left(self._deadline)
+        per_op = remaining if self._timeout is None else min(self._timeout, remaining)
+        self._sock.settimeout(per_op)
+
+    def recv_into(self, buffer: Any, nbytes: int = 0, flags: int = 0) -> int:
+        self._arm()
+        return self._sock.recv_into(buffer, nbytes, flags)
+
+    def recv(self, bufsize: int, flags: int = 0) -> bytes:
+        self._arm()
+        return self._sock.recv(bufsize, flags)
+
+    def send(self, data: Any, flags: int = 0) -> int:
+        self._arm()
+        return self._sock.send(data, flags)
+
+    def sendall(self, data: Any, flags: int = 0) -> None:
+        self._arm()
+        self._sock.sendall(data, flags)
+
+    def makefile(self, mode: str = "r", buffering: Optional[int] = None, **kwargs: Any) -> Any:
+        if mode not in ("rb", "br"):
+            raise ValueError(f"_DeadlineSocket.makefile supports only 'rb', not {mode!r}")
+        self._readers += 1
+        size = buffering if buffering and buffering > 0 else io.DEFAULT_BUFFER_SIZE
+        return io.BufferedReader(_DeadlineReader(self), size)
+
+    def _reader_closed(self) -> None:
+        self._readers -= 1
+        if self._closed and self._readers <= 0:
+            self._sock.close()
+
+    def close(self) -> None:
+        # Like ``socket.socket``: the descriptor stays open while a reader
+        # made by ``makefile`` is (urllib closes the connection's socket
+        # right after reading the headers and keeps reading the body).
+        self._closed = True
+        if self._readers <= 0:
+            self._sock.close()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._sock, name)
+
+
+class _DeadlineReader(io.RawIOBase):
+    """Raw binary reader over a :class:`_DeadlineSocket`."""
+
+    def __init__(self, sock: _DeadlineSocket) -> None:
+        super().__init__()
+        self._dsock = sock
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buffer: Any) -> int:
+        return self._dsock.recv_into(buffer)
+
+    def close(self) -> None:
+        if not self.closed:
+            super().close()
+            self._dsock._reader_closed()
+
+
+class _DeadlineHandlerMixin:
+    """Gives every connection an urllib handler opens a deadline-armed socket."""
+
+    _deadline: float
+
+    def do_open(self, http_class: Any, req: Any, **http_conn_args: Any) -> Any:
+        deadline = self._deadline
+
+        def connection(*args: Any, **kwargs: Any) -> Any:
+            conn = http_class(*args, **kwargs)
+            plain_connect = conn.connect
+            per_op = conn.timeout if isinstance(conn.timeout, (int, float)) else None
+
+            def connect() -> None:
+                remaining = _time_left(deadline)
+                conn.timeout = remaining if per_op is None else min(per_op, remaining)
+                plain_connect()
+                conn.sock = _DeadlineSocket(conn.sock, deadline, per_op)
+
+            conn.connect = connect
+            return conn
+
+        return super().do_open(connection, req, **http_conn_args)  # type: ignore[misc]
+
+
+class _DeadlineHTTPHandler(_DeadlineHandlerMixin, urllib.request.HTTPHandler):
+    def __init__(self, deadline: float) -> None:
+        super().__init__()
+        self._deadline = deadline
+
+
+_DeadlineHTTPSHandler: Optional[type] = None
+if hasattr(urllib.request, "HTTPSHandler"):  # Python built with ssl
+
+    class _DeadlineHTTPSHandlerImpl(_DeadlineHandlerMixin, urllib.request.HTTPSHandler):
+        def __init__(self, deadline: float) -> None:
+            super().__init__()
+            self._deadline = deadline
+
+    _DeadlineHTTPSHandler = _DeadlineHTTPSHandlerImpl
 
 
 class _HttpOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -415,7 +570,9 @@ class _HttpOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 def _is_safe_stem(contract_id: str) -> bool:
     """A contractId usable as a local file stem: relative, no separators, no ``..``."""
-    if not contract_id or ".." in contract_id:
+    if not isinstance(contract_id, str) or not contract_id or ".." in contract_id:
+        return False
+    if "\x00" in contract_id:
         return False
     if "/" in contract_id or "\\" in contract_id or os.sep in contract_id:
         return False
@@ -428,10 +585,14 @@ def _is_within(path: Path, root: Path) -> bool:
     """True when ``path`` (symlinks resolved) stays inside ``root``."""
     try:
         return path.resolve().is_relative_to(Path(root).resolve())
-    except (OSError, RuntimeError):
+    except (OSError, RuntimeError, ValueError):
+        # ValueError: an embedded NUL byte.
         return False
 
 
 def _looks_like_url(value: str) -> bool:
-    parsed = urlparse(value)
+    try:
+        parsed = urlparse(value)
+    except ValueError:  # e.g. "http://[" (invalid IPv6 literal)
+        return False
     return parsed.scheme in ("http", "https") and bool(parsed.netloc)

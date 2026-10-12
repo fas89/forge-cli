@@ -27,7 +27,9 @@ ODPS v1.1.0 relaxed ``OutputPort``/``InputPort`` ``required`` to just
 preserved absent on re-export. Fresh exports always emit both.
 
 Fresh output ports (no stash) keep the legacy ``OdpsStandardProvider``
-surface: ``expose.contract_id`` overrides the ``contractId`` convention,
+surface: ``expose.contract_id`` overrides the ``contractId`` convention
+(set it to ``{exposeId}_contract`` to keep the id ``fluid odps-bitol export``
+minted in 0.7.8),
 ``ODPS_DEFAULT_PORT_VERSION`` (``ExportCtx.options["default_port_version"]``)
 is the default ``version``, and ``customProperties`` carry ``server``
 (``expose.location``), ``environment``, ``containsPii``, ``autoApprove`` and
@@ -157,7 +159,11 @@ def _expose_to_output_port(
     port: Dict[str, Any] = {
         "name": name,
         "version": now["version"],
-        "contractId": expose.get("contract_id") or contract_id_for_port(product_id, name),
+        # ``odps_passthrough.contract_id``: the original ODCS id of an expose
+        # imported from an ODCS-only directory.
+        "contractId": expose.get("contract_id")
+        or pt.get("contract_id")
+        or contract_id_for_port(product_id, name),
     }
     if now["description"]:
         port["description"] = now["description"]

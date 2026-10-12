@@ -145,6 +145,113 @@ def downgrade_v110_keys(
         )
 
 
+def conform_to_schema(
+    doc: MutableMapping[str, Any],
+    schema: Mapping[str, Any],
+    logger: logging.Logger,
+) -> None:
+    """Make ``doc`` fit ``schema`` (an ODPS JSON Schema) by removing what it
+    does not allow — used to render a product below v1.1.0.
+
+    What is allowed is read from the schema itself, not from hand lists, so
+    every nested object is covered (ports, management ports, SBOM entries,
+    input contracts, support channels, team members, custom properties, …):
+
+    - a key an object's schema does not list (``additionalProperties:
+      false``) is moved into that object's ``customProperties`` as
+      ``{property: <key>, value: <value>}`` when the object allows
+      ``customProperties`` (and has no entry of that name yet), else it is
+      dropped;
+    - an array entry still missing a key its schema requires (an SBOM entry
+      without ``url``, say) is dropped.
+
+    Every change is logged as a warning. A document that already fits is
+    left untouched.
+    """
+    _conform(doc, schema, schema, "", logger)
+
+
+def _resolve_ref(node: Any, root: Mapping[str, Any]) -> Mapping[str, Any]:
+    seen = 0
+    while isinstance(node, Mapping) and isinstance(node.get("$ref"), str) and seen < 32:
+        ref = node["$ref"]
+        if not ref.startswith("#/"):
+            return {}
+        target: Any = root
+        for part in ref[2:].split("/"):
+            target = target.get(part) if isinstance(target, Mapping) else None
+        node = target
+        seen += 1
+    return node if isinstance(node, Mapping) else {}
+
+
+def _conform(value: Any, node: Any, root: Mapping[str, Any], where: str, logger) -> None:
+    node = _resolve_ref(node, root)
+    if isinstance(value, MutableMapping):
+        props = node.get("properties")
+        if not isinstance(props, Mapping):
+            return
+        if node.get("additionalProperties") is False:
+            _strip_unknown_keys(value, props, where or "the product", logger)
+        for key, sub in list(value.items()):
+            if key in props:
+                _conform(sub, props[key], root, f"{where}.{key}" if where else key, logger)
+    elif isinstance(value, list):
+        items = _resolve_ref(node.get("items"), root)
+        if not items:
+            return
+        required = [r for r in items.get("required") or [] if isinstance(r, str)]
+        kept: List[Any] = []
+        for index, item in enumerate(value):
+            item_where = f"{where}[{index}]"
+            _conform(item, items, root, item_where, logger)
+            missing = [r for r in required if isinstance(item, Mapping) and r not in item]
+            if missing:
+                logger.warning(
+                    "ODPS < v1.1.0 requires %s on %s; dropped that entry",
+                    ", ".join(missing),
+                    item_where,
+                )
+                continue
+            kept.append(item)
+        if len(kept) != len(value):
+            value[:] = kept
+
+
+def _strip_unknown_keys(
+    obj: MutableMapping[str, Any],
+    props: Mapping[str, Any],
+    where: str,
+    logger: logging.Logger,
+) -> None:
+    unknown = [k for k in obj if k not in props]
+    if not unknown:
+        return
+    moved: List[str] = []
+    dropped: List[str] = []
+    custom: Optional[List[Any]] = None
+    if "customProperties" in props:
+        existing = obj.get("customProperties")
+        custom = list(existing) if isinstance(existing, list) else []
+    present = {c.get("property") for c in custom or [] if isinstance(c, Mapping)}
+    for key in unknown:
+        value = obj.pop(key)
+        if custom is not None and key not in present and value is not None:
+            custom.append({"property": key, "value": value})
+            present.add(key)
+            moved.append(key)
+        else:
+            dropped.append(key)
+    if moved and custom is not None:
+        obj["customProperties"] = custom
+    if moved:
+        logger.warning(
+            "ODPS < v1.1.0 has no %s on %s; moved to customProperties", ", ".join(moved), where
+        )
+    if dropped:
+        logger.warning("ODPS < v1.1.0 has no %s on %s; dropped", ", ".join(dropped), where)
+
+
 def contract_id_for_port(product_id: str, port_name: str) -> str:
     """Convention used by export + datamesh-manager: ``{productId}.{portName}``.
 

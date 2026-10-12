@@ -123,13 +123,31 @@ def json_instance(doc: Any) -> Any:
     date type, so such values are rendered as ISO-8601 strings (what the
     author wrote) instead of failing every ``type: string`` check. Other
     values are returned unchanged; the input is never mutated.
+
+    Containers shared by reference in ``doc`` (YAML aliases load that way)
+    are converted once and stay shared in the result, so the conversion
+    never multiplies memory.
     """
+    return _json_instance(doc, {})
+
+
+def _json_instance(doc: Any, memo: Dict[int, Any]) -> Any:
     if isinstance(doc, (datetime.datetime, datetime.date, datetime.time)):
         return doc.isoformat()
-    if isinstance(doc, Mapping):
-        return {k: json_instance(v) for k, v in doc.items()}
-    if isinstance(doc, (list, tuple)):
-        return [json_instance(v) for v in doc]
+    if isinstance(doc, (Mapping, list, tuple)):
+        key = id(doc)
+        if key in memo:
+            return memo[key]
+        if isinstance(doc, Mapping):
+            out_map: Dict[Any, Any] = {}
+            memo[key] = out_map
+            for k, v in doc.items():
+                out_map[k] = _json_instance(v, memo)
+            return out_map
+        out_list: List[Any] = []
+        memo[key] = out_list
+        out_list.extend(_json_instance(v, memo) for v in doc)
+        return out_list
     return doc
 
 

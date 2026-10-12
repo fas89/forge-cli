@@ -875,7 +875,8 @@ class TestRemoteFetchLimits:
             def __exit__(self, *_: Any) -> bool:
                 return False
 
-        monkeypatch.setattr(resolver_mod, "urlopen", lambda url, timeout: _Resp())
+        # ``urlopen`` also receives the fetch deadline (``deadline=``).
+        monkeypatch.setattr(resolver_mod, "urlopen", lambda url, timeout, **kw: _Resp())
         with pytest.raises(ContractNotFound):
             ContractResolver(allow_remote=True).resolve("https://example.invalid/c.yaml")
 
