@@ -193,7 +193,7 @@ def print_main_help(parser: argparse.ArgumentParser) -> None:
         [
             ("export-opds", "Export to ODPS [dim](Open Data Product Spec)[/dim]"),
             ("odcs", "ODCS v3.1 [dim](Open Data Contract Standard — Bitol.io)[/dim]"),
-            ("odps", "ODPS v4.1 [dim](Linux Foundation data product spec)[/dim]"),
+            ("odps", "Bitol ODPS v1.0 [dim](default)[/dim] · ODPI v4.1 [dim]--spec odpi-4.1[/dim]"),
             ("market", "Browse & install marketplace data products"),
             ("publish", "Publish a data product to the marketplace"),
         ],
@@ -236,7 +236,7 @@ def print_main_help(parser: argparse.ArgumentParser) -> None:
     extras.add_row("  execute", "Run build jobs manually")
     extras.add_row("  wizard", "Step-by-step guided setup")
     extras.add_row("  marketplace", "Extended marketplace browser")
-    extras.add_row("  odps-bitol", "ODPS-Bitol v1.0 (Entropy Data)")
+    extras.add_row("  odps-bitol", "Deprecated — use odps export --spec bitol-1.0.0")
     extras.add_row("  preview", "Dry-run alias for apply")
     extras.add_row("  viz-plan", "Interactive plan visualization")
     console.print("  [dim]▸ More Commands[/dim]")
@@ -530,6 +530,7 @@ _COMMAND_ENRICHMENT: dict[str, tuple[str, str]] = {
         ),
     ),
     "odps-bitol": (
+        "Deprecated: use 'fluid opds export --spec bitol-1.0.0'. "
         "Work with ODPS-Bitol format for Entropy Data marketplace integration.",
         "",  # keep existing epilog
     ),

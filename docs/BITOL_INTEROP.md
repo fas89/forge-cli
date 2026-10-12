@@ -41,34 +41,58 @@ One FLUID contract with N output ports always emits:
 
 ```bash
 fluid opds export contract.fluid.yaml --spec bitol-1.0.0 --out-dir ./out
-# ./out/product.odps.yaml
-# ./out/product.port1.odcs.yaml
-# ./out/product.port2.odcs.yaml
+# ./out/<productId>.odps.yaml
+# ./out/<productId>.<port1>.odcs.yaml
+# ./out/<productId>.<port2>.odcs.yaml
+
+# --out FILE writes the product doc to FILE and the per-port ODCS contracts
+# next to it; the format follows the suffix unless -f/--format is given.
+fluid opds export contract.fluid.yaml --out ./out/product.json
+# ./out/product.json
+# ./out/<productId>.<port1>.odcs.json
+# ./out/<productId>.<port2>.odcs.json
+
+# No --out / --out-dir: the product doc is printed to stdout as JSON.
+fluid opds export contract.fluid.yaml > product.json
 ```
+
+With `--spec` omitted the emitted `apiVersion` follows `ODPS_API_VERSION`, else the imported document's own `apiVersion` (re-exports of imports), else `v1.0.0`; an explicit `--spec bitol-1.0.0` / `bitol-1.1.0` pins it. Exports are validated against the vendored schemas; `--no-validate-strict` still validates but reports problems as warnings on stderr instead of failing.
 
 No inline-embedding mode. The fragments layout is the only export pattern — it matches Bitol convention and `datacontract-cli` expectations.
 
-## Import — three entry points, one validated FLUID
+## Import — three entry points, one FLUID skeleton
 
-All three converge on the same FLUID skeleton:
+All three converge on the same FLUID skeleton. The input documents are schema-validated, but the output is a **skeleton, not yet a schema-valid FLUID contract**: add `fluidVersion` / `kind` / `id` / `name`, each expose's `kind`, and binding `format` / `location` (and map the platform to a supported provider) before `fluid validate` / `plan` / `apply` will accept it. The `*_passthrough` keys it carries are what make re-export lossless.
 
 ```bash
 # 1. Single ODPS file — resolver finds sibling ODCS by contractId.
-fluid opds import out/product.odps.yaml
+fluid opds import out/<productId>.odps.yaml -o product.fluid.yaml
 
 # 2. Directory — auto-discovers the ODPS doc + all ODCS files inside.
 #    Also handles ODCS-only directories (no ODPS doc → multi-expose FLUID
 #    with no product wrapper, warning emitted).
-fluid opds import out/
+fluid opds import out/ -o product.fluid.yaml
 
 # 3. Lone ODCS file — produces a single-expose FLUID.
-fluid opds import out/product.port1.odcs.yaml
+fluid opds import out/<productId>.<port1>.odcs.yaml -o port1.fluid.yaml
 ```
+
+Without `-o` the FLUID document is written to stdout (YAML, or JSON with `-f json`).
 
 Flags:
 
 - `--no-remote` — refuse http(s) `contractId` resolution (hermetic CI).
 - `--lenient` — downgrade output-port resolution failures to warnings. Input ports are always lenient because their contracts often live in other repos / registries.
+
+## Validate
+
+```bash
+fluid opds validate out/<productId>.odps.yaml                    # auto-detected as Bitol
+fluid opds validate out/<productId>.odps.yaml --spec bitol-1.1.0 # pin the schema version
+fluid opds validate odpi.json --spec odpi-4.1                    # ODPI v4.1 (also: --version 4.1)
+```
+
+YAML and JSON are both accepted. With `--spec` omitted, a document declaring `apiVersion` and `kind: DataProduct` is validated as Bitol ODPS against the vendored schema matching its own `apiVersion`; anything else is validated as ODPI v4.1, exactly as before. `fluid opds info --spec <spec>` shows the details of one specification.
 
 ## The `contractId` resolver
 
@@ -76,7 +100,7 @@ Flags:
 
 1. **Explicit hint** — when a caller passes a file path or URL alongside the id.
 2. **Pre-indexed file** — files passed in via `additional_files=` or discovered by `index_directory()`. The directory import path uses this so local files always beat anything else.
-3. **Local file probes** — across the cross-product of `{<base>, contracts/, odcs/, odcs/contracts/}` × `{<full-id>, <last-segment>}` × `{.odcs.yaml, .odcs.yml, .odcs.json, .yaml, .yml, .json}`.
+3. **Local file probes** — across the cross-product of `{<base>, contracts/}` × `{<full-id>, <last-segment>}` × `{.odcs.yaml, .odcs.yml, .odcs.json, .yaml}` (16 candidates for a dotted id). Other layouts (an `odcs/` subdirectory, plain `.yml` / `.json` names) are found by directory import (`fluid opds import <dir>/`), which indexes every `.yaml` / `.yml` / `.json` file under the directory by its ODCS `id`.
 4. **HTTP(S) URL** — when the `contractId` itself is a URL and `allow_remote=True`. Refuses HTML-with-200 responses and non-http(s) schemes.
 
 Every resolved document is validated against the vendored ODCS JSON Schema matching its own `apiVersion` (v3.2.0 and v3.1.0 are vendored; older versions are checked against the newest, which is a strict superset); `ContractValidationError` raises with the offending field name.

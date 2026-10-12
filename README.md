@@ -348,13 +348,19 @@ Providers are the bridge between your declarative contract and your target execu
 | **ODPI v4.1** | `odps` | `fluid opds --spec odpi-4.1` | Open Data Product Initiative v4.1 (Linux Foundation). Export-only single JSON. |
 
 ```bash
-# Export FLUID → Bitol bundle (1 ODPS doc + N sibling ODCS contracts)
+# Export FLUID → Bitol bundle (1 ODPS doc + N sibling ODCS contracts):
+#   ./out/<productId>.odps.yaml + ./out/<productId>.<port>.odcs.yaml
 fluid opds export contract.fluid.yaml --spec bitol-1.0.0 --out-dir ./out
 
-# Import any of: ODPS file, directory bundle, or lone ODCS file
-fluid opds import ./out/product.odps.yaml
-fluid opds import ./out/
-fluid opds import ./out/product.port1.odcs.yaml
+# Validate the product doc (Bitol vs ODPI is auto-detected; YAML or JSON)
+fluid opds validate ./out/<productId>.odps.yaml
+
+# Import any of: ODPS file, directory bundle, or lone ODCS file.
+# The result is a FLUID skeleton — complete fluidVersion/kind/id/name,
+# expose kinds and bindings before `fluid validate` / `fluid plan`.
+fluid opds import ./out/<productId>.odps.yaml -o product.fluid.yaml
+fluid opds import ./out/ -o product.fluid.yaml
+fluid opds import ./out/<productId>.<port>.odcs.yaml -o port.fluid.yaml
 
 # Seed the forge copilot with an existing standards doc (LLM augments builds/governance)
 fluid forge --seed-from existing-contract.odcs.yaml --context '{"goal":"add daily refresh"}'

@@ -26,6 +26,8 @@ Specification: https://github.com/bitol-io/open-data-product-standard
 
 import json
 import logging
+import sys
+import warnings
 from pathlib import Path
 from typing import Optional
 
@@ -34,6 +36,23 @@ import click
 from fluid_build.cli.console import cprint
 from fluid_build.loader import load_contract
 from fluid_build.providers.odps_standard import OdpsStandardProvider
+
+DEPRECATION_MESSAGE = (
+    "'fluid odps-bitol' is deprecated and will be removed in a future release; "
+    "use 'fluid opds export --spec bitol-1.0.0' "
+    "(or the equivalent 'fluid odps export --spec bitol-1.0.0') instead."
+)
+
+
+def _warn_deprecated() -> None:
+    """Emit the ``fluid odps-bitol`` deprecation as a warning *and* a stderr notice.
+
+    ``DeprecationWarning`` is hidden by default outside ``__main__``, so the
+    stderr line is what users actually see; the warning lets test suites and
+    ``-W error`` runs catch it.
+    """
+    warnings.warn(DEPRECATION_MESSAGE, DeprecationWarning, stacklevel=3)
+    print(f"⚠ {DEPRECATION_MESSAGE}", file=sys.stderr)
 
 
 @click.group(name="odps-bitol")
@@ -78,11 +97,7 @@ def export_command(contract: str, output: Optional[str], format: str, include_cu
     """
     logger = logging.getLogger(__name__)
 
-    click.echo(
-        "⚠ 'fluid odps-bitol' is deprecated; use 'fluid opds export --spec bitol-1.0.0' "
-        "(or the equivalent 'fluid odps export --spec bitol-1.0.0') instead.",
-        err=True,
-    )
+    click.echo(f"⚠ {DEPRECATION_MESSAGE}", err=True)
     try:
         # Load FLUID contract
         click.echo(f"Loading FLUID contract: {contract}")
@@ -234,8 +249,11 @@ def register(subparsers) -> None:
 
     odps_bitol = subparsers.add_parser(
         "odps-bitol",
-        help="ODPS-Bitol (Bitol.io Data Product Standard for Entropy Data)",
+        help="Deprecated: use 'fluid opds export --spec bitol-1.0.0' (ODPS-Bitol)",
         description="""
+        DEPRECATED: use 'fluid opds export --spec bitol-1.0.0' (or
+        'fluid odps export --spec bitol-1.0.0') instead.
+
         Work with ODPS-Bitol (Bitol.io Data Product Standard) format.
         
         ODPS-Bitol is used for data marketplace integration with Entropy Data.
@@ -275,6 +293,8 @@ def _run_odps_export(args):
     """Run ODPS export command."""
     import logging
 
+    _warn_deprecated()
+
     from fluid_build.cli.bootstrap import load_contract_with_overlay
 
     logger = logging.getLogger(__name__)
@@ -305,6 +325,8 @@ def _run_odps_validate(args):
     import json
     from pathlib import Path
 
+    _warn_deprecated()
+
     file_path = Path(args.odps_file)
     with open(file_path) as f:
         if file_path.suffix in (".yaml", ".yml"):
@@ -332,6 +354,7 @@ def _run_odps_validate(args):
 
 def _run_odps_info(args):
     """Run ODPS info command."""
+    _warn_deprecated()
     provider = OdpsStandardProvider()
     cprint("ODPS (Open Data Product Standard) Provider")
     cprint("=" * 50)

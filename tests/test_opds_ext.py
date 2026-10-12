@@ -68,7 +68,7 @@ class TestCmdOpdsExport:
     @patch("fluid_build.cli.opds.cprint")
     @patch("fluid_build.cli.bootstrap.build_provider")
     @patch("fluid_build.cli.bootstrap.load_contract_with_overlay")
-    def test_export_stdout_pretty(self, mock_load, mock_build, mock_cprint):
+    def test_export_stdout_pretty(self, mock_load, mock_build, mock_cprint, capsys):
         mock_load.return_value = {"id": "test", "name": "Test"}
         mock_provider = MagicMock()
         mock_provider.render.return_value = {"dataProductId": "test"}
@@ -83,7 +83,9 @@ class TestCmdOpdsExport:
 
         result = cmd_opds_export(args, LOG)
         assert result == 0
-        mock_cprint.assert_called()
+        # The JSON payload is written raw to stdout, never through Rich.
+        mock_cprint.assert_not_called()
+        assert json.loads(capsys.readouterr().out) == {"dataProductId": "test"}
 
     @patch("fluid_build.cli.opds.cprint")
     @patch("fluid_build.cli.bootstrap.build_provider")

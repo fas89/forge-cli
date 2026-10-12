@@ -17,6 +17,8 @@ from __future__ import annotations
 import logging
 from argparse import Namespace
 from pathlib import Path
+from unittest.mock import patch
+from urllib.error import URLError
 
 import pytest
 import yaml
@@ -191,10 +193,10 @@ class TestImportDispatchYieldsEquivalentFluid:
 
 
 class TestNoRemoteFlag:
-    def test_no_remote_flag_blocks_url_contract_ids(self, tmp_path: Path) -> None:
-        # Construct a synthetic ODPS doc whose port contractId is a URL — the
-        # resolver will only attempt http(s) fetch; with --no-remote it must
-        # fail loud rather than hit the network.
+    @staticmethod
+    def _synth_doc(tmp_path: Path) -> Path:
+        # Synthetic ODPS doc whose port contractId is a URL — the resolver can
+        # only satisfy it with an http(s) fetch.
         odps_doc = tmp_path / "synth.odps.yaml"
         odps_doc.write_text(
             yaml.dump(
@@ -215,6 +217,29 @@ class TestNoRemoteFlag:
                 }
             )
         )
-        args = _import_args(odps_doc, out=tmp_path / "fluid.yaml", no_remote=True)
-        rc = cmd_opds_import(args, LOG)
+        return odps_doc
+
+    def test_no_remote_flag_blocks_url_contract_ids(self, tmp_path: Path) -> None:
+        # With --no-remote the import must fail loud *without* touching the
+        # network. ``example.invalid`` never resolves, so the return code alone
+        # cannot tell the two behaviours apart — assert on the fetch itself.
+        args = _import_args(self._synth_doc(tmp_path), out=tmp_path / "f.yaml", no_remote=True)
+        with patch(
+            "fluid_build.providers.odps_standard.resolver.urlopen",
+            side_effect=URLError("network must not be used"),
+        ) as fake_urlopen:
+            rc = cmd_opds_import(args, LOG)
         assert rc == 1  # output-port resolution required, no remote allowed
+        fake_urlopen.assert_not_called()
+
+    def test_without_no_remote_the_fetch_is_attempted(self, tmp_path: Path) -> None:
+        # Control: the same doc without --no-remote does try the URL, so the
+        # test above would catch a regression that stops propagating the flag.
+        args = _import_args(self._synth_doc(tmp_path), out=tmp_path / "f.yaml", no_remote=False)
+        with patch(
+            "fluid_build.providers.odps_standard.resolver.urlopen",
+            side_effect=URLError("blocked in test"),
+        ) as fake_urlopen:
+            rc = cmd_opds_import(args, LOG)
+        assert rc == 1
+        fake_urlopen.assert_called_once()
