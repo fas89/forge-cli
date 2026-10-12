@@ -160,8 +160,8 @@ class TestSchemaLessPortContract:
         )
         odcs = bundle["contracts"]["c-orders"]
         source = _schema_less_odcs(api_version)
-        # The ODCS exporter always writes ``schema`` (an empty list here).
-        assert odcs.pop("schema") == []
+        # A contract imported without ``schema`` re-exports without one.
+        assert "schema" not in odcs
         assert odcs == source
 
     def test_snapshot_is_kept_on_the_expose(self, tmp_path: Path) -> None:
