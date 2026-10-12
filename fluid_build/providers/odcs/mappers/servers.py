@@ -195,8 +195,9 @@ def to_odcs(ctx: ExportCtx) -> None:
     1. Imported doc that had a ``servers`` list — replayed verbatim (empty
        list included) when FLUID's ``expects`` and derived expose bindings
        are unchanged since import; otherwise a three-way merge rebuilds only
-       the edited servers, drops servers whose expect was removed and adds
-       servers for new expects.
+       the edited servers, drops servers whose expect was removed (unless
+       an expose binding still selects them) and adds servers for new
+       expects.
     2. Imported doc that had *no* ``servers`` — emit none unless FLUID added
        expects/bindings since, so the round-trip stays lossless and we never
        synthesise a server that the source platform can't validate.
@@ -236,6 +237,9 @@ def _merge_servers(
     now_expects = [e for e in fluid.get("expects") or [] if isinstance(e, Mapping)]
 
     binding_edits = []
+    # Stashed servers an expose binding still selects: they stay even when
+    # the expects projected from them are removed.
+    bound = set()
     for expose in fluid.get("exposes") or []:
         if not isinstance(expose, Mapping):
             continue
@@ -243,6 +247,8 @@ def _merge_servers(
         selected = _select_server(obj_stash, stashed) if obj_stash is not None else None
         then_b = _binding_from_server(selected[1], obj_stash) if selected else None
         now_b = expose.get("binding") if isinstance(expose.get("binding"), Mapping) else None
+        if selected and now_b is not None:
+            bound.add(selected[0])
         if now_b != then_b:
             binding_edits.append((selected[0] if selected else None, then_b, expose))
 
@@ -263,7 +269,12 @@ def _merge_servers(
             continue
         bucket = pending.get(then_e["id"])
         if not bucket:
-            continue  # its expect was removed in FLUID
+            if i in bound:
+                # Its expect was removed, but an expose binding still selects
+                # it: keep it (a binding edit is merged onto it below).
+                out_pos[i] = len(out)
+                out.append(copy.deepcopy(dict(server)))
+            continue  # otherwise its expect was removed in FLUID
         now_e = bucket.pop(0)
         consumed.add(id(now_e))
         if now_e == then_e:

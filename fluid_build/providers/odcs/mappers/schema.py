@@ -37,7 +37,9 @@ from .base import (
     field_passthrough,
     get_expose_passthrough,
     get_field_passthrough,
+    get_metadata_passthrough,
     get_stash,
+    metadata_passthrough,
     overlay_native,
     stash,
     target_api_version,
@@ -49,11 +51,17 @@ LOG = logging.getLogger(__name__)
 
 _PK_TAGS = ("primary-key", "primaryKey")
 
+# Contract-level pass-through flag: the imported document had no ``schema``.
+SCHEMA_ABSENT_KEY = "schema_absent"
+
 
 # ----- ODCS → FLUID --------------------------------------------------------
 
 
 def to_fluid(ctx: ImportCtx) -> None:
+    if "schema" not in ctx.odcs:
+        # Recorded so re-export does not synthesise ``schema: []``.
+        metadata_passthrough(ctx.fluid)[SCHEMA_ABSENT_KEY] = True
     schema = ctx.odcs.get("schema") or []
     if not isinstance(schema, list):
         return
@@ -144,14 +152,21 @@ def _property_to_field(prop: Mapping[str, Any]) -> Dict[str, Any]:
 
 
 def to_odcs(ctx: ExportCtx) -> None:
-    """Emit ``odcs.schema`` from FLUID exposes (always an array)."""
-    ctx.odcs["schema"] = list(
+    """Emit ``odcs.schema`` from FLUID exposes (an array).
+
+    An imported document that had no ``schema`` key gets none back unless
+    FLUID now produces SchemaObjects.
+    """
+    schema = list(
         _extract_schema(
             ctx.fluid,
             include_quality=ctx.options.get("include_quality_checks", True),
             api_version=target_api_version(ctx),
         )
     )
+    if not schema and get_metadata_passthrough(ctx.fluid).get(SCHEMA_ABSENT_KEY):
+        return
+    ctx.odcs["schema"] = schema
 
 
 def _extract_schema(
@@ -201,6 +216,9 @@ def _extract_schema(
                 schema_object["properties"] = properties
             else:
                 schema_object.pop("properties", None)
+            if not include_quality:
+                # Object-level quality is replayed from the stash only.
+                schema_object.pop("quality", None)
         else:
             schema_object = {
                 "name": expose_id,
@@ -259,7 +277,7 @@ def _field_to_property(
         if now["logicalType"] != then["logicalType"]:
             _drop_stale_type_details(prop, fld, provider, api_version)
         if not include_quality:
-            prop.pop("quality", None)
+            _strip_quality(prop)
         return prop
 
     # ---- fresh FLUID: synthesise ---------------------------------------
@@ -293,6 +311,21 @@ def _field_to_property(
     if fld.get("tags") and any(t in _PK_TAGS for t in fld["tags"]):
         prop["primaryKey"] = True
     return prop
+
+
+def _strip_quality(prop: Dict[str, Any]) -> None:
+    """Remove ``quality`` from a replayed property and everything nested in it
+    (object ``properties``, array ``items``, map ``key``/``value``)."""
+    prop.pop("quality", None)
+    props = prop.get("properties")
+    nested: List[Any] = list(props) if isinstance(props, list) else []
+    if isinstance(prop.get("items"), dict):
+        nested.append(prop["items"])
+    if isinstance(prop.get("map"), dict):
+        nested.extend(v for k, v in prop["map"].items() if k in ("key", "value"))
+    for child in nested:
+        if isinstance(child, dict):
+            _strip_quality(child)
 
 
 def _drop_stale_type_details(

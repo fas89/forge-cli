@@ -15,14 +15,16 @@ Order matters:
 - ``servers`` — fills ``expects[]`` from ODCS servers.
 - ``sla`` — attaches qos to ``exposes[0]`` (depends on schema).
 - ``quality`` — contract-level only (property/object level handled in schema).
+- ``downgrade`` — export only, last: rewrites replayed v3.2.0-only content
+  when an imported v3.2.0 document is exported at an older ``apiVersion``.
 
 On export the same order is fine: each mapper writes its own slice of the
 ODCS dict; no inter-mapper dependencies.
 """
 
-from . import metadata, quality, schema, servers, sla, team  # noqa: F401
+from . import downgrade, metadata, quality, schema, servers, sla, team  # noqa: F401
 
 IMPORT_PIPELINE = [metadata, team, schema, servers, sla, quality]
-EXPORT_PIPELINE = [metadata, team, schema, servers, sla, quality]
+EXPORT_PIPELINE = [metadata, team, schema, servers, sla, quality, downgrade]
 
 __all__ = ["IMPORT_PIPELINE", "EXPORT_PIPELINE"]

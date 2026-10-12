@@ -11,8 +11,10 @@ The full ODCS list is preserved verbatim under
 ``metadata.odcs_passthrough.sla_properties`` so that an ODCS → FLUID → ODCS
 round-trip is lossless. The first/only expose's ``qos`` block is also
 populated (availability, freshnessSLO, labels) so the FLUID view is
-meaningful in isolation. On export the stash is replayed unless that
-``qos`` changed since import; an edit rewrites only the entries it touches.
+meaningful in isolation, and flagged as the projection target. On export the
+stash is replayed unless an expose's ``qos`` changed since import (the
+flagged expose against the projection, any other against "no qos"); an edit
+rewrites only the entries it touches.
 """
 
 from __future__ import annotations
@@ -24,11 +26,15 @@ from typing import Any, Dict, List, Optional
 from .base import (
     ExportCtx,
     ImportCtx,
+    expose_passthrough,
     get_expose_passthrough,
     get_metadata_passthrough,
-    get_stash,
     metadata_passthrough,
 )
+
+# Expose pass-through flag: this expose's ``qos`` is the import's projection
+# of the document-level ``slaProperties``.
+SLA_PROJECTION_KEY = "sla_projection"
 
 # ----- ODCS → FLUID --------------------------------------------------------
 
@@ -50,6 +56,10 @@ def to_fluid(ctx: ImportCtx) -> None:
     target = exposes[0] if exposes else None
     if not isinstance(target, dict):
         return
+    # Record which expose received the projection: a per-expose export of
+    # another SchemaObject (or the scoped view of this one) compares against
+    # what *that* expose was given at import, not against exposes[0].
+    expose_passthrough(target)[SLA_PROJECTION_KEY] = True
 
     qos: Dict[str, Any] = target.get("qos") or {}
     labels: Dict[str, Any] = qos.get("labels") or {}
@@ -130,7 +140,13 @@ def to_odcs(ctx: ExportCtx) -> None:
 def _merge_sla(
     fluid: Mapping[str, Any], stashed: List[Mapping[str, Any]]
 ) -> Optional[List[Dict[str, Any]]]:
-    """Replay the stash unless ``exposes[0].qos`` changed; then apply the edit.
+    """Replay the stash unless some expose's ``qos`` changed; then apply the edit.
+
+    Each expose is compared with what the import gave it: the expose that
+    received the projection (flagged with :data:`SLA_PROJECTION_KEY`) with
+    the projection of the stash, every other expose with "no qos". A
+    per-expose export of another SchemaObject therefore replays the
+    document-level SLA untouched, and a qos edit on any expose is honoured.
 
     Only the keys FLUID projects (``availability``, ``freshnessSLO``,
     ``labels``) are compared; each edit rewrites, removes or appends just
@@ -138,19 +154,22 @@ def _merge_sla(
     unmodelled entries survive.
     """
     out = [copy.deepcopy(dict(p)) for p in stashed]
-    exposes = fluid.get("exposes") or []
-    target = exposes[0] if exposes else None
-    if not isinstance(target, Mapping) or get_stash(get_expose_passthrough(target)) is None:
-        # The import projected qos onto an imported expose only; with none
-        # to compare against, the stash is the only source of truth.
-        return out
-    then = _project_qos(stashed) or {}
-    now = target.get("qos") if isinstance(target.get("qos"), Mapping) else {}
-    if not stashed and not now:
-        return out
-    if _qos_view(now) == _qos_view(then):
-        return out
+    projection = _project_qos(stashed) or {}
+    for expose in fluid.get("exposes") or []:
+        if not isinstance(expose, Mapping):
+            continue
+        projected = bool(get_expose_passthrough(expose).get(SLA_PROJECTION_KEY))
+        then = projection if projected else {}
+        now = expose.get("qos") if isinstance(expose.get("qos"), Mapping) else {}
+        if _qos_view(now) != _qos_view(then):
+            _apply_qos_edit(out, then, now)
+    return out
 
+
+def _apply_qos_edit(
+    out: List[Dict[str, Any]], then: Mapping[str, Any], now: Mapping[str, Any]
+) -> None:
+    """Rewrite the ``slaProperties`` entries a ``then`` → ``now`` qos edit touches."""
     # availability
     if now.get("availability") != then.get("availability"):
         idx = _find(out, lambda p: p.get("property") == "availability")
@@ -182,7 +201,6 @@ def _merge_sla(
         )
         prop_name = out[idx]["property"] if idx is not None else f"label:{key}"
         _apply_edit(out, idx, prop_name, now_l.get(key) if key in now_l else None)
-    return out
 
 
 def _qos_view(qos: Mapping[str, Any]) -> Dict[str, Any]:

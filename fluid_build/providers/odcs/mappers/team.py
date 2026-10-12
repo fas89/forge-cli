@@ -141,27 +141,35 @@ _MEMBER_NATIVE_KEYS = ("name", "username", "role")
 
 
 def _merge_team(stashed: Any, then: Mapping[str, Any], fluid: Mapping[str, Any]) -> Any:
-    """Apply a FLUID owner edit to the stashed team, keeping unmodelled keys."""
-    fresh = _owner_to_team(fluid)
-    if fresh is None:
-        return None  # owner removed (or no longer names a team)
+    """Apply a FLUID owner edit to the stashed team, keeping unmodelled keys.
+
+    Only a removed owner removes the team. A stashed team without a name
+    (the v3.0.x array form, or an object without ``name``) keeps its shape
+    and stays nameless unless the owner's ``team`` is set.
+    """
     now = _current_owner(fluid)
-    now = now if isinstance(now, Mapping) else {}
+    if not isinstance(now, Mapping) or not now:
+        return None  # owner removed
 
     stashed_members = stashed.get("members") if isinstance(stashed, Mapping) else stashed
     stashed_members = [m for m in stashed_members or [] if isinstance(m, Mapping)]
     member_keys = ("name", "email", "role", "contacts")
     if any(now.get(k) != then.get(k) for k in member_keys):
-        members = _merge_members(stashed_members, fresh.get("members") or [])
+        members = _merge_members(stashed_members, _owner_members(now))
     else:
         members = copy.deepcopy(stashed_members)
 
-    if isinstance(stashed, list) and now.get("team") == then.get("team"):
+    team_changed = now.get("team") != then.get("team")
+    if isinstance(stashed, list) and not team_changed:
         return members  # keep the array form when only members changed
 
     out = copy.deepcopy(dict(stashed)) if isinstance(stashed, Mapping) else {}
-    if now.get("team") != then.get("team") or "name" not in out:
-        out["name"] = fresh["name"]
+    if team_changed:
+        name = now.get("team") or now.get("name")
+        if name:
+            out["name"] = name
+        else:
+            out.pop("name", None)
     if members:
         out["members"] = members
     else:
@@ -220,6 +228,14 @@ def _owner_to_team(fluid: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
         return None
 
     team_obj: Dict[str, Any] = {"name": team_name}
+    members = _owner_members(owner)
+    if members:
+        team_obj["members"] = members
+    return team_obj
+
+
+def _owner_members(owner: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    """ODCS ``TeamMember`` entries for a FLUID owner (primary, then contacts)."""
     members: List[Dict[str, Any]] = []
 
     # Primary contact from owner top-level
@@ -247,7 +263,4 @@ def _owner_to_team(fluid: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
             member["role"] = contact["role"]
         if member:
             members.append(member)
-
-    if members:
-        team_obj["members"] = members
-    return team_obj
+    return members

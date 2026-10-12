@@ -588,8 +588,12 @@ def test_expects_edits_reach_servers(full_import) -> None:
 
 
 def test_expect_removal_drops_server(full_import) -> None:
+    # The server is dropped only when neither its expect nor an expose
+    # binding owns it any more: exposes[0].binding is derived from it, and a
+    # binding that still selects it keeps it (round-2 defect 15).
     prov, fluid = full_import
     fluid["expects"] = []
+    del fluid["exposes"][0]["binding"]
     assert prov.render(fluid)["servers"] == []
 
 

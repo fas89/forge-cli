@@ -345,7 +345,10 @@ _ODCS_TO_FLUID_STATUS: Dict[str, str] = {
 
 
 def fluid_to_odcs_status(status: str) -> str:
-    return _FLUID_TO_ODCS_STATUS.get(str(status).lower(), "active")
+    # Case-sensitive, exactly like 0.7.8: ``Development`` (not a key) maps to
+    # ``active``, not ``draft``. Changing that would silently change the
+    # status every capitalised-status contract publishes.
+    return _FLUID_TO_ODCS_STATUS.get(str(status), "active")
 
 
 def odcs_to_fluid_status(status: str) -> str:

@@ -19,7 +19,9 @@ Three levels of quality survive round-trip:
    (``--no-quality`` / ``ODCS_INCLUDE_QUALITY=false``) suppresses all of it.
 
 2. **Object-level** — ``schemaObject.quality[]``. Pure pass-through via the
-   schema object's verbatim stash (handled in :mod:`.schema`).
+   schema object's verbatim stash (handled in :mod:`.schema`); also
+   suppressed by ``include_quality_checks=False``, as is quality nested in
+   a replayed property's ``properties`` / ``items``.
 
 3. **Contract-level** — top-level ``odcs["quality"]`` (non-spec extension
    emitted by FLUID). Read into ``fluid.quality`` / pass-through and replayed
