@@ -902,3 +902,39 @@ def test_render_does_not_mutate_the_source_fluid(hand_bundle: Path) -> None:
     prov.render(fluid)
     assert fluid == before
     assert os.path.isdir(hand_bundle)
+
+
+class TestFreshProductCustomPropertiesMatchMain:
+    """origin/main's OdpsStandardProvider emitted product-level
+    customProperties ``type`` / ``domain`` / ``fluidVersion``; consumers such
+    as Data Mesh Manager read them, so fresh v1.0.0 exports keep them."""
+
+    def _fluid(self) -> Dict[str, Any]:
+        return {
+            "id": "sales.orders",
+            "metadata": {
+                "name": "Orders",
+                "version": "2.1.0",
+                "domain": "sales",
+                "product_type": "sourceAligned",
+            },
+            "exposes": [],
+        }
+
+    def test_v100_fresh_product_carries_mains_custom_properties(self) -> None:
+        prov = BitolOdpsProvider()
+        prov.strict_validation = False
+        product = prov.render(self._fluid())["product"]
+        assert product["customProperties"] == [
+            {"property": "type", "value": "sourceAligned"},
+            {"property": "domain", "value": "sales"},
+            {"property": "fluidVersion", "value": "2.1.0"},
+        ]
+
+    def test_v110_fresh_product_has_native_type_and_keeps_the_rest(self) -> None:
+        prov = BitolOdpsProvider(api_version="v1.1.0")
+        prov.strict_validation = False
+        product = prov.render(self._fluid())["product"]
+        assert product["type"] == "sourceAligned"
+        assert {"property": "type", "value": "sourceAligned"} not in product["customProperties"]
+        assert {"property": "domain", "value": "sales"} in product["customProperties"]

@@ -193,11 +193,21 @@ def to_odps(ctx: ExportCtx) -> None:
             downgrade_v110_keys(merged, _V110_PRODUCT_KEYS, ctx.logger, where="the product")
     else:
         merged = {k: v for k, v in now.items() if v is not None}
+        custom = []
         if not native_type:
             # Legacy (< v1.1.0) encoding of the product type.
             product_type = _product_type(fluid)
             if product_type:
-                merged["customProperties"] = [{"property": "type", "value": product_type}]
+                custom.append({"property": "type", "value": product_type})
+        # Product-level customProperties origin/main's OdpsStandardProvider
+        # emitted; kept so existing consumers (e.g. DMM) see no change.
+        if metadata.get("domain"):
+            custom.append({"property": "domain", "value": metadata["domain"]})
+        if metadata.get("version"):
+            custom.append({"property": "fluidVersion", "value": metadata["version"]})
+        if custom:
+            merged["customProperties"] = custom
+        if not native_type:
             downgrade_v110_keys(merged, _V110_PRODUCT_KEYS, ctx.logger, where="the product")
         if ctx.options.get("include_custom_properties", True) is False:
             merged.pop("customProperties", None)
