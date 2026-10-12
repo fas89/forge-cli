@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Without an explicit `--spec` the version follows `ODPS_API_VERSION`, then
   an imported document's own `apiVersion`, then v1.0.0; the success message
   reports the version actually written. `opds` is an alias of `odps`.
+  `--spec odpi-4.1` writes the 0.7.8 single JSON document and rejects
+  `--out-dir` / `-f yaml` with a clear error instead of ignoring them.
 - **Breaking: `fluid dmm publish` and `fluid publish --catalog
   datamesh-manager` send Bitol ODPS by default** (previously the legacy Data
   Product Specification 0.0.1). Current Entropy Data / Entropy CE
@@ -30,15 +32,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (catalog path) catalog config `data_product_spec: "0.0.1"` /
   `CatalogTarget.catalog_hints`. Resolution order: explicit value → provider
   hint (`odps`/`opds` → ODPS, `dps` → 0.0.1) → `DMM_DATA_PRODUCT_SPEC` →
-  ODPS. `--team-id` sets the ODPS `team.name`. The catalog path now
-  publishes one data contract per expose (`{productId}.{exposeId}`) instead
-  of one per product. Verified live against Entropy CE 2.1.x on both publish
-  paths at ODCS v3.1.0 and v3.2.0 (`scripts/dmm_live_e2e.sh`).
+  ODPS; the token `dps` means `0.0.1` everywhere a spec is accepted. The
+  ODPS `team.name` is the team id the publish auto-creates (the `--team-id`
+  value, or the owner team slugged, e.g. `customer-platform`). The catalog
+  path keeps its 0.7.8 defaults (a missing `metadata.status` publishes as
+  `active`; `metadata.domain` / `version` fall back to the top-level
+  fields) and now publishes one data contract per expose
+  (`{productId}.{exposeId}`) instead of one per product. Verified live
+  against Entropy CE 2.1.x on both publish paths at ODCS v3.1.0 and v3.2.0
+  (`scripts/dmm_live_e2e.sh`).
 - `BaseCatalogProvider.publish` / `update` take `(fluid, target=None)`;
   `target` defaults to `CatalogTarget.from_fluid(fluid)`. The 0.7.8
-  `publish(asset)` API keeps working for one release (see Deprecated).
-  Missing `domain` / owner still fall back to `general` / `unknown` instead
-  of failing validation.
+  `publish(asset)` API keeps working for one release (see Deprecated):
+  `fluid publish` treats a provider as using the new API only when its
+  `publish` declares `(fluid, target)` (second parameter named `target` or
+  annotated `CatalogTarget`); every other provider, including duck-typed
+  plugins, takes the 0.7.8 `map_contract_to_asset` → `validate_asset` →
+  `publish(asset)` route. Missing `domain` / owner still fall back to
+  `general` / `unknown`; files that are not FLUID contracts (no `id`,
+  `name` or `metadata.name`, e.g. fragments, overlays, config files) are
+  rejected with a clear error.
 - **Mapper round-trip architecture: verbatim stash + native overlay.** On
   import every ODCS/ODPS section (document, schema object, property, port)
   is stashed verbatim; on export the stash is the base layer and only the
@@ -46,8 +59,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `overlay_native`). This replaces the hand-maintained per-field
   pass-through tuples and means fields added by future spec versions
   round-trip with no code. FLUID edits to `owner`, `expects`, an expose
-  `binding` and `qos` of an imported contract reach the stashed team /
-  servers / `slaProperties`; unchanged contracts still round-trip verbatim.
+  `binding` and `qos` (on any expose) of an imported contract reach the
+  stashed team / servers / `slaProperties`, for standalone ODCS imports and
+  for every per-port contract of an imported ODPS bundle; a server an
+  expose binding still selects is kept when its `expects` entry is removed.
+  Unchanged contracts still round-trip verbatim, and imported FLUID never
+  contains YAML anchors.
   Validated lossless against verbatim upstream Bitol examples, including
   the 192 KB v3.0.0 AdventureWorks contract.
 - `OdcsProvider.validate_contract` / `BitolOdpsProvider.validate_product`
@@ -79,7 +96,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   does not set them; field-level `quality` items are appended to the
   auto-generated checks; `map` / `vector` and the v3.2.0-only server engines
   are emitted only when the target is v3.2.0+ (below that they fall back to
-  `object` / `array` and `custom`); each `server.type` emits only the fields
+  `object` / `array` and `custom`, and an imported v3.2.0 contract exported
+  at an older version has its v3.2.0-only content downgraded, with a
+  warning, so it validates against the version it declares); each
+  `server.type` emits only the fields
   its ODCS `ServerSource` allows, and a FLUID `binding.format` reaches the
   server (local-platform contracts, examples 01–06 and every `fluid init`
   template, export valid ODCS).
@@ -121,8 +141,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   natively; v1.0.0 exports keep the legacy `customProperties` encoding),
   `deprecated`, `context`, `synonyms`; relaxed `status` / port `version` /
   `contractId` requirements honoured on import. A product rendered below
-  v1.1.0 moves v1.1.0-only keys into `customProperties` (with a warning) so
-  it validates against the version it declares.
+  v1.1.0 is fitted to the vendored v1.0.0 schema, nested objects included
+  (management ports, SBOM entries, input contracts, support channels, team
+  members): a key v1.0.0 does not allow moves into that object's
+  `customProperties` when it has them, otherwise it is dropped, each with a
+  warning, so the document validates against the version it declares.
 - **Bitol ODPS — bidirectional provider** (`BitolOdpsProvider`, registered
   as `odps_bitol`). Export emits the canonical fragments layout: 1 ODPS doc
   + N sibling `<contractId>.odcs.yaml` files; each per-port ODCS `id`
@@ -131,19 +154,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   port's complete ODCS state, so `fluid opds import` then `fluid opds
   export` reproduces the product and every per-port ODCS document (servers,
   team, SLA, top-level fields, per-document `apiVersion`) under strict
-  validation. Same-name ports that differ only in version import as
-  distinct exposes. Fresh output ports carry the `customProperties`
-  (server, environment, containsPii, autoApprove, status) and the product
-  the `type` / `domain` / `fluidVersion` properties the 0.7.8 ODPS exporter
-  emitted, and honour `expose.contract_id` and `ODPS_DEFAULT_PORT_VERSION`.
+  validation, schema-less per-port contracts included. Same-name ports that
+  differ only in version import as distinct exposes. Fresh output ports
+  carry the `customProperties` (server, environment, containsPii,
+  autoApprove, status) and the product the `type` / `domain` /
+  `fluidVersion` properties the 0.7.8 ODPS exporter emitted, and honour
+  `expose.contract_id` and `ODPS_DEFAULT_PORT_VERSION`. Output-port
+  `contractId`s are minted as `{productId}.{port}` (the id of the sibling
+  per-port ODCS), also by the legacy `OdpsStandardProvider` / `fluid
+  odps-bitol export`, which used `{exposeId}_contract` in 0.7.8; set
+  `contract_id` on an expose to keep a specific id.
 - **Three import entry points** — single ODPS file, directory (ODPS +
   sibling ODCS, or just ODCS files), or a lone ODCS file — via
   `fluid opds import <path>`. Inputs are schema-validated; the output is a
   FLUID contract skeleton that may need edits (builds, bindings) before
-  `fluid validate` passes. `--lenient` downgrades output-port resolution
-  failures and schema-invalid ODCS inputs to warnings (input ports are
-  always lenient). FLUID contracts passed as input are rejected with a
-  clear error rather than mistaken for ODPS.
+  `fluid validate` passes. An ODCS-only directory import keeps each
+  contract's id and document-level fields. `--lenient` downgrades
+  output-port resolution failures, malformed `contractId`s and
+  schema-invalid ODCS inputs to warnings (input ports are always lenient).
+  `-o FILE` picks the format from the suffix unless `-f` is given. FLUID
+  contracts passed as input are rejected with a clear error rather than
+  mistaken for ODPS.
 - **`ContractResolver`** — resolves Bitol ODPS port `contractId`
   references to ODCS documents through local-file probes and http(s) fetch,
   with caching, JSON Schema validation, HTML-with-200 refusal, and
@@ -156,9 +187,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before. YAML and JSON input are both accepted.
 - **`fluid forge --seed-from <path>`** — copilot accepts an ODCS contract,
   a Bitol ODPS product file, or a directory bundle as a structural seed.
-  The seed's schema/qos are ground truth the LLM must not mutate. The
-  ground truth is a FLUID 0.7.2-valid view (round-trip bookkeeping and
-  ODCS-only field keys removed) used for both the prompt and the
+  The seed's schema/qos are ground truth the LLM must not mutate; per-field
+  ODCS quality is not carried into FLUID, and the LLM fills in builds,
+  execution and the expose kind/binding/semantics. The ground truth is a
+  FLUID 0.7.2-valid view (round-trip bookkeeping and ODCS-only field keys
+  removed; each `exposeId` normalised to a FLUID identifier, e.g.
+  `Daily Orders` → `daily_orders`) used for both the prompt and the
   `diff_against_seed()` guard, so a model that copies the seed verbatim
   passes strict validation. FLUID contracts, unresolved output-port
   contracts and seeds with no ground truth fail with a clear error; a run
@@ -193,11 +227,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `CatalogAsset`, `BaseCatalogProvider.map_contract_to_asset`,
   `validate_asset`, `publish_asset` / `update_asset`, and calling
   `publish(asset)` / `update(asset)` with a `CatalogAsset`. These keep
-  working for one release with a `DeprecationWarning`, and third-party
-  catalog providers written against the 0.7.8 API keep working through
-  `fluid publish` (their `map_contract_to_asset` / `validate_asset`
-  overrides are honoured). Migrate to `publish(fluid,
-  CatalogTarget.from_fluid(fluid))`.
+  working for one release with a `DeprecationWarning` and publish the
+  asset's own fields (including edits made after `map_contract_to_asset`,
+  e.g. `sensitivity` → `is_public`), in positional and keyword form
+  (`publish(asset=...)`). Third-party catalog providers written against the
+  0.7.8 API keep working through `fluid publish`, and `map_contract_to_asset`
+  / `validate_asset` overrides are honoured, including on subclasses of the
+  built-in providers, where they reach the published payload. Migrate to
+  `publish(fluid, CatalogTarget.from_fluid(fluid))`.
+- `verify(asset_id=...)` / `delete(asset_id=...)` on catalog providers: the
+  parameter is now `contract_id`; `asset_id=` keeps working for one release
+  with a `DeprecationWarning`.
 - `fluid_build.providers.odcs.mappers.types.physical_type_to_platform` is
   no longer used by the importer and is kept only for API compatibility.
 
@@ -232,11 +272,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   written into the stored config, so `save_user_config()` cannot persist
   them to disk.
 - ODPS `contractId`s that are absolute or contain path separators / `..`
-  are never used as local file names, symlinks out of a bundle are ignored,
-  and bundle export refuses product/contract ids that would write outside
+  are never used as local file names, symlinks that resolve outside a bundle
+  are ignored by `fluid opds import` and `fluid forge --seed-from`, and
+  bundle export refuses product/contract ids that would write outside
   `--out-dir` (or next to `--out FILE`).
 - Remote `contractId` fetches are size-capped (10 MiB), time-boxed (30 s
-  total) and follow only http(s) redirects.
+  total, covering connect, slow response headers and chunked bodies) and
+  follow only http(s) redirects.
+- YAML contracts (local ODCS/ODPS files and remote `contractId` fetches) are
+  refused when their aliases would expand beyond 1,000,000 nodes or are
+  recursive ("billion laughs"); JSON-Schema validation no longer duplicates
+  aliased subtrees in memory.
 - `scripts/dmm_live_e2e.sh` uses a private `mktemp -d` work dir and passes
   the API key through a 0600 header file instead of the curl command line.
 
