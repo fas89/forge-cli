@@ -47,16 +47,20 @@ fluid opds export contract.fluid.yaml --spec bitol-1.0.0 --out-dir ./out
 
 # --out FILE writes the product doc to FILE and the per-port ODCS contracts
 # next to it; the format follows the suffix unless -f/--format is given.
-fluid opds export contract.fluid.yaml --out ./out/product.json
-# ./out/product.json
-# ./out/<productId>.<port1>.odcs.json
-# ./out/<productId>.<port2>.odcs.json
+# Use a different directory than --out-dir: a directory import accepts only
+# one ODPS doc.
+fluid opds export contract.fluid.yaml --out ./single/product.json
+# ./single/product.json
+# ./single/<productId>.<port1>.odcs.json
+# ./single/<productId>.<port2>.odcs.json
 
 # No --out / --out-dir: the product doc is printed to stdout as JSON.
 fluid opds export contract.fluid.yaml > product.json
 ```
 
 With `--spec` omitted the emitted `apiVersion` follows `ODPS_API_VERSION`, else the imported document's own `apiVersion` (re-exports of imports), else `v1.0.0`; an explicit `--spec bitol-1.0.0` / `bitol-1.1.0` pins it. Exports are validated against the vendored schemas; `--no-validate-strict` still validates but reports problems as warnings on stderr instead of failing.
+
+`--out-dir` and `-f/--format` apply to the Bitol specs only; `--spec odpi-4.1` always writes a single JSON document to `--out` (or stdout) and rejects them with an error.
 
 No inline-embedding mode. The fragments layout is the only export pattern — it matches Bitol convention and `datacontract-cli` expectations.
 
@@ -77,7 +81,7 @@ fluid opds import out/ -o product.fluid.yaml
 fluid opds import out/<productId>.<port1>.odcs.yaml -o port1.fluid.yaml
 ```
 
-Without `-o` the FLUID document is written to stdout (YAML, or JSON with `-f json`).
+With `-o` the format follows the file suffix (`.json` → JSON, anything else → YAML) unless `-f/--format` is given. Without `-o` the FLUID document is written to stdout (YAML, or JSON with `-f json`).
 
 Flags:
 
@@ -89,6 +93,8 @@ Flags:
 ```bash
 fluid opds validate out/<productId>.odps.yaml                    # auto-detected as Bitol
 fluid opds validate out/<productId>.odps.yaml --spec bitol-1.1.0 # pin the schema version
+
+fluid opds export contract.fluid.yaml --spec odpi-4.1 --out odpi.json
 fluid opds validate odpi.json --spec odpi-4.1                    # ODPI v4.1 (also: --version 4.1)
 ```
 
@@ -126,14 +132,14 @@ fluid forge --seed-from product.odps.yaml
 fluid forge --seed-from ./contracts/
 ```
 
-The seed's schema/quality/qos are **ground truth** the LLM must not modify. The pre-processor (`fluid_build.cli.forge_copilot_seed.load_seed`) emits a `SeedResult` carrying:
+Each expose's schema and qos from the seed are **ground truth** the LLM must not modify, and every seed expose must be kept, in order, under its `exposeId`. They are presented to the LLM as valid FLUID 0.7.2: an ODCS schema object or ODPS port name that is not a FLUID identifier is normalised deterministically (lower-cased, other characters replaced by `_`, so `Daily Orders` becomes `daily_orders`), and ODCS-only keys such as per-field `quality` rules are **not carried** into the FLUID output; add them to the generated contract yourself if you need them. The pre-processor (`fluid_build.cli.forge_copilot_seed.load_seed`) emits a `SeedResult` carrying:
 
 - `fluid` — the imported skeleton the LLM augments.
 - `provenance` — every contract source consumed (paths + URLs).
 - `ground_truth_paths` — dotted paths inside `fluid` that must round-trip.
-- `diff_against_seed(seed, candidate)` — primitive returning `{path, seed, candidate}` mismatches whenever the candidate mutated a ground-truth value.
+- `diff_against_seed(seed, candidate)` — primitive returning `{path, seed, candidate}` mismatches whenever the candidate mutated a ground-truth value (schema, qos or an `exposeId`).
 
-The LLM fills in builds, executes, and governance — the things the standards don't model.
+The LLM fills in builds (with their execution) and each expose's kind, binding and semantics — the things the standards don't model. A directory seed reads only files inside the directory: symlinks that resolve outside it are ignored.
 
 ## File map
 

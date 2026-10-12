@@ -44,6 +44,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Dict, List, Mapping, Optional
@@ -357,6 +358,23 @@ def _export_odpi_v41(
     """Legacy ODPI v4.1 export path (single JSON document)."""
     from fluid_build.cli.bootstrap import build_provider
 
+    # --out-dir and -f/--format only mean something for the Bitol bundle
+    # layout; ODPI v4.1 is always a single JSON document. Refuse them instead
+    # of silently writing JSON somewhere else.
+    if _str_arg(args, "out_dir"):
+        console_error(
+            "--out-dir is not supported with --spec odpi-4.1 (ODPI v4.1 is a single JSON "
+            "document): use --out FILE, or omit it to print to stdout."
+        )
+        return 2
+    explicit_fmt = _str_arg(args, "format")
+    if explicit_fmt and explicit_fmt.lower() != "json":
+        console_error(
+            f"--format {explicit_fmt} is not supported with --spec odpi-4.1: ODPI v4.1 is "
+            "always written as JSON (omit -f/--format or use -f json)."
+        )
+        return 2
+
     version_info = get_version_info("4.1")
     try:
         provider = build_provider("odps", None, None, logger)
@@ -378,7 +396,7 @@ def _export_odpi_v41(
             else:
                 _write_stdout(json.dumps(result, ensure_ascii=False))
         else:
-            cprint(f"✓ Exported to ODPI v4.1: {out_path}")
+            cprint(f"✓ Exported to ODPI v4.1: {out_path}", soft_wrap=True, markup=False)
             cprint(f"  Specification: {version_info['spec_url']}")
         return 0
     except Exception as e:
@@ -420,7 +438,12 @@ def cmd_opds_import(args: argparse.Namespace, logger: logging.Logger) -> int:
     allow_remote = not getattr(args, "no_remote", False)
     lenient = bool(getattr(args, "lenient", False))
     out = getattr(args, "out", None)
-    fmt = (getattr(args, "format", "yaml") or "yaml").lower()
+    out_file = (
+        Path(out) if isinstance(out, (str, os.PathLike)) and str(out) not in ("", "-") else None
+    )
+    # Same rule as export: an explicit -f/--format wins, else the -o suffix
+    # decides (.json → json, .yaml/.yml → yaml), else yaml.
+    fmt = _resolve_bitol_format(_str_arg(args, "format"), out_file)
 
     try:
         fluid = _dispatch_import(in_path, allow_remote=allow_remote, lenient=lenient)
@@ -429,8 +452,8 @@ def cmd_opds_import(args: argparse.Namespace, logger: logging.Logger) -> int:
         console_error(f"Error importing: {e}")
         return 1
 
-    if out and out != "-":
-        out_path = Path(out)
+    if out_file is not None:
+        out_path = out_file
         out_path.parent.mkdir(parents=True, exist_ok=True)
         if fmt == "json":
             out_path.write_text(json.dumps(fluid, indent=2, ensure_ascii=False))
@@ -438,7 +461,9 @@ def cmd_opds_import(args: argparse.Namespace, logger: logging.Logger) -> int:
             import yaml
 
             out_path.write_text(yaml.dump(fluid, default_flow_style=False, sort_keys=False))
-        cprint(f"✓ Imported {in_path} → {out_path}")
+        # Paths are printed unwrapped and without markup parsing so they stay
+        # copy-pasteable.
+        cprint(f"✓ Imported {in_path} → {out_path}", soft_wrap=True, markup=False)
     else:
         if fmt == "json":
             _write_stdout(json.dumps(fluid, indent=2, ensure_ascii=False))
@@ -875,7 +900,8 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         default=None,
         help=(
             "For the Bitol specs: directory where the ODPS doc + per-port "
-            "ODCS files are written. Mutually exclusive with --out (use one or the other)."
+            "ODCS files are written. Mutually exclusive with --out (use one or the other). "
+            "Rejected with --spec odpi-4.1."
         ),
     )
     export.add_argument(
@@ -884,8 +910,10 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         default=None,
         choices=["yaml", "json"],
         help=(
-            "Output format for file/dir writes (default: inferred from the --out suffix "
-            "— .json → json, .yaml/.yml → yaml — else yaml). Stdout always uses JSON."
+            "Bitol specs only: output format for file/dir writes (default: inferred from "
+            "the --out suffix — .json → json, .yaml/.yml → yaml — else yaml). Stdout "
+            "always uses JSON. ODPI v4.1 is always JSON; -f yaml is rejected with "
+            "--spec odpi-4.1."
         ),
     )
     export.add_argument("--env", help="Environment name for overlay application")
@@ -948,7 +976,14 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         "-o", "--out", default=None, help="Output FLUID file path (default: stdout)"
     )
     importp.add_argument(
-        "-f", "--format", default="yaml", choices=["yaml", "json"], help="Output format"
+        "-f",
+        "--format",
+        default=None,
+        choices=["yaml", "json"],
+        help=(
+            "Output format (default: inferred from the -o suffix — .json → json, "
+            ".yaml/.yml → yaml — else yaml; stdout defaults to yaml)."
+        ),
     )
     importp.add_argument(
         "--no-remote",

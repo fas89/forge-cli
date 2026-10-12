@@ -43,6 +43,7 @@ from fluid_build.providers.base import ProviderError
 from fluid_build.providers.odcs import OdcsProvider
 from fluid_build.providers.odcs.io import read_input
 from fluid_build.providers.odps_standard import BitolOdpsProvider
+from fluid_build.providers.odps_standard.provider import _is_within
 from fluid_build.providers.odps_standard.resolver import ContractNotFound, ContractResolver
 
 LOG = logging.getLogger(__name__)
@@ -261,9 +262,76 @@ def _root_field_view(key: str, value: Any) -> Any:
     return value if _is_valid(f"#/$defs/{_ROOT_DEF_PREFIX}{key}", value) else _DROP
 
 
-def _effective_ground_truth_paths(seed: "SeedResult") -> List[str]:
-    """Ground-truth paths whose FLUID view has something to enforce."""
+_IDENTIFIER_POINTER = "#/$defs/identifier"
+_INVALID_IDENTIFIER_CHARS_RE = re.compile(r"[^a-z0-9_.-]")
+
+
+def _sanitise_identifier(raw: str) -> str:
+    """Deterministically map a free-form ODCS/ODPS name onto the FLUID 0.7.2
+    identifier pattern (``^[a-z0-9_][a-z0-9_.-]*[a-z0-9_]$``): lower-case it,
+    replace every other character with ``_`` and make sure it neither starts
+    nor ends with ``.``/``-``. ``"Daily Orders"`` becomes ``"daily_orders"``."""
+    text = _INVALID_IDENTIFIER_CHARS_RE.sub("_", raw.strip().lower())
+    if text[:1] in (".", "-"):
+        text = "_" + text[1:]
+    if text[-1:] in (".", "-"):
+        text = text[:-1] + "_"
+    return text
+
+
+def _expose_id_views(exposes: Any) -> List[Optional[str]]:
+    """The FLUID-0.7.2 ``exposeId`` of each entry of ``exposes``.
+
+    The id is the expose's ``exposeId`` (or legacy ``id``). One that is not a
+    valid FLUID identifier — ODCS schema object and ODPS port names are free
+    strings, e.g. ``CustomerOrders`` or ``Daily Orders`` — is sanitised with
+    :func:`_sanitise_identifier`, a missing or empty one becomes
+    ``expose_<n>``, and a sanitised id that collides with an earlier one gets a
+    ``_2``/``_3``/... suffix. The mapping depends only on the list itself, so
+    the prompt block and :func:`diff_against_seed` (which applies it to both
+    the seed and the candidate) always agree.
+    """
+    if not isinstance(exposes, list):
+        return []
+    views: List[Optional[str]] = []
+    seen: set = set()
+    for index, expose in enumerate(exposes):
+        if not isinstance(expose, Mapping):
+            views.append(None)
+            continue
+        raw = expose.get("exposeId") or expose.get("id")
+        if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+            raw = str(raw)
+        candidate = raw if isinstance(raw, str) and _is_valid(_IDENTIFIER_POINTER, raw) else None
+        if candidate is None and isinstance(raw, str):
+            candidate = _sanitise_identifier(raw)
+            if not _is_valid(_IDENTIFIER_POINTER, candidate):
+                candidate = None
+        if candidate is None:
+            candidate = f"expose_{index + 1}"
+        unique = candidate
+        suffix = 2
+        while unique in seen:
+            unique = f"{candidate}_{suffix}"
+            suffix += 1
+        seen.add(unique)
+        views.append(unique)
+    return views
+
+
+def _expose_id_paths(fluid: Mapping[str, Any]) -> List[str]:
     return [
+        f"exposes[{i}].exposeId"
+        for i, view in enumerate(_expose_id_views(fluid.get("exposes")))
+        if view is not None
+    ]
+
+
+def _effective_ground_truth_paths(seed: "SeedResult") -> List[str]:
+    """Paths :func:`diff_against_seed` enforces: every seed expose's
+    ``exposeId`` plus the ground-truth paths whose FLUID view has something to
+    enforce."""
+    return _expose_id_paths(seed.fluid) + [
         path
         for path in seed.ground_truth_paths
         if _ground_truth_view_at(path, resolve_at_path(seed.fluid, path)) is not None
@@ -277,8 +345,9 @@ def format_ground_truth_prompt_block(seed: "SeedResult") -> Dict[str, Any]:
     ``ground_truth`` is a FLUID-0.7.2-valid fragment the LLM can copy
     verbatim into its contract: root ``id``/``name``/``description``/
     ``domain``/``tags``, ``metadata.owner`` when the seed names one, and per
-    expose ``exposeId``, ``contract.schema`` and ``qos``. It is exactly the
-    view :func:`diff_against_seed` enforces. ``*_passthrough`` stash buckets,
+    expose ``exposeId`` (sanitised to a FLUID identifier, see
+    :func:`_expose_id_views`), ``contract.schema`` and ``qos``. It is exactly
+    the view :func:`diff_against_seed` enforces. ``*_passthrough`` stash buckets,
     ``odcs_*``/``odps_*`` keys and any other key the 0.7.2 schema does not
     allow at that position are left out.
     """
@@ -308,11 +377,13 @@ def format_ground_truth_prompt_block(seed: "SeedResult") -> Dict[str, Any]:
         ground_truth["metadata"] = {"owner": owner}
 
     exposes: List[Dict[str, Any]] = []
-    for i, expose in enumerate(fluid.get("exposes") or []):
+    raw_exposes = fluid.get("exposes") or []
+    expose_ids = _expose_id_views(raw_exposes)
+    for i, expose in enumerate(raw_exposes):
         if not isinstance(expose, Mapping):
             continue
         prefix = f"exposes[{i}]"
-        view_expose: Dict[str, Any] = {"exposeId": expose.get("exposeId") or expose.get("id")}
+        view_expose: Dict[str, Any] = {"exposeId": expose_ids[i]}
         contract = expose.get("contract")
         raw_schema = contract.get("schema") if isinstance(contract, Mapping) else None
         schema = _ground_truth_view_at(f"{prefix}.contract.schema", raw_schema)
@@ -373,8 +444,8 @@ SHAPE_ODCS_ONLY_DIRECTORY = "odcs-only-directory"
 _SEED_FILE_SUFFIXES = (".yaml", ".yml", ".json")
 _BITOL_INPUT_HINT = (
     "--seed-from expects Bitol input: export a FLUID contract first "
-    "(`fluid odcs export` / `fluid odps-bitol export`) and pass the resulting "
-    "*.odcs.yaml, *.odps.yaml, or bundle directory."
+    "(`fluid odcs export` / `fluid opds export --spec bitol-1.0.0 --out-dir <dir>`) "
+    "and pass the resulting *.odcs.yaml, *.odps.yaml, or bundle directory."
 )
 
 
@@ -520,15 +591,20 @@ def _load_odps_file(path: Path, *, allow_remote: bool) -> SeedResult:
 def _scan_directory(root: Path) -> Tuple[List[Path], List[Path], List[Path]]:
     """Classify every YAML/JSON file under ``root`` (recursively).
 
-    Mirrors :meth:`BitolOdpsProvider.import_directory`'s scan, except that
-    FLUID contracts (which also say ``kind: DataProduct``) are set aside
-    instead of being taken for the bundle's ODPS doc.
+    Mirrors :meth:`BitolOdpsProvider.import_directory`'s scan, including its
+    containment rule (a file whose resolved path, symlinks included, is
+    outside ``root`` is never read), except that FLUID contracts (which also
+    say ``kind: DataProduct``) are set aside instead of being taken for the
+    bundle's ODPS doc.
     """
     odps_files: List[Path] = []
     odcs_files: List[Path] = []
     fluid_files: List[Path] = []
     for child in sorted(root.rglob("*")):
-        if not child.is_file() or child.suffix.lower() not in _SEED_FILE_SUFFIXES:
+        if not child.is_file() or not _is_within(child, root):
+            # Symlinks pointing outside the bundle are never read.
+            continue
+        if child.suffix.lower() not in _SEED_FILE_SUFFIXES:
             continue
         try:
             data = read_input(child)
@@ -550,6 +626,9 @@ def _scan_directory(root: Path) -> Tuple[List[Path], List[Path], List[Path]]:
 def _load_directory(path: Path, *, allow_remote: bool) -> SeedResult:
     """Either a full bundle (ODPS + ODCS) or an ODCS-only directory."""
     odps_files, odcs_files, fluid_files = _scan_directory(path)
+    # Defence in depth: only in-bundle files reach the importer and the
+    # resolver's ``additional_files`` index.
+    odcs_files = [f for f in odcs_files if _is_within(f, path)]
     if fluid_files:
         LOG.warning(
             "--seed-from: ignoring FLUID contract(s) in %s: %s",
@@ -699,11 +778,23 @@ def diff_against_seed(seed: SeedResult, candidate: Mapping[str, Any]) -> List[Di
     Both sides go through the same FLUID-0.7.2 view the prompt shows (see
     :func:`format_ground_truth_prompt_block`): ``*_passthrough`` stash buckets
     and keys the 0.7.2 schema forbids (ODCS ``quality``, ``classification``,
-    ...) are ignored, and values are JSON-normalised. A candidate that copies
+    ...) are ignored, values are JSON-normalised, and every expose's
+    ``exposeId`` is compared after the same identifier sanitisation. A candidate that copies
     the prompt's ground truth verbatim, or the raw seed, is therefore clean,
     and one that drops round-trip bookkeeping is not a violation.
     """
     mismatches: List[Dict[str, Any]] = []
+    seed_ids = _expose_id_views(seed.fluid.get("exposes"))
+    cand_exposes = candidate.get("exposes") if isinstance(candidate, Mapping) else None
+    cand_ids = _expose_id_views(cand_exposes)
+    for i, seed_id in enumerate(seed_ids):
+        if seed_id is None:
+            continue
+        cand_id = cand_ids[i] if i < len(cand_ids) else None
+        if seed_id != cand_id:
+            mismatches.append(
+                {"path": f"exposes[{i}].exposeId", "seed": seed_id, "candidate": cand_id}
+            )
     for path in seed.ground_truth_paths:
         seed_value = _ground_truth_view_at(path, resolve_at_path(seed.fluid, path))
         if seed_value is None:

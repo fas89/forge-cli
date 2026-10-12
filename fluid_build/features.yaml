@@ -133,11 +133,14 @@ providers:
     architecture: "ODPI v4.1 exporter (FLUID → ODPI JSON)"
 
   # Bitol Open Data Product Standard v1.0.0 / v1.1.0 — bidirectional provider with
-  # contractId resolution to per-port ODCS contracts.
-  odps_bitol:
+  # contractId resolution to per-port ODCS contracts. The key is the package
+  # directory (fluid_build/providers/odps_standard/), which is what the maturity
+  # scripts and build-manifest.yaml use; the provider registers as ``odps_bitol``
+  # (plus the legacy ``odps-standard`` alias).
+  odps_standard:
     # MANUAL CONTROL
     status: beta
-    note: "Bitol ODPS v1.0.0 / v1.1.0 bidirectional, lossless provider with contractId resolver; validation is version-selected from apiVersion"
+    note: "Bitol ODPS v1.0.0 / v1.1.0 bidirectional, lossless provider (registry name: odps_bitol) with contractId resolver; validation is version-selected from apiVersion"
     blockers:
       - "Complete documentation with real-world examples"
       - "Add property-based round-trip tests"
@@ -377,7 +380,7 @@ release_history:
       - "ODCS v3.1.0 / v3.2.0 bidirectional conversion (100% coverage)"
       - "Data Mesh Manager publisher (100% coverage)"
       - "76 comprehensive tests across all standards providers"
-    providers: [local, gcp, odps_bitol, odcs, datamesh_manager]
+    providers: [local, gcp, odps_standard, odcs, datamesh_manager]
     test_results:
       total_tests: 76
       passed: 76

@@ -291,11 +291,14 @@ def register(subparsers: argparse._SubParsersAction):
             "Structural seed for the LLM. Accepts a Bitol ODPS file "
             "(*.odps.yaml), a directory containing the ODPS doc + sibling "
             "ODCS files (or only ODCS files), or a lone ODCS file "
-            "(*.odcs.yaml). The schema/quality/qos from the seed are treated "
-            "as ground truth; the LLM fills in builds, execution, and "
-            "governance. The copilot runtime enforces preservation via a "
-            "ground-truth diff after each attempt — any mutation triggers "
-            "the existing 3-attempt repair loop with a mismatch report."
+            "(*.odcs.yaml). Each expose's schema and qos from the seed are "
+            "treated as ground truth (exposeIds are kept, normalised to FLUID "
+            "identifiers); ODCS-only keys such as per-field quality rules are "
+            "not carried into the FLUID output. The LLM fills in builds (with "
+            "their execution) and each expose's kind, binding and semantics. "
+            "The copilot runtime enforces preservation via a ground-truth diff "
+            "after each attempt — any mutation triggers the existing 3-attempt "
+            "repair loop with a mismatch report."
         ),
     )
     parser.add_argument(

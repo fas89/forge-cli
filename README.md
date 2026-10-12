@@ -362,7 +362,9 @@ fluid opds import ./out/<productId>.odps.yaml -o product.fluid.yaml
 fluid opds import ./out/ -o product.fluid.yaml
 fluid opds import ./out/<productId>.<port>.odcs.yaml -o port.fluid.yaml
 
-# Seed the forge copilot with an existing standards doc (LLM augments builds/governance)
+# Seed the forge copilot with an existing standards doc: its schema and qos are ground
+# truth (per-field ODCS quality is not carried over); the LLM adds builds/execution
+# and each expose's kind/binding/semantics
 fluid forge --seed-from existing-contract.odcs.yaml --context '{"goal":"add daily refresh"}'
 ```
 
