@@ -38,6 +38,7 @@ dependencies = [
   "typing-extensions>=4.8",
   "jinja2>=3.1",
   "httpx>=0.27",  # For FluidCommandCenter catalog provider
+  "requests>=2.31",  # Data Mesh Manager provider (`fluid dmm publish`)
   # Optional UX nicety on Windows; no-op elsewhere
   "colorama>=0.4.6; platform_system == 'Windows'",
 ]
@@ -57,9 +58,13 @@ sdk = [
 #    the full ODCS surface, tracking the spec version; powers
 #    ``OdcsProvider.to_model()`` for typed access + readable field errors.
 #  - deepdiff: backend for ``OdcsProvider.roundtrip_check()``.
+# Every vowl and open-data-contract-standard release requires Python >= 3.10,
+# so they are gated like the gcp/snowflake 3.10+ extras: on Python 3.9 the
+# extra still resolves and installs only deepdiff (the vowl second pass is
+# then skipped and ``to_model()`` reports the missing package).
 odcs-strict = [
-  "vowl>=0.0.2",
-  "open-data-contract-standard>=3.2.0,<4",
+  "vowl>=0.0.2 ; python_version >= '3.10'",
+  "open-data-contract-standard>=3.2.0,<4 ; python_version >= '3.10'",
   "deepdiff>=6",
 ]
 

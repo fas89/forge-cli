@@ -432,6 +432,43 @@ def test_vowl_skips_with_warning_on_unsupported_api_version(caplog) -> None:
         assert result["api_version"] == "v3.2.0"
 
 
+def _install_fake_vowl(monkeypatch, exc: Exception) -> None:
+    """Put a stand-in ``vowl`` module on ``sys.modules`` whose ``Contract``
+    raises ``exc``, so the skip/raise branches run without vowl installed."""
+    import sys
+    import types
+
+    fake = types.ModuleType("vowl")
+
+    class Contract:  # noqa: D401 - mimics vowl.Contract's constructor
+        def __init__(self, data):
+            raise exc
+
+    fake.Contract = Contract
+    monkeypatch.setitem(sys.modules, "vowl", fake)
+
+
+def test_vowl_unsupported_api_version_skips_with_warning(monkeypatch, caplog) -> None:
+    """CI-effective (no importorskip): an older vowl that predates the
+    contract's apiVersion must skip the second pass with a warning, not fail
+    the export."""
+    _install_fake_vowl(monkeypatch, ValueError("Unsupported API version: v3.2.0"))
+    doc = _load(FIXTURES / "upstream" / "odcs" / "full-example.v3.2.0.odcs.yaml")
+    with caplog.at_level(logging.WARNING):
+        result = odcs_validation.validate_via_vowl(doc)
+    assert result is None
+    assert any("vowl second-pass skipped" in r.getMessage() for r in caplog.records)
+
+
+def test_vowl_other_value_error_is_a_provider_error(monkeypatch) -> None:
+    """Only the unsupported-apiVersion tooling gap is skipped; any other vowl
+    rejection still surfaces as a ``vowl:`` ProviderError."""
+    _install_fake_vowl(monkeypatch, ValueError("schema[0].properties: bad"))
+    doc = _load(FIXTURES / "upstream" / "odcs" / "full-example.v3.2.0.odcs.yaml")
+    with pytest.raises(ProviderError, match="^vowl: ValueError"):
+        odcs_validation.validate_via_vowl(doc)
+
+
 def test_to_model_typed_view_or_clear_error() -> None:
     doc = _load(FIXTURES / "odcs" / "contract-full.yaml")
     prov = OdcsProvider()
