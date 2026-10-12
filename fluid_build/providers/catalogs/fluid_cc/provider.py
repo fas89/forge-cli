@@ -33,7 +33,13 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from ...common import CircuitBreaker, get_auth_headers, metrics_collector
-from ..base import BaseCatalogProvider, CatalogTarget, PublishResult
+from ..base import (
+    BaseCatalogProvider,
+    CatalogAsset,
+    CatalogTarget,
+    PublishResult,
+    _coerce_contract_id,
+)
 
 
 class FluidCommandCenterProvider(BaseCatalogProvider):
@@ -51,15 +57,21 @@ class FluidCommandCenterProvider(BaseCatalogProvider):
         )
 
     async def publish(
-        self, fluid: Dict[str, Any], target: Optional[CatalogTarget] = None
+        self,
+        fluid: Optional[Dict[str, Any]] = None,
+        target: Optional[CatalogTarget] = None,
+        *,
+        asset: Optional[CatalogAsset] = None,
     ) -> PublishResult:
         """Publish a FLUID contract with retry logic and upsert.
 
-        The deprecated ``publish(asset)`` form (a single
-        :class:`~fluid_build.providers.catalogs.base.CatalogAsset`) still
-        works for one release and emits a :class:`DeprecationWarning`.
+        The deprecated ``publish(asset)`` / ``publish(asset=asset)`` forms
+        (a :class:`~fluid_build.providers.catalogs.base.CatalogAsset`) still
+        work for one release and emit a :class:`DeprecationWarning`; the
+        asset's fields are published exactly as 0.7.8 did. A subclass's
+        ``map_contract_to_asset`` override is honoured the same way.
         """
-        fluid, target = self._coerce_publish_args(fluid, target, "publish")
+        fluid, target = self._coerce_publish_args(fluid, target, "publish", asset=asset)
         start_time = time.time()
         metrics_collector.record_publish_request(self.name)
 
@@ -72,7 +84,23 @@ class FluidCommandCenterProvider(BaseCatalogProvider):
                 error="Catalog health check failed - endpoint not accessible",
             )
 
-        is_valid, error_msg = self.validate_target(fluid, target)
+        try:
+            target = self._with_legacy_asset(fluid, target)
+        except Exception as e:
+            metrics_collector.record_validation_error(str(e))
+            return PublishResult(
+                success=False,
+                catalog_id=self.name,
+                asset_id=target.contract_id,
+                error=f"Failed to map contract to asset: {e}",
+            )
+
+        legacy_asset = target._legacy_asset
+        if legacy_asset is not None:
+            # 0.7.8 validated the asset it was about to publish.
+            is_valid, error_msg = self.validate_asset(legacy_asset)
+        else:
+            is_valid, error_msg = self.validate_target(fluid, target)
         if not is_valid:
             metrics_collector.record_validation_error(error_msg)
             return PublishResult(
@@ -136,15 +164,19 @@ class FluidCommandCenterProvider(BaseCatalogProvider):
 
     async def _publish_impl(self, fluid: Dict[str, Any], target: CatalogTarget) -> PublishResult:
         """Internal publish implementation (wrapped by circuit breaker)."""
-        asset_data = _build_cc_asset_payload(fluid, target)
+        legacy_asset = target._legacy_asset
+        if legacy_asset is not None:
+            asset_data = _build_cc_asset_payload_from_asset(legacy_asset, fluid)
+            contract_yaml = legacy_asset.contract_yaml
+        else:
+            asset_data = _build_cc_asset_payload(fluid, target)
+            contract_yaml = target.contract_yaml
 
-        if target.contract_yaml:
+        if contract_yaml:
             import hashlib
 
-            asset_data["contract_yaml"] = target.contract_yaml
-            asset_data["contract_hash"] = hashlib.sha256(
-                target.contract_yaml.encode("utf-8")
-            ).hexdigest()
+            asset_data["contract_yaml"] = contract_yaml
+            asset_data["contract_hash"] = hashlib.sha256(contract_yaml.encode("utf-8")).hexdigest()
 
         headers = get_auth_headers(self.endpoint, self.auth)
 
@@ -231,14 +263,21 @@ class FluidCommandCenterProvider(BaseCatalogProvider):
             return None
 
     async def update(
-        self, fluid: Dict[str, Any], target: Optional[CatalogTarget] = None
+        self,
+        fluid: Optional[Dict[str, Any]] = None,
+        target: Optional[CatalogTarget] = None,
+        *,
+        asset: Optional[CatalogAsset] = None,
     ) -> PublishResult:
         """Update existing asset (delegates to publish for upsert logic)."""
-        fluid, target = self._coerce_publish_args(fluid, target, "update")
+        fluid, target = self._coerce_publish_args(fluid, target, "update", asset=asset)
         return await self.publish(fluid, target)
 
-    async def verify(self, contract_id: str) -> bool:
-        """Verify asset exists in catalog."""
+    async def verify(
+        self, contract_id: Optional[str] = None, *, asset_id: Optional[str] = None
+    ) -> bool:
+        """Verify asset exists in catalog (``asset_id=`` is deprecated)."""
+        contract_id = _coerce_contract_id(contract_id, asset_id, "verify")
         try:
             headers = get_auth_headers(self.endpoint, self.auth)
             async with httpx.AsyncClient(timeout=10.0) as client:
@@ -294,20 +333,6 @@ def _build_cc_asset_payload(fluid: Dict[str, Any], target: CatalogTarget) -> Dic
     first_sensitivity = first_expose.get("sensitivity", "internal")
     first_schema = (first_expose.get("contract") or {}).get("schema")
 
-    port_summary: List[Dict[str, Any]] = []
-    for expose in exposes:
-        binding = expose.get("binding") or {}
-        contract_spec = expose.get("contract") or {}
-        port_summary.append(
-            {
-                "id": expose.get("id"),
-                "platform": binding.get("platform"),
-                "location": binding.get("location"),
-                "sensitivity": expose.get("sensitivity"),
-                "schema_fields": len(contract_spec.get("schema") or []),
-            }
-        )
-
     return {
         "name": target.contract_name,
         "description": description,
@@ -326,6 +351,52 @@ def _build_cc_asset_payload(fluid: Dict[str, Any], target: CatalogTarget) -> Dic
             "owner": owner.get("team", owner.get("name", "unknown")),
             "owner_email": owner.get("email", ""),
             "sensitivity": first_sensitivity,
-            "exposes": port_summary,
+            "exposes": _port_summary(exposes),
+        },
+    }
+
+
+def _port_summary(exposes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    summary: List[Dict[str, Any]] = []
+    for expose in exposes:
+        binding = expose.get("binding") or {}
+        contract_spec = expose.get("contract") or {}
+        summary.append(
+            {
+                "id": expose.get("id"),
+                "platform": binding.get("platform"),
+                "location": binding.get("location"),
+                "sensitivity": expose.get("sensitivity"),
+                "schema_fields": len(contract_spec.get("schema") or []),
+            }
+        )
+    return summary
+
+
+def _build_cc_asset_payload_from_asset(
+    asset: CatalogAsset, fluid: Dict[str, Any]
+) -> Dict[str, Any]:
+    """The deprecated CatalogAsset route: the 0.7.8 payload, built from the
+    asset's own fields, plus the additive ``metadata.exposes`` summary of
+    the equivalent FLUID dict."""
+    return {
+        "name": asset.name,
+        "description": asset.description,
+        "type": asset.type,
+        "owner_id": "placeholder",  # backend replaces from auth token
+        "tags": asset.tags,
+        "version": asset.version,
+        "is_public": asset.sensitivity in ("public", "internal"),
+        "metadata": {
+            "fluid_contract_id": asset.id,
+            "domain": asset.domain,
+            "layer": asset.layer,
+            "platform": asset.platform,
+            "location": asset.location,
+            "schema": asset.schema,
+            "owner": asset.owner,
+            "owner_email": asset.owner_email,
+            "sensitivity": asset.sensitivity,
+            "exposes": _port_summary(fluid.get("exposes") or []),
         },
     }

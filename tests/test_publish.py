@@ -22,7 +22,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from fluid_build.providers.catalogs.base import PublishResult
+from fluid_build.providers.catalogs.base import BaseCatalogProvider, PublishResult
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -64,6 +64,33 @@ def _make_args(**kwargs):
     }
     defaults.update(kwargs)
     return argparse.Namespace(**defaults)
+
+
+class _NewApiProvider(BaseCatalogProvider):
+    """A catalog provider declaring the current ``publish(fluid, target)``
+    API. ``fluid publish`` detects the API from the class's ``publish``
+    signature; bare ``MagicMock`` providers take the 0.7.8 CatalogAsset
+    route (see TestPublishContractLegacyMockProvider)."""
+
+    async def publish(self, fluid, target=None):  # pragma: no cover - replaced
+        raise NotImplementedError
+
+    async def update(self, fluid, target=None):  # pragma: no cover - replaced
+        raise NotImplementedError
+
+    async def verify(self, contract_id=None, *, asset_id=None):  # pragma: no cover
+        raise NotImplementedError
+
+
+def _new_api_provider():
+    """A new-API provider whose methods are mocks the tests configure."""
+    provider = _NewApiProvider({})
+    provider.publish = AsyncMock()
+    provider.update = AsyncMock()
+    provider.verify = AsyncMock()
+    provider.health_check = AsyncMock(return_value=True)
+    provider.validate_target = MagicMock(return_value=(True, None))
+    return provider
 
 
 def _run(coro):
@@ -176,7 +203,7 @@ class TestPublishContract:
         contract_path = tmp_path / "c.fluid.yaml"
         contract_path.write_text("id: test")
 
-        provider = MagicMock()
+        provider = _new_api_provider()
         provider.verify = AsyncMock(return_value=True)
 
         config = MagicMock()
@@ -205,7 +232,7 @@ class TestPublishContract:
         contract_path = tmp_path / "c.fluid.yaml"
         contract_path.write_text("id: test")
 
-        provider = MagicMock()
+        provider = _new_api_provider()
         provider.verify = AsyncMock(return_value=False)
 
         config = MagicMock()
@@ -233,7 +260,7 @@ class TestPublishContract:
         contract_path = tmp_path / "c.fluid.yaml"
         contract_path.write_text("id: test")
 
-        provider = MagicMock()
+        provider = _new_api_provider()
         provider.validate_target.return_value = (True, None)
 
         config = MagicMock()
@@ -266,7 +293,7 @@ class TestPublishContract:
         contract_path = tmp_path / "c.fluid.yaml"
         contract_path.write_text("id: test")
 
-        provider = MagicMock()
+        provider = _new_api_provider()
         provider.health_check = AsyncMock(return_value=False)
 
         config = MagicMock()
@@ -294,7 +321,7 @@ class TestPublishContract:
         contract_path.write_text("id: test\nname: Test")
 
         expected = _make_result(success=True, asset_id="test")
-        provider = MagicMock()
+        provider = _new_api_provider()
         provider.health_check = AsyncMock(return_value=True)
         provider.publish = AsyncMock(return_value=expected)
 
@@ -333,7 +360,7 @@ class TestPublishContract:
         contract_path.write_text("name: SalesProduct")
 
         expected = _make_result(success=True, asset_id="SalesProduct")
-        provider = MagicMock()
+        provider = _new_api_provider()
         provider.health_check = AsyncMock(return_value=True)
         provider.publish = AsyncMock(return_value=expected)
 
@@ -355,6 +382,90 @@ class TestPublishContract:
         (_, target_arg), _ = provider.publish.call_args
         assert target_arg.contract_id == "SalesProduct"
         assert target_arg.contract_name == "SalesProduct"
+
+
+class TestPublishContractLegacyMockProvider:
+    """origin/main's (0.7.8) MagicMock-provider tests, restored: a provider
+    that doesn't declare ``publish(fluid, target)`` takes the CatalogAsset
+    route (``map_contract_to_asset`` → ``validate_asset`` → ``publish``)."""
+
+    def _publish(self, tmp_path, provider, **kwargs):
+        from fluid_build.cli import publish as pub_mod
+
+        contract_path = tmp_path / "c.fluid.yaml"
+        contract_path.write_text("id: test")
+        config = MagicMock()
+        config.get_catalog_config.return_value = {"enabled": True}
+        with patch.object(pub_mod, "load_contract", return_value={"id": "test"}):
+            with patch.object(pub_mod, "get_catalog_provider", return_value=provider):
+                return _run(
+                    pub_mod.publish_contract(
+                        contract_path=contract_path,
+                        catalog_name="my-catalog",
+                        config=config,
+                        **kwargs,
+                    )
+                )
+
+    def test_verify_only_asset_exists(self, tmp_path):
+        asset = MagicMock()
+        asset.id = "asset-123"
+        provider = MagicMock()
+        provider.map_contract_to_asset.return_value = asset
+        provider.verify = AsyncMock(return_value=True)
+
+        result = self._publish(tmp_path, provider, verify_only=True)
+
+        assert result.success is True
+        assert result.details.get("verified") is True
+        provider.verify.assert_awaited_once_with("asset-123")
+
+    def test_dry_run_valid_asset(self, tmp_path):
+        asset = MagicMock()
+        asset.id = "asset-123"
+        provider = MagicMock()
+        provider.map_contract_to_asset.return_value = asset
+        provider.validate_asset.return_value = (True, None)
+
+        result = self._publish(tmp_path, provider, dry_run=True)
+
+        assert result.success is True
+        assert result.details.get("dry_run") is True
+
+    def test_map_contract_failure_returns_error(self, tmp_path):
+        provider = MagicMock()
+        provider.map_contract_to_asset.side_effect = KeyError("name")
+
+        result = self._publish(tmp_path, provider)
+
+        assert result.success is False
+        assert "Failed to map contract to asset" in result.error
+
+    def test_dry_run_invalid_asset_returns_error(self, tmp_path):
+        asset = MagicMock()
+        asset.id = "asset-bad"
+        provider = MagicMock()
+        provider.map_contract_to_asset.return_value = asset
+        provider.validate_asset.return_value = (False, "missing required field")
+
+        result = self._publish(tmp_path, provider, dry_run=True)
+
+        assert result.success is False
+        assert result.error == "missing required field"
+
+    def test_publish_passes_asset(self, tmp_path):
+        asset = MagicMock()
+        asset.id = "asset-123"
+        provider = MagicMock()
+        provider.map_contract_to_asset.return_value = asset
+        provider.health_check = AsyncMock(return_value=True)
+        provider.publish = AsyncMock(return_value=_make_result(asset_id="asset-123"))
+
+        result = self._publish(tmp_path, provider)
+
+        assert result.success is True
+        provider.publish.assert_awaited_once_with(asset)
+        assert asset.contract_yaml == "id: test"
 
 
 # ---------------------------------------------------------------------------
@@ -798,7 +909,7 @@ class TestRunAsyncPublishFlow:
         contract_path = tmp_path / "c.fluid.yaml"
         contract_path.write_text("id: test")
 
-        provider = MagicMock()
+        provider = _new_api_provider()
         provider.health_check = AsyncMock(return_value=True)
         provider.publish = AsyncMock(return_value=_make_result(success=True, asset_id="test"))
 
@@ -831,7 +942,7 @@ class TestRunAsyncPublishFlow:
         contract_path = tmp_path / "c.fluid.yaml"
         contract_path.write_text("id: test")
 
-        provider = MagicMock()
+        provider = _new_api_provider()
         # health_check should NOT be called
         provider.health_check = AsyncMock(return_value=False)
         provider.publish = AsyncMock(return_value=_make_result(success=True, asset_id="test"))
@@ -866,7 +977,7 @@ class TestRunAsyncPublishFlow:
         contract_path = tmp_path / "c.fluid.yaml"
         contract_path.write_text("id: test")
 
-        provider = MagicMock()
+        provider = _new_api_provider()
         provider.validate_target.return_value = (False, "missing required field")
 
         config = MagicMock()

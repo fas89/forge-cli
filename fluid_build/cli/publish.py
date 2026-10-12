@@ -61,6 +61,7 @@ from ..providers.catalogs import (
     PublishResult,
     get_catalog_provider,
 )
+from ..providers.catalogs.base import _fluid_identity_error, _publish_declares_target
 from ..providers.common import metrics_collector
 
 COMMAND = "publish"
@@ -234,6 +235,14 @@ async def publish_contract(
             error=f"Failed to load contract: {e}",
         )
 
+    if not isinstance(contract, dict):
+        return PublishResult(
+            success=False,
+            catalog_id=catalog_name,
+            asset_id=str(contract_path),
+            error=_fluid_identity_error(contract),
+        )
+
     # Get catalog config
     catalog_config = config.get_catalog_config(catalog_name)
     if not catalog_config:
@@ -288,6 +297,17 @@ async def publish_contract(
             verbose=verbose,
         )
 
+    # Contract fragments, overlays and config files are not publishable —
+    # 0.7.8 rejected them while mapping; don't upsert them as ``unknown``.
+    identity_error = _fluid_identity_error(contract)
+    if identity_error:
+        return PublishResult(
+            success=False,
+            catalog_id=catalog_name,
+            asset_id=str(contract_path),
+            error=identity_error,
+        )
+
     if verbose:
         logger.info(f"📦 Publishing contract {target.contract_name} (id: {target.contract_id})")
 
@@ -336,10 +356,25 @@ async def publish_contract(
 
 
 def _uses_legacy_asset_api(provider: object) -> bool:
-    """True for a catalog provider still implementing ``publish(asset)``."""
-    if not isinstance(provider, BaseCatalogProvider):
-        return False
-    return type(provider)._uses_legacy_asset_api()
+    """True for a catalog provider still implementing the 0.7.8 API.
+
+    Detection is positive for the current API: a provider is new-style only
+    when its ``publish`` declares ``(fluid, target)`` (second parameter
+    named ``target`` or annotated ``CatalogTarget``). Everything else — the
+    0.7.8 ``publish(asset)`` signature with or without extra optional
+    parameters / ``*args`` / ``**kwargs``, mocks, and duck-typed plugins that
+    don't subclass :class:`BaseCatalogProvider` — takes the CatalogAsset
+    route. A duck-typed object is treated as new-style only when it also
+    provides ``validate_target`` (the legacy route would need
+    ``map_contract_to_asset``, which such an object doesn't have).
+    """
+    cls = type(provider)
+    if isinstance(provider, BaseCatalogProvider):
+        return cls._uses_legacy_asset_api()
+    declares_new_api = _publish_declares_target(cls) and callable(
+        getattr(provider, "validate_target", None)
+    )
+    return not declares_new_api
 
 
 async def _publish_contract_legacy(
